@@ -32,7 +32,7 @@ import (
 // write path is POST /api/cli/commits, authenticated by an SSHSIG signature
 // (ssh-keygen -Y sign) made with a key whose public half is on the author's
 // GitHub account, exactly as the `commit` shell script served at
-// https://dev-null.sh/commit does. The OpenPost credential is the author's
+// https://dev-null.sh/commit does. The dopost credential is the author's
 // OpenSSH private key, stored encrypted like any other provider secret and
 // used only to sign commit payloads. Posts are attributed to the GitHub
 // account holding that key.
@@ -382,7 +382,7 @@ func validateDevNullText(content string) error {
 
 var devNullReplyRefPattern = regexp.MustCompile(`^[A-Za-z0-9:/._@-]*$`)
 
-// devNullReplyRef passes an OpenPost thread parent through to dev/null's
+// devNullReplyRef passes a dopost thread parent through to dev/null's
 // reply_to reference, which accepts a commit UUID, short hash, or link.
 // CommitByReferenceQuery extracts a UUID from any string containing one, so
 // stored commit URLs round-trip here unchanged.

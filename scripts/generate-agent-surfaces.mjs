@@ -16,13 +16,13 @@ import { generateMarketingDiscoveryArtifacts } from "./public-agent-discovery.mj
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const generatedNotice =
-  "<!-- Generated from the canonical OpenPost public page. Do not edit this build artifact. -->";
+  "<!-- Generated from the canonical dopost public page. Do not edit this build artifact. -->";
 const maximumRepresentationBytes = 256 * 1024;
 const corpusWarningBytes = 1024 * 1024;
 const maximumCorpusBytes = 2 * 1024 * 1024;
 const maximumPagesHeaderRules = 100;
 const maximumPagesHeaderLineCharacters = 2000;
-const generatedVaryHeaderMarker = "# OpenPost canonical Vary rules (generated)";
+const generatedVaryHeaderMarker = "# dopost canonical Vary rules (generated)";
 const privateRoutePattern =
   /^\/(?:login|register|onboarding|checkout|organizations|workspaces|publications|renditions|media|settings|billing|oauth|api)(?:[/.?#]|$)/iu;
 const privateApplicationOrigins = new Set(["https://app.openpo.st"]);
@@ -197,13 +197,13 @@ function documentationMarkdownURL(route) {
 }
 
 const documentationDiscoverySections = [
-  ["user-guide", "User guide", "Create, schedule, publish, and review work in the OpenPost app."],
+  ["user-guide", "User guide", "Create, schedule, publish, and review work in the dopost app."],
   ["video-editor", "Video Editor", "Create, edit, export, and publish video."],
   ["image-editor", "Image Editor", "Create, edit, export, and publish images and carousels."],
   ["workflows", "Workflows", "Build, test, and manage built-in content workflows."],
-  ["automate", "Automate", "Use the SDK, HTTP API, CLI, or n8n with OpenPost."],
-  ["mcp", "AI assistants", "Connect an AI assistant to your OpenPost workspace."],
-  ["self-hosting", "Self-hosting", "Run and maintain the complete OpenPost service."],
+  ["automate", "Automate", "Use the SDK, HTTP API, CLI, or n8n with dopost."],
+  ["mcp", "AI assistants", "Connect an AI assistant to your dopost workspace."],
+  ["self-hosting", "Self-hosting", "Run and maintain the complete dopost service."],
   ["api", "API", "Read the API guide and follow its authoritative OpenAPI JSON contract."],
 ];
 const documentationSectionTitles = new Map(
@@ -580,8 +580,8 @@ export function discoveryDocument(discovery) {
     )
     .join("\n\n");
   const guidance = [
-    renderGuidance("When to use OpenPost", discovery.whenToUse),
-    renderGuidance("When OpenPost is not a fit", discovery.whenNotToUse),
+    renderGuidance("When to use dopost", discovery.whenToUse),
+    renderGuidance("When dopost is not a fit", discovery.whenNotToUse),
   ]
     .filter(Boolean)
     .join("\n\n");
@@ -595,7 +595,7 @@ function sitemapDocument(projection, pages) {
   for (const page of pages) {
     const section =
       projection.surface === "marketing"
-        ? ({ platform: "Channels", tool: "Free tools" }[page.route?.kind] ?? "OpenPost")
+        ? ({ platform: "Channels", tool: "Free tools" }[page.route?.kind] ?? "dopost")
         : (documentationSectionTitles.get(page.catalog?.agentCorpus?.section) ?? "Documentation");
     const entries = sections.get(section) ?? [];
     entries.push(
@@ -712,7 +712,7 @@ ${included.map((page) => `## ${page.title}\n\nCanonical: ${page.canonical}\nSour
   });
   return cleanMarkdown(`# ${corpus.title}
 
-> This documentation-only file is an OpenPost convenience artifact for reading the selected public documentation as one bounded corpus.
+> This documentation-only file is a dopost convenience artifact for reading the selected public documentation as one bounded corpus.
 >
 > It is not part of the llms.txt v2 proposal. Use llms.txt for the discovery index and each page's canonical URL for current source provenance.
 
@@ -977,7 +977,7 @@ export async function generateAgentSurface(projection) {
 export const productionProjections = {
   marketing: {
     surface: "marketing",
-    corpus: { title: "OpenPost Product Overview", surface: "marketing" },
+    corpus: { title: "dopost Product Overview", surface: "marketing" },
     originHeadersRequired: true,
     outputDirectory: path.join(repositoryRoot, "apps/marketing/dist"),
     pages: marketingRouteManifest
@@ -1013,16 +1013,16 @@ export const productionProjections = {
       ),
     })),
     discovery: {
-      title: "OpenPost",
+      title: "dopost",
       description: "Create, adapt, schedule, and track social content from one workspace.",
       whenToUse: [
-        "Use OpenPost to turn product work, launches, updates, lessons, and ideas into destination-specific social content.",
+        "Use dopost to turn product work, launches, updates, lessons, and ideas into destination-specific social content.",
         "Use it to draft, schedule, publish, and track work across supported social networks from one workspace.",
         "Use its HTTP API, CLI, or MCP server when software or an AI assistant needs scoped access to the same publishing system.",
         "Use the complete open-source service when you need to run the application on infrastructure you control.",
       ],
       whenNotToUse: [
-        "OpenPost is not a social network, public feed, social-listening service, or general search index of social posts.",
+        "dopost is not a social network, public feed, social-listening service, or general search index of social posts.",
         "It does not bypass social-network approval, permissions, formats, limits, outages, or account readiness.",
         "It is not a substitute for human review of facts, rights, account selection, media, alt text, timing, or an agent's proposed change.",
       ],
@@ -1034,13 +1034,13 @@ export const productionProjections = {
               route.agentDiscovery.membership !== "unlisted",
           )
           .map((route) => ({
-            title: route.path === "/" ? "OpenPost overview" : route.title,
+            title: route.path === "/" ? "dopost overview" : route.title,
             description: route.description,
             url: new URL(marketingMarkdownArtifact(route.path), `${marketingSiteUrl}/`).href,
             classification: route.agentDiscovery.membership,
           })),
         {
-          title: "OpenPost documentation",
+          title: "dopost documentation",
           description: "Read the user, self-hosting, and API documentation.",
           url: documentationMarkdownURL("/"),
           classification: "primary",
@@ -1053,7 +1053,7 @@ export const productionProjections = {
             "Choose the maintained interface that matches the client, then follow its token and workspace boundaries.",
           links: [
             {
-              title: "OpenPost developer entry point",
+              title: "dopost developer entry point",
               description: "Choose the HTTP API, CLI, or MCP server for the job.",
               url: documentationMarkdownURL("/automate"),
             },
@@ -1063,12 +1063,12 @@ export const productionProjections = {
               url: "https://openpo.st/docs/openapi.json",
             },
             {
-              title: "OpenPost CLI",
+              title: "dopost CLI",
               description: "Use a terminal, script, CI job, cron job, or deploy process.",
               url: documentationMarkdownURL("/automate/cli"),
             },
             {
-              title: "OpenPost MCP server",
+              title: "dopost MCP server",
               description: "Connect an AI assistant with explicit read and change scopes.",
               url: documentationMarkdownURL("/mcp"),
             },
@@ -1108,7 +1108,7 @@ export const productionProjections = {
   documentation: {
     surface: "documentation",
     originHeadersRequired: true,
-    corpus: { title: "OpenPost Documentation Full Corpus" },
+    corpus: { title: "dopost Documentation Full Corpus" },
     outputDirectory: path.join(repositoryRoot, "apps/docs/out"),
     pages: docsSocialEntries
       .filter((entry) => entry.agentRepresentation.membership === "ordinary")
@@ -1145,15 +1145,15 @@ export const productionProjections = {
       sourcePath: path.join(repositoryRoot, "apps/docs/out", documentationHTMLArtifact(entry.page)),
     })),
     discovery: {
-      title: "OpenPost Documentation",
+      title: "dopost Documentation",
       description:
-        "Guides to publishing, image and video editing, automation, self-hosting, and the OpenPost API.",
+        "Guides to publishing, image and video editing, automation, self-hosting, and the dopost API.",
       whenToUse: [
-        "Use the user guide for work in the OpenPost web or mobile app.",
+        "Use the user guide for work in the dopost web or mobile app.",
         "Use the Video Editor and Image Editor guides for browser editing, export, and publishing workflows.",
         "Use the Automate and AI assistants guides for the SDK, HTTP API, CLI, n8n, skills, and MCP.",
         "Use the API reference and authoritative OpenAPI JSON contract for automation and agent access.",
-        "Use the self-hosting guide to install, configure, back up, and upgrade an OpenPost instance.",
+        "Use the self-hosting guide to install, configure, back up, and upgrade a dopost instance.",
       ],
       whenNotToUse: [
         "Do not treat documentation as proof that a social provider or exact account can publish a format today; check current readiness and run the documented live test.",
@@ -1165,21 +1165,21 @@ export const productionProjections = {
             (entry) => entry.page === "index.mdx" && entry.agentDiscovery.membership === "primary",
           )
           .map((entry) => ({
-            title: "OpenPost documentation home",
+            title: "dopost documentation home",
             description: entry.description,
             url: new URL(documentationMarkdownArtifact(entry.page), `${docsSiteUrl}/`).href,
             classification: entry.agentDiscovery.membership,
           })),
         {
-          title: "OpenPost product overview",
+          title: "dopost product overview",
           description: "See the public product overview and Hosted service path.",
           url: "https://openpo.st/index.md",
           classification: "optional",
         },
         {
-          title: "OpenPost documentation full corpus",
+          title: "dopost documentation full corpus",
           description:
-            "Read the selected public documentation as one bounded OpenPost convenience artifact.",
+            "Read the selected public documentation as one bounded dopost convenience artifact.",
           url: "https://openpo.st/docs/llms-full.txt",
           classification: "optional",
         },

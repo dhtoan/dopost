@@ -18,17 +18,9 @@
      transform="matrix(2.5,0,0,2.5,96,96)"
      fill="#ffffff"
      id="g12">
-    <path
-       d="M 24,4 H 60 V 32 L 32,60 H 4 V 24 A 20,20 0 0 1 24,4 Z"
-       id="path4" />
-    <path
-       d="m 68,4 h 36 a 20,20 0 0 1 20,20 V 60 H 96 L 68,32 Z"
-       id="path6" />
-    <path
-       d="m 4,68 h 28 l 28,28 v 28 H 24 A 20,20 0 0 1 4,104 Z"
-       id="path8" />
-    <path
-       d="M 68,96 96,68 h 28 v 36 a 20,20 0 0 1 -20,20 H 68 Z"
-       id="path10" />
+    <path d="M88 8h24v112H88Z"/><path fill-rule="evenodd" d="M56 40a40 40 0 1 1 0 80a40 40 0 1 1 0-80Zm0 20a20 20 0 1 0 0 40a20 20 0 1 0 0-40Z"/>
+    
+    
+    
   </g>
 </svg>

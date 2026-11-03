@@ -216,7 +216,7 @@ describe('ThemeEditor', () => {
 
 		await expect
 			.element(screen.getByRole('alert'))
-			.toHaveTextContent('Theme ID is managed by OpenPost');
+			.toHaveTextContent('Theme ID is managed by dopost');
 		await expect.element(undo).toBeDisabled();
 		await expect
 			.poll(() => preview.contentDocument?.documentElement.dataset.themeId)
@@ -229,7 +229,7 @@ describe('ThemeEditor', () => {
 
 		await expect
 			.element(screen.getByRole('alert'))
-			.toHaveTextContent('Theme revision is managed by OpenPost');
+			.toHaveTextContent('Theme revision is managed by dopost');
 		await expect.element(undo).toBeDisabled();
 		await expect
 			.poll(() => preview.contentDocument?.documentElement.dataset.themeId)

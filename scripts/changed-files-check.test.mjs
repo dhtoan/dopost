@@ -35,7 +35,7 @@ function fixture() {
   fixtures.push(cwd);
   git(cwd, "init", "--initial-branch=main");
   git(cwd, "config", "user.email", "test@openpost.local");
-  git(cwd, "config", "user.name", "OpenPost test");
+  git(cwd, "config", "user.name", "dopost test");
   writeFileSync(join(cwd, "tracked.txt"), "base\n");
   writeFileSync(join(cwd, "staged.txt"), "base\n");
   git(cwd, "add", ".");

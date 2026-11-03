@@ -17,8 +17,8 @@ const (
 	NativePostMaxPageSize        = 50
 )
 
-// ImportedPostOriginExternal marks content authored outside OpenPost. The
-// imported-posts library stores only external rows; OpenPost-published
+// ImportedPostOriginExternal marks content authored outside dopost. The
+// imported-posts library stores only external rows; dopost-published
 // content stays in publications and renditions. This marker is the loop guard:
 // imported rows are read-only and never enter publishing flows.
 const ImportedPostOriginExternal = "external"
@@ -138,7 +138,7 @@ func NativePostSupportFor(provider string) NativePostSupport {
 	case providerDiscord:
 		return NativePostSupport{UnavailableReason: "Discord webhook connections cannot read channel history. Bot connections cannot identify posts authored by the connected webhook."}
 	default:
-		return NativePostSupport{UnavailableReason: "This provider does not expose native post reads in OpenPost."}
+		return NativePostSupport{UnavailableReason: "This provider does not expose native post reads in dopost."}
 	}
 }
 
@@ -212,7 +212,7 @@ func nativePostContinuation(cursor, previous string) (NativePostPage, error) {
 // NormalizeNativePostItem bounds the normalized fields that cross the
 // persistence boundary. Provider identities are rejected rather than
 // truncated because truncation could merge two remote items. Only external
-// origin is accepted; OpenPost-published content is never importable.
+// origin is accepted; dopost-published content is never importable.
 func NormalizeNativePostItem(item NativePostItem) (NativePostItem, error) {
 	item.ProviderPostID = strings.TrimSpace(item.ProviderPostID)
 	item.ProviderParentID = strings.TrimSpace(item.ProviderParentID)

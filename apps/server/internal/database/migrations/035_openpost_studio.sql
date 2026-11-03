@@ -1,4 +1,4 @@
--- 035: OpenPost Studio editable documents, pages, recovery revisions, and media references.
+-- 035: dopost Studio editable documents, pages, recovery revisions, and media references.
 
 CREATE TABLE IF NOT EXISTS design_documents (
   id TEXT PRIMARY KEY,

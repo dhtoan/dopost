@@ -1,0 +1,8 @@
+{
+  "name": "@dopost/motion",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  }
+}

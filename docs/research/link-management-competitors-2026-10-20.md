@@ -1,6 +1,6 @@
 # Link management: Shlink, Dub, and pricing checks
 
-**Retrieved:** 2026-10-20. Official public pages and source only. No customer accounts, paid checkouts, performance benchmarks, or production redirects were exercised. Recommendations are product judgment, not existing OpenPost behavior.
+**Retrieved:** 2026-10-20. Official public pages and source only. No customer accounts, paid checkouts, performance benchmarks, or production redirects were exercised. Recommendations are product judgment, not existing dopost behavior.
 
 The [synthesized proposal](link-management-proposal-2026-10-20.md) records the final recommended scope and pricing. Recommendations below are the independent competitor review, including alternatives considered during synthesis.
 
@@ -10,7 +10,7 @@ The [synthesized proposal](link-management-proposal-2026-10-20.md) records the f
 
 Build branded links as the measurable final step of publishing: one campaign or destination link can point back to its post, variant, social account, and campaign. Preserve links created outside a post too. A useful first release is substantially smaller than either competitor's whole product.
 
-Keep domains, links, and analytics authorized inside a Workspace. Apply paid entitlements and aggregate usage through the existing billing owner. Do not infer that Dub's word “workspace” maps to both of OpenPost's organization and Workspace concepts: Dub describes its workspace as its team/business boundary and bills each separately. [Dub workspace model](https://dub.co/help/article/what-is-a-workspace)
+Keep domains, links, and analytics authorized inside a Workspace. Apply paid entitlements and aggregate usage through the existing billing owner. Do not infer that Dub's word “workspace” maps to both of dopost's organization and Workspace concepts: Dub describes its workspace as its team/business boundary and bills each separately. [Dub workspace model](https://dub.co/help/article/what-is-a-workspace)
 
 Do not stop redirects because normal analytics allowance runs out. Put allowance, retention, and explicit add-ons around analytics and creation, with an independent abuse control. No shortener can establish every clicker's identity, guarantee bot-free counts, or recover analytics already discarded.
 
@@ -38,7 +38,7 @@ Shlink is MIT-licensed, self-hosted PHP software with API, CLI, and separate web
 
 Visit analytics include location, user agent, and referrer. Geolocation uses MaxMind GeoLite2 and requires the operator's license key for updates. IP anonymization is the default; IP, user-agent, referrer, or all tracking can be disabled. No subscription-based analytics-retention tier was found in the reviewed documentation. This is not evidence that storage, backups, or deletion take care of themselves. [Tracking documentation](https://shlink.io/documentation/tracking-visits/)
 
-Shlink flags **potential** bots using user-agent detection and lets API consumers filter them. Its documentation explicitly says detection cannot be completely accurate. Query forwarding merges incoming parameters and allows them to override stored values by default, with per-link opt-out. QR generation through the Shlink server is deprecated from 4.5.0, so new OpenPost work should not depend on that endpoint. [Detailed behavior](https://shlink.io/documentation/some-features/)
+Shlink flags **potential** bots using user-agent detection and lets API consumers filter them. Its documentation explicitly says detection cannot be completely accurate. Query forwarding merges incoming parameters and allows them to override stored values by default, with per-link opt-out. QR generation through the Shlink server is deprecated from 4.5.0, so new dopost work should not depend on that endpoint. [Detailed behavior](https://shlink.io/documentation/some-features/)
 
 ### Dub
 
@@ -46,7 +46,7 @@ Dub combines branded links and analytics with a separate, much broader affiliate
 
 Its analytics supports time series, country/device/referrer/UTM breakdowns, domain/tag/folder filters, real-time event streams, and CSV export. These are practical reporting patterns to study, without adopting every facet or exposing identifying event detail. [Analytics guide](https://dub.co/help/article/dub-analytics)
 
-Custom Open Graph previews let authors set image, title, and description on paid plans. Video previews also exist through the API. Dub identifies platform caching as a cause of stale cards. OpenPost should present these as requested metadata with provider-dependent rendering, never guarantee that a network displays or refreshes a card. [Custom preview documentation](https://dub.co/help/article/custom-link-previews)
+Custom Open Graph previews let authors set image, title, and description on paid plans. Video previews also exist through the API. Dub identifies platform caching as a cause of stale cards. dopost should present these as requested metadata with provider-dependent rendering, never guarantee that a network displays or refreshes a card. [Custom preview documentation](https://dub.co/help/article/custom-link-previews)
 
 Dub offers CSV migration with destination, short URL, and optional metadata; its Bitly importer retains destination, slug, creation date, tags, and archive status. Those documented fields do not establish historical click import. Import links and test before switching DNS, which Dub also recommends. Shared vendor-owned domains cannot simply become customer-owned domains. [CSV import](https://dub.co/help/article/how-to-import-csv), [Bitly migration](https://dub.co/help/article/migrating-from-bitly)
 
@@ -68,7 +68,7 @@ In the reviewed Shlink source, redirect handling resolves a link and invokes req
 
 Dub separates link cache resolution from analytic ingestion. Middleware reads its Redis cache, falls back to its database adapter, and schedules click processing with `waitUntil`. Redis failover deliberately skips tracking to preserve redirects; analytic recording sends events to Tinybird and streams. This explicitly favors redirect availability over complete analytics in some outages. Source establishes the design, not live latency, event durability, or zero-loss guarantees. [Middleware](https://github.com/dubinc/dub/blob/cd8a4f5816a953fffefcbd780c84f86d9e6a6ba2/apps/web/lib/middleware/link.ts), [recording](https://github.com/dubinc/dub/blob/cd8a4f5816a953fffefcbd780c84f86d9e6a6ba2/apps/web/lib/tinybird/record-click.ts)
 
-For OpenPost, adopt the separation of fast redirect lookup from ingestion, enrichment, aggregation, billing, and webhook delivery. Do not copy the entire Dub stack merely to get this property. Measure warm and cold lookup latency, mutation propagation, and analytics loss under failure before promising speed or completeness.
+For dopost, adopt the separation of fast redirect lookup from ingestion, enrichment, aggregation, billing, and webhook delivery. Do not copy the entire Dub stack merely to get this property. Measure warm and cold lookup latency, mutation propagation, and analytics loss under failure before promising speed or completeness.
 
 ## Adopt, defer, avoid
 
@@ -85,9 +85,9 @@ For OpenPost, adopt the separation of fast redirect lookup from ingestion, enric
 | Avoid in this scope | Affiliate payouts, lead/customer identity, conversion SDK, cloaking, email-open pixels, ad retargeting | These create different products and obligations with little benefit to initial post-click reporting.                                                    |
 | Avoid               | Permanent redirects by default, surprise query overwrites, quota-driven dead links                     | Prevents editable-link behavior, attribution integrity, or durable published content.                                                                   |
 
-This disposition is an OpenPost recommendation, not a claim that the competitors lack deferred capabilities.
+This disposition is a dopost recommendation, not a claim that the competitors lack deferred capabilities.
 
-## Pricing assessment for OpenPost
+## Pricing assessment for dopost
 
 Against current Solo $29/month, Team $59, Agency $99, the proposed inclusion of **one domain, 1,000 new links, and 100,000 tracked filtered clicks per Workspace per month**, with no normal redirect cap, is credible bundled value. Solo approximately matches Dub Pro's new-link allowance and doubles its event volume, but Dub includes ten domains and is a fuller dedicated product. The distinction should be joined-up publishing outcomes, not a claim to be the cheapest shortener.
 
@@ -103,10 +103,10 @@ Rebrandly's current page offers two custom domains/250 monthly links on Essentia
 
 ## Reuse and licensing
 
-Study both products' public behavior and architecture; implement the small redirect and management boundary in OpenPost's own stack. Shlink's MIT license is permissive, but adopting its complete PHP/Doctrine runtime would add a second operations and authorization system. Individual compatible libraries may be useful; none was selected by this research. [Shlink license](https://github.com/shlinkio/shlink/blob/63261c70e1827df30bbc1243618b6b339e26e1d6/LICENSE)
+Study both products' public behavior and architecture; implement the small redirect and management boundary in dopost's own stack. Shlink's MIT license is permissive, but adopting its complete PHP/Doctrine runtime would add a second operations and authorization system. Individual compatible libraries may be useful; none was selected by this research. [Shlink license](https://github.com/shlinkio/shlink/blob/63261c70e1827df30bbc1243618b6b339e26e1d6/LICENSE)
 
-Dub is open core: AGPLv3 outside designated enterprise directories, which have separate terms. “Open source” does not mean unrestricted copying into OpenPost. Any code reuse needs explicit file-level license and compatibility review; do not transplant its application as an incidental implementation shortcut. [Dub license](https://github.com/dubinc/dub/blob/cd8a4f5816a953fffefcbd780c84f86d9e6a6ba2/LICENSE.md)
+Dub is open core: AGPLv3 outside designated enterprise directories, which have separate terms. “Open source” does not mean unrestricted copying into dopost. Any code reuse needs explicit file-level license and compatibility review; do not transplant its application as an incidental implementation shortcut. [Dub license](https://github.com/dubinc/dub/blob/cd8a4f5816a953fffefcbd780c84f86d9e6a6ba2/LICENSE.md)
 
 ## Remaining uncertainty
 
-No hosted latency or outage claims were independently measured. OpenPost-specific domain/TLS vendor cost, geographic latency, anti-abuse load, queue guarantees, privacy policy, and retention budget need separate architecture validation. Public pricing can change and checkout taxes were not assessed. The listed OpenPost proposals are not approved or shipped plan changes. Retention periods must distinguish detailed event retention from aggregated reporting before being sold.
+No hosted latency or outage claims were independently measured. dopost-specific domain/TLS vendor cost, geographic latency, anti-abuse load, queue guarantees, privacy policy, and retention budget need separate architecture validation. Public pricing can change and checkout taxes were not assessed. The listed dopost proposals are not approved or shipped plan changes. Retention periods must distinguish detailed event retention from aggregated reporting before being sold.

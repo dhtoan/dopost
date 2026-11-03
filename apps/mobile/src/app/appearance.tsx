@@ -122,7 +122,7 @@ export default function AppearanceScreen() {
         ]}
         contentInsetAdjustmentBehavior="automatic"
       >
-        <BodyText>Choose how OpenPost looks on this device.</BodyText>
+        <BodyText>Choose how dopost looks on this device.</BodyText>
 
         <View style={{ gap: spacing.extraLarge }}>
           <ThemePreview />
@@ -254,7 +254,7 @@ export default function AppearanceScreen() {
               ) : settings && !settings.canManageWorkspace ? (
                 <BodyText>Ask a workspace admin to choose a different published theme.</BodyText>
               ) : null}
-              <BodyText>Create and edit themes in OpenPost on the web.</BodyText>
+              <BodyText>Create and edit themes in dopost on the web.</BodyText>
             </ContentSection>
           </View>
 

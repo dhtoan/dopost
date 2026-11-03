@@ -7,7 +7,7 @@
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { resolveAppPath } from '$lib/app-path';
-	import { AUNO_CREATE_ACTIONS } from '$lib/auno/create-actions';
+	import { DOPOST_CREATE_ACTIONS } from '$lib/dopost/create-actions';
 	import { auth } from '$lib/stores/auth';
 	import { workspaceCtx } from '$lib/stores/workspace.svelte';
 	import { getAuthenticatedMediaURL } from '$lib/media-url';
@@ -268,7 +268,7 @@
 							>{/snippet}
 					</DropdownMenu.Trigger>
 					<DropdownMenu.Content align="start" class="w-64">
-						{#each AUNO_CREATE_ACTIONS as action (action.id)}
+						{#each DOPOST_CREATE_ACTIONS as action (action.id)}
 							<DropdownMenu.Item class="gap-3" onclick={() => navigate(action.href)}>
 								<ThemeIcon role={action.icon} class="size-4" />
 								<div class="min-w-0">

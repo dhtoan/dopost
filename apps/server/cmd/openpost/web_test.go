@@ -424,7 +424,7 @@ func TestPublicProfileHTML(t *testing.T) {
 	)
 
 	html := string(rendered)
-	require.Contains(t, html, "R&amp;D &lt;team&gt; (@rodrgds) - OpenPost")
+	require.Contains(t, html, "R&amp;D &lt;team&gt; (@rodrgds) - dopost")
 	require.Contains(t, html, `property="og:type" content="profile"`)
 	require.Contains(t, html, `rel="canonical" href="https://app.openpo.st/u/rodrgds"`)
 	require.Contains(t, html, `property="og:image" content="https://cdn.example/avatar?a=1&amp;b=2"`)

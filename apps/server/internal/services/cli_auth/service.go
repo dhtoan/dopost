@@ -98,7 +98,7 @@ func (s *Service) StartSession(ctx context.Context, input StartInput) (*StartedS
 
 	clientName := strings.TrimSpace(input.ClientName)
 	if clientName == "" {
-		clientName = "OpenPost CLI"
+		clientName = "dopost CLI"
 	}
 	clientName, err := apitokens.NormalizeName(clientName)
 	if err != nil {

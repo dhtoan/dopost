@@ -397,7 +397,7 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
 				: await importCollectedFont(file, {
 						projectId: targetProjectID,
 						attribution: {
-							provider: 'OpenPost brand kit',
+							provider: 'dopost brand kit',
 							sourceId: selection.assetID,
 							license: 'Workspace asset'
 						}

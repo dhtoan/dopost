@@ -13,10 +13,10 @@
 		</h1>
 		<p class="mt-5 text-lg leading-8 text-muted-foreground">
 			How cancellations, refund requests, billing errors, and consumer rights work for the hosted
-			OpenPost service.
+			dopost service.
 		</p>
 		<p class="mt-4 text-sm font-medium">
-			This policy is for hosted OpenPost customers reviewing cancellation and refund terms.
+			This policy is for hosted dopost customers reviewing cancellation and refund terms.
 		</p>
 		<a href={resolve('/pricing')} class="mt-5 inline-flex text-sm font-medium text-primary"
 			>Pricing</a
@@ -29,13 +29,13 @@
 		<p><strong>Effective date:</strong> {effectiveDate}</p>
 		<p><strong>Policy version:</strong> {legalPolicy.refunds.version}</p>
 		<p>
-			This Refund Policy is incorporated into the Terms of Service. OpenPost does not record a
+			This Refund Policy is incorporated into the Terms of Service. dopost does not record a
 			separate acceptance for this document.
 		</p>
 
 		<h2>1. Who processes refunds</h2>
 		<p>
-			OpenPost is operated by Rodrigo Dias, a sole trader in Porto, Portugal. Paddle is the Merchant
+			dopost is operated by Rodrigo Dias, a sole trader in Porto, Portugal. Paddle is the Merchant
 			of Record for orders processed by Paddle. Paddle processes the payment, applicable taxes,
 			returns, and approved refunds. If your receipt names another payment provider, request the
 			refund through that provider. For help, email
@@ -57,7 +57,7 @@
 		<h2>3. When to request a refund</h2>
 		<p>
 			Please request help promptly if you were charged more than once, charged after a timely
-			cancellation, charged the wrong amount, unable to access a paid service because of an OpenPost
+			cancellation, charged the wrong amount, unable to access a paid service because of a dopost
 			fault, or if the purchase was unauthorized. Include the account email, transaction or receipt
 			number, charge date, and a short description. Do not send full card details.
 		</p>
@@ -106,9 +106,9 @@
 
 		<h2>7. Chargebacks</h2>
 		<p>
-			Contact Paddle or OpenPost before starting a chargeback so we can review the charge and
-			correct an error quickly. This request does not remove any right you have to dispute an
-			unauthorized or incorrect payment with your bank.
+			Contact Paddle or dopost before starting a chargeback so we can review the charge and correct
+			an error quickly. This request does not remove any right you have to dispute an unauthorized
+			or incorrect payment with your bank.
 		</p>
 
 		<h2>8. Changes</h2>

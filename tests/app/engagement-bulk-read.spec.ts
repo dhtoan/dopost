@@ -41,7 +41,7 @@ for (const width of [1280, 390, 320]) {
       });
       await button.focus();
       await page.keyboard.press("Enter");
-      await expect(page.getByText("OpenPost could not start that action.")).toBeVisible();
+      await expect(page.getByText("dopost could not start that action.")).toBeVisible();
       await expect(button).toBeEnabled();
       await button.focus();
       await page.keyboard.press("Enter");

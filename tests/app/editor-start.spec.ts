@@ -23,7 +23,7 @@ test("signed-in Image Editor defaults new projects to workspace storage", async 
   await page.goto("/image-editor");
 
   const storage = page.getByRole("button", { name: "Save new projects to", exact: true });
-  await expect(storage).toContainText("OpenPost cloud");
+  await expect(storage).toContainText("dopost cloud");
   await storage.click();
   await page.getByRole("option", { name: "This device", exact: true }).click();
   await expect(storage).toContainText("This device");

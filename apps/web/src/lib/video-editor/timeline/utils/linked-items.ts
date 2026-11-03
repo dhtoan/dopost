@@ -5,7 +5,7 @@
  * Ported from FreeCut (MIT) — utils/linked-items.ts — trimmed to the v1
  * surface: group membership only. FreeCut's legacy auto-link fallback (matching
  * video/audio pairs by originId+mediaId+position for projects that predate
- * `linkedGroupId`) is dropped because OpenPost has no legacy projects; the
+ * `linkedGroupId`) is dropped because dopost has no legacy projects; the
  * attached-caption expansion is dropped because captions live on subtitle
  * items in v1 rather than text items bound to clips.
  */

@@ -254,7 +254,7 @@ func (s *Service) enqueueAccountJob(ctx context.Context, account models.SocialAc
 	}
 	adapter := s.analyticsAdapter(account)
 	if adapter == nil {
-		return false, s.recordUnavailable(ctx, subjectAccount, account.ID, account, platform.AnalyticsStatusUnsupported, "analytics_not_supported", "This provider does not expose account analytics in OpenPost.")
+		return false, s.recordUnavailable(ctx, subjectAccount, account.ID, account, platform.AnalyticsStatusUnsupported, "analytics_not_supported", "This provider does not expose account analytics in dopost.")
 	}
 	support := analyticsSupportForAccount(adapter, account)
 	if !support.Account {
@@ -344,7 +344,7 @@ func (s *Service) enqueueRenditionJob(
 	}
 	adapter := s.analyticsAdapter(account)
 	if adapter == nil {
-		return false, s.recordUnavailable(ctx, subjectRendition, rendition.ID, account, platform.AnalyticsStatusUnsupported, "analytics_not_supported", "This provider does not expose content analytics in OpenPost.")
+		return false, s.recordUnavailable(ctx, subjectRendition, rendition.ID, account, platform.AnalyticsStatusUnsupported, "analytics_not_supported", "This provider does not expose content analytics in dopost.")
 	}
 	support := analyticsSupportForAccount(adapter, account)
 	if !support.Content {

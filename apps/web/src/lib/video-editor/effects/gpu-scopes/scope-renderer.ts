@@ -1,4 +1,4 @@
-/** Ported from FreeCut (MIT), adapted to OpenPost's Svelte scope surface. */
+/** Ported from FreeCut (MIT), adapted to dopost's Svelte scope surface. */
 /**
  * GPU scope renderer facade.
  * Manages WebGPU device, source texture upload, and delegates to individual scope classes.

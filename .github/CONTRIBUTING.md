@@ -1,9 +1,9 @@
-# Contributing to OpenPost
+# Contributing to dopost
 
-OpenPost uses a project-owned Devenv environment so local and CI commands stay aligned.
+dopost uses a project-owned Devenv environment so local and CI commands stay aligned.
 
 ```bash
-git clone https://github.com/getopenpost/openpost.git
+git clone https://github.com/dhtoan/dopost.git
 cd openpost
 direnv allow
 devenv shell -- setup

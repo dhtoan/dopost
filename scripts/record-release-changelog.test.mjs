@@ -35,7 +35,7 @@ function setupRepo() {
   };
   git(["init"]);
   git(["config", "user.email", "record-test@openpost.local"]);
-  git(["config", "user.name", "OpenPost Record Test"]);
+  git(["config", "user.name", "dopost Record Test"]);
   return { root, env, git };
 }
 

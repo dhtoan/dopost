@@ -3,12 +3,12 @@
 	import { m } from '$lib/paraglide/messages';
 	import HostedChatPanel from '$lib/editor-agent/hosted-chat-panel.svelte';
 	import LocalAiPanel from './local-ai-panel.svelte';
-	import AunoAutoVideoPanel from './auno-auto-video-panel.svelte';
+	import DopostAutoVideoPanel from './dopost-auto-video-panel.svelte';
 	import type { TextVoiceRequest } from '$lib/video-editor/local-ai/types';
 	import type { ProjectAssetImporter } from '$lib/video-editor/media/types';
 	import { workspaceCtx } from '$lib/stores/workspace.svelte';
 
-	type AssistantMode = 'assistant' | 'generate' | 'auno';
+	type AssistantMode = 'assistant' | 'generate' | 'dopost';
 
 	let {
 		projectId,
@@ -27,14 +27,14 @@
 	} = $props();
 
 	let mode = $state<AssistantMode>(
-		page.url.searchParams.get('auno') === 'auto-video' ? 'auno' : 'assistant'
+		page.url.searchParams.get('dopost') === 'auto-video' ? 'dopost' : 'assistant'
 	);
 	let generatePanelMounted = $state(false);
 	let handledTextVoiceRequestId = $state<string | null>(null);
 	let assistantTab: HTMLButtonElement | undefined = $state(undefined);
 	let generateTab: HTMLButtonElement | undefined = $state(undefined);
-	let aunoTab: HTMLButtonElement | undefined = $state(undefined);
-	const modes: readonly AssistantMode[] = ['assistant', 'generate', 'auno'];
+	let dopostTab: HTMLButtonElement | undefined = $state(undefined);
+	const modes: readonly AssistantMode[] = ['assistant', 'generate', 'dopost'];
 
 	$effect(() => {
 		if (!textVoiceRequest || textVoiceRequest.id === handledTextVoiceRequestId) return;
@@ -62,7 +62,7 @@
 	function tabFor(next: AssistantMode): HTMLButtonElement | undefined {
 		if (next === 'assistant') return assistantTab;
 		if (next === 'generate') return generateTab;
-		return aunoTab;
+		return dopostTab;
 	}
 </script>
 
@@ -108,23 +108,23 @@
 				{m.video_editor_agent_generate()}
 			</button>
 			<button
-				bind:this={aunoTab}
+				bind:this={dopostTab}
 				role="tab"
-				id="auno-tab"
-				aria-selected={mode === 'auno'}
-				aria-controls="auno-panel"
-				tabindex={mode === 'auno' ? 0 : -1}
+				id="dopost-tab"
+				aria-selected={mode === 'dopost'}
+				aria-controls="dopost-panel"
+				tabindex={mode === 'dopost' ? 0 : -1}
 				type="button"
 				class="min-h-11 rounded px-2 py-1.5 text-xs font-medium focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--video-editor-focus)] md:min-h-9 {mode ===
-				'auno'
+				'dopost'
 					? 'bg-[var(--video-editor-selection)] text-[var(--video-editor-selection-text)]'
 					: 'text-[var(--video-editor-muted)] hover:text-[var(--video-editor-text)]'}"
-				onclick={() => (mode = 'auno')}
+				onclick={() => (mode = 'dopost')}
 			>
-				Auno AI
+				dopost AI
 			</button>
 		</div>
-		{#if mode === 'auno'}
+		{#if mode === 'dopost'}
 			<p class="mt-1.5 text-[11px] leading-relaxed text-[var(--video-editor-muted)]">
 				Regenerate Auto Video scenes while preserving native timeline edits.
 			</p>
@@ -157,9 +157,9 @@
 				<LocalAiPanel {projectId} {oninserted} {textVoiceRequest} {importProjectAsset} />
 			</div>
 		{/if}
-		{#if mode === 'auno'}
-			<div role="tabpanel" id="auno-panel" aria-labelledby="auno-tab" class="h-full min-h-0">
-				<AunoAutoVideoPanel {projectId} {onautosave} />
+		{#if mode === 'dopost'}
+			<div role="tabpanel" id="dopost-panel" aria-labelledby="dopost-tab" class="h-full min-h-0">
+				<DopostAutoVideoPanel {projectId} {onautosave} />
 			</div>
 		{/if}
 	</div>

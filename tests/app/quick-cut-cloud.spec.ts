@@ -3,7 +3,7 @@ import { expect, test } from "@playwright/test";
 import { z } from "zod";
 import { authenticatePage, createWorkspace, registerUser } from "./helpers";
 
-test("Quick Cut saves a source project to OpenPost and opens it again", async ({
+test("Quick Cut saves a source project to dopost and opens it again", async ({
   page,
   request,
 }, testInfo) => {
@@ -23,7 +23,7 @@ test("Quick Cut saves a source project to OpenPost and opens it again", async ({
   });
 
   await page.goto("/quick-cut");
-  await expect(page.getByRole("button", { name: "OpenPost cloud" })).toHaveAttribute(
+  await expect(page.getByRole("button", { name: "dopost cloud" })).toHaveAttribute(
     "aria-pressed",
     "true",
   );

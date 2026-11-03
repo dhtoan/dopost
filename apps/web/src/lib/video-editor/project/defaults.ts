@@ -2,7 +2,7 @@
  * Project document defaults and normalization.
  *
  * Ported from FreeCut (MIT) - shared/projects/defaults.ts, adapted to
- * OpenPost's append-only project schema history.
+ * dopost's append-only project schema history.
  */
 
 import type {
@@ -326,7 +326,7 @@ export function migrateProjectDocument(stored: Project): MigratedProject {
 		);
 		normalized.warnings.unshift({
 			code: 'FREECUT_SCHEMA_IMPORTED',
-			message: `Converted FreeCut schema ${version} to the OpenPost project format.`
+			message: `Converted FreeCut schema ${version} to the dopost project format.`
 		});
 		return {
 			project: normalized.project,

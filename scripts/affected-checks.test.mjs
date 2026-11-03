@@ -27,7 +27,7 @@ function fixture(t) {
   };
   git("init", "--quiet", "--initial-branch=main");
   git("config", "user.email", "test@openpost.local");
-  git("config", "user.name", "OpenPost test");
+  git("config", "user.name", "dopost test");
   git("config", "core.hooksPath", "/dev/null");
   git("config", "commit.gpgsign", "false");
   write(".gitignore", ".turbo/\ncache/\nbin/\n");

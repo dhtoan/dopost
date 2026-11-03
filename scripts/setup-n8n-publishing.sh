@@ -187,7 +187,7 @@ finish() {
 TOTAL_STAGES=4
 : "$RED"
 
-banner "OpenPost n8n publishing setup"
+banner "dopost n8n publishing setup"
 
 stage "Reserve the package with a placeholder"
 say "npm cannot trust a GitHub workflow until the package name exists."
@@ -221,13 +221,13 @@ else
     '{' \
     '  "name": "@getopenpost/n8n-nodes-openpost",' \
     '  "version": "0.0.0",' \
-    '  "description": "Registry placeholder for the official OpenPost n8n package.",' \
+    '  "description": "Registry placeholder for the official dopost n8n package.",' \
     '  "license": "MIT",' \
-    '  "repository": "https://github.com/getopenpost/openpost.git",' \
+    '  "repository": "https://github.com/dhtoan/dopost.git",' \
     '  "publishConfig": { "access": "public" }' \
     '}' > "$placeholder_dir/package.json"
   printf '%s\n' \
-    '# OpenPost n8n package placeholder' \
+    '# dopost n8n package placeholder' \
     '' \
     'This 0.0.0 package only reserves the npm name for trusted publishing.' \
     'Install version 0.1.0 or newer after the GitHub release workflow publishes it.' \
@@ -283,7 +283,7 @@ if npm view '@getopenpost/n8n-nodes-openpost@0.1.0' version >/dev/null 2>&1; the
   open_url "https://creators.n8n.io/nodes"
   step "Sign in to the n8n Creator Portal and start a node submission."
   step "Package name: @getopenpost/n8n-nodes-openpost"
-  step "Source repository: https://github.com/getopenpost/openpost"
+  step "Source repository: https://github.com/dhtoan/dopost"
   step "Use the package README for setup and operation details, then submit it for verification."
   note "Portal review is separate from npm publication. Keep public copy accurate until n8n accepts it."
 else

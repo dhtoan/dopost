@@ -53,7 +53,7 @@
 				? (readQueryErrorMessage(authConfigurationQuery.error) ?? '')
 				: ''
 	);
-	const profileName = $derived(profile?.display_name || profile?.username || 'OpenPost');
+	const profileName = $derived(profile?.display_name || profile?.username || 'dopost');
 	const title = $derived(profile ? `${profileName} (@${profile.username})` : 'Public profile');
 	const activityCells = $derived.by<ActivityCell[]>(() => {
 		const days = profile?.activity ?? [];
@@ -152,8 +152,8 @@
 	<meta
 		name="description"
 		content={profile
-			? `See ${profileName}'s public publishing profile on OpenPost.`
-			: 'Public OpenPost publishing profile.'}
+			? `See ${profileName}'s public publishing profile on dopost.`
+			: 'Public dopost publishing profile.'}
 	/>
 	<meta name="robots" content={profile ? 'index, follow' : 'noindex'} />
 </svelte:head>
@@ -166,9 +166,7 @@
 				class="focus-ring inline-flex min-h-11 items-center gap-2 rounded-md"
 			>
 				<Logo width={34} height={27} decorative />
-				<span class="font-brand text-sm leading-none font-semibold tracking-[-0.02em]"
-					>OpenPost</span
-				>
+				<span class="font-brand text-sm leading-none font-semibold tracking-[-0.02em]">dopost</span>
 			</a>
 			{#if $auth.isAuthenticated}
 				<Button href={`${resolve('/settings' as const)}?tab=profile`} variant="outline" size="sm">
@@ -222,7 +220,7 @@
 					<h1 data-theme-type="title" data-app-title class="mt-4 text-balance">
 						{m.public_profile_unavailable_body()}
 					</h1>
-					<Button href={resolve('/' as const)} class="mt-8">Visit OpenPost</Button>
+					<Button href={resolve('/' as const)} class="mt-8">Visit dopost</Button>
 				</div>
 			</div>
 		{:else if loadState === 'error'}

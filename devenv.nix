@@ -198,7 +198,7 @@ in
     fi
 
     echo ""
-    echo "  OpenPost Development Environment"
+    echo "  dopost Development Environment"
     echo "  --------------------------------"
     echo "  Go:     $(go version 2>/dev/null || echo 'not installed')"
     echo "  Bun:    $(bun --version 2>/dev/null || echo 'not installed')"

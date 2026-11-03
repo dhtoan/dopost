@@ -68,8 +68,8 @@ function redirectRule(zone, paths, mode) {
     rule(
       `${zone.key}:canonical-redirect`,
       removeSlash
-        ? "OpenPost canonical marketing paths omit trailing slashes"
-        : "OpenPost documentation section indexes end in a slash",
+        ? "dopost canonical marketing paths omit trailing slashes"
+        : "dopost documentation section indexes end in a slash",
       `(http.host eq ${quote(zone.hostname)} and ${pathSet(paths)})`,
       "redirect",
       {
@@ -470,7 +470,7 @@ function phaseBody(zone, phase, current) {
   );
   return {
     description:
-      current?.description ?? "OpenPost phase entry point managed with repository evidence",
+      current?.description ?? "dopost phase entry point managed with repository evidence",
     rules: [...unmanaged.map(stripServerFields), ...zone.rules[phase]],
   };
 }
@@ -492,7 +492,7 @@ function unmanagedConflicts(zone, phase, state) {
       phase,
       ref: candidate.ref ?? null,
       description: candidate.description ?? null,
-      reason: "unmanaged rule shares an OpenPost-owned phase; resolve its ownership before apply",
+      reason: "unmanaged rule shares a dopost-owned phase; resolve its ownership before apply",
     }));
 }
 
@@ -568,7 +568,7 @@ function rollbackPlanForInspection(plan, inspection) {
         before:
           entry.current === null
             ? {
-                description: "Empty phase restored after OpenPost edge-plan rollback",
+                description: "Empty phase restored after dopost edge-plan rollback",
                 rules: [],
               }
             : writableEntrypoint(entry.current),

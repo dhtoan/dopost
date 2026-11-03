@@ -87,7 +87,7 @@ it('keeps mixed destination outcomes and canonical recovery actions visible', as
 	await screen.getByRole('button', { name: 'Create another' }).click();
 	expect(onCreateAnother).toHaveBeenCalledOnce();
 	await expect
-		.element(screen.getByText('OpenPost is checking the provider before another send.'))
+		.element(screen.getByText('dopost is checking the provider before another send.'))
 		.toBeVisible();
 	const ambiguousCard = screen.getByRole('article').filter({ hasText: '@ambiguous' });
 	await expect.element(ambiguousCard).toBeVisible();

@@ -95,7 +95,7 @@
 									</div>
 									<div class="card-copy">
 										<h3>
-											{guide.comparison ? 'OpenPost vs ' + guide.comparison.name : guide.question}
+											{guide.comparison ? 'dopost vs ' + guide.comparison.name : guide.question}
 										</h3>
 										<p>{guide.socialDescription}</p>
 										<span class="read"
@@ -135,9 +135,7 @@
 			<div class="sidebar-block">
 				<ShieldCheck size={21} aria-hidden="true" />
 				<h2>Check the sources.</h2>
-				<p>
-					Written by OpenPost. Competitor facts link to official sources and show a review date.
-				</p>
+				<p>Written by dopost. Competitor facts link to official sources and show a review date.</p>
 			</div>
 			<div class="sidebar-block">
 				<BookOpen size={21} aria-hidden="true" />

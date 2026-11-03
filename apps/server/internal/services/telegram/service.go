@@ -175,8 +175,8 @@ func (service *Service) Process(ctx context.Context, event models.BotIngressEven
 		return service.recordMembership(ctx, event)
 	case "telegram.channel_post", "telegram.reaction_count":
 		// Channel activity is accepted so Telegram stops retrying delivery,
-		// but OpenPost no longer keeps inventory for posts published
-		// outside OpenPost.
+		// but dopost no longer keeps inventory for posts published
+		// outside dopost.
 		return nil
 	case "telegram.connection_requested":
 		if event.WorkspaceID == "" || !service.OperationReady(ctx, providerreadiness.OperationConnect) {

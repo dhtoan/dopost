@@ -50,7 +50,7 @@ func Evaluate(ctx context.Context, code string, input any) (any, error) {
 	if _, err := wasi_snapshot_preview1.Instantiate(ctx, runtime); err != nil {
 		return nil, err
 	}
-	// The ABI imports this callback, but OpenPost exposes no Go objects or functions.
+	// The ABI imports this callback, but dopost exposes no Go objects or functions.
 	if _, err := runtime.NewHostModuleBuilder("env").NewFunctionBuilder().WithFunc(func(uint32, uint64, uint32, uint32) uint64 { return 0 }).Export("jsFunctionProxy").Instantiate(ctx); err != nil {
 		return nil, err
 	}

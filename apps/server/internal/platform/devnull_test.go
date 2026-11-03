@@ -134,7 +134,7 @@ func TestDevNullSignatureVerifiesWithSSHKeygen(t *testing.T) {
 	}
 	signer, pemKey := devNullTestSigner(t)
 	dir := t.TempDir()
-	payload := devNullPayload("01a14c0f", "Hello from OpenPost", nil)
+	payload := devNullPayload("01a14c0f", "Hello from dopost", nil)
 	dataPath := dir + "/commit"
 	if err := os.WriteFile(dataPath, []byte(payload), 0o600); err != nil {
 		t.Fatal(err)
@@ -237,7 +237,7 @@ func TestDevNullLoginAndTextPublish(t *testing.T) {
 	if err != nil || username != "testuser" {
 		t.Fatalf("credential username = %q, err = %v", username, err)
 	}
-	result, err := adapter.Publish(context.Background(), token.AccessToken, profile.ID, &PublishRequest{Content: "Hello from OpenPost"})
+	result, err := adapter.Publish(context.Background(), token.AccessToken, profile.ID, &PublishRequest{Content: "Hello from dopost"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -250,7 +250,7 @@ func TestDevNullLoginAndTextPublish(t *testing.T) {
 	if _, err := base64.StdEncoding.DecodeString(gotSignature); err != nil {
 		t.Fatalf("signature header is not base64: %v", err)
 	}
-	if !strings.HasSuffix(gotBody, "\nHello from OpenPost") {
+	if !strings.HasSuffix(gotBody, "\nHello from dopost") {
 		t.Fatalf("payload body = %q", gotBody)
 	}
 	namespace, hashAlg, keyType, pubBlob, sigBytes := devNullSignatureParts(t, gotSignature)
@@ -364,7 +364,7 @@ func TestDevNullPublishMapsProviderErrors(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		_, err = adapter.Publish(context.Background(), token.AccessToken, "id", &PublishRequest{Content: "Hello from OpenPost"})
+		_, err = adapter.Publish(context.Background(), token.AccessToken, "id", &PublishRequest{Content: "Hello from dopost"})
 		if err == nil {
 			t.Fatalf("status %d: expected an error", status)
 		}

@@ -91,7 +91,7 @@ describe('project snapshot validation', () => {
 		expect(await verifySnapshotChecksum(candidate)).toBe(false);
 	});
 
-	it('creates safe OpenPost snapshot filenames', () => {
+	it('creates safe dopost snapshot filenames', () => {
 		expect(sanitizeSnapshotFileName('Launch: Q3 / Final')).toBe('Launch_ Q3 _ Final.openpost.json');
 	});
 });

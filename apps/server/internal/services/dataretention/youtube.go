@@ -20,7 +20,7 @@ import (
 
 // YouTubeCacheAge leaves seven days for Hosted recovery copies and one day
 // of scheduling margin before the 30-day deadline. Statistics use the same limit:
-// OpenPost does not rely on the longer authorized-statistics exception.
+// dopost does not rely on the longer authorized-statistics exception.
 const YouTubeCacheAge = 22 * 24 * time.Hour
 
 // RetiredYouTubeIdentity lets a reconnect restore the same local destination or

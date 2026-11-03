@@ -47,7 +47,7 @@ Example `OPENPOST_PROVIDER_APPS` entry:
 
 ## Analytics
 
-Analytics is an optional feature per connected TikTok account. It starts off for a new account. Enable it after connection or in Account details. OpenPost uses `user.info.stats` for follower, following, likes, and video totals and `video.list` for published-video likes, comments, shares, and views when enabled. Reconnect accounts created before these scopes were added. Disabling Analytics stops future TikTok analytics collection without deleting stored metrics or revoking authorization.
+Analytics is an optional feature per connected TikTok account. It starts off for a new account. Enable it after connection or in Account details. dopost uses `user.info.stats` for follower, following, likes, and video totals and `video.list` for published-video likes, comments, shares, and views when enabled. Reconnect accounts created before these scopes were added. Disabling Analytics stops future TikTok analytics collection without deleting stored metrics or revoking authorization.
 
 Direct messages, Comments and replies, and Grow are not available for TikTok. Analytics availability depends on provider support, required scopes, and plan access as distinct facts.
 
@@ -55,8 +55,8 @@ Direct messages, Comments and replies, and Grow are not available for TikTok. An
 
 - `OPENPOST_MEDIA_URL` points at localhost or a private host.
 - TikTok app lacks Content Posting API access or required scopes.
-- The TikTok app's redirect URI does not exactly match OpenPost's callback URL.
+- The TikTok app's redirect URI does not exactly match dopost's callback URL.
 
 ## Without Display API approval
 
-Apps without Display API approval can still connect and publish with `user.info.basic`, `video.publish`, and `video.upload`. Set `OPENPOST_DISABLE_TIKTOK_DISPLAY_API=true` so OAuth requests only those scopes. OpenPost still reads the basic TikTok identity, including its display name and avatar; the username field, analytics, and public video ID reconciliation need Display API scopes. Without those scopes, analytics report the missing permissions and completed Direct Post videos keep the provider publish ID when OpenPost cannot reconcile a public video ID.
+Apps without Display API approval can still connect and publish with `user.info.basic`, `video.publish`, and `video.upload`. Set `OPENPOST_DISABLE_TIKTOK_DISPLAY_API=true` so OAuth requests only those scopes. dopost still reads the basic TikTok identity, including its display name and avatar; the username field, analytics, and public video ID reconciliation need Display API scopes. Without those scopes, analytics report the missing permissions and completed Direct Post videos keep the provider publish ID when dopost cannot reconcile a public video ID.

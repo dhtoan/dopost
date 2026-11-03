@@ -260,13 +260,13 @@ test("a first cloud save completing during export does not ask to discard the ex
       .locator("header.editor-header")
       .getByRole("button", { name: "Export", exact: true })
       .click();
-    await page.getByRole("button", { name: "Send to OpenPost", exact: true }).click();
+    await page.getByRole("button", { name: "Send to dopost", exact: true }).click();
     await uploadHeld.promise;
     createGate.resolve();
     await expect(page.getByRole("img", { name: /Saved to OpenPost/ })).toBeVisible();
     expect(unexpectedDialogs).toEqual([]);
     uploadGate.resolve();
-    await expect(page.getByText("Sent to OpenPost.", { exact: true })).toBeVisible();
+    await expect(page.getByText("Sent to dopost.", { exact: true })).toBeVisible();
     await expect(page).toHaveURL(/\/quick-cut\?project=[^&]+&storage=cloud$/);
     expect(unexpectedDialogs).toEqual([]);
   } finally {

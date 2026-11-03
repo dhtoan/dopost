@@ -2,7 +2,7 @@ import type { TimelineMarker } from '../project/types';
 
 export const DEFAULT_MARKER_COLOR = '#d97746';
 
-// Matches FreeCut's six quick-pick hues while retaining OpenPost's established
+// Matches FreeCut's six quick-pick hues while retaining dopost's established
 // orange marker as the reset value.
 export const MARKER_PRESET_COLORS = [
 	DEFAULT_MARKER_COLOR,

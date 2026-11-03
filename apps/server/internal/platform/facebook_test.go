@@ -121,7 +121,7 @@ func TestFacebookExchangeAndSelectPage(t *testing.T) {
 			if req.Header.Get(headerAuthorization) != "Bearer long-token" {
 				t.Fatalf("unexpected accounts token %q", req.URL.Query().Get(oauthParamAccessToken))
 			}
-			return jsonResponse(req, `{"data":[{"id":"page-1","name":"OpenPost Page","username":"openpost","access_token":"page-token","picture":{"data":{"url":"https://cdn.example/page.png"}}}]}`), nil
+			return jsonResponse(req, `{"data":[{"id":"page-1","name":"dopost Page","username":"openpost","access_token":"page-token","picture":{"data":{"url":"https://cdn.example/page.png"}}}]}`), nil
 		case "/v25.0/me/permissions":
 			return jsonResponse(req, `{"data":[{"permission":"pages_show_list","status":"granted"},{"permission":"pages_read_engagement","status":"granted"},{"permission":"pages_manage_posts","status":"granted"},{"permission":"declined_scope","status":"declined"}]}`), nil
 		default:

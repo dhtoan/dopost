@@ -65,8 +65,7 @@
 		<div class="max-w-4xl">
 			<h1 class="marketing-title">Where your <HeroAccent>data goes.</HeroAccent></h1>
 			<p class="marketing-copy">
-				See where OpenPost Cloud stores your data, which services help run it, and who can access
-				it.
+				See where dopost Cloud stores your data, which services help run it, and who can access it.
 			</p>
 			<p class="marketing-copy">
 				The details below cover app.openpo.st and are reviewed regularly. They describe our
@@ -160,7 +159,7 @@
 			</h2>
 			<p class="mt-4 text-sm leading-6 text-muted-foreground">
 				“Feature-triggered” means no request is sent until that feature is used. A provider's role
-				describes this OpenPost data path; it does not replace the provider's own terms.
+				describes this dopost data path; it does not replace the provider's own terms.
 			</p>
 		</div>
 
@@ -220,7 +219,7 @@
 				Publishing and sign-in send data only to the service the user selects.
 			</h2>
 			<p class="mt-4 text-sm leading-6 text-muted-foreground">
-				These networks are not general OpenPost subprocessors. Their own terms apply when a user
+				These networks are not general dopost subprocessors. Their own terms apply when a user
 				connects an account, signs in, or sends content.
 			</p>
 		</div>
@@ -256,7 +255,7 @@
 				The access boundary includes its limits.
 			</h2>
 			<p class="mt-4 text-sm leading-6 text-muted-foreground">
-				OpenPost states where a stronger control does not exist instead of implying an approval or
+				dopost states where a stronger control does not exist instead of implying an approval or
 				audit system that has not been implemented.
 			</p>
 		</div>

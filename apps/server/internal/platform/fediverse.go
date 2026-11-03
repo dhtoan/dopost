@@ -53,7 +53,7 @@ func (s FediverseSoftware) DisplayName() string {
 }
 
 // MastodonAPICompatible reports whether the software speaks the Mastodon
-// client API surface OpenPost publishes through. Compatibility is a starting
+// client API surface dopost publishes through. Compatibility is a starting
 // point for transport reuse, not a promise that every operation behaves
 // identically.
 func (s FediverseSoftware) MastodonAPICompatible() bool {

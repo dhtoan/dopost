@@ -1,13 +1,13 @@
-# OpenPost twelve-factor audit
+# dopost twelve-factor audit
 
 Status: completed audit snapshot, 2026-08-30
 
-This audit grades the OpenPost server and its container delivery path against the
+This audit grades the dopost server and its container delivery path against the
 published [Twelve-Factor App](https://12factor.net/) methodology. Supporting
 artifacts such as the mobile app, CLI, marketing site, documentation site, and
 n8n package are included where they affect source or release boundaries.
 
-The repository evidence uses the clean OpenPost snapshot at
+The repository evidence uses the clean dopost snapshot at
 `bdac13f98bdc6f2bd1714304de019e95d600a23d`; `origin/main` matched that revision
 at inspection time. The live service was separately verified as `v4.13.1` at
 source revision `ae15eed`. Its tag points to the same source revision, and both
@@ -17,20 +17,20 @@ succeeded. These are different snapshots, so repository findings describe
 `bdac13f` unless the text explicitly says they were verified live.
 
 The deployment findings come from a read-only inspection of the
-`~/.config/home` OpenPost module and current service metadata. No secret value,
+`~/.config/home` dopost module and current service metadata. No secret value,
 local `.env` content, or secret-store content was read. A metadata-only access
 test did establish that the unprivileged account named `nobody` can read known
-OpenPost secret paths. That proves access, not whether any value was previously
+dopost secret paths. That proves access, not whether any value was previously
 read or exfiltrated. No production state was mutated.
 
 ## Executive summary
 
-OpenPost follows much of the methodology, but the production result is uneven.
+dopost follows much of the methodology, but the production result is uneven.
 The release path is the strongest part. CI builds the production image once,
 records its source revision and manifest, verifies its digest, and promotes that
 same digest without rebuilding. The Home deploy pulls the digest, verifies its
 OCI revision, runs a configuration preflight, retags it as a local convenience
-alias, then verifies both local and public exact revisions. Live OpenPost and
+alias, then verifies both local and public exact revisions. Live dopost and
 PostgreSQL were healthy at inspection time.
 
 The overall grade is C+. This is a judgment, not an average. Strong
@@ -40,13 +40,13 @@ history that continuously rotates with no observed off-host copy.
 
 The most important findings are:
 
-1. Every inspected OpenPost mounted secret, plus the rendered cloud and
+1. Every inspected dopost mounted secret, plus the rendered cloud and
    PostgreSQL environment files, is `root:root` mode `0444`. Their parent
    directories are mode `0751`. A metadata-only `sudo -u nobody test -r`
    confirmed that the unprivileged `nobody` account can read the JWT secret and
    cloud environment file. No contents were read, and access history is unknown.
    This is an immediate credential-containment and rotation issue.
-2. The deployment webhook reuses one `deploy_webhook_secret` across OpenPost,
+2. The deployment webhook reuses one `deploy_webhook_secret` across dopost,
    Montra, and personal deployment paths. The request has no verified timestamp,
    nonce, or event identifier for replay rejection, and the endpoint returns
    command output. One disclosure or replay can therefore cross deployment
@@ -65,7 +65,7 @@ The most important findings are:
 5. One process runs HTTP, the durable queue worker, recurring schedulers, and
    schema migrations. This is easy to self-host, but it prevents hosted web and
    worker capacity from scaling independently and makes every process startup an
-   administrative database event. Production currently has one OpenPost unit
+   administrative database event. Production currently has one dopost unit
    and one PostgreSQL unit, with no CPU or memory limits.
 6. Dependency declarations are extensive, but toolchains are not fully aligned.
    `apps/server/go.mod` and `apps/cli/go.mod` name Go 1.26.6, while the container builder
@@ -73,7 +73,7 @@ The most important findings are:
    Bun 1.3.13. The image also runs an unversioned `apk upgrade` and installs
    unversioned runtime packages, so a rebuild of the same commit can resolve
    different packages.
-7. OpenPost has strong config and credential-handling code, but administrator
+7. dopost has strong config and credential-handling code, but administrator
    values stored in the database override environment and `*_FILE` values after
    startup. In cloud mode, that means a stale database copy of a billing, email,
    OIDC, or provider secret can supersede the deployment secret store. The
@@ -98,7 +98,7 @@ introducing a new orchestration platform.
 | Priority | Change                                                                                               | Factors         | Completion test                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | -------- | ---------------------------------------------------------------------------------------------------- | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | P0       | Restrict mounted-secret access, then rotate exposed credentials in dependency order                  | III             | Secret directories are `0700` or the narrowest required `0710`; files are `0400` or `0440` and owned by the exact mapped service identity or dedicated group. The container still starts, while `sudo -u nobody test -r` fails for every known secret path. JWT/session impact is planned. The data-encryption key uses dual-read, new-primary-write, verified re-encryption, then old-key removal rather than a blind replacement. |
-| P1       | Isolate and harden deployment webhooks                                                               | III, XII        | OpenPost, Montra, and personal deploy paths use different secrets and least-privilege executors. Each signed request binds method, path, body digest, timestamp, and nonce or event ID. Stale or repeated identifiers fail, responses are constant and do not contain command output, and the shared secret is retired.                                                                                                             |
+| P1       | Isolate and harden deployment webhooks                                                               | III, XII        | dopost, Montra, and personal deploy paths use different secrets and least-privilege executors. Each signed request binds method, path, body digest, timestamp, and nonce or event ID. Stale or repeated identifiers fail, responses are constant and do not contain command output, and the shared secret is retired.                                                                                                               |
 | P1       | Add a hosted data-plane CI lane with real PostgreSQL and an S3-compatible service                    | IV, VI, VIII, X | A release-blocking test boots cloud mode, runs all migrations, exercises one media write/read/delete and concurrent queue claims, then restarts against the same resources. PostgreSQL-specific tests report zero skips.                                                                                                                                                                                                            |
 | P1       | Make termination a bounded drain                                                                     | IX, XI          | A container test starts an HTTP request and a leased job, sends `SIGTERM`, proves readiness flips first, new traffic stops, in-flight work either finishes or releases its lease, and PID 1 exits before the deployment stop deadline.                                                                                                                                                                                              |
 | P1       | Add runtime roles and an explicit migration command                                                  | V, VIII, XII    | The same image digest runs `openpost web`, `openpost worker`, and `openpost migrate`. Hosted rollout runs migration once. Web and worker replicas scale independently. `openpost all` preserves the self-host default.                                                                                                                                                                                                              |
@@ -120,7 +120,7 @@ standard. This audit therefore uses:
   to distinguish enduring principles from outdated examples;
 - OCI and Kubernetes primary documentation only as concrete translations for a
   containerized runtime, not as extra factors and not as a recommendation that
-  OpenPost adopt Kubernetes.
+  dopost adopt Kubernetes.
 
 For example, "store config in the environment" still means the build must not
 contain deploy-varying config. It does not mean high-value secret bytes must be
@@ -169,7 +169,7 @@ product into repositories solely to satisfy the old wording would reduce clarity
 
 Practical test:
 
-- Pick any running OpenPost unit and identify its exact repository revision.
+- Pick any running dopost unit and identify its exact repository revision.
 - Rebuild it from that revision without copying untracked production code.
 - List every independent deployable and show which source and pipeline owns it.
 - Prove staging, production, and developer instances are deploys of that same
@@ -271,7 +271,7 @@ Gaps:
   them nor checks their version at startup. Its real runtime dependency set is
   therefore larger than the binary release evidence shows.
 - `scripts/sync-docs-external.mjs` fetches the Home repository's moving `main`
-  branch during a documentation build. The same OpenPost revision can produce
+  branch during a documentation build. The same dopost revision can produce
   different documentation as that external branch moves, or fail without the
   network.
 - At the time of this audit, the Docker image supported only `linux/amd64`.
@@ -340,7 +340,7 @@ Verified repository and deployment evidence:
   Docker/Kubernetes secrets or a secret manager.
 - The binary has a no-side-effect `check-config` command used by the image smoke
   and deployment gate.
-- The Home module renders OpenPost secrets from SOPS, exposes their paths through
+- The Home module renders dopost secrets from SOPS, exposes their paths through
   `*_FILE`, and bind-mounts them read-only. This keeps secret bytes out of the
   image and Nix store.
 - Production currently has zero rows in `instance_settings`. Database-over-env
@@ -374,19 +374,19 @@ Gaps and cautions:
   prove the Git history is clean.
 - The SOPS rendering boundary is correct in concept, but its live file access is
   critically broad. `/run/secrets.d` and rendered-template directories are mode
-  `0751`. Every inspected mounted OpenPost secret and both rendered cloud and
+  `0751`. Every inspected mounted dopost secret and both rendered cloud and
   PostgreSQL environment files are `root:root` mode `0444`. A metadata-only
   `sudo -u nobody test -r` proved that the unprivileged account named `nobody`
   can read the JWT secret and cloud environment file. File contents were not
   read. This test proves the access condition, not prior access or exfiltration.
 - Database-backed product choices are application data when an operator changes
-  them through OpenPost. Treating that whole layer as a factor violation would
+  them through dopost. Treating that whole layer as a factor violation would
   be wrong. Credentials are different. The managed list includes billing,
   transactional-email, OIDC, Google, and stock-provider secrets, and a stored
   value wins over an environment or `*_FILE` value. In cloud mode, this weakens
   the deployment secret store's authority and makes rotation easy to misread.
   Zero production rows make the risk latent today, not resolved.
-- The deployment receiver uses one `deploy_webhook_secret` for OpenPost, Montra,
+- The deployment receiver uses one `deploy_webhook_secret` for dopost, Montra,
   and personal deployment paths. The verified request contract has no timestamp,
   nonce, or event ID to reject replay and returns deployment command output to
   the caller. This couples three trust boundaries and exposes operational detail.
@@ -410,7 +410,7 @@ Recommended action:
 - Rotate the affected credentials in stages after containment. Use independent
   webhook secrets first, then database, object-store, billing, email, AI, OAuth,
   and provider credentials according to each provider's overlap and revocation
-  support. A JWT-secret change will invalidate sessions unless OpenPost first
+  support. A JWT-secret change will invalidate sessions unless dopost first
   gains a dual-verification-key window. Record only key identifiers, timing, and
   validation outcomes.
 - Do not blindly replace `OPENPOST_ENCRYPTION_KEY`. It protects persisted
@@ -420,7 +420,7 @@ Recommended action:
   without printing values, then remove the old key only after no row needs it.
   The empty `instance_settings` table reduces one migration set, but does not
   prove that no other encrypted row exists.
-- Give OpenPost, Montra, and personal deployment endpoints independent secrets
+- Give dopost, Montra, and personal deployment endpoints independent secrets
   and least-privilege executors. Sign a canonical method, path, body digest,
   timestamp, and nonce or event ID; reject stale and previously seen identifiers;
   return a constant acceptance/result envelope without command output; then
@@ -485,7 +485,7 @@ Verified repository evidence:
 - External email, AI, telemetry, OAuth/provider, connector, and feedback
   resources are constructed from config rather than hard-coded deployment hosts.
 - `scripts/restore-drill.sh` contains a versioned PostgreSQL restore check.
-- The live OpenPost and PostgreSQL units were active and healthy at inspection
+- The live dopost and PostgreSQL units were active and healthy at inspection
   time. Daily database and media backup jobs, plus the weekly restore drill, had
   all succeeded on 2026-08-30.
 - The encrypted VPS secret file has multiple SOPS age recipients, including the
@@ -617,14 +617,14 @@ Gaps:
   rollback even when public recovery has not been proved.
 - Clean-host bootstrap depends on a pre-existing local `latest` image before the
   deploy transaction pulls the candidate. With `pullPolicy = "never"`, a rebuilt
-  VPS with an empty image store has no declarative known-good OpenPost image from
+  VPS with an empty image store has no declarative known-good dopost image from
   which to start.
 - Cutover is an in-place restart behind one Caddy upstream. There is expected
   downtime and no warmed old slot to receive traffic if the new process fails.
 - The VPS verifies the candidate's revision label but not its version label or a
   Sigstore-style image signature. The signed webhook proves knowledge of its
   HMAC secret; it is not artifact-signature verification.
-- OpenPost deployment runs directly from the webhook rather than through a
+- dopost deployment runs directly from the webhook rather than through a
   dedicated bounded one-shot unit with durable status. This makes timeout,
   operator inspection, and response minimization weaker than they need to be.
 
@@ -688,7 +688,7 @@ Verified repository evidence:
   them, rather than treating them as durable media storage.
 - The image smoke recreates the process and checks that the volume-backed SQLite
   service returns ready after restart.
-- The active production topology has one OpenPost application instance and one
+- The active production topology has one dopost application instance and one
   PostgreSQL instance. The Home cloud configuration attaches PostgreSQL and
   S3-compatible storage rather than the container writable layer for durable
   application data.
@@ -746,7 +746,7 @@ Verified repository evidence:
 - TLS and public routing are documented as deployment responsibilities.
 - The Home module publishes the container only on host loopback port 8090 and
   registers that internal port with Caddy. TLS and public routing remain outside
-  the OpenPost process.
+  the dopost process.
 
 No material port-binding gap was found. Probe semantics are a disposability
 issue covered under factor IX: the generated container health check currently
@@ -784,7 +784,7 @@ Verified repository evidence:
   and stale-worker recovery. This is a credible base for horizontal workers.
 - The container expects an external supervisor through its foreground `CMD` and
   health check.
-- Production currently runs one combined OpenPost instance. The Home unit has no
+- Production currently runs one combined dopost instance. The Home unit has no
   explicit CPU or memory limit or reservation.
 
 Material gap:
@@ -848,7 +848,7 @@ Verified repository evidence:
 - The production image has liveness and readiness endpoints, and the smoke test
   exercises restart.
 - The Home service checks the live application and exact revision after deploy,
-  and both OpenPost and PostgreSQL were healthy at inspection time.
+  and both dopost and PostgreSQL were healthy at inspection time.
 
 Material gap:
 
@@ -872,7 +872,7 @@ Material gap:
   scheduling before the server listens. No startup budget or regression test was
   found.
 - The image declares no `STOPSIGNAL`; normal SIGTERM is suitable. The Home source
-  module does not declare an OpenPost-specific systemd stop deadline, so the
+  module does not declare a dopost-specific systemd stop deadline, so the
   effective generated-unit deadline should be recorded in the TERM test.
 
 Recommended action:
@@ -889,7 +889,7 @@ Recommended action:
   with generous platform-aware bounds, not sleeps that happen to pass locally.
 - Change the Podman liveness command to `/api/v1/health`. Keep `/api/v1/ready`
   in Caddy/rollout traffic gates, and test that loss of PostgreSQL fails readiness
-  without claiming the OpenPost process itself is dead.
+  without claiming the dopost process itself is dead.
 
 ## X. Dev/prod parity
 
@@ -946,7 +946,7 @@ Recommended action:
 - Make the job fail if any PostgreSQL-tagged test skips for missing service
   config. Keep the SQLite suite for speed and self-host coverage.
 - Use the same PostgreSQL major version as production. S3-compatible test
-  coverage should target protocol behavior OpenPost relies on, not a claim that
+  coverage should target protocol behavior dopost relies on, not a claim that
   every vendor behaves identically.
 - Reuse the candidate image in a staging smoke if a staging deploy exists. Keep
   release latency low by focusing the lane on the real blast radius.
@@ -998,7 +998,7 @@ Gaps and cautions:
 - No off-host log drain or searchable retained copy was found. Approaching the
   512 MB cap does not mean an immediate disk-full failure because journald
   rotates within its quota, but it does mean older evidence can disappear soon.
-  The observed size is host-wide, not proof that OpenPost alone produced it.
+  The observed size is host-wide, not proof that dopost alone produced it.
 - The app's PostHog telemetry does not satisfy the logs factor. Losing the
   stdout stream would still leave an operational gap.
 
@@ -1025,7 +1025,7 @@ unversioned operator snippet.
 2026 reading: use a one-shot container or service unit from the exact application
 image, not an interactive shell inside a long-running container. A Kubernetes
 Job is one representative model: it runs a task to completion and records the
-result. OpenPost can implement the same contract with systemd or Podman.
+result. dopost can implement the same contract with systemd or Podman.
 [Kubernetes Jobs](https://kubernetes.io/docs/concepts/workloads/controllers/job/)
 
 Practical test:
@@ -1085,7 +1085,7 @@ Recommended action:
 
 One compact suite can prove most of the missing behavior:
 
-1. Render deployment secrets for the exact service identity. Prove OpenPost and
+1. Render deployment secrets for the exact service identity. Prove dopost and
    PostgreSQL can read only their required files and that `nobody` cannot read
    any known secret or rendered environment path.
 2. Send one valid, one stale, one repeated, and one cross-deployment webhook
@@ -1120,18 +1120,18 @@ module, generated/runtime metadata, job result, or public revision was directly
 inspected without reading secret contents. It does not turn an observation into
 a historical guarantee.
 
-| Area                          | Verified current evidence                                                                                                                                                                                                                                          | Remaining risk or correction                                                                                                                                                                                                                                               |
-| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Source and live release       | The audited checkout was clean at `bdac13f` with matching `origin/main`. Live was `v4.13.1` at `ae15eed`; its tag matched, and CI 33317817068 plus release 33319075574 succeeded.                                                                                  | Repeat the exact lineage proof for each other deployable in the monorepo.                                                                                                                                                                                                  |
-| Image promotion               | Home pulls the requested digest, verifies the OCI revision label, runs `check-config`, records a rollback image, retags local `latest`, then checks local and public readiness and exact revision.                                                                 | A clean host still requires a pre-existing local image, and rollback does not prove the previous public revision on every path. Add a bootstrap digest and fail-closed rollback proof. Running the unit by digest or immutable image ID is a smaller later simplification. |
-| Secret delivery               | SOPS renders file-backed secrets outside the image. All inspected OpenPost secret files and the cloud/PostgreSQL env files were `root:root` `0444`; traversable parents were `0751`; unprivileged `nobody` could read tested JWT/cloud paths. No content was read. | Restrict permissions immediately, validate the exact container identity, then rotate in stages. Access is proven; access or exfiltration history is not. Use dual-key re-encryption for the data-encryption key.                                                           |
-| Effective database settings   | Production had zero `instance_settings` rows.                                                                                                                                                                                                                      | Database-over-env secret precedence is latent, not active. Change the authority model before administrators begin storing credential overrides.                                                                                                                            |
-| Backing services and topology | One OpenPost application unit and one PostgreSQL unit were healthy. Cloud config attaches PostgreSQL and S3-compatible storage.                                                                                                                                    | Readiness checks PostgreSQL but not S3, there is no app or database replica, and the Postgres `17-alpine` tag is mutable. Add bounded storage readiness, pin it, and prove replacement behavior.                                                                           |
-| Backup and restore            | Daily database and media backups and the weekly restore drill succeeded on 2026-08-30. The SOPS file has independent VPS, laptop, and desktop age recipients.                                                                                                      | Backups and the current drill remain on the VPS, and media backup reuses the app credential. Add encrypted off-host copies, `OnFailure` alerts, least-privilege credentials, and an independent-recipient drill that proves restored encrypted rows can be read.           |
-| Process formation             | The live topology is one combined web, worker, scheduler, and migration process. No CPU or memory limit was declared for OpenPost/PostgreSQL.                                                                                                                      | Split hosted roles when independent capacity is needed, add saturation signals, then set measured resource protections.                                                                                                                                                    |
-| Health and termination        | The deploy checks `/ready`; the app and image expose separate `/health` and `/ready` endpoints.                                                                                                                                                                    | Home incorrectly uses `/ready` as the Podman liveness command. Change liveness to `/health`, retain readiness for traffic, and prove bounded TERM drain under the effective systemd timeout.                                                                               |
-| Logs                          | Standard streams reach journald. The host cap is 512 MB and observed use was 507.8 MB.                                                                                                                                                                             | No off-host drain was found, so rotation can remove the only observed evidence. Add secure remote shipping, retention, queries, and alerting.                                                                                                                              |
-| Deployment webhook            | One secret covers OpenPost, Montra, and personal deploys. The request has no verified timestamp/nonce/event ID, and the response includes command output.                                                                                                          | Separate credentials and executors, add canonical request signing plus replay storage, minimize responses, then revoke the shared secret.                                                                                                                                  |
+| Area                          | Verified current evidence                                                                                                                                                                                                                                        | Remaining risk or correction                                                                                                                                                                                                                                               |
+| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Source and live release       | The audited checkout was clean at `bdac13f` with matching `origin/main`. Live was `v4.13.1` at `ae15eed`; its tag matched, and CI 33317817068 plus release 33319075574 succeeded.                                                                                | Repeat the exact lineage proof for each other deployable in the monorepo.                                                                                                                                                                                                  |
+| Image promotion               | Home pulls the requested digest, verifies the OCI revision label, runs `check-config`, records a rollback image, retags local `latest`, then checks local and public readiness and exact revision.                                                               | A clean host still requires a pre-existing local image, and rollback does not prove the previous public revision on every path. Add a bootstrap digest and fail-closed rollback proof. Running the unit by digest or immutable image ID is a smaller later simplification. |
+| Secret delivery               | SOPS renders file-backed secrets outside the image. All inspected dopost secret files and the cloud/PostgreSQL env files were `root:root` `0444`; traversable parents were `0751`; unprivileged `nobody` could read tested JWT/cloud paths. No content was read. | Restrict permissions immediately, validate the exact container identity, then rotate in stages. Access is proven; access or exfiltration history is not. Use dual-key re-encryption for the data-encryption key.                                                           |
+| Effective database settings   | Production had zero `instance_settings` rows.                                                                                                                                                                                                                    | Database-over-env secret precedence is latent, not active. Change the authority model before administrators begin storing credential overrides.                                                                                                                            |
+| Backing services and topology | One dopost application unit and one PostgreSQL unit were healthy. Cloud config attaches PostgreSQL and S3-compatible storage.                                                                                                                                    | Readiness checks PostgreSQL but not S3, there is no app or database replica, and the Postgres `17-alpine` tag is mutable. Add bounded storage readiness, pin it, and prove replacement behavior.                                                                           |
+| Backup and restore            | Daily database and media backups and the weekly restore drill succeeded on 2026-08-30. The SOPS file has independent VPS, laptop, and desktop age recipients.                                                                                                    | Backups and the current drill remain on the VPS, and media backup reuses the app credential. Add encrypted off-host copies, `OnFailure` alerts, least-privilege credentials, and an independent-recipient drill that proves restored encrypted rows can be read.           |
+| Process formation             | The live topology is one combined web, worker, scheduler, and migration process. No CPU or memory limit was declared for OpenPost/PostgreSQL.                                                                                                                    | Split hosted roles when independent capacity is needed, add saturation signals, then set measured resource protections.                                                                                                                                                    |
+| Health and termination        | The deploy checks `/ready`; the app and image expose separate `/health` and `/ready` endpoints.                                                                                                                                                                  | Home incorrectly uses `/ready` as the Podman liveness command. Change liveness to `/health`, retain readiness for traffic, and prove bounded TERM drain under the effective systemd timeout.                                                                               |
+| Logs                          | Standard streams reach journald. The host cap is 512 MB and observed use was 507.8 MB.                                                                                                                                                                           | No off-host drain was found, so rotation can remove the only observed evidence. Add secure remote shipping, retention, queries, and alerting.                                                                                                                              |
+| Deployment webhook            | One secret covers dopost, Montra, and personal deploys. The request has no verified timestamp/nonce/event ID, and the response includes command output.                                                                                                          | Separate credentials and executors, add canonical request signing plus replay storage, minimize responses, then revoke the shared secret.                                                                                                                                  |
 
 ## Adjacent defects uncovered
 

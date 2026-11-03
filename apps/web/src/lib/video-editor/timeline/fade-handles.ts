@@ -1,6 +1,6 @@
 // Ported from FreeCut (MIT) – src/shared/utils/audio-fade-curve.ts and
 // src/features/timeline/utils/audio-fade-curve.ts and src/features/timeline/utils/audio-fade.ts
-// Adapted to OpenPost's TimelineItem model and clip-fades math.
+// Adapted to dopost's TimelineItem model and clip-fades math.
 
 import type { TimelineItem } from '../project/types';
 

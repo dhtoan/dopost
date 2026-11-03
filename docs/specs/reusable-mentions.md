@@ -2,7 +2,7 @@
 
 The shared composer must offer a Workspace mention library when an author types `@`, including before any search characters. Authors can insert an existing entry or add one, then keep writing in All. An entry has one short alias and explicit per-network text or supported native identities. Account-specific provider search remains available.
 
-The behavioral reference is Shoutrrr at `83895b361508f295b3f70736d5319dc8a5a88a0a`, particularly `resources/js/components/compose/mention-picker.tsx`, `resources/js/lib/compose/mentions.ts`, and `app/Http/Controllers/WorkspaceMentionController.php`. Its source is Apache-2.0. OpenPost implements its own controls and projection; no source is copied.
+The behavioral reference is Shoutrrr at `83895b361508f295b3f70736d5319dc8a5a88a0a`, particularly `resources/js/components/compose/mention-picker.tsx`, `resources/js/lib/compose/mentions.ts`, and `app/Http/Controllers/WorkspaceMentionController.php`. Its source is Apache-2.0. dopost implements its own controls and projection; no source is copied.
 
 ## Acceptance
 

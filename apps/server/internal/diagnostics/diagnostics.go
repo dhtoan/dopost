@@ -1,4 +1,4 @@
-// Package diagnostics implements OpenPost's maintainer diagnostics channel.
+// Package diagnostics implements dopost's maintainer diagnostics channel.
 //
 // Maintainer diagnostics are separate from product analytics. An operator's own
 // PostHog project remains theirs: diagnostic reports never inherit user

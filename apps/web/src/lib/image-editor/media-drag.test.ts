@@ -30,7 +30,7 @@ function dataTransferFixture(files: File[] = []): ImageEditorDataTransfer {
 	};
 }
 
-describe('OpenPost Image Editor media drag payload', () => {
+describe('dopost Image Editor media drag payload', () => {
 	it('round-trips a bounded media placement payload', () => {
 		const dataTransfer = dataTransferFixture();
 		writeImageEditorMediaDrag(dataTransfer, {

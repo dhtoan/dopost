@@ -4,21 +4,21 @@
   "credentials": {
     "openpost_api_token": {
       "type": "bearer",
-      "label": "OpenPost API token",
+      "label": "dopost API token",
       "generateUrl": "https://app.openpo.st/settings?tab=developer",
-      "setup": "Sign in to OpenPost, open Settings → Personal → Developer access, and create a token with the scope and workspace access you need."
+      "setup": "Sign in to dopost, open Settings → Personal → Developer access, and create a token with the scope and workspace access you need."
     },
     "openpost_mcp_oauth": {
       "type": "oauth2",
-      "label": "OpenPost MCP OAuth",
-      "setup": "Connect the MCP client and approve access in the browser. OpenPost uses authorization code with PKCE and supports mcp:read and mcp:full."
+      "label": "dopost MCP OAuth",
+      "setup": "Connect the MCP client and approve access in the browser. dopost uses authorization code with PKCE and supports mcp:read and mcp:full."
     }
   },
   "surfaces": [
     {
       "type": "http",
       "slug": "api",
-      "name": "OpenPost API",
+      "name": "dopost API",
       "docs": "https://openpo.st/docs/development/api-reference",
       "spec": "https://openpo.st/docs/openapi.json",
       "url": "https://app.openpo.st/api/v1",
@@ -51,7 +51,7 @@
     {
       "type": "mcp",
       "slug": "mcp",
-      "name": "OpenPost MCP server",
+      "name": "dopost MCP server",
       "docs": "https://openpo.st/docs/mcp/",
       "url": "https://app.openpo.st/mcp",
       "transports": [
@@ -102,7 +102,7 @@
     {
       "type": "cli",
       "slug": "cli",
-      "name": "OpenPost CLI",
+      "name": "dopost CLI",
       "docs": "https://openpo.st/docs/cli/",
       "packages": [
         {

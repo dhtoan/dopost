@@ -67,7 +67,7 @@ func TestPublisherDoesNotRetryExplicitTerminalNonResumableMediaFailure(t *testin
 	require.ErrorContains(t, err, "provider rejected the image")
 
 	_, err = srv.service.platformMediaIDForRendition(t.Context(), &publication, &rendition, &account, adapter, "access-token", media)
-	require.ErrorContains(t, err, "OpenPost did not upload it again")
+	require.ErrorContains(t, err, "dopost did not upload it again")
 	require.Equal(t, 1, adapter.uploadCalls)
 }
 

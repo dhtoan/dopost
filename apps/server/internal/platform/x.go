@@ -837,7 +837,7 @@ func buildXTweetPayload(req *PublishRequest) (map[string]interface{}, error) {
 		}
 		for _, taggedUser := range taggedUserIDs {
 			if !IsXUserID(taggedUser) {
-				return nil, fmt.Errorf("x tagged user %q must be an X user ID or a handle OpenPost can resolve", taggedUser)
+				return nil, fmt.Errorf("x tagged user %q must be an X user ID or a handle dopost can resolve", taggedUser)
 			}
 		}
 		mediaPayload, ok := payload["media"].(map[string]interface{})

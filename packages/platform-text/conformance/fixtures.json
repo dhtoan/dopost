@@ -184,7 +184,7 @@
     },
     {
       "platform": "threads",
-      "text": "OpenPost",
+      "text": "dopost",
       "expected": 8
     },
     {
@@ -244,7 +244,7 @@
     },
     {
       "platform": "youtube",
-      "text": "OpenPost",
+      "text": "dopost",
       "expected": 8
     },
     {

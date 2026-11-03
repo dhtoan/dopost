@@ -1,4 +1,4 @@
-/** Ported from FreeCut (MIT), adapted to OpenPost's Svelte scope surface. */
+/** Ported from FreeCut (MIT), adapted to dopost's Svelte scope surface. */
 /**
  * GPU-accelerated vectorscope.
  * Compute shader maps pixels to CbCr space preserving color ratios,

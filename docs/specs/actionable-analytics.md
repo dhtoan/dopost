@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Help a founder decide what to make next, which account needs attention, and whether their publishing is earning attention. Retain the current Analytics surface and OpenPost's design system. Web and native mobile consume the same server calculations and query catalogue.
+Help a founder decide what to make next, which account needs attention, and whether their publishing is earning attention. Retain the current Analytics surface and dopost's design system. Web and native mobile consume the same server calculations and query catalogue.
 
 ## Measurement contract
 

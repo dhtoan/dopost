@@ -1,7 +1,7 @@
-// Package externalapps owns delegated authorization for third-party OpenPost
+// Package externalapps owns delegated authorization for third-party dopost
 // applications. It is deliberately separate from provider OAuth, which grants
-// OpenPost access to social networks rather than granting an app access to
-// OpenPost.
+// dopost access to social networks rather than granting an app access to
+// dopost.
 package externalapps
 
 import (

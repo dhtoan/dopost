@@ -29,7 +29,7 @@ type RangeBlobStorage interface {
 }
 
 // ReadinessStorage proves that a required remote storage dependency can perform
-// the object lifecycle OpenPost relies on. Implementations should cache the
+// the object lifecycle dopost relies on. Implementations should cache the
 // result so a health poll does not become one remote operation per request.
 type ReadinessStorage interface {
 	CheckReady(context.Context) error

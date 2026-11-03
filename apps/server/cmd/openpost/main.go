@@ -374,8 +374,8 @@ func main() {
 	externalApplicationService.SetDynamicRegistrationEnabled(cfg.OAuthDCR)
 	externalWebhookService := externalwebhooks.NewService(db, tokenEncryptor)
 	mediaSigner := mediasigner.New(cfg.MediaSigningKey)
-	mfaService, err := mfa.NewService("OpenPost", mfa.RelyingPartyConfig{
-		Name:    "OpenPost",
+	mfaService, err := mfa.NewService("dopost", mfa.RelyingPartyConfig{
+		Name:    "dopost",
 		ID:      cfg.WebAuthnRPID,
 		Origins: []string{cfg.PublicURL},
 	})
@@ -741,19 +741,19 @@ func main() {
 			cfg.ContentAIRequireZDR,
 		)
 	}
-	autoVideoPlanner, autoVideoModel, autoVideoProvider, err := aunoAutoVideoPlanner(cfg, contentGenerator)
+	autoVideoPlanner, autoVideoModel, autoVideoProvider, err := dopostAutoVideoPlanner(cfg, contentGenerator)
 	if err != nil {
-		fatalfWithDiagnostics(diagnosticsReporter, "failed to initialize Auno Auto Video planner: %v", err)
+		fatalfWithDiagnostics(diagnosticsReporter, "failed to initialize dopost Auto Video planner: %v", err)
 	}
 	if autoVideoPlanner != nil {
-		log.Printf("Auno Auto Video planner enabled with model %s via %s", autoVideoModel, autoVideoProvider)
+		log.Printf("dopost Auto Video planner enabled with model %s via %s", autoVideoModel, autoVideoProvider)
 	}
-	documentaryPlanner, documentaryModel, documentaryProvider, err := aunoDocumentaryPlanner(cfg, contentGenerator)
+	documentaryPlanner, documentaryModel, documentaryProvider, err := dopostDocumentaryPlanner(cfg, contentGenerator)
 	if err != nil {
-		fatalfWithDiagnostics(diagnosticsReporter, "failed to initialize Auno Documentary planner: %v", err)
+		fatalfWithDiagnostics(diagnosticsReporter, "failed to initialize dopost Documentary planner: %v", err)
 	}
 	if documentaryPlanner != nil {
-		log.Printf("Auno Documentary planner enabled with model %s via %s", documentaryModel, documentaryProvider)
+		log.Printf("dopost Documentary planner enabled with model %s via %s", documentaryModel, documentaryProvider)
 	}
 
 	repurposeSuggestions := repurpose.New(db, contentGenerator, cfg.TextGenerationModel)
@@ -1139,12 +1139,12 @@ func main() {
 		if discordPresenceService != nil {
 			discordPresenceService.Start(workerCtx)
 		}
-		log.Printf("Starting OpenPost %s process", command.role)
+		log.Printf("Starting dopost %s process", command.role)
 	}
 
 	var serverErrCh <-chan error
 	if command.role.runsWeb() {
-		log.Println("Starting OpenPost on :" + cfg.Port)
+		log.Println("Starting dopost on :" + cfg.Port)
 		log.Println("OpenAPI spec available at http://localhost:" + cfg.Port + "/openapi.json")
 		serverErrors := make(chan error, 1)
 		serverErrCh = serverErrors
@@ -1191,7 +1191,7 @@ func main() {
 		log.Printf("Server error: %v", runtimeErr)
 		return
 	}
-	log.Printf("OpenPost %s process stopped", command.role)
+	log.Printf("dopost %s process stopped", command.role)
 }
 
 func runCheckConfigCommand(cfg *config.Config, diagnosticsReporter *diagnostics.Reporter) {
@@ -1326,7 +1326,7 @@ func observeHTTPFailures(recorder telemetry.Recorder, reporter *diagnostics.Repo
 				if !handled && !panicked {
 					c.Set(telemetryHTTPErrorHandledKey, true)
 					captureErr := recorder.CaptureException(c.Request().Context(), telemetry.Exception{
-						Title:       "OpenPost HTTP " + strconv.Itoa(status),
+						Title:       "dopost HTTP " + strconv.Itoa(status),
 						Description: "An HTTP request failed",
 						Properties: map[string]any{
 							"method": c.Request().Method, "route": normalizedRequestRoute(c.Path()),
@@ -1409,7 +1409,7 @@ func capturePanics(recorder telemetry.Recorder, diagnosticsReporter *diagnostics
 						})
 					}
 					captureErr := recorder.CaptureException(c.Request().Context(), telemetry.Exception{
-						Title:       "OpenPost request panic",
+						Title:       "dopost request panic",
 						Description: "An HTTP request panicked",
 						Properties: map[string]any{
 							"method":         c.Request().Method,
@@ -1458,12 +1458,12 @@ func installTelemetryErrorHandler(e *echo.Echo, recorder telemetry.Recorder, dia
 		if status < http.StatusInternalServerError && !c.Response().Committed {
 			return
 		}
-		title := "OpenPost HTTP " + strconv.Itoa(status)
+		title := "dopost HTTP " + strconv.Itoa(status)
 		description := "An HTTP request failed"
 		boundary := "http_error"
 		code := diagnostics.CodeAPI5xx
 		if status < http.StatusInternalServerError {
-			title = "OpenPost HTTP response stream failed"
+			title = "dopost HTTP response stream failed"
 			description = "An HTTP response failed after headers were sent"
 			boundary = "http_stream_error"
 			code = diagnostics.CodeHTTPStreamFailed

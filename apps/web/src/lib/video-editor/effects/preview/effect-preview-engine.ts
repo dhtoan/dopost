@@ -1,6 +1,6 @@
 /**
  * Live effect previews rendered by the same WebGL2 compositor as playback and export.
- * Ported from FreeCut's effect-thumbnail engine and adapted to OpenPost's registry.
+ * Ported from FreeCut's effect-thumbnail engine and adapted to dopost's registry.
  */
 
 import { getCanvas2DContext } from '$lib/canvas-context';

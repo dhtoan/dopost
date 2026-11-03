@@ -67,7 +67,7 @@ func (s *Service) Get(ctx context.Context, workspaceID, projectID string) (*Reco
 	if err := ensureProject(ctx, s.db, workspaceID, projectID); err != nil {
 		return nil, err
 	}
-	var model models.AunoAutoVideoProject
+	var model models.DopostAutoVideoProject
 	if err := s.db.NewSelect().Model(&model).
 		Where("project_id = ? AND workspace_id = ?", projectID, workspaceID).
 		Scan(ctx); err != nil {
@@ -110,7 +110,7 @@ func (s *Service) Upsert(ctx context.Context, input UpsertInput) (*Record, error
 	}
 
 	now := s.now().UTC()
-	model := &models.AunoAutoVideoProject{
+	model := &models.DopostAutoVideoProject{
 		ProjectID:            projectID,
 		WorkspaceID:          workspaceID,
 		GenerationVersion:    input.GenerationVersion,
@@ -148,7 +148,7 @@ func (s *Service) Delete(ctx context.Context, workspaceID, projectID string) err
 	if err := ensureProject(ctx, s.db, workspaceID, projectID); err != nil {
 		return err
 	}
-	result, err := s.db.NewDelete().Model((*models.AunoAutoVideoProject)(nil)).
+	result, err := s.db.NewDelete().Model((*models.DopostAutoVideoProject)(nil)).
 		Where("project_id = ? AND workspace_id = ?", projectID, workspaceID).
 		Exec(ctx)
 	if err != nil {
@@ -196,7 +196,7 @@ func ensureProject(ctx context.Context, db *bun.DB, workspaceID, projectID strin
 	return nil
 }
 
-func recordFromModel(model *models.AunoAutoVideoProject) *Record {
+func recordFromModel(model *models.DopostAutoVideoProject) *Record {
 	return &Record{
 		ProjectID:         model.ProjectID,
 		WorkspaceID:       model.WorkspaceID,

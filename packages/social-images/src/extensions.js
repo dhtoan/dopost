@@ -2,7 +2,7 @@ export const browserExtensions = [
   {
     slug: "youtube-localizer",
     name: "YouTube Localizer",
-    title: "YouTube Localizer browser extension - OpenPost",
+    title: "YouTube Localizer browser extension - dopost",
     description:
       "Translate video titles, descriptions and thumbnails in YouTube Studio. Generate new thumbnails with your own reference images.",
     headline: "Make your videos work in more languages.",
@@ -53,7 +53,7 @@ export const browserExtensions = [
     ],
     cost: "The extension is free. AI requests use your own provider keys and their pricing.",
     privacy:
-      "YouTube Localizer works with your signed-in YouTube Studio session. It has no OpenPost account, backend, analytics or advertising tracking.",
+      "YouTube Localizer works with your signed-in YouTube Studio session. It has no dopost account, backend, analytics or advertising tracking.",
     privacyUpdated: "12 October 2026",
     privacySections: [
       {
@@ -73,7 +73,7 @@ export const browserExtensions = [
   {
     slug: "feed-limiter",
     name: "Feed Limiter",
-    title: "Feed Limiter browser extension - OpenPost",
+    title: "Feed Limiter browser extension - dopost",
     description:
       "Pause feeds on X, YouTube, Instagram, TikTok, LinkedIn, Facebook, Reddit, Threads, Bluesky and Pinterest. Set site limits, a shared allowance and allowed hours.",
     headline: "Less scrolling. Keep the useful parts.",
@@ -122,12 +122,12 @@ export const browserExtensions = [
     ],
     cost: "Free. No extension account, subscription or API keys needed.",
     privacy:
-      "Feed Limiter runs in your browser. It has no account, OpenPost backend, analytics or advertising tracking.",
+      "Feed Limiter runs in your browser. It has no account, dopost backend, analytics or advertising tracking.",
     privacyUpdated: "12 October 2026",
     privacySections: [
       {
         title: "Data handled locally",
-        text: "The extension reads supported page URLs and structure to identify and pause feeds. Settings, schedules, allowances and timers stay in your browser. It does not keep a browsing-history list or send page content, URLs or activity to OpenPost or another server.",
+        text: "The extension reads supported page URLs and structure to identify and pause feeds. Settings, schedules, allowances and timers stay in your browser. It does not keep a browsing-history list or send page content, URLs or activity to dopost or another server.",
       },
       {
         title: "Your data and deletion",

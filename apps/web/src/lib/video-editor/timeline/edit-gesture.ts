@@ -116,7 +116,7 @@ export interface CanvasNudgeUpdate {
  * only it moves. Timeline-only kinds (audio/adjustment/controller) never match
  * — callers keep the frame-nudge path for those. INTENTIONAL DIVERGENCE from
  * FreeCut, which skips audio only: adjustment/controller stacks have no canvas
- * position in OpenPost, so nudging them would silently do nothing.
+ * position in dopost, so nudging them would silently do nothing.
  */
 export function planCanvasNudge(
 	items: readonly TimelineItem[],

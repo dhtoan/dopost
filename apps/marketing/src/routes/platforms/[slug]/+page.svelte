@@ -62,7 +62,7 @@
 			<figure class="story-product">
 				<ProductScreenshot
 					src={`/assets/screenshots/${story.visual}-dark.webp`}
-					alt={`OpenPost ${story.visual.replaceAll('-', ' ')} for preparing ${platform.name} content`}
+					alt={`dopost ${story.visual.replaceAll('-', ' ')} for preparing ${platform.name} content`}
 					label={`${platform.name} workflow`}
 				/>
 				<figcaption>The tools for your next {platform.name} post, already together.</figcaption>
@@ -91,7 +91,7 @@
 				<details>
 					<summary>What can I prepare for {platform.name}?</summary>
 					<p>
-						OpenPost includes these formats. Check the options available to your account before
+						dopost includes these formats. Check the options available to your account before
 						scheduling.
 					</p>
 					<ul>
@@ -111,9 +111,8 @@
 				<details>
 					<summary>Do I need to install anything?</summary>
 					<p>
-						No. OpenPost Cloud runs in your browser. You can also try the free image and video
-						editors before creating an account. Full video editing works best in desktop Chrome or
-						Edge.
+						No. dopost Cloud runs in your browser. You can also try the free image and video editors
+						before creating an account. Full video editing works best in desktop Chrome or Edge.
 					</p>
 					<a href="/tools">Try the free tools</a>
 				</details>
@@ -124,7 +123,7 @@
 			<PlatformIcon platform={platform.short} class="size-10" />
 			<h1 class="marketing-title">{platform.name} is not available yet.</h1>
 			<p class="marketing-copy">
-				You cannot connect or publish to {platform.name} in OpenPost right now. Explore the other channels,
+				You cannot connect or publish to {platform.name} in dopost right now. Explore the other channels,
 				or contact us if this is the one your business needs.
 			</p>
 			<Button href="/platforms">Explore other channels <ArrowRight data-icon="inline-end" /></Button

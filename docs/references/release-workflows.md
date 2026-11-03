@@ -1,8 +1,8 @@
 # Release workflow comparison
 
-Reviewed on 2026-10-26 to repair OpenPost's release feedback loop. The objective is local typechecks and relevant tests before push/tag, fast local fixes, and separately reported remote validation, publication and deployment. Five-minute preparation remains a measured target, not permission to omit a suite.
+Reviewed on 2026-10-26 to repair dopost's release feedback loop. The objective is local typechecks and relevant tests before push/tag, fast local fixes, and separately reported remote validation, publication and deployment. Five-minute preparation remains a measured target, not permission to omit a suite.
 
-## What was wrong in OpenPost
+## What was wrong in dopost
 
 At `87c214421`, `ship` ran release metadata checks locally, then pushed and waited for full main CI before tagging. It never invoked the advertised local `check` command. This made GitHub the first place to discover many ordinary code failures. Main concurrency could cancel the selected revision, and a resumed invocation refused an older candidate after main advanced. The watcher treated every canceled run as a newer main push and omitted the canceled job's log.
 
@@ -48,7 +48,7 @@ Success-only samples below are observations, not percentiles or hardware-normali
 | [n8n master](https://github.com/n8n-io/n8n/actions/runs/40320358423) / [release](https://github.com/n8n-io/n8n/actions/runs/40279900982) | 12m11s / 26m36s | Broad validation versus package/image publication. |
 | [Cal.diy PR](https://github.com/calcom/cal.diy/actions/runs/36227913583) | 31m36s | September sample with browser shards; too old to claim current production performance. |
 
-## Decisions for OpenPost
+## Decisions for dopost
 
 1. Run the maintained local verification tasks before the first candidate push. Bind the push and tag to the checked clean revision and reject changes during checks. Keep failure reproduction local.
 2. Make tag validation independent of cancellation of a moving main run. Reuse a completed exact-SHA proof when available; otherwise retain all remote gates. Existing immutable tags resume without pulling unrelated commits into the candidate.

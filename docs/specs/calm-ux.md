@@ -1,6 +1,6 @@
 # Calm UX
 
-OpenPost serves solo founders and creators who do not want to waste time. Small teams and agencies must still work. The product should feel calm, approachable, and delightful. This contract supersedes older visual guidance where they conflict.
+dopost serves solo founders and creators who do not want to waste time. Small teams and agencies must still work. The product should feel calm, approachable, and delightful. This contract supersedes older visual guidance where they conflict.
 
 ## Principles
 
@@ -17,7 +17,7 @@ OpenPost serves solo founders and creators who do not want to waste time. Small 
 - Type: Manrope. `text-sm` (14px) for controls and body; `text-xs` is 13px and the minimum outside editors. Editors set `data-density="editor"` and keep 12px. Never use arbitrary sizes under 13px outside editors.
 - Sentence case. No uppercase tracking labels.
 - Separate regions with spacing and one soft border, never nested cards. Cards are for groups that act as one object.
-- Dither is the OpenPost signature and ties the product together: focal and primary buttons, charts, progress, skeletons, empty states, and brand moments. Ordinary and quiet buttons stay plain so secondary actions never look disabled.
+- Dither is the dopost signature and ties the product together: focal and primary buttons, charts, progress, skeletons, empty states, and brand moments. Ordinary and quiet buttons stay plain so secondary actions never look disabled.
 - Motion is short and purposeful: 160ms to 240ms ease-out, respecting reduced motion, no idle animation.
 - Touch targets stay 44px on coarse pointers. Keep visible focus in both schemes.
 

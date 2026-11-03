@@ -20,7 +20,7 @@ const maxDiagnosticsRequestBytes = 64 << 10
 const maxDiagnosticsHumaBodyBytes = maxDiagnosticsRequestBytes + 1
 
 // DiagnosticsHandler serves the instance-local diagnostics channel. Browsers
-// report to their own OpenPost instance; the instance administrator owns the
+// report to their own dopost instance; the instance administrator owns the
 // reporting switch, and only the sanitized diagnostic envelope may leave the
 // instance. There is deliberately no direct browser-to-receiver path: when
 // the backend is unavailable, browser reports are lost rather than silently
@@ -91,7 +91,7 @@ func (h *DiagnosticsHandler) RegisterRoutes(api huma.API) {
 		Method:      http.MethodGet,
 		Path:        "/diagnostics/config",
 		Summary:     "Get maintainer diagnostics reporting settings",
-		Description: "Whether this instance sends privacy-limited diagnostic reports to OpenPost. No receiver URL, token, or installation identifier is exposed.",
+		Description: "Whether this instance sends privacy-limited diagnostic reports to dopost. No receiver URL, token, or installation identifier is exposed.",
 		Tags:        []string{"Diagnostics"},
 		Middlewares: huma.Middlewares{middleware.AuthMiddleware(api, h.auth)},
 	}, func(_ context.Context, _ *struct{}) (*DiagnosticsConfigOutput, error) {

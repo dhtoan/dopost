@@ -70,7 +70,7 @@ def fetch(entry, cache):
     os.makedirs(cache, exist_ok=True)
     raw = os.path.join(cache, f"{entry['id']}{os.path.splitext(entry['preview'])[1]}")
     if not os.path.exists(raw):
-        headers = {"User-Agent": "OpenPost launch film", "Referer": entry.get("page", "")}
+        headers = {"User-Agent": "dopost launch film", "Referer": entry.get("page", "")}
         with urllib.request.urlopen(urllib.request.Request(entry["preview"], headers=headers), timeout=120) as response:
             open(raw, "wb").write(response.read())
     digest = hashlib.sha256(open(raw, "rb").read()).hexdigest()

@@ -107,7 +107,7 @@ func documentaryPlannerHTTPError(err error) error {
 	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
 		return huma.Error503ServiceUnavailable("documentary planning timed out")
 	}
-	log.Printf("Auno documentary planning failed (%T)", err)
+	log.Printf("dopost documentary planning failed (%T)", err)
 	return huma.Error502BadGateway("documentary planning failed")
 }
 

@@ -7,7 +7,7 @@ import { timerAudioEntries } from '../timers/audio';
  *
  * Ported from FreeCut (MIT) - features/export/utils/timeline-to-composition.ts,
  * canvas-transitions.ts, and canvas-audio.ts (segment extraction), retargeted
- * to OpenPost's TimelineItem model.
+ * to dopost's TimelineItem model.
  */
 
 import type {

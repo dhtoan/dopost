@@ -1,6 +1,6 @@
 /**
  * Ported from FreeCut (MIT) — timeline/services/filmstrip-cache.ts,
- * trimmed to OpenPost's needs:
+ * trimmed to dopost's needs:
  * - Managed worker pool + warm preboot (kept).
  * - Memory budget with LRU eviction via SizedAccessedMemoryCache (kept;
  *   FreeCut's FilmstripMemoryState is the same shape).

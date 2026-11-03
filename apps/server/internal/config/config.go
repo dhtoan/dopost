@@ -24,7 +24,7 @@ type MastodonServerConfig struct {
 	InstanceURL  string `json:"instance_url"`
 }
 
-// defaultDiagnosticsReceiverURL is the official OpenPost diagnostics
+// defaultDiagnosticsReceiverURL is the official dopost diagnostics
 // receiver. Instances report here unless the operator overrides
 // OPENPOST_DIAGNOSTICS_RECEIVER_URL or disables reporting with
 // OPENPOST_DIAGNOSTICS_ENABLED=false. It is a public endpoint address,
@@ -246,7 +246,7 @@ func Load() *Config {
 		Edition:                 edition,
 		Port:                    getEnvWithFallbacks("OPENPOST_PORT", "8080"),
 		DatabaseDriver:          getEnvEnum("OPENPOST_DATABASE_DRIVER", DatabaseDriverSQLite, DatabaseDriverSQLite, DatabaseDriverPostgres),
-		DatabasePath:            getEnvWithFallbacks("OPENPOST_DATABASE_PATH", "file:auno-studio.db?cache=shared&mode=rwc", "OPENPOST_DB_PATH"),
+		DatabasePath:            getEnvWithFallbacks("OPENPOST_DATABASE_PATH", "file:dopost.db?cache=shared&mode=rwc", "OPENPOST_DB_PATH"),
 		DatabaseURL:             getEnvWithFallbacks("OPENPOST_DATABASE_URL", "", "DATABASE_URL"),
 		JWTSecret:               getEnvWithFallbacks("OPENPOST_JWT_SECRET", "", "JWT_SECRET"),
 		EncryptionKey:           getEnvWithFallbacks("OPENPOST_ENCRYPTION_KEY", "", "ENCRYPTION_KEY"),

@@ -623,11 +623,11 @@ func normalizeCheckoutReturnPath(value string) (string, error) {
 		return "", nil
 	}
 	if len(value) > 2048 || strings.ContainsAny(value, "\r\n") {
-		return "", fmt.Errorf("checkout return path must be a same-origin OpenPost route")
+		return "", fmt.Errorf("checkout return path must be a same-origin dopost route")
 	}
 	parsed, err := url.ParseRequestURI(value)
 	if err != nil || parsed.IsAbs() || parsed.Host != "" || !strings.HasPrefix(parsed.Path, "/") || strings.HasPrefix(parsed.Path, "//") {
-		return "", fmt.Errorf("checkout return path must be a same-origin OpenPost route")
+		return "", fmt.Errorf("checkout return path must be a same-origin dopost route")
 	}
 	return parsed.String(), nil
 }
@@ -985,11 +985,11 @@ func (s *Service) resolvePaddleSubscription(ctx context.Context, subscription *p
 		planID = s.planIDForProviderPrice(priceID)
 	}
 	if attempt.OrganizationID == "" {
-		return resolvedPaddleSubscription{}, fmt.Errorf("paddle subscription missing a valid OpenPost checkout_id")
+		return resolvedPaddleSubscription{}, fmt.Errorf("paddle subscription missing a valid dopost checkout_id")
 	}
 	plan, ok := s.paddle.Plans[planID]
 	if !ok {
-		return resolvedPaddleSubscription{}, fmt.Errorf("paddle subscription references unknown OpenPost plan %q", planID)
+		return resolvedPaddleSubscription{}, fmt.Errorf("paddle subscription references unknown dopost plan %q", planID)
 	}
 	expectedPrice, err := s.planFor(planID, attempt.BillingPeriod)
 	if err != nil {

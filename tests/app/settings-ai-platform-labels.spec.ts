@@ -53,7 +53,7 @@ test("AI prompt destinations use the same provider names in navigation and selec
         }
         await expect(page.getByRole("heading", { name: provider, exact: true })).toBeVisible();
         await expect(
-          page.getByText(`Instructions added when OpenPost generates a ${provider} variant.`, {
+          page.getByText(`Instructions added when dopost generates a ${provider} variant.`, {
             exact: true,
           }),
         ).toBeVisible();

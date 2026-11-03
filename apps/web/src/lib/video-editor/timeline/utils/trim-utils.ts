@@ -116,7 +116,7 @@ export function clampTrimAmount(
  * Clamp a start-trim amount so the item doesn't overlap the end of the previous
  * item on the same track, or an end-trim so it doesn't overlap the next start.
  * `excludedIds` are allowed to overlap (FreeCut used this for transition
- * partners; OpenPost v1 has no transitions, but the hook stays for parity).
+ * partners; dopost v1 has no transitions, but the hook stays for parity).
  */
 export function clampToAdjacentItems(
 	item: TimelineItem,

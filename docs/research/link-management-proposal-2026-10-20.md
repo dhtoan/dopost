@@ -1,4 +1,4 @@
-# Link management for OpenPost
+# Link management for dopost
 
 Research date: 20 October 2026. Proposal only, not an implemented capability or a pricing change. Companion evidence: [Shlink and Dub review](link-management-competitors-2026-10-20.md).
 
@@ -32,14 +32,14 @@ Do not share one branded hostname across Workspaces initially. An Organization-w
 
 ## Product scope
 
-The [competitor review](link-management-competitors-2026-10-20.md) supports three concrete lessons. [Shlink](https://shlink.io/features/) provides a strong self-hosted baseline: multiple domains, custom slugs, tags, API access, and visit reporting. [Dub](https://dub.co/pricing/links) adds a polished hosted experience and a larger attribution product; Pro currently lists $30/month, 1,000 new links, 50,000 tracked events, and ten domains. Its free plan already includes three domains, so a single bundled domain is useful convenience rather than a category-leading domain allowance. [Dub keeps redirects running over normal analytics quotas](https://dub.co/help/article/dub-analytics-limits), but gates analytics access. OpenPost should preserve already-collected history and disclose any subsequent gap instead.
+The [competitor review](link-management-competitors-2026-10-20.md) supports three concrete lessons. [Shlink](https://shlink.io/features/) provides a strong self-hosted baseline: multiple domains, custom slugs, tags, API access, and visit reporting. [Dub](https://dub.co/pricing/links) adds a polished hosted experience and a larger attribution product; Pro currently lists $30/month, 1,000 new links, 50,000 tracked events, and ten domains. Its free plan already includes three domains, so a single bundled domain is useful convenience rather than a category-leading domain allowance. [Dub keeps redirects running over normal analytics quotas](https://dub.co/help/article/dub-analytics-limits), but gates analytics access. dopost should preserve already-collected history and disclose any subsequent gap instead.
 
-Shlink is MIT-licensed; Dub's core is AGPLv3 with separate enterprise terms. The companion report pins reviewed source revisions and licensing links. Build the small native OpenPost boundary rather than embedding another product's authorization and subscription model. This proposal makes the final recommendation where the independent review suggests alternatives: keep allowances per Workspace, defer bulk migration until the core works, and offer basic expiry in the first release.
+Shlink is MIT-licensed; Dub's core is AGPLv3 with separate enterprise terms. The companion report pins reviewed source revisions and licensing links. Build the small native dopost boundary rather than embedding another product's authorization and subscription model. This proposal makes the final recommendation where the independent review suggests alternatives: keep allowances per Workspace, defer bulk migration until the core works, and offer basic expiry in the first release.
 
 ### Ship first
 
 1. **Link library:** destination URL, generated or custom slug, title, campaign/tags, search, copy, edit, pause, optional expiry, and export. Keep an audit trail for destination edits. Do not reuse deleted slugs. Pausing a link must be a deliberate action with an inspectable result.
-2. **Branded domains:** start with a subdomain such as `go.example.com`, DNS ownership verification, managed HTTPS, a default domain, and useful pending/error/recovery states. Offer an OpenPost-managed short domain so users can start before changing DNS. Keep that domain separate from the main marketing, login, and transactional-email domains.
+2. **Branded domains:** start with a subdomain such as `go.example.com`, DNS ownership verification, managed HTTPS, a default domain, and useful pending/error/recovery states. Offer a dopost-managed short domain so users can start before changing DNS. Keep that domain separate from the main marketing, login, and transactional-email domains.
 3. **Composer integration:** an explicit “Track this link” action, destination preview, optional UTMs, and the choice to use one link or separate links for each variant. Save link identities before publishing, reuse them on retries, and preserve the user's original URL and authored text decisions.
 4. **Reports:** clicks over time, country, referrer domain, broad device category, campaign, and originating post/variant. Show last processed time, collection gaps, and unknown dimensions. Export reports. Distinguish our link clicks from provider-reported clicks and impressions.
 5. **Portable access:** typed HTTP API and the same Workspace/scoped authorization through CLI and MCP; basic mobile create/copy/view support. Reuse generated contracts and query-catalog reads. Web owns initial DNS setup and detailed reports.
@@ -63,7 +63,7 @@ Illustrative workflow: a founder publishes a launch to LinkedIn and X and shares
 | Apex domains and wildcard domains              | Defer. Subdomain CNAME onboarding covers the useful first case.                                                                              |
 | Organization-shared branded domains            | Defer until cross-Workspace namespace rules are justified.                                                                                   |
 
-Do not build affiliate programs, payouts, ad retargeting pixels, fingerprinting, arbitrary scripts, a domain registrar, or a public anonymous shortening endpoint as part of this feature. The useful connection to OpenPost is publishing and understanding content outcomes.
+Do not build affiliate programs, payouts, ad retargeting pixels, fingerprinting, arbitrary scripts, a domain registrar, or a public anonymous shortening endpoint as part of this feature. The useful connection to dopost is publishing and understanding content outcomes.
 
 ### Existing URL semantics to preserve
 
@@ -96,7 +96,7 @@ This retains the existing “same tools, more Workspaces and people” pricing m
 
 Later add-on hypothesis, only after observing usage: **$5/month for another hostname** and **$10/month for another 100,000 analyzed clicks**, assigned to a named Workspace and bought explicitly. These are proposed value/support prices, not measured cost pass-throughs. They need catalogue, checkout, tax, entitlement, cancellation, and copy work. The current public “no additional usage charges” claim must be revised accurately before offering paid capacity; do not quietly introduce usage invoices. Do not offer paid analytics recovery unless those events were actually retained.
 
-Normal quota exhaustion and cancellation are different. Proposed closure contract: redirects survive through the paid period and a clearly notified 30-day migration grace; then return a deliberate gone response. Export destinations and reports, never recycle slugs, and explain that OpenPost-managed shared-domain URLs cannot be moved to another provider under that hostname. Cancellation behavior needs an explicit product decision before launch; indefinite free hosting is not assumed in these economics.
+Normal quota exhaustion and cancellation are different. Proposed closure contract: redirects survive through the paid period and a clearly notified 30-day migration grace; then return a deliberate gone response. Export destinations and reports, never recycle slugs, and explain that dopost-managed shared-domain URLs cannot be moved to another provider under that hostname. Cancellation behavior needs an explicit product decision before launch; indefinite free hosting is not assumed in these economics.
 
 ## Backend architecture
 

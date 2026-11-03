@@ -83,7 +83,7 @@ func TestFacebookListCommentsCollectsNestedReplies(t *testing.T) {
 						"message": "Yes, up to five minutes.",
 						"created_time": "2026-09-14T10:05:00+0000",
 						"can_comment": true,
-						"from": {"id": "page-1", "name": "OpenPost Page"},
+						"from": {"id": "page-1", "name": "dopost Page"},
 						"parent": {"id": "post-1_c1"},
 						"comments": {
 							"data": [{

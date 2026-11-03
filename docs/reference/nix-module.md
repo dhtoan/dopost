@@ -5,8 +5,8 @@ Source: [`rodrgds/nix-config/modules/services/openpost/default.nix`](https://git
 The public example uses the moving `:latest` tag. The linked deployment source may pin a verified image digest.
 
 ```nix
-# OpenPost - Multi-platform social media posting
-# https://github.com/getopenpost/openpost
+# dopost - Multi-platform social media posting
+# https://github.com/dhtoan/dopost
 {
   config,
   lib,
@@ -19,7 +19,7 @@ let
   runtimeContract = builtins.fromJSON (builtins.readFile ./runtime-contract.json);
   # Host port (external) - must be unique per service
   openpostHostPort = 8090;
-  # Container port (internal) - OpenPost listens on 8080 inside container
+  # Container port (internal) - dopost listens on 8080 inside container
   openpostContainerPort = 8080;
   # Map the image user into a non-login host range so the interactive UID 1000
   # cannot read runtime secrets or application data from the host.
@@ -283,10 +283,10 @@ let
     })"
     case "$webhook_url" in
       https://discord.com/api/webhooks/*|https://discordapp.com/api/webhooks/*) ;;
-      *) echo "OpenPost operations webhook is not an approved Discord URL" >&2; exit 1 ;;
+      *) echo "dopost operations webhook is not an approved Discord URL" >&2; exit 1 ;;
     esac
     result="$(${pkgs.systemd}/bin/systemctl show "$unit" --property=Result --value 2>/dev/null || printf unknown)"
-    message="OpenPost operations failure on $(${pkgs.inetutils}/bin/hostname): $unit result=$result at $(${pkgs.coreutils}/bin/date -u +%Y-%m-%dT%H:%M:%SZ)"
+    message="dopost operations failure on $(${pkgs.inetutils}/bin/hostname): $unit result=$result at $(${pkgs.coreutils}/bin/date -u +%Y-%m-%dT%H:%M:%SZ)"
     payload="$(${pkgs.jq}/bin/jq -cn --arg content "$message" '{content: $content}')"
     printf 'url = "%s"\n' "$webhook_url" \
       | ${pkgs.curl}/bin/curl \
@@ -304,7 +304,7 @@ let
 in
 {
   options.vps.openpost = {
-    enable = lib.mkEnableOption "Enable OpenPost";
+    enable = lib.mkEnableOption "Enable dopost";
 
     edition = lib.mkOption {
       type = lib.types.enum [
@@ -313,7 +313,7 @@ in
       ];
       default = "selfhost";
       description = ''
-        OpenPost edition. `selfhost` keeps SQLite and local media defaults.
+        dopost edition. `selfhost` keeps SQLite and local media defaults.
         `cloud` wires the container for Postgres and S3-compatible storage.
       '';
     };
@@ -321,20 +321,20 @@ in
     domain = lib.mkOption {
       type = lib.types.str;
       default = "app.openpo.st";
-      description = "Domain for OpenPost";
+      description = "Domain for dopost";
     };
 
     timezone = lib.mkOption {
       type = lib.types.str;
       default = "Europe/Lisbon";
-      description = "Timezone for OpenPost";
+      description = "Timezone for dopost";
     };
 
     image = lib.mkOption {
       type = lib.types.str;
       default = "ghcr.io/getopenpost/openpost:latest";
       description = ''
-        OpenPost container image. Keep this aligned with the local tag promoted
+        dopost container image. Keep this aligned with the local tag promoted
         by the signed deployment hook because the VPS service uses pullPolicy =
         "never" and must not fetch an unverified registry reference at restart.
       '';
@@ -348,7 +348,7 @@ in
       ];
       default = "always";
       description = ''
-        Podman image pull policy for OpenPost. The default keeps the hosted
+        Podman image pull policy for dopost. The default keeps the hosted
         service from reusing a stale local `latest` image after a Nix switch.
       '';
     };
@@ -356,7 +356,7 @@ in
     bootstrapDigest = lib.mkOption {
       type = lib.types.nullOr (lib.types.strMatching "sha256:[0-9a-f]{64}");
       default = null;
-      description = "Immutable OpenPost image digest used only to seed a clean host.";
+      description = "Immutable dopost image digest used only to seed a clean host.";
     };
 
     bootstrapRevision = lib.mkOption {
@@ -365,13 +365,13 @@ in
       description = "Source revision required on the clean-host bootstrap image.";
     };
 
-    offsiteBackup.enable = lib.mkEnableOption "encrypted off-host OpenPost backups and log archives";
+    offsiteBackup.enable = lib.mkEnableOption "encrypted off-host dopost backups and log archives";
 
     extraEnvironment = lib.mkOption {
       type = lib.types.attrsOf lib.types.str;
       default = { };
       description = ''
-        Extra OpenPost environment variables. Use this for non-secret cloud
+        Extra dopost environment variables. Use this for non-secret cloud
         settings, temporary overrides, or *_FILE pointers to mounted secrets.
       '';
     };
@@ -380,7 +380,7 @@ in
       type = lib.types.listOf lib.types.path;
       default = [ ];
       description = ''
-        Extra env files passed to the OpenPost container. In cloud mode this
+        Extra env files passed to the dopost container. In cloud mode this
         should provide OPENPOST_DATABASE_URL, S3 credentials, Paddle billing
         secrets, or *_FILE pointers unless they are set via extraEnvironment.
       '';
@@ -390,7 +390,7 @@ in
       type = lib.types.listOf lib.types.str;
       default = [ ];
       description = ''
-        Extra Podman options for OpenPost. Use this to bind-mount additional
+        Extra Podman options for dopost. Use this to bind-mount additional
         secret files referenced by *_FILE environment variables.
       '';
     };
@@ -461,15 +461,15 @@ in
     assertions = [
       {
         assertion = (cfg.bootstrapDigest == null) == (cfg.bootstrapRevision == null);
-        message = "OpenPost bootstrapDigest and bootstrapRevision must be configured together.";
+        message = "dopost bootstrapDigest and bootstrapRevision must be configured together.";
       }
       {
         assertion = cfg.bootstrapDigest == null || lib.hasSuffix ":latest" cfg.image;
-        message = "OpenPost clean-host bootstrap requires the managed image to use the :latest tag.";
+        message = "dopost clean-host bootstrap requires the managed image to use the :latest tag.";
       }
     ];
 
-    # OpenPost HTTP application. Hosted workers run in a separate container so
+    # dopost HTTP application. Hosted workers run in a separate container so
     # web traffic and durable job throughput can scale and fail independently.
     virtualisation.oci-containers.containers.openpost = {
       inherit (cfg) image;
@@ -654,7 +654,7 @@ in
       };
 
     systemd.services.openpost-image-bootstrap = lib.mkIf (cfg.bootstrapDigest != null) {
-      description = "Seed the exact OpenPost image on a clean host";
+      description = "Seed the exact dopost image on a clean host";
       before = openpostApplicationUnits;
       requiredBy = openpostApplicationUnits;
       serviceConfig = {
@@ -671,7 +671,7 @@ in
           ${pkgs.podman}/bin/podman pull "$candidate"
           revision="$(${pkgs.podman}/bin/podman image inspect "$candidate" --format '{{index .Labels "org.opencontainers.image.revision"}}')"
           if [ "$revision" != ${lib.escapeShellArg cfg.bootstrapRevision} ]; then
-            echo "OpenPost bootstrap image revision $revision does not match the configured revision" >&2
+            echo "dopost bootstrap image revision $revision does not match the configured revision" >&2
             exit 1
           fi
           ${pkgs.podman}/bin/podman tag "$candidate" "$image"
@@ -680,7 +680,7 @@ in
     };
 
     systemd.services."openpost-ops-alert@" = {
-      description = "Send an OpenPost operations failure alert for %i";
+      description = "Send a dopost operations failure alert for %i";
       serviceConfig = {
         Type = "oneshot";
         ExecStart = "${openpostOpsAlert} %i";
@@ -693,7 +693,7 @@ in
     };
 
     systemd.services.openpost-postgres-credential-reconcile = lib.mkIf isCloud {
-      description = "Reconcile the authoritative OpenPost PostgreSQL credential";
+      description = "Reconcile the authoritative dopost PostgreSQL credential";
       after = [ "podman-openpost-postgres.service" ];
       requires = [ "podman-openpost-postgres.service" ];
       before = openpostApplicationUnits;
@@ -710,7 +710,7 @@ in
               break
             fi
             if [ "$attempt" = 60 ]; then
-              echo "OpenPost PostgreSQL did not become ready for credential reconciliation" >&2
+              echo "dopost PostgreSQL did not become ready for credential reconciliation" >&2
               exit 1
             fi
             ${pkgs.coreutils}/bin/sleep 1
@@ -755,7 +755,7 @@ in
     };
 
     systemd.services.openpost-postgres-backup = lib.mkIf isCloud {
-      description = "Backup OpenPost Postgres database";
+      description = "Backup dopost Postgres database";
       unitConfig.OnFailure = [ "openpost-ops-alert@%n.service" ];
       serviceConfig = {
         Type = "oneshot";
@@ -786,7 +786,7 @@ in
     };
 
     systemd.timers.openpost-postgres-backup = lib.mkIf isCloud {
-      description = "Daily OpenPost Postgres backup";
+      description = "Daily dopost Postgres backup";
       wantedBy = [ "timers.target" ];
       timerConfig = {
         OnCalendar = "daily";
@@ -795,7 +795,7 @@ in
     };
 
     systemd.services.openpost-media-backup = lib.mkIf isCloud {
-      description = "Backup OpenPost S3 media with retained changed and deleted objects";
+      description = "Backup dopost S3 media with retained changed and deleted objects";
       unitConfig.OnFailure = [ "openpost-ops-alert@%n.service" ];
       serviceConfig = {
         Type = "oneshot";
@@ -831,7 +831,7 @@ in
     };
 
     systemd.timers.openpost-media-backup = lib.mkIf isCloud {
-      description = "Daily OpenPost media backup";
+      description = "Daily dopost media backup";
       wantedBy = [ "timers.target" ];
       timerConfig = {
         OnCalendar = "daily";
@@ -840,7 +840,7 @@ in
     };
 
     systemd.services.openpost-offsite-backup = lib.mkIf (isCloud && cfg.offsiteBackup.enable) {
-      description = "Encrypt and copy OpenPost backups and logs off host";
+      description = "Encrypt and copy dopost backups and logs off host";
       after = [
         "openpost-postgres-backup.service"
         "openpost-media-backup.service"
@@ -897,7 +897,7 @@ in
             | ${pkgs.jq}/bin/jq -r 'select(.message_type == "summary") | .snapshot_id' \
             | ${pkgs.coreutils}/bin/tail -n 1)"
           [[ "$snapshot_id" =~ ^[0-9a-f]{64}$ ]] || {
-            echo "Restic did not report an OpenPost snapshot ID" >&2
+            echo "Restic did not report a dopost snapshot ID" >&2
             exit 1
           }
           ${pkgs.restic}/bin/restic check --read-data-subset=5%
@@ -924,7 +924,7 @@ in
     };
 
     systemd.timers.openpost-offsite-backup = lib.mkIf (isCloud && cfg.offsiteBackup.enable) {
-      description = "Daily encrypted off-host OpenPost backup";
+      description = "Daily encrypted off-host dopost backup";
       wantedBy = [ "timers.target" ];
       timerConfig = {
         OnCalendar = "*-*-* 02:30:00";
@@ -936,9 +936,9 @@ in
     systemd.services.openpost-restore-drill = lib.mkIf isCloud {
       description =
         if cfg.offsiteBackup.enable then
-          "Restore and validate the latest encrypted off-host OpenPost backup"
+          "Restore and validate the latest encrypted off-host dopost backup"
         else
-          "Restore and validate the latest local OpenPost backup";
+          "Restore and validate the latest local dopost backup";
       unitConfig.OnFailure = [ "openpost-ops-alert@%n.service" ];
       after = [
         "podman-openpost-postgres.service"
@@ -989,7 +989,7 @@ in
           }
           latest_backup=$(${pkgs.findutils}/bin/find "$backup_source_root" -maxdepth 1 -type f -name 'openpost_*.sql.gz' -printf '%T@ %p\n' | ${pkgs.coreutils}/bin/sort -nr | ${pkgs.gawk}/bin/awk 'NR == 1 { print $2 }')
           if [ -z "$latest_backup" ]; then
-            echo "No OpenPost database backup is available for the restore drill" >&2
+            echo "No dopost database backup is available for the restore drill" >&2
             exit 1
           fi
 
@@ -1059,7 +1059,7 @@ in
     };
 
     systemd.timers.openpost-restore-drill = lib.mkIf isCloud {
-      description = "Weekly OpenPost restore drill";
+      description = "Weekly dopost restore drill";
       wantedBy = [ "timers.target" ];
       timerConfig = {
         OnCalendar = "Sun 04:00";

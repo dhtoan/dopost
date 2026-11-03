@@ -1,4 +1,4 @@
-// Package externalwebhooks owns durable, signed delivery of OpenPost events to
+// Package externalwebhooks owns durable, signed delivery of dopost events to
 // external applications. Authorization grants and delivery retries deliberately
 // have separate lifecycles.
 package externalwebhooks
@@ -274,7 +274,7 @@ func (s *Service) HandleJob(ctx context.Context, payload string) error {
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", "OpenPost-Webhooks/1.0")
+	req.Header.Set("User-Agent", "dopost-Webhooks/1.0")
 	req.Header.Set("X-OpenPost-Delivery", delivery.ID)
 	req.Header.Set("X-OpenPost-Event", delivery.EventType)
 	req.Header.Set("X-OpenPost-Timestamp", timestamp)

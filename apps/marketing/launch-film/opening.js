@@ -284,7 +284,7 @@ const TEAM = {
 	out: T.team + 2
 };
 const MEET = 'Meet your\ncontent team.';
-const NAME = 'OpenPost';
+const NAME = 'dopost';
 const WRITE = {
 	in: 0.95,
 	erase: T.promise + 0.5,

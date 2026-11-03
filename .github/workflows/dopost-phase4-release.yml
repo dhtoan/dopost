@@ -1,0 +1,157 @@
+name: dopost Phase 4 Release Gate
+
+on:
+  pull_request:
+    paths: &dopost_paths
+      - "packages/dopost-motion/**"
+      - "apps/server/internal/dopostmotion/**"
+      - "apps/server/internal/services/autovideo/**"
+      - "apps/server/internal/services/documentary/**"
+      - "apps/server/internal/api/handlers/auto_video*.go"
+      - "apps/server/internal/models/dopost_*.go"
+      - "apps/server/internal/database/migrations/900*.sql"
+      - "apps/server/cmd/openpost/dopost_*"
+      - "apps/web/src/lib/dopost/**"
+      - "apps/web/src/lib/components/dopost-documentary/**"
+      - "apps/web/src/routes/auto-video/**"
+      - "apps/web/src/hooks.client.ts"
+      - "apps/web/vitest.config.ts"
+      - "tests/app/dopost/**"
+      - "tests/app/playwright.config.ts"
+      - "third_party/bang-motion/**"
+      - "licenses/bang-motion/**"
+      - "NOTICE.md"
+      - "docs/compliance/third-party-inventory.md"
+      - "bun.lock"
+      - "apps/web/package.json"
+      - ".github/workflows/dopost-phase4-release.yml"
+  push:
+    branches:
+      - main
+      - codex/task19-vox-motion-e2e
+    paths: *dopost_paths
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  motion-package:
+    name: motion-package
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+      - run: bun install --frozen-lockfile
+      - name: Test dopost Motion package
+        run: bun test packages/dopost-motion/src
+      - name: Test browser motion adapters
+        run: cd apps/web && bun run sync && bunx vitest run --project server src/lib/dopost/motion
+
+  backend-documentary:
+    name: backend-documentary
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.6"
+          cache-dependency-path: apps/server/go.sum
+      - name: Test documentary, motion compiler, and Auto Video services
+        run: >-
+          cd apps/server && go test
+          ./internal/services/documentary
+          ./internal/dopostmotion
+          ./internal/services/autovideo
+          -v
+      - name: Test deterministic dev planner fixture routing
+        run: >-
+          cd apps/server && go test -tags dev ./cmd/openpost
+          -run 'TestDopost(E2EPlannerGeneratorIsOptInAndStructured|PlannerGeneratorUsesE2EFixtureWhenExplicitlyEnabled)'
+          -count=1 -v
+
+  frontend-dopost:
+    name: frontend-dopost
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.6"
+          cache-dependency-path: apps/server/go.sum
+      - run: bun install --frozen-lockfile
+      - name: Check generated contracts
+        run: bun scripts/check-contracts.mjs
+      - name: Generate frontend translations
+        run: bun run --filter @openpost/web generate:i18n
+      - name: Check frontend i18n
+        run: cd apps/web && bun run check:i18n
+      - name: Check frontend theme icons
+        run: cd apps/web && bun run check:theme-icons
+      - name: Check frontend generated types
+        run: cd apps/web && TMPDIR="$RUNNER_TEMP" bun run check:types
+      - name: Sync frontend
+        run: cd apps/web && TMPDIR="$RUNNER_TEMP" bun run sync
+      - name: Typecheck frontend
+        run: cd apps/web && TMPDIR="$RUNNER_TEMP" OPENPOST_CHECK_PREPARED=1 bunx svelte-check --tsconfig ./tsconfig.json
+      - name: Test dopost frontend modules
+        run: cd apps/web && bunx vitest run src/lib/dopost src/lib/video-editor/dopost
+      - name: Build production web embed
+        run: bun run build -- frontend
+      - name: Prove E2E fixture is unavailable in production build
+        run: >-
+          cd apps/server && go test ./cmd/openpost
+          -run TestDopostE2EPlannerGeneratorIsUnavailableInProduction
+          -count=1 -v
+
+  browser-dopost:
+    name: browser-dopost
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.6"
+          cache-dependency-path: apps/server/go.sum
+      - run: bun install --frozen-lockfile
+      - run: bunx playwright install --with-deps chromium
+      - name: Run deterministic Motion and Vox browser gates
+        run: >-
+          bunx playwright test --config tests/app/playwright.config.ts
+          tests/app/dopost/motion-determinism.spec.ts
+          tests/app/dopost/motion-visual-qa.spec.ts
+          tests/app/dopost/vox-documentary.spec.ts
+          --workers=1
+
+  compliance:
+    name: compliance
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.6"
+          cache-dependency-path: apps/server/go.sum
+      - run: bun install --frozen-lockfile
+      - name: Verify Bang Motion provenance snapshot
+        run: bun scripts/check-bang-motion-vendor.mjs
+      - name: Verify third-party notices
+        run: bun scripts/check-third-party-notices.mjs
+      - name: Validate workflow syntax
+        run: bun run check -- workflows

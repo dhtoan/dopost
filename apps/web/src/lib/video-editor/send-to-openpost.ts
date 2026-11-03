@@ -1,5 +1,5 @@
 /**
- * Send to OpenPost: upload a finished export into the workspace media
+ * Send to dopost: upload a finished export into the workspace media
  * library via the established upload client. Only final results cross the
  * boundary — projects never sync.
  */

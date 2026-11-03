@@ -1,6 +1,6 @@
 <!--
 THESIS: Analytics leads with measured outcomes, then audience and account performance.
-OWN-WORLD: It uses OpenPost's flat borders, compact controls, and provider marks.
+OWN-WORLD: It uses dopost's flat borders, compact controls, and provider marks.
 STORY: Choose accounts and dates, compare outcomes, then inspect the source post.
 FIRST VIEWPORT: Compact reporting controls lead directly into the outcome summary and chart.
 FORM: Server-owned insights and content rows preserve source, period, sample, and provider context.

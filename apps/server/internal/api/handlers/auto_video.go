@@ -72,7 +72,7 @@ type GenerateAutoVideoStoryboardOutput struct {
 	}
 }
 
-type AunoAICapabilitiesOutput struct {
+type DopostAICapabilitiesOutput struct {
 	Body struct {
 		ProviderMode             string `json:"provider_mode"`
 		PlannerAvailable         bool   `json:"planner_available"`
@@ -98,44 +98,44 @@ func NewAutoVideoHandler(db *bun.DB, auth middleware.Authenticator, planner auto
 func (h *AutoVideoHandler) RegisterRoutes(api huma.API) {
 	auth := huma.Middlewares{middleware.AuthMiddleware(api, h.auth)}
 	huma.Register(api, huma.Operation{
-		OperationID: "get-auno-ai-capabilities",
+		OperationID: "get-dopost-ai-capabilities",
 		Method:      http.MethodGet,
-		Path:        "/auno/ai/capabilities",
-		Summary:     "Get Auno AI capability status",
+		Path:        "/dopost/ai/capabilities",
+		Summary:     "Get dopost AI capability status",
 		Description: "Returns provider and local capability availability without exposing credentials or secret values.",
-		Tags:        []string{"Auno AI"},
+		Tags:        []string{"dopost AI"},
 		Middlewares: auth,
 	}, h.capabilities)
 
 	huma.Register(api, huma.Operation{
-		OperationID: "resolve-auno-auto-video-source",
+		OperationID: "resolve-dopost-auto-video-source",
 		Method:      http.MethodPost,
-		Path:        "/auno/auto-video/source/resolve",
-		Summary:     "Resolve an Auno Auto Video source",
+		Path:        "/dopost/auto-video/source/resolve",
+		Summary:     "Resolve a dopost Auto Video source",
 		Description: "Safely fetches and extracts a bounded public URL for use as untrusted source material.",
-		Tags:        []string{"Auno Auto Video"},
+		Tags:        []string{"dopost Auto Video"},
 		Middlewares: auth,
 		Errors:      []int{400, 403, 502, 503},
 	}, h.resolveSource)
 
 	huma.Register(api, huma.Operation{
-		OperationID: "generate-auno-auto-video-storyboard",
+		OperationID: "generate-dopost-auto-video-storyboard",
 		Method:      http.MethodPost,
-		Path:        "/auno/auto-video/storyboard",
-		Summary:     "Generate an editable Auno Auto Video storyboard",
+		Path:        "/dopost/auto-video/storyboard",
+		Summary:     "Generate an editable dopost Auto Video storyboard",
 		Description: "Plans scene copy and visual intent only. It does not render, save, schedule, or publish media.",
-		Tags:        []string{"Auno Auto Video"},
+		Tags:        []string{"dopost Auto Video"},
 		Middlewares: auth,
 		Errors:      []int{400, 403, 429, 502, 503},
 	}, h.generate)
 }
 
-func (h *AutoVideoHandler) capabilities(context.Context, *struct{}) (*AunoAICapabilitiesOutput, error) {
-	mode := strings.ToLower(strings.TrimSpace(os.Getenv("AUNO_AI_PROVIDER")))
+func (h *AutoVideoHandler) capabilities(context.Context, *struct{}) (*DopostAICapabilitiesOutput, error) {
+	mode := strings.ToLower(strings.TrimSpace(firstEnvValue("DOPOST_AI_PROVIDER", "AUNO_AI_PROVIDER")))
 	if mode == "" {
 		mode = "auto"
 	}
-	geminiConfigured := firstConfiguredEnv("AUNO_GEMINI_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY")
+	geminiConfigured := firstConfiguredEnv("DOPOST_GEMINI_API_KEY", "AUNO_GEMINI_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY")
 	openRouterConfigured := strings.TrimSpace(os.Getenv("OPENROUTER_API_KEY")) != ""
 	provider := "none"
 	model := ""
@@ -152,7 +152,7 @@ func (h *AutoVideoHandler) capabilities(context.Context, *struct{}) (*AunoAICapa
 		}
 	}
 	if provider == "gemini" {
-		model = strings.TrimSpace(os.Getenv("AUNO_GEMINI_MODEL"))
+		model = strings.TrimSpace(firstEnvValue("DOPOST_GEMINI_MODEL", "AUNO_GEMINI_MODEL"))
 		if model == "" {
 			model = "gemini-2.5-flash"
 		}
@@ -162,7 +162,7 @@ func (h *AutoVideoHandler) capabilities(context.Context, *struct{}) (*AunoAICapa
 			model = "openai/gpt-5.6-luna"
 		}
 	}
-	output := &AunoAICapabilitiesOutput{}
+	output := &DopostAICapabilitiesOutput{}
 	output.Body.ProviderMode = mode
 	output.Body.PlannerAvailable = h.planner != nil
 	output.Body.ActiveProvider = provider
@@ -174,11 +174,22 @@ func (h *AutoVideoHandler) capabilities(context.Context, *struct{}) (*AunoAICapa
 	output.Body.BrowserTranscription = true
 	output.Body.BrowserMusicGeneration = true
 	output.Body.DocumentaryPlannerAvailable = h.planner != nil
-	// No server image/video generator is registered in the current Auno runtime.
+	// No server image/video generator is registered in the current dopost runtime.
 	// Keep these false until a concrete adapter owns generation and media import.
 	output.Body.DocumentaryServerImageGeneration = false
 	output.Body.DocumentaryServerVideoGeneration = false
 	return output, nil
+}
+
+// firstEnvValue returns the first non-empty variable. AUNO_* names are read as
+// fallbacks so installs configured before the dopost rename keep working.
+func firstEnvValue(keys ...string) string {
+	for _, key := range keys {
+		if value := strings.TrimSpace(os.Getenv(key)); value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func firstConfiguredEnv(keys ...string) bool {
@@ -258,7 +269,7 @@ func (h *AutoVideoHandler) generate(ctx context.Context, input *GenerateAutoVide
 		return nil, huma.Error503ServiceUnavailable("AI Auto Video planning is not configured")
 	}
 	userID := middleware.GetUserID(ctx)
-	if !h.limiter.Allow("auno-auto-video:"+userID, autoVideoRequestsPerMinute, time.Minute) {
+	if !h.limiter.Allow("dopost-auto-video:"+userID, autoVideoRequestsPerMinute, time.Minute) {
 		return nil, huma.Error429TooManyRequests("AI Auto Video planning limit reached; try again in one minute")
 	}
 
@@ -279,7 +290,7 @@ func (h *AutoVideoHandler) generate(ctx context.Context, input *GenerateAutoVide
 		Parts:                 parts,
 	})
 	if err != nil {
-		log.Printf("Auno Auto Video planning failed for workspace %s (%T)", strings.TrimSpace(input.Body.WorkspaceID), err)
+		log.Printf("dopost Auto Video planning failed for workspace %s (%T)", strings.TrimSpace(input.Body.WorkspaceID), err)
 		return nil, autoVideoPlannerError(err)
 	}
 	output := &GenerateAutoVideoStoryboardOutput{}

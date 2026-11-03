@@ -2,7 +2,7 @@
  * Pure timeline snapping rules shared by move, trim, and later edit tools.
  *
  * Ported from FreeCut (MIT) timeline-snap-utils.ts and use-snap-calculator.ts,
- * adapted to OpenPost frame-native coordinates and transition model.
+ * adapted to dopost frame-native coordinates and transition model.
  */
 
 import type {

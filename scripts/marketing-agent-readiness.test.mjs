@@ -68,13 +68,13 @@ test("structured data joins each page to the product, site, and real operator", 
 
   assert.equal(page["@type"], "AboutPage");
   assert.deepEqual(page.about, { "@id": "https://openpo.st/#software" });
-  assert.equal(software.name, "OpenPost");
+  assert.equal(software.name, "dopost");
   assert.equal(software.operatingSystem, "Web, Android");
-  assert.ok(software.sameAs.includes("https://github.com/getopenpost/openpost"));
+  assert.ok(software.sameAs.includes("https://github.com/dhtoan/dopost"));
   assert.ok(software.sameAs.includes("https://glama.ai/mcp/connectors/io.github.rodrgds/openpost"));
   const organization = graph.find((entry) => entry["@id"] === "https://openpo.st/#organization");
   assert.equal(organization["@type"], "Organization");
-  assert.equal(organization.name, "OpenPost");
+  assert.equal(organization.name, "dopost");
   assert.equal(organization.logo.url, "https://openpo.st/icon.svg");
   assert.ok(organization.logo.width >= 112 && organization.logo.height >= 112);
   assert.deepEqual(organization.founder, { "@id": "https://openpo.st/#operator" });
@@ -103,7 +103,7 @@ test("structured data joins each page to the product, site, and real operator", 
     ),
     "subjectOf values must be CreativeWork nodes rather than URL strings",
   );
-  assert.equal(source.codeRepository, "https://github.com/getopenpost/openpost");
+  assert.equal(source.codeRepository, "https://github.com/dhtoan/dopost");
   assert.deepEqual(source.runtimePlatform, ["Web", "Linux", "Android"]);
   assert.equal(operator.name, "Rodrigo Dias");
   assert.equal(operator.homeLocation.address.addressCountry, "PT");

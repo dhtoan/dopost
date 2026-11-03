@@ -1,5 +1,5 @@
 {
-  // Fallow structural analysis for OpenPost (TS/Svelte/JS side).
+  // Fallow structural analysis for dopost (TS/Svelte/JS side).
   // Go is covered by golangci-lint (gocyclo + gocognit + dupl); see apps/server/.golangci.yml.
   //
   // Introduced dead code is gated through Fallow audit attribution.

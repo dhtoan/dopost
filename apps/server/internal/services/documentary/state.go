@@ -68,7 +68,7 @@ func (s *Store) Create(ctx context.Context, workspaceID string, seed Run) (*Run,
 	if err != nil {
 		return nil, err
 	}
-	model := &models.AunoDocumentaryRun{
+	model := &models.DopostDocumentaryRun{
 		ID:                   seed.ID,
 		WorkspaceID:          workspaceID,
 		SchemaVersion:        SchemaVersion,
@@ -91,7 +91,7 @@ func (s *Store) Get(ctx context.Context, workspaceID, runID string) (*Run, error
 	if s == nil || s.db == nil || workspaceID == "" || runID == "" {
 		return nil, ErrInvalid
 	}
-	var model models.AunoDocumentaryRun
+	var model models.DopostDocumentaryRun
 	if err := s.db.NewSelect().Model(&model).
 		Where("id = ? AND workspace_id = ?", runID, workspaceID).
 		Scan(ctx); err != nil {
@@ -143,7 +143,7 @@ func (s *Store) Upsert(
 		return nil, err
 	}
 
-	result, err := s.db.NewUpdate().Model((*models.AunoDocumentaryRun)(nil)).
+	result, err := s.db.NewUpdate().Model((*models.DopostDocumentaryRun)(nil)).
 		Set("project_id = ?", nullableString(run.ProjectID)).
 		Set("schema_version = ?", SchemaVersion).
 		Set("generation_version = ?", run.GenerationVersion).
@@ -197,7 +197,7 @@ func (s *Store) Delete(ctx context.Context, workspaceID, runID string) error {
 	if s == nil || s.db == nil || workspaceID == "" || runID == "" {
 		return ErrInvalid
 	}
-	result, err := s.db.NewDelete().Model((*models.AunoDocumentaryRun)(nil)).
+	result, err := s.db.NewDelete().Model((*models.DopostDocumentaryRun)(nil)).
 		Where("id = ? AND workspace_id = ?", runID, workspaceID).
 		Exec(ctx)
 	if err != nil {
@@ -231,7 +231,7 @@ func encodeDocumentaryRun(run Run) (string, string, error) {
 	return string(stateBytes), string(providerBytes), nil
 }
 
-func decodeDocumentaryRun(model *models.AunoDocumentaryRun) (*Run, error) {
+func decodeDocumentaryRun(model *models.DopostDocumentaryRun) (*Run, error) {
 	if model == nil || len(model.StateJSON) == 0 || len(model.StateJSON) > maxDocumentaryStateBytes {
 		return nil, ErrInvalid
 	}

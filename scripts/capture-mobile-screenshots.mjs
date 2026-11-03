@@ -66,7 +66,7 @@ try {
   simulator = command("xcrun", [
     "simctl",
     "create",
-    "OpenPost screenshots",
+    "dopost screenshots",
     "com.apple.CoreSimulator.SimDeviceType.iPhone-17",
     "com.apple.CoreSimulator.SimRuntime.iOS-26-2",
   ]);

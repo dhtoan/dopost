@@ -170,7 +170,7 @@ test("text range weight survives cloud save and reload without changing the whol
     await page.emulateMedia({ colorScheme, reducedMotion: "reduce" });
     if (!(await page.getByRole("dialog").isVisible())) {
       await page
-        .getByRole("navigation", { name: "OpenPost Image Editor tools", exact: true })
+        .getByRole("navigation", { name: "dopost Image Editor tools", exact: true })
         .getByRole("button", { name: "Properties", exact: true })
         .click();
     }

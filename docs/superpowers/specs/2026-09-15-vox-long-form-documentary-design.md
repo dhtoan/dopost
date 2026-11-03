@@ -1,14 +1,14 @@
-# Auno Studio Vox Long-form Documentary — Architecture Design
+# dopost Vox Long-form Documentary — Architecture Design
 
 **Status:** Approved direction; written spec awaiting final review  
 **Date:** 2026-09-15  
-**Repository:** `dhtoan/AunoStudio`  
-**Target release line:** Auno Studio Web 2.x  
-**Source reference:** Google Doc `VOX STYLE - AICONG` supplied by the product owner  
+**Repository:** `dhtoan/dopost`  
+**Target release line:** dopost Web 2.x  
+**Source reference:** Google Doc `VOX STYLE - AICONG` supplied by the product owner
 
 ## 1. Purpose
 
-Auno Studio will add a long-form documentary creation workflow that can take a topic or source material and produce an editable documentary project from idea selection through script, narration, beat planning, visual generation, animation planning, thumbnail planning, and native Video Editor handoff.
+dopost will add a long-form documentary creation workflow that can take a topic or source material and produce an editable documentary project from idea selection through script, narration, beat planning, visual generation, animation planning, thumbnail planning, and native Video Editor handoff.
 
 The product-facing style name may be **Vox Style** because that is the requested preset name. The internal runtime ID is deliberately generic:
 
@@ -16,13 +16,13 @@ The product-facing style name may be **Vox Style** because that is the requested
 documentary-paper-collage
 ```
 
-Auno Studio must not depend on VOX logos, copyrighted media assets, copied article layouts, or brand-specific trade dress. The implementation derives reusable editorial principles from the supplied reference: evidence-led documentary pacing, paper collage, archival surfaces, halftone cutouts, constrained accent colors, locked or near-locked camera, stop-motion assembly, sparse labels, and beat-level visual storytelling.
+dopost must not depend on VOX logos, copyrighted media assets, copied article layouts, or brand-specific trade dress. The implementation derives reusable editorial principles from the supplied reference: evidence-led documentary pacing, paper collage, archival surfaces, halftone cutouts, constrained accent colors, locked or near-locked camera, stop-motion assembly, sparse labels, and beat-level visual storytelling.
 
 The central product rule remains unchanged:
 
 > AI generation produces an editable native project, not a dead MP4.
 
-Generated documentary beats must remain editable as ordinary OpenPost timeline items and Auno Motion Compositions wherever possible.
+Generated documentary beats must remain editable as ordinary dopost timeline items and dopost Motion Compositions wherever possible.
 
 ## 2. Scope
 
@@ -43,8 +43,8 @@ The workflow includes:
 11. a universal motion/animation treatment for generated beat visuals;
 12. optional animation/video generation when a configured provider supports it;
 13. thumbnail prompt generation;
-14. native OpenPost project compilation;
-15. editable Auno Motion controls and regeneration;
+14. native dopost project compilation;
+15. editable dopost Motion controls and regeneration;
 16. deterministic preview/export and visual-QA coverage.
 
 ### 2.2 V1 duration scope
@@ -70,7 +70,7 @@ V1 Vox projects default to:
 ```text
 aspect ratio: 16:9
 resolution profile: 1920x1080 logical canvas
-fps: existing Auno/OpenPost project default unless user overrides it
+fps: existing dopost/OpenPost project default unless user overrides it
 mode: documentary-long-form
 motion style: documentary-paper-collage
 ```
@@ -90,7 +90,7 @@ Documentary Long-form
 
 Short-form continues to use the existing Review, News, Guide, Compare, and Top N flow.
 
-Documentary Long-form uses the new stateful documentary workflow and creates the same native OpenPost Video Project schema at handoff.
+Documentary Long-form uses the new stateful documentary workflow and creates the same native dopost Video Project schema at handoff.
 
 Conceptually:
 
@@ -113,7 +113,7 @@ The two modes share:
 - media library;
 - TTS infrastructure;
 - project persistence;
-- Auno Motion Engine;
+- dopost Motion Engine;
 - ownership metadata;
 - native Video Editor handoff;
 - export pipeline.
@@ -122,7 +122,7 @@ They do not share one oversized planner function. Long-form planning lives behin
 
 ## 4. User workflow
 
-The supplied reference is written as a conversational state machine. Auno Studio converts that idea into a persistent wizard so the user can leave, reload, edit an earlier step, or regenerate one step without losing the entire project.
+The supplied reference is written as a conversational state machine. dopost converts that idea into a persistent wizard so the user can leave, reload, edit an earlier step, or regenerate one step without losing the entire project.
 
 ### State 0 — Source Material
 
@@ -212,7 +212,7 @@ Voice is provider-neutral.
 
 Preferred path:
 
-1. use the selected Auno TTS provider;
+1. use the selected dopost TTS provider;
 2. generate narration in bounded chunks to reduce long-generation failures;
 3. stitch chunks as editable source assets while retaining per-chunk timing metadata;
 4. use measured audio duration to retime beats;
@@ -231,7 +231,7 @@ steady cadence
 
 A future ElevenLabs provider may map that profile to vendor-specific controls. The core workflow must not require ElevenLabs.
 
-If no TTS provider is available, the project remains usable: Auno Studio exports a clean narration package and continues with estimated beat timing.
+If no TTS provider is available, the project remains usable: dopost exports a clean narration package and continues with estimated beat timing.
 
 ### State 6 — Beat Breakdown
 
@@ -366,24 +366,24 @@ The workflow must survive reload and allow selective regeneration.
 
 ```ts
 type DocumentaryStep =
-  | 'source'
-  | 'topic'
-  | 'ideas'
-  | 'duration'
-  | 'script'
-  | 'voice'
-  | 'beats'
-  | 'visuals'
-  | 'animation'
-  | 'thumbnails'
-  | 'project';
+  | "source"
+  | "topic"
+  | "ideas"
+  | "duration"
+  | "script"
+  | "voice"
+  | "beats"
+  | "visuals"
+  | "animation"
+  | "thumbnails"
+  | "project";
 
 interface DocumentaryRun {
   schemaVersion: 1;
   id: string;
   workspaceId: string;
-  mode: 'documentary-long-form';
-  style: 'documentary-paper-collage';
+  mode: "documentary-long-form";
+  style: "documentary-paper-collage";
   currentStep: DocumentaryStep;
   source: AutoVideoSource;
   niche?: string;
@@ -479,7 +479,7 @@ No provider is allowed to make the core project schema vendor-specific.
 
 ### 8.1 Catalog entry
 
-Add a tenth Auno Motion Style:
+Add a tenth dopost Motion Style:
 
 ```text
 runtime id: documentary-paper-collage
@@ -530,7 +530,7 @@ All primitives must be pure functions of project time, stable seed, element ID, 
 
 ### 8.4 Editable controls
 
-Vox Motion Compositions expose bounded controls through the existing OpenPost composition-control system:
+Vox Motion Compositions expose bounded controls through the existing dopost composition-control system:
 
 ```text
 intensity
@@ -554,9 +554,9 @@ Each documentary beat compiles into one logical scene group on the existing time
 Recommended tracks:
 
 ```text
-Auno labels / titles
-Auno annotations
-Auno motion compositions
+dopost labels / titles
+dopost annotations
+dopost motion compositions
 Beat visual/media
 Captions
 Voice
@@ -604,7 +604,7 @@ Required implementation constraints:
 - avoid cloning the entire project for a single control change;
 - lazy-load generated media thumbnails;
 - do not decode every audio/image asset at project open;
-- preserve OpenPost project revision/conflict semantics;
+- preserve dopost project revision/conflict semantics;
 - deterministic IDs must allow incremental replacement.
 
 ## 12. Ownership and selective regeneration
@@ -725,10 +725,10 @@ The supplied document is used as product-requirement/reference material.
 
 Implementation must not copy long prompt passages verbatim into shipped source code when equivalent behavior can be represented as structured rules.
 
-Auno Studio ships:
+dopost ships:
 
 - original rule schemas;
-- original planner prompts written for Auno Studio;
+- original planner prompts written for dopost;
 - original Motion Style definitions;
 - original native composition implementation.
 
@@ -926,7 +926,7 @@ Not required for first release:
 - frame-by-frame raster pre-rendering of the full documentary before editing;
 - videos longer than five minutes;
 - collaborative script approval workflows beyond existing project/workspace capabilities;
-- automatic YouTube publishing changes outside existing OpenPost publishing flows.
+- automatic YouTube publishing changes outside existing dopost publishing flows.
 
 ## 23. Acceptance criteria
 
@@ -940,10 +940,10 @@ The Vox workflow is complete when all of the following are true:
 - Voice can be generated through the provider-neutral TTS path or safely skipped/exported.
 - Script becomes editable timed beats.
 - Every beat has an editable visual plan and exportable prompt.
-- Vox Style exists as `documentary-paper-collage` in Auno Motion.
-- Paper-collage motion compiles to native OpenPost items/compositions.
+- Vox Style exists as `documentary-paper-collage` in dopost Motion.
+- Paper-collage motion compiles to native dopost items/compositions.
 - Thumbnail concepts are generated independently of the timeline.
-- Project opens in the normal Auno Video Editor.
+- Project opens in the normal dopost Video Editor.
 - User can edit/regenerate one beat without regenerating unrelated content.
 - Motion regeneration preserves voice/captions/music/manual edits.
 - Long-form project remains responsive at the V1 five-minute/100+ beat scale.

@@ -108,7 +108,7 @@ export async function docsInputKey(root, env = process.env) {
   }
   hash.update(command(root, "bun", ["--version"]));
   hash.update(command(root, "bunx", ["oxfmt", "--version"]));
-  // Hash remaining generator configuration, including new OpenPost settings.
+  // Hash remaining generator configuration, including new dopost settings.
   // Runtime artifact provenance remains in the consuming build, never here.
   env = docsGeneratorEnvironment(env);
   const names = Object.keys(env)

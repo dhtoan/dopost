@@ -154,7 +154,7 @@ func TestIssueAuthResponseCreatesTrackedSession(t *testing.T) {
 	_, err := db.NewInsert().Model(user).Exec(ctx)
 	require.NoError(t, err)
 
-	reqCtx := context.WithValue(ctx, middleware.UserAgentKey, "OpenPost Test Browser")
+	reqCtx := context.WithValue(ctx, middleware.UserAgentKey, "dopost Test Browser")
 	reqCtx = context.WithValue(reqCtx, middleware.ClientIPKey, "198.51.100.4")
 	resp, err := handler.issueAuthResponse(reqCtx, user)
 	require.NoError(t, err)
@@ -170,7 +170,7 @@ func TestIssueAuthResponseCreatesTrackedSession(t *testing.T) {
 	var stored models.UserSession
 	require.NoError(t, db.NewSelect().Model(&stored).Where("id = ?", claims.SessionID).Scan(ctx))
 	require.Equal(t, "user-1", stored.UserID)
-	require.Equal(t, "OpenPost Test Browser", stored.UserAgent)
+	require.Equal(t, "dopost Test Browser", stored.UserAgent)
 	require.Equal(t, "198.51.100.4", stored.IPAddress)
 	require.True(t, stored.ExpiresAt.After(time.Now().UTC()))
 }

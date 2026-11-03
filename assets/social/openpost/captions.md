@@ -1,4 +1,4 @@
-# OpenPost social copy
+# dopost social copy
 
 Use these as starting points. Replace bracketed text with a specific result, lesson, or launch detail before posting.
 
@@ -12,7 +12,7 @@ The content team for companies of one. Turn what you’re building into content,
 
 You already have something worth posting: the work you do every day.
 
-OpenPost helps you turn product updates, customer lessons, and company notes into content for every destination—without rebuilding the same post each time.
+dopost helps you turn product updates, customer lessons, and company notes into content for every destination—without rebuilding the same post each time.
 
 Write once. Adapt with control. Publish everywhere.
 
@@ -26,20 +26,20 @@ The content team for companies of one.
 
 ### About
 
-OpenPost helps solo founders and small teams turn real company work into useful content. Draft once, adapt each destination, schedule publishing, manage replies, and review performance from one workspace.
+dopost helps solo founders and small teams turn real company work into useful content. Draft once, adapt each destination, schedule publishing, manage replies, and review performance from one workspace.
 
 ## Launch post
 
 The hardest part of content is rarely the lack of ideas. It is turning real work into a steady publishing habit.
 
-OpenPost gives companies of one a focused content workspace:
+dopost gives companies of one a focused content workspace:
 
 - Start with product work, customer questions, or lessons from the week.
 - Shape the source once.
 - Adapt each destination without losing control.
 - Publish, respond, and learn from the result.
 
-OpenPost is the content team for companies of one.
+dopost is the content team for companies of one.
 
 https://openpo.st
 
@@ -47,7 +47,7 @@ https://openpo.st
 
 One source does not mean one generic post.
 
-With OpenPost, you can start from the same idea and still control the copy, media, timing, and format for each destination.
+With dopost, you can start from the same idea and still control the copy, media, timing, and format for each destination.
 
 That means less repetitive work and better posts where they actually appear.
 
@@ -61,7 +61,7 @@ Our preferred content workflow is simple:
 4. Publish and respond from one place.
 5. Use the result to improve the next post.
 
-OpenPost keeps those steps connected.
+dopost keeps those steps connected.
 
 ## Carousel caption
 

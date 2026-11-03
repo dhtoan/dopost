@@ -24,7 +24,7 @@ export const mcpDocsUrl = 'https://openpo.st/docs/mcp';
 export const apiTokenDocsUrl = 'https://openpo.st/docs/api-reference';
 export const agentPublishingDocsUrl = 'https://openpo.st/docs/automate';
 export const docsUrl = userDocsUrl;
-export const githubUrl = 'https://github.com/getopenpost/openpost';
+export const githubUrl = 'https://github.com/dhtoan/dopost';
 export const siteUrl = 'https://openpo.st';
 export const discordCommunityUrl = 'https://discord.com/invite/u2QwukmY4W';
 export const supportEmail = 'openpost@rgo.pt';
@@ -34,7 +34,7 @@ export const demoVideoEmbedUrl =
 	'https://www.youtube-nocookie.com/embed/eiwOnwxanTQ?autoplay=1&rel=0';
 
 type NavigationSurface = 'primary' | 'resources' | 'mobile' | 'footer';
-type ResourceGroup = 'Learn' | 'OpenPost';
+type ResourceGroup = 'Learn' | 'dopost';
 type FooterGroup = 'Product' | 'Resources' | 'More';
 type MarketingNavigationItem = {
 	label: string;
@@ -124,21 +124,21 @@ const navigationRegistry: readonly MarketingNavigationItem[] = [
 	{
 		label: 'Contact',
 		href: '/contact',
-		group: 'OpenPost',
+		group: 'dopost',
 		footerGroup: 'Resources',
 		surfaces: ['resources', 'mobile', 'footer']
 	},
 	{
 		label: 'About',
 		href: '/about',
-		group: 'OpenPost',
+		group: 'dopost',
 		footerGroup: 'More',
 		surfaces: ['resources', 'mobile', 'footer']
 	},
 	{
 		label: 'Security',
 		href: '/security',
-		group: 'OpenPost',
+		group: 'dopost',
 		footerGroup: 'More',
 		surfaces: ['resources', 'mobile', 'footer']
 	},
@@ -174,7 +174,7 @@ const navigationFor = (surface: NavigationSurface) =>
 	navigationRegistry.filter((item) => item.surfaces.includes(surface));
 export const marketingNavigation = {
 	primary: navigationFor('primary'),
-	resourceGroups: (['Learn', 'OpenPost'] as const).map((label) => ({
+	resourceGroups: (['Learn', 'dopost'] as const).map((label) => ({
 		label,
 		items: navigationRegistry.filter(
 			(item) => item.group === label && item.surfaces.includes('resources')
@@ -274,7 +274,7 @@ const platformImplementations = [
 		requiresProviderApproval: false,
 		implementationDetail: 'Publishing is implemented',
 		description:
-			'Draft, preview, and schedule X posts, links, media, and reply threads. OpenPost checks the limit for each connected account.',
+			'Draft, preview, and schedule X posts, links, media, and reply threads. dopost checks the limit for each connected account.',
 		heroTitle: 'Build an X reply chain with the right limit for each account.',
 		preview: {
 			label: 'Reply chain',
@@ -286,7 +286,7 @@ const platformImplementations = [
 		accountRequirement: 'An X developer app with OAuth 1.0a user authentication enabled.',
 		auth: 'OAuth 1.0a',
 		setup: [
-			'Configure the X client ID, secret, and the exact OpenPost callback URL.',
+			'Configure the X client ID, secret, and the exact dopost callback URL.',
 			'Enable OAuth 1.0a user authentication in the X developer portal.',
 			'Connect the X account from Social accounts, then publish a small test post.'
 		],
@@ -315,7 +315,7 @@ const platformImplementations = [
 			'Your X API plan and limits still apply'
 		],
 		limitations: [
-			'OpenPost uses standard limits when X cannot verify a connected account subscription tier.',
+			'dopost uses standard limits when X cannot verify a connected account subscription tier.',
 			'Media publishing needs OAuth 1.0a access-token and secret pairs.',
 			'Polls, quote posts, and other format settings remain subject to the account API tier.'
 		],
@@ -361,7 +361,7 @@ const platformImplementations = [
 		limits: [
 			`${PLATFORM_LIMITS.mastodon.charLimit} characters by default`,
 			PLATFORM_LIMITS.mastodon.media,
-			'Reply threads and OpenPost scheduling',
+			'Reply threads and dopost scheduling',
 			'Instance rules can override the defaults'
 		],
 		limitations: [
@@ -463,7 +463,7 @@ const platformImplementations = [
 		],
 		limitations: [
 			'Uploads wait for instance transcoding before delivery is reported.',
-			'Password-protected videos need their password in OpenPost for inbox reads.',
+			'Password-protected videos need their password in dopost for inbox reads.',
 			'One adapter registration is maintained per PeerTube instance.'
 		],
 		verification: 'Upload one test video and confirm it finishes transcoding before scheduling.',
@@ -622,7 +622,7 @@ const platformImplementations = [
 			'Bluesky may need time to process a video after upload.'
 		],
 		verification:
-			'Text and image posts work in OpenPost. Test video with the account before a scheduled campaign.',
+			'Text and image posts work in dopost. Test video with the account before a scheduled campaign.',
 		docsUrl: 'https://openpo.st/docs/guides/accounts'
 	},
 	{
@@ -745,12 +745,12 @@ const platformImplementations = [
 		tag: 'Pages, media, Stories',
 		requiresProviderApproval: true,
 		implementationDetail: 'Meta review and Page permissions still apply',
-		description: 'OpenPost publishes text, photos, video, and Stories to selected Facebook Pages.',
+		description: 'dopost publishes text, photos, video, and Stories to selected Facebook Pages.',
 		heroTitle: 'Prepare a Facebook Page post and its media together.',
 		preview: {
 			label: 'Selected Page',
 			headline: 'Feed post or Story',
-			body: 'OpenPost checks the selected Page, post type, and public media link separately.',
+			body: 'dopost checks the selected Page, post type, and public media link separately.',
 			detail: 'Pages only',
 			chips: ['Feed', 'Multi-photo', 'Story']
 		},
@@ -759,7 +759,7 @@ const platformImplementations = [
 		auth: 'Meta OAuth 2.0 with Page selection',
 		setup: [
 			'Set up the Facebook app, permissions, and callback address.',
-			'Connect through Meta and choose the Page OpenPost should publish to.',
+			'Connect through Meta and choose the Page dopost should publish to.',
 			'Complete Meta review and test a live Page before you schedule real posts.'
 		],
 		formats: [
@@ -801,7 +801,7 @@ const platformImplementations = [
 		tag: 'Feed, carousel, Story, Reel',
 		requiresProviderApproval: true,
 		implementationDetail: 'Business or Creator account and Meta review required',
-		description: 'OpenPost publishes Instagram feed images, carousels, Stories, and Reels.',
+		description: 'dopost publishes Instagram feed images, carousels, Stories, and Reels.',
 		heroTitle: 'Choose the Instagram post type before you write the caption.',
 		preview: {
 			label: 'Media-first',
@@ -842,7 +842,7 @@ const platformImplementations = [
 			'No text-only posts'
 		],
 		limitations: [
-			'OpenPost does not support text-only Instagram posts.',
+			'dopost does not support text-only Instagram posts.',
 			'Media must be public HTTPS and meet Meta format rules.',
 			'App access and each planned format still need a live account test.'
 		],
@@ -857,7 +857,7 @@ const platformImplementations = [
 		tag: 'Video and photo posts',
 		requiresProviderApproval: true,
 		implementationDetail: 'App review and live test required',
-		description: 'OpenPost supports TikTok video and photo posts, each with its own caption limit.',
+		description: 'dopost supports TikTok video and photo posts, each with its own caption limit.',
 		heroTitle: 'Build a TikTok video or photo post with the correct caption limit.',
 		preview: {
 			label: 'Two post types',
@@ -909,7 +909,7 @@ const platformImplementations = [
 		tag: 'Shorts and long video',
 		requiresProviderApproval: true,
 		implementationDetail: 'App review required',
-		description: 'OpenPost uploads Shorts and videos to a selected YouTube channel.',
+		description: 'dopost uploads Shorts and videos to a selected YouTube channel.',
 		heroTitle: 'Schedule the YouTube video with its title, privacy, and channel details.',
 		preview: {
 			label: 'Video upload',
@@ -947,7 +947,7 @@ const platformImplementations = [
 		limitations: [
 			'Test the Google project with a live channel before you use it for real posts.',
 			'Unaudited Google projects can force uploads to private visibility.',
-			'Each account version accepts one video. OpenPost does not support text-only YouTube posts.'
+			'Each account version accepts one video. dopost does not support text-only YouTube posts.'
 		],
 		verification:
 			'Confirm upload, processing completion, thumbnail, playlist, and final privacy on the production channel.',
@@ -961,7 +961,7 @@ const platformImplementations = [
 		requiresProviderApproval: true,
 		implementationDetail: 'Adapter code exists; public connections are intentionally unavailable',
 		description:
-			'Pinterest is not publicly available in OpenPost. Standard API access and current live certification are required before connection or publishing can be claimed.',
+			'Pinterest is not publicly available in dopost. Standard API access and current live certification are required before connection or publishing can be claimed.',
 		heroTitle: 'Pinterest remains behind the provider readiness gate.',
 		preview: {
 			label: 'No public connection',
@@ -993,7 +993,7 @@ const platformImplementations = [
 		limitations: [
 			'Trial access is for development and certification, not public production use.',
 			'An adapter, configured credential, or mocked test is not a readiness claim.',
-			'OpenPost exposes no public Pinterest claim without a current certification projection.'
+			'dopost exposes no public Pinterest claim without a current certification projection.'
 		],
 		verification:
 			'Do not connect or publish for public accounts until Standard access and every readiness gate pass with current live evidence.',
@@ -1007,7 +1007,7 @@ const platformImplementations = [
 		requiresProviderApproval: true,
 		implementationDetail: 'Adapter code exists; public connections are intentionally unavailable',
 		description:
-			'Google Business Profile is not publicly available in OpenPost. Google API access and current live certification are required before connection or publishing can be claimed.',
+			'Google Business Profile is not publicly available in dopost. Google API access and current live certification are required before connection or publishing can be claimed.',
 		heroTitle: 'Google Business Profile remains behind the provider readiness gate.',
 		preview: {
 			label: 'No public connection',
@@ -1039,7 +1039,7 @@ const platformImplementations = [
 		limitations: [
 			'Google enables the Local Posts surface only after an access request is approved.',
 			'An adapter, configured credential, or mocked test is not a readiness claim.',
-			'OpenPost exposes no public Google Business claim without a current certification projection.'
+			'dopost exposes no public Google Business claim without a current certification projection.'
 		],
 		verification:
 			'Do not connect or publish for public accounts until Google API access and every readiness gate pass with current live evidence.',
@@ -1067,7 +1067,7 @@ const platformImplementations = [
 		auth: 'One-time chat command',
 		setup: [
 			'Add the instance bot as an administrator with permission to post in the channel or group.',
-			'Generate the one-time command in OpenPost and post it inside that chat.',
+			'Generate the one-time command in dopost and post it inside that chat.',
 			'Refresh your accounts to confirm the chat, then send a small test message.'
 		],
 		formats: [
@@ -1118,7 +1118,7 @@ const platformImplementations = [
 		auth: 'Incoming webhook URL',
 		setup: [
 			'Create an incoming webhook in the Discord channel settings.',
-			'Copy the webhook URL and connect it from Social accounts in OpenPost.',
+			'Copy the webhook URL and connect it from Social accounts in dopost.',
 			'Publish a small test message and file, then keep the webhook URL private.'
 		],
 		formats: [
@@ -1136,7 +1136,7 @@ const platformImplementations = [
 		limits: [
 			`${PLATFORM_LIMITS.discord.charLimit.toLocaleString()} characters`,
 			PLATFORM_LIMITS.discord.media,
-			'OpenPost uses a safe 10 MiB limit for each file',
+			'dopost uses a safe 10 MiB limit for each file',
 			'Scheduled messages do not notify users or roles by default'
 		],
 		limitations: [
@@ -1170,7 +1170,7 @@ const platformImplementations = [
 		auth: 'SSH private key',
 		setup: [
 			'Add the public half of an SSH key to your GitHub account, then sign in at dev-null.sh so it picks the key up.',
-			'Connect your dev/null username and private key from Social accounts in OpenPost.',
+			'Connect your dev/null username and private key from Social accounts in dopost.',
 			'Publish a test commit and open the resulting link from the post details.'
 		],
 		formats: [
@@ -1197,7 +1197,7 @@ const platformImplementations = [
 			'New accounts need approval before commits go public'
 		],
 		limitations: [
-			'OpenPost stores your SSH private key encrypted and uses it only to sign commit payloads.',
+			'dopost stores your SSH private key encrypted and uses it only to sign commit payloads.',
 			'Polls, quotes, and image descriptions are not supported by the dev/null commit API.',
 			'Pending commits are visible only to you until dev/null approves the account.'
 		],
@@ -1337,7 +1337,7 @@ export const faqs = [
 		category: 'creating',
 		question: 'Can I try the editors without signing up?',
 		answer:
-			'Yes. Create images and edit videos for free, with no account or watermark. Local projects stay on your device unless you choose to save them to OpenPost.',
+			'Yes. Create images and edit videos for free, with no account or watermark. Local projects stay on your device unless you choose to save them to dopost.',
 		learnMore: { label: 'Try the free tools', href: '/tools' }
 	},
 	{
@@ -1351,7 +1351,7 @@ export const faqs = [
 	{
 		id: 'ai-writing',
 		category: 'creating',
-		question: 'Can OpenPost help me write a post?',
+		question: 'Can dopost help me write a post?',
 		answer:
 			'Yes. Use AI to explore ideas, draft an opening, or rewrite a post for a different channel. Review the words and facts before you schedule. You can write everything yourself too.',
 		learnMore: { label: 'Explore writing tools', href: '/#features' }
@@ -1359,7 +1359,7 @@ export const faqs = [
 	{
 		id: 'video-editor',
 		category: 'creating',
-		question: 'Can I edit images and videos in OpenPost?',
+		question: 'Can I edit images and videos in dopost?',
 		answer:
 			'Yes. The Image Editor supports text, layers, color adjustments, and multi-page designs. The Video Editor adds recording, trimming, captions, and timeline editing. Video editing is in beta and works best in desktop Chrome or Edge.',
 		learnMore: { label: 'Explore the editors', href: '/tools' }
@@ -1369,7 +1369,7 @@ export const faqs = [
 		category: 'publishing',
 		question: 'Which social channels can I use?',
 		answer:
-			'OpenPost includes integrations for major social networks, but posting options depend on your account. OpenPost Cloud posting has not completed its final live checks yet. Check the channel page or contact us before relying on it for an important launch.',
+			'dopost includes integrations for major social networks, but posting options depend on your account. dopost Cloud posting has not completed its final live checks yet. Check the channel page or contact us before relying on it for an important launch.',
 		learnMore: { label: 'Check your channels', href: '/platforms' }
 	},
 	{
@@ -1377,7 +1377,7 @@ export const faqs = [
 		category: 'publishing',
 		question: 'What happens if a post fails?',
 		answer:
-			'OpenPost shows which account failed and what went wrong. Review the error and retry the accounts that can be retried, without publishing the successful ones again.',
+			'dopost shows which account failed and what went wrong. Review the error and retry the accounts that can be retried, without publishing the successful ones again.',
 		learnMore: {
 			label: 'Help with scheduled posts',
 			href: 'https://openpo.st/docs/guides/publishing#schedule-and-calendar'
@@ -1407,7 +1407,7 @@ export const faqs = [
 		category: 'account',
 		question: 'How are my social accounts protected?',
 		answer:
-			'OpenPost encrypts the keys used to connect your social accounts. You can protect your OpenPost sign-in with a passkey or two-factor authentication, and remove active sessions from your account settings.',
+			'dopost encrypts the keys used to connect your social accounts. You can protect your dopost sign-in with a passkey or two-factor authentication, and remove active sessions from your account settings.',
 		learnMore: { label: 'Read about security', href: '/security' }
 	},
 	{

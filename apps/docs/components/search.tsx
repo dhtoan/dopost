@@ -38,7 +38,7 @@ export default function Search(props: SharedProps) {
       <SearchDialogOverlay />
       <SearchDialogContent>
         <SearchDialogHeader>
-          <SearchDialogInput placeholder="Search OpenPost docs..." />
+          <SearchDialogInput placeholder="Search dopost docs..." />
           <SearchDialogClose />
         </SearchDialogHeader>
         <TagsList

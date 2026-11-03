@@ -1,4 +1,4 @@
-/** Ported from FreeCut's MIT-licensed transition preview, using OpenPost's Canvas renderers. */
+/** Ported from FreeCut's MIT-licensed transition preview, using dopost's Canvas renderers. */
 
 import { getCanvas2DContext } from '$lib/canvas-context';
 import { transitionRegistry } from '../index';

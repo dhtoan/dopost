@@ -439,7 +439,7 @@ func (s *Service) SyncAccount(ctx context.Context, workspaceID, accountID string
 			return identityErr
 		}
 		if unresolved {
-			return s.recordOutcome(ctx, prepared.state, platform.NativePostPartial, "published_identity_pending", "An OpenPost publication is still resolving its provider identity. Import will retry without guessing authorship.", now.Add(15*time.Minute), now)
+			return s.recordOutcome(ctx, prepared.state, platform.NativePostPartial, "published_identity_pending", "A dopost publication is still resolving its provider identity. Import will retry without guessing authorship.", now.Add(15*time.Minute), now)
 		}
 		committed, err := s.commitPage(ctx, prepared.account, prepared.state, filterOwnPosts(page.Items, prepared.ownPostIDs), page.NextCursor, now)
 		if err != nil {
@@ -497,7 +497,7 @@ func (s *Service) prepareSync(ctx context.Context, workspaceID, accountID string
 	reader, ok := s.reader(account)
 	if !ok {
 		return nil, s.recordOutcome(ctx, state, platform.NativePostUnsupported,
-			"native_read_not_supported", "This provider does not expose native post reads in OpenPost.", now.Add(routineCadence), now)
+			"native_read_not_supported", "This provider does not expose native post reads in dopost.", now.Add(routineCadence), now)
 	}
 	if s.tokens == nil {
 		return nil, s.recordOutcome(ctx, state, platform.NativePostFailed,
@@ -564,7 +564,7 @@ func (s *Service) loadImportEligibility(ctx context.Context, workspaceID, accoun
 		}
 		reason := strings.TrimSpace(support.UnavailableReason)
 		if reason == "" {
-			reason = "This provider does not expose native post reads in OpenPost."
+			reason = "This provider does not expose native post reads in dopost."
 		}
 		return account, state, policy, false, s.recordOutcome(ctx, state, status,
 			"native_read_not_supported", boundedOutcomeMessage(reason), now.Add(routineCadence), now)
@@ -578,7 +578,7 @@ func (s *Service) loadImportEligibility(ctx context.Context, workspaceID, accoun
 	return account, state, policy, true, nil
 }
 
-// filterOwnPosts drops native items OpenPost already published (matched by
+// filterOwnPosts drops native items dopost already published (matched by
 // the rendition's provider post ID). This is the loop guard: our own posts
 // can never re-enter the library as external rows.
 func filterOwnPosts(items []platform.NativePostItem, own map[string]struct{}) []platform.NativePostItem {
@@ -768,20 +768,20 @@ func (s *Service) recordReadFailure(ctx context.Context, state *models.PostImpor
 		case platform.NativePostRateLimited:
 			retryAfter := max(nativeErr.RetryAfter, time.Minute)
 			return s.recordOutcome(ctx, state, nativeErr.Status, firstNonEmpty(nativeErr.Code, "rate_limited"),
-				"The provider is rate limiting. OpenPost will retry.", now.Add(retryAfter), now)
+				"The provider is rate limiting. dopost will retry.", now.Add(retryAfter), now)
 		case platform.NativePostCostLimited:
 			return s.recordOutcome(ctx, state, nativeErr.Status, firstNonEmpty(nativeErr.Code, "cost_limited"),
 				"Native reads are disabled by the provider read-cost policy.", nextUTCDay(now), now)
 		case platform.NativePostUnsupported:
 			return s.recordOutcome(ctx, state, nativeErr.Status, firstNonEmpty(nativeErr.Code, "native_read_not_supported"),
-				"This provider does not expose native post reads in OpenPost.", now.Add(routineCadence), now)
+				"This provider does not expose native post reads in dopost.", now.Add(routineCadence), now)
 		default:
 			return s.recordOutcome(ctx, state, platform.NativePostFailed, firstNonEmpty(nativeErr.Code, "provider_error"),
-				"The provider is temporarily unavailable. OpenPost will retry.", now.Add(failureBackoff), now)
+				"The provider is temporarily unavailable. dopost will retry.", now.Add(failureBackoff), now)
 		}
 	}
 	return s.recordOutcome(ctx, state, platform.NativePostFailed, "provider_error",
-		"The provider is temporarily unavailable. OpenPost will retry.", now.Add(failureBackoff), now)
+		"The provider is temporarily unavailable. dopost will retry.", now.Add(failureBackoff), now)
 }
 
 func (s *Service) enqueueSync(ctx context.Context, workspaceID, accountID string, now time.Time) (bool, error) {
@@ -850,7 +850,7 @@ func coalesceTime(primary, fallback time.Time) time.Time {
 }
 
 // Hold the page when a provider could expose a public object whose durable
-// OpenPost receipt has not resolved its identity. Never infer authorship from text.
+// dopost receipt has not resolved its identity. Never infer authorship from text.
 func (s *Service) unresolvedPublicationOverlap(ctx context.Context, account models.SocialAccount, items []platform.NativePostItem, now time.Time) (bool, error) {
 	if len(items) == 0 || (account.Platform != "instagram" && account.Platform != "tiktok") {
 		return false, nil

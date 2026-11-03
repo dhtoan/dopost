@@ -50,15 +50,15 @@ All notable changes to this project are documented in this file.
 - Developers: removed 10 duplicate byte-size formatters and consolidated media-duration formatting and editor control-height tokens onto their shared owners.
 - Video analysis now accounts for non-square pixels before rotation, so anamorphic videos retain their display aspect ratio in publishing metadata and media validation.
 - Video Editor clip menus close after trimming, so the next clip can be trimmed without reopening a stale menu.
-- X destinations with "Tag people" now validate photo tags before publishing: at most 10 people per post, entries must be X handles or numeric user IDs, and tags require a photo attachment. OpenPost resolves handles to numeric X user IDs when publishing and caches the result per workspace, so retries do not repeat paid lookups. Over-limit lists are rejected at authoring readiness as well.
-- Clarify which YouTube data OpenPost accesses and stores, how users can request deletion, and the refresh or deletion duties that apply to downloaded reports and shared copies. Include source-fetch dates in post and grouped exports.
+- X destinations with "Tag people" now validate photo tags before publishing: at most 10 people per post, entries must be X handles or numeric user IDs, and tags require a photo attachment. dopost resolves handles to numeric X user IDs when publishing and caches the result per workspace, so retries do not repeat paid lookups. Over-limit lists are rejected at authoring readiness as well.
+- Clarify which YouTube data dopost accesses and stores, how users can request deletion, and the refresh or deletion duties that apply to downloaded reports and shared copies. Include source-fetch dates in post and grouped exports.
 - Expire cached YouTube analytics, imports and comments before their 30-day deadline, and clear those caches when a destination is disconnected or its grant revoked. Refresh authorized channel profiles independently of analytics, expire stale profiles and abandoned channel selections, and remove copied notification data, cached avatars and revoked authorization metadata.
 - Use current official YouTube artwork at its minimum display size on connection cards, with text attribution in compact controls instead of undersized marks.
 - Keep revocations effective when cleanup retries, preserve comment operation receipts across reconnection, and fence expired import cursors without changing account opt-in or activation.
 
 ### Changed
 
-- When a connected account's credentials break, OpenPost now notifies the person who connected the account and the workspace administrators once per failure, in addition to the per-post failure notification for the post's author. Repeated failures for the same broken account no longer create a separate notification for every scheduled post.
+- When a connected account's credentials break, dopost now notifies the person who connected the account and the workspace administrators once per failure, in addition to the per-post failure notification for the post's author. Repeated failures for the same broken account no longer create a separate notification for every scheduled post.
 - Simplified Analytics on web and mobile by removing recommendation cards and repeated explanations. Web reporting actions use compact labelled icons, and audience by account appears directly after the trend chart.
 - Analytics reuses the shared account picker with multiple-account and Social Set selection. Totals, charts, rankings, and export defaults follow the same selection while preserving Visibility and provider-specific measurements.
 - Refresh the README, product screenshots, and demos for the Calm interface.
@@ -69,7 +69,7 @@ All notable changes to this project are documented in this file.
 - The Image Editor Edit/Color mode switch and the AI studio's selected states use the same neutral selected color as sidebar navigation instead of the peach selection tint.
 - Back to Studio on the Image Editor start page is now a quiet link at the very top of the page, above the title.
 - Properties on phone-sized screens is now a non-modal bottom sheet without a scrim, so the canvas stays visible and interactive while adjusting properties.
-- Onboarding now asks what you want to do when you open OpenPost instead of how you mostly work. The choices are "Write a new post" (opens the composer and shows Drafts in the sidebar) and "See what's going on" (opens Home with your schedule, inbox, and results), each with a one-line explanation.
+- Onboarding now asks what you want to do when you open dopost instead of how you mostly work. The choices are "Write a new post" (opens the composer and shows Drafts in the sidebar) and "See what's going on" (opens Home with your schedule, inbox, and results), each with a one-line explanation.
 - Settings, composer, workflows, and theme screens now use one shared disclosure control for expandable rows, so chevrons, focus styles, and touch targets stay consistent.
 - Deleting a previous-data restore point in instance backup settings asks for confirmation first.
 - Rebuilt the Reddit post preview around the real card chrome: community and author line with `r/` and `u/` labels, a horizontal vote pill with the score between the arrows, comment and share/save actions, and Reddit's typography, colors, and card border in both schemes.
@@ -99,7 +99,7 @@ All notable changes to this project are documented in this file.
 - Video Editor: audio EQ, effects, ducking, and noise reduction sit beside the other audio controls in Properties instead of nested inside Advanced.
 - Video Editor: the audio EQ, effects, and ducking panels use the editor's shared disclosure and toggle controls, one consistent on/off pill style, and editor theme tokens instead of mixed app-theme styles; the mixer drawer no longer shows a duplicated "Track EQ" header, and fader drags announce their value to screen readers.
 - Video Editor: every content browser has search (shapes, timers, and text templates join effects, stickers, backgrounds, and scenes), and the scrub fields across color, transform, crop, and playback share one numeric-scrub control with PageUp/PageDown and Home/End keyboard support, unit suffixes, and display scaling. Speech cleanup, transitions, text motion, motion presets, local music, and settings sliders use the shared rows, and the Image Editor's color sliders use them instead of a private component.
-- Editors and start pages: the storage destination choice now reads "OpenPost cloud" / "This device" instead of the past-tense status strings; the Recorder keeps the toggle visible and labeled while recording.
+- Editors and start pages: the storage destination choice now reads "dopost cloud" / "This device" instead of the past-tense status strings; the Recorder keeps the toggle visible and labeled while recording.
 - Quick Cut: panels use the shared editor disclosure and scrub controls, the empty state says to open a video (there is no create action), and playback shortcuts plus Escape keep working in repurpose mode.
 - Image Editor: the tablet tool rail now behaves like the desktop rail (click activates the remembered variant; menus open on repeat click and arrow keys), the page strip is resizable with a stable reset, and touch targets meet the 44px minimum.
 - Image Editor: properties sliders (opacity, rotation, curve, adjustments, lens) share the standard editor slider row with typed and scrubbable values.
@@ -164,7 +164,7 @@ All notable changes to this project are documented in this file.
 ### Changed
 
 - Analytics distinguishes posts from their published destination outputs, adds month-to-date and last-month ranges, and includes Visibility in exports while keeping original provider metrics available.
-- Automated repository updates require the OpenPost bot identity. Changelog-only main pushes skip duplicate GitHub CI while the public changelog continues deploying; release recording and fragment cleanup remain one commit.
+- Automated repository updates require the dopost bot identity. Changelog-only main pushes skip duplicate GitHub CI while the public changelog continues deploying; release recording and fragment cleanup remain one commit.
 
 ### Improved
 
@@ -279,7 +279,7 @@ All notable changes to this project are documented in this file.
 - Add local checks for affected owners with explicit omitted gates and a full-preflight fallback for shared or uncertain changes.
 - Check formatting before costly preflight generation and builds.
 - Avoid package version increases for excluded test-only edits while rejecting compiled tests in npm payloads.
-- Instagram comment webhooks can collect comments on media published outside OpenPost, using the receiving account's current authorization.
+- Instagram comment webhooks can collect comments on media published outside dopost, using the receiving account's current authorization.
 - Run the public artifact contract in a dedicated CI job, reuse the docs and marketing artifacts that job needs, persist the local Turbo cache across jobs, and keep changelog-only pull requests out of the full matrix.
 - The composer keeps image restore out of the main flow: "Use original image" now lives in each destination's three-dots menu instead of floating under the post editor, and restoring a shared image from a destination tab still replaces that attachment for every account while keeping per-account settings, alt text, and captions intact.
 
@@ -315,7 +315,7 @@ All notable changes to this project are documented in this file.
 - LinkedIn text posts and root-plus-comment posts accept inherited and custom links without changing the selected format. X quotes containing a link retain the quote access check instead of reporting an unsupported setting.
 - Links no longer block X, Threads, Mastodon, or Pixelfed threads. Pixelfed also accepts URL text alongside media and generated text cards.
 - Threads keeps links in the caption when a text or GIF attachment is selected, rather than adding a conflicting link card. Explicit conflicting cards still require correction.
-- Keep connected-account profile pictures in OpenPost storage so Facebook, Instagram, Threads, and other provider image links cannot expire underneath them. New connections and reconnects save pictures locally, and Refresh profile repairs existing expired pictures without reconnecting the account. Failed downloads preserve the previous picture.
+- Keep connected-account profile pictures in dopost storage so Facebook, Instagram, Threads, and other provider image links cannot expire underneath them. New connections and reconnects save pictures locally, and Refresh profile repairs existing expired pictures without reconnecting the account. Failed downloads preserve the previous picture.
 - Add, remove, and edit image alt text from account previews, including Stories, carousel images, and attachments beyond a preview's visible limit. Account changes preserve shared images and thread segments.
 - Keep image descriptions, tags, and focal points when preparing or restoring images. Editing image settings creates an account variant without changing its text.
 - Show readable image size limits and a direct media editing action when reviewing publishing issues.
@@ -336,7 +336,7 @@ All notable changes to this project are documented in this file.
 
 - Optimize PNG attachments automatically in the web composer without quality loss. Fit oversized images for one account when resizing or quality reduction is needed, while retaining the original.
 - Mark all matching Inbox comments read across every page on web, mobile, and the API. The action respects the current filters and shared Workspace read state.
-- Collect incoming Bluesky, Mastodon and Threads mentions independently of posts created in OpenPost. Collect Google Business reviews, including anonymous and rating-only reviews, with durable pagination and account permission checks.
+- Collect incoming Bluesky, Mastodon and Threads mentions independently of posts created in dopost. Collect Google Business reviews, including anonymous and rating-only reviews, with durable pagination and account permission checks.
 - Google Business owner replies use durable, serialized operations and expose moderation state separately from submission acceptance. Review collection preserves existing Inbox read and archive state.
 - Web, mobile, API, CLI, SDK and MCP expose incoming mentions and reviews with matching filters, shared read state and inspectable action receipts. Mobile can explicitly select a fitted image copy for one account without replacing the original.
 - Fit images to connected destination limits through the API and MCP, using the same server operation as the composer. Each ready copy retains its original and must be selected explicitly. Animated images are rejected instead of flattened.
@@ -464,7 +464,7 @@ All notable changes to this project are documented in this file.
 ### Added
 
 - Connect Instagram Business and Creator accounts directly without a Facebook Page, or choose the existing Facebook Login connection. Instance administrators can configure both methods independently. The connection dialog explains their requirements and availability.
-- Connect dev/null accounts with an SSH private key and publish commits, replies, and image posts from OpenPost. Publishing signs each commit with the key on your GitHub account, exactly like the official dev/null commit script. New dev/null accounts need approval before posts go public, and dev/null allows 10 commits a minute.
+- Connect dev/null accounts with an SSH private key and publish commits, replies, and image posts from dopost. Publishing signs each commit with the key on your GitHub account, exactly like the official dev/null commit script. New dev/null accounts need approval before posts go public, and dev/null allows 10 commits a minute.
 - Render account and workspace identity in the mobile app, including avatars and labels on drafts, the composer, analytics, and media previews.
 - Show per-destination publishing readiness in the mobile composer before publishing.
 - Publish the enforced media upload limits from the server and validate mobile attachments against them, with the limits guide generated from the same constants.
@@ -529,7 +529,7 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
-- Keep Google provider authorization limited to the scopes OpenPost requests instead of merging unrelated grants from a reused OAuth client.
+- Keep Google provider authorization limited to the scopes dopost requests instead of merging unrelated grants from a reused OAuth client.
 
 ### Fixed
 
@@ -646,7 +646,7 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
-- Existing installations using LinkedIn member analytics must set `OPENPOST_LINKEDIN_MEMBER_ANALYTICS_ENABLED=true` and restart OpenPost to retain collection after upgrading. The setting defaults to false, independently of Organization Page support. Reconnect accounts only if their existing authorization lacks `r_member_profileAnalytics` or `r_member_postAnalytics`. Stored metrics are preserved.
+- Existing installations using LinkedIn member analytics must set `OPENPOST_LINKEDIN_MEMBER_ANALYTICS_ENABLED=true` and restart dopost to retain collection after upgrading. The setting defaults to false, independently of Organization Page support. Reconnect accounts only if their existing authorization lacks `r_member_profileAnalytics` or `r_member_postAnalytics`. Stored metrics are preserved.
 
 ### Added
 
@@ -696,7 +696,7 @@ All notable changes to this project are documented in this file.
 - Create four complete posts from one idea, with native account previews, editable memes and screenshot templates, durable edits, reusable voice profiles, and explicit missing screenshot or demo requirements.
 - Reuse configured Workflow decision models for bounded source and template checks, and route standalone meme suggestions through the complete semantic catalogue.
 - Add native mobile Ideate with four compact options, context attachments, voice defaults, rendered visuals, resumable generation, and explicit draft selection.
-- YouTube: per-post `publish_at` sets YouTube's public release time (`status.publishAt`) separately from OpenPost's upload schedule. It requires Private and an RFC 3339 timestamp with a timezone. Past times publish immediately.
+- YouTube: per-post `publish_at` sets YouTube's public release time (`status.publishAt`) separately from dopost's upload schedule. It requires Private and an RFC 3339 timestamp with a timezone. Past times publish immediately.
 
 ### Fixed
 
@@ -828,12 +828,12 @@ All notable changes to this project are documented in this file.
 
 ### Marketing
 
-- Continue formatted posts, previews and thread parts into an editable OpenPost draft. Selected local files upload after sign-in; failed uploads can resume. Publishing remains a separate action.
+- Continue formatted posts, previews and thread parts into an editable dopost draft. Selected local files upload after sign-in; failed uploads can resume. Publishing remains a separate action.
 - Clarify the free-tools directory and thread splitter, improve the ZimaOS setup snippet, and recover known documentation URLs missing the `/docs` prefix. Keep Markdown copies available to readers and agents while excluding them from search results.
 
 ### Improvements
 
-- Extract shared Svelte controls, themes, icons and styles into a portable `@openpost/ui` package. OpenPost and marketing share its implementation; docs use its palette tokens and mobile derives native theme manifests from its catalogue.
+- Extract shared Svelte controls, themes, icons and styles into a portable `@openpost/ui` package. dopost and marketing share its implementation; docs use its palette tokens and mobile derives native theme manifests from its catalogue.
 - Keep YouTube Localizer as a standalone repository and migrate its interface to Svelte with the fixed orange Dither theme.
 
 ### Added
@@ -863,7 +863,7 @@ All notable changes to this project are documented in this file.
 
 - Keep the Video Editor playhead out of the fixed track labels when scrolling the timeline horizontally.
 - Keep Video Editor track labels beneath the pinned time ruler when scrolling vertically, including its keyboard focus outline.
-- Native mobile previews authenticate protected images against the selected OpenPost server.
+- Native mobile previews authenticate protected images against the selected dopost server.
 - Mobile post destinations use compact rows, platform logos, and correct account labels. Android destination drawers keep their header and choices visible.
 - The README mobile gallery shows Drafts, Post, Calendar, and Analytics in one transparent row.
 - Wait for accounts and publishing capabilities before creating a poll, so opening the composer on a slow connection preserves each account's native poll choice.
@@ -893,7 +893,7 @@ All notable changes to this project are documented in this file.
 ### Security
 
 - Update postcss-selector-parser and source-map-js to patched releases, and constrain optional Vue resolution to a patched version.
-- Document audit exceptions for unpatched native installer tooling and the incompatible legacy n8n development parser. These tools are excluded from OpenPost distributions.
+- Document audit exceptions for unpatched native installer tooling and the incompatible legacy n8n development parser. These tools are excluded from dopost distributions.
 - Require external apps to hold grants for every existing destination before editing a post or its variants, including idempotent requests. Credit: Santosh Kumar Puppala.
 
 ## [7.13.0] - 2026-10-05
@@ -941,7 +941,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
-- Preserve locked outcomes, audiences and angles in AI post builds. OpenPost keeps authored choices and asks the model to generate only unlocked fields, including when a saved choice spans multiple lines. Constrain destination choices and claim references to selected accounts and supplied sources. Oversized direction inputs fail before making an AI request.
+- Preserve locked outcomes, audiences and angles in AI post builds. dopost keeps authored choices and asks the model to generate only unlocked fields, including when a saved choice spans multiple lines. Constrain destination choices and claim references to selected accounts and supplied sources. Oversized direction inputs fail before making an AI request.
 
 ## [7.11.1] - 2026-10-05
 
@@ -963,7 +963,7 @@ All notable changes to this project are documented in this file.
 
 ### Documentation
 
-- Add sourced OpenPost comparisons with Buffer and Postiz, including costs, limits, self-hosting responsibilities, and reasons to choose either product. Share guide rendering and derive OpenPost pricing from the plan catalogue.
+- Add sourced dopost comparisons with Buffer and Postiz, including costs, limits, self-hosting responsibilities, and reasons to choose either product. Share guide rendering and derive dopost pricing from the plan catalogue.
 
 ### Fixed
 
@@ -974,7 +974,7 @@ All notable changes to this project are documented in this file.
 - Allow public client logos and share images through the agent-readable documentation checks.
 - Fixed turning imported posts on for Bluesky and Mastodon accounts on PostgreSQL deployments, including turning imports back on after disabling them.
 - Back off reply collection when Meta no longer exposes a post, preserving the provider error without treating missing visibility as a generic hourly failure.
-- Retain unfinished import pages, count and persist provider requests before reads, exclude posts published through OpenPost, and stop in-flight imports after disabling or reactivating them.
+- Retain unfinished import pages, count and persist provider requests before reads, exclude posts published through dopost, and stop in-flight imports after disabling or reactivating them.
 - Show the server's reason when an import setting fails, allow turning imports off after read access is lost, and keep workspace viewers from changing the setting.
 - Opened notifications leave the default unread inbox. Read history remains available, and failed read updates keep the notification available to retry.
 - Keep large media downloads streaming beyond the storage operation timeout, while retaining caller cancellation and connection timeouts.
@@ -1066,7 +1066,7 @@ All notable changes to this project are documented in this file.
 - Image Editor guide positions show the selected page axis’s valid range. Empty and out-of-range values stay available for correction and cannot add a guide; valid fractional positions are preserved (IGV001).
 - Image Editor ruler drags add guides while Select is active, without starting object selection (IGV002).
 - The Zoom tool enlarges the view around a canvas click. Alt-click reduces it, with the same zoom limits as the existing controls. Zoom remains view state and creates no document history entry (IGV003).
-- Saved workspace Image Editor templates appear on the ordinary start page. Their creation action explicitly saves a new design to OpenPost, while local storage remains available for blank designs and public starters (IHT001).
+- Saved workspace Image Editor templates appear on the ordinary start page. Their creation action explicitly saves a new design to dopost, while local storage remains available for blank designs and public starters (IHT001).
 - Disable locked Image Editor text and shape properties and reject authored edits on locked layers or children of locked groups, while preserving layer management and Undo (F006, IMG-001).
 - Image Editor rounded-mask keyboard steps stay within the displayed whole-pixel limit. Mask edits respect the geometric radius limit without rounding valid authored fractions, preserving Undo and saved values (IMR001).
 - Invalid or missing 3D LUT data now leaves source pixels unchanged in preview and export, instead of applying a quantized fallback cube. Valid LUTs and zero-intensity grading retain their existing behavior.
@@ -1081,7 +1081,7 @@ All notable changes to this project are documented in this file.
 - Keyframe segment easing controls accept pointer clicks without starting timeline selection or clearing selected keys.
 - Adding generated voice linked to a text clip now selects both clips when linked selection is enabled, so an immediate keyboard nudge keeps them aligned. Disabled linked selection and unlinked audio retain individual selection (LC001).
 - Keep imported Image Editor fonts distinct when projects share the same family, weight and style, using asset identity for preview, export and reopening (LFI001).
-- Import valid fonts from portable local Image Editor projects through font validation and storage, restore their saved faces on reopen, and preserve font validation when moving the project to OpenPost (LFI001).
+- Import valid fonts from portable local Image Editor projects through font validation and storage, restore their saved faces on reopen, and preserve font validation when moving the project to dopost (LFI001).
 - Logo icon variants with matching display names use their distinct Lucide names in accessible labels and hover hints.
 - Logo Maker keeps keyboard focus on PNG export and copy buttons while encoding, and ignores repeated requests until encoding finishes.
 - Preserve Japanese, Arabic and emoji captions in meme preview and exported images with shaped text and bundled font fallbacks (M001).
@@ -1140,8 +1140,8 @@ All notable changes to this project are documented in this file.
 - Reopening Video Editor export for the same project preserves the chosen resolution alongside quality, so Draft preview stays at 854 × 480. New projects and sequence changes retain their sequence-size default. (R005)
 - Export resolution distinguishes the selected sequence size from fixed dimensions, including when both are currently 1920 × 1080. The choices keep their existing output behavior. (R006)
 - Editor panel resize handles stay below popovers, so pointer clicks on timeline marker Clear reach the visible button. Uncovered handles retain pointer and keyboard resizing (RMQ001).
-- Incomplete invitation and device authorization links explain how to get a new link and offer a return to OpenPost. Invalid previews offer an Open composer action.
-- Incomplete ownership-transfer links keep their explanation and offer a return to OpenPost instead of retrying a missing ID. Transfer links with an ID retain retry recovery.
+- Incomplete invitation and device authorization links explain how to get a new link and offer a return to dopost. Invalid previews offer an Open composer action.
+- Incomplete ownership-transfer links keep their explanation and offer a return to dopost instead of retrying a missing ID. Transfer links with an ID retain retry recovery.
 - Email verification shows incomplete-link recovery guidance once, without repeating the same paragraph above its alert.
 - Checkout stops showing opening progress when Paddle confirms the payment window has loaded. Payment confirmation and retry states remain separate.
 - Adding a weekly posting time that already exists for every selected day now explains that nothing was added. Adding missing weekdays still reports success.
@@ -1473,7 +1473,7 @@ All notable changes to this project are documented in this file.
 ### Added
 
 - Native workflows with GitHub releases, RSS/Atom, manual runs, and published-post sources. Build content flows with drafts, AI writing, review, scheduling, conditions, waits, metrics, and prepared replies.
-- A visual workflow editor, starting templates, previews without publishing effects, and run inspection with revision-bound approval. Runs persist across worker restarts and use OpenPost's native publishing rules.
+- A visual workflow editor, starting templates, previews without publishing effects, and run inspection with revision-bound approval. Runs persist across worker restarts and use dopost's native publishing rules.
 - Move existing repost rules, grants, templates, and run history into Workflows without restarting deliveries. Preserve rule identity on edits, reject stale changes, and recover workflow drafts after Social Set changes.
 
 ### Fixed
@@ -1542,7 +1542,7 @@ All notable changes to this project are documented in this file.
 - Composer capability checks include each destination's effective text and attachments.
 - Media editing reopens an existing image design, and workspace designs can be deleted from the editor library.
 - Source associations are recorded for new editing designs. Older designs remain available and removable; the first Edit after upgrading may create one new design.
-- Published records can be removed from OpenPost without deleting posts on social networks.
+- Published records can be removed from dopost without deleting posts on social networks.
 - Facebook and Instagram image posts no longer inherit Reel settings or reject inline links as unsupported native link settings.
 - Failed video encodes release the submitted frame instead of keeping its native video memory open.
 - Audio exports no longer reject complete clips or shift their start by one sample when timeline boundaries accumulate floating-point rounding errors.
@@ -1578,7 +1578,7 @@ All notable changes to this project are documented in this file.
 - Sanitize provider transport errors in the X, LinkedIn, PeerTube, Pinterest, and connector HTTP helpers so failing requests no longer leak signed upload or connector URLs into errors and logs.
 - SDK request timeouts now include reading response bodies, so a server that sends headers but stalls its body cannot leave calls pending indefinitely.
 - TikTok accounts connect with the publishing scopes alone. The profile falls back to the Login Kit identity fields when the Display API username scope is missing, completed Direct Post videos keep the provider publish ID when `video.list` reconciliation is unavailable, and analytics explain the missing Display API scopes instead of blocking the connection.
-- Correct the default X Post video limits to 20 minutes / 8 GiB standard and 125 minutes / 16 GiB subscribed, matching X's documented `tweet_video` caps. The previous 512 MiB / 140-second defaults describe Direct Message video, which OpenPost never uploads.
+- Correct the default X Post video limits to 20 minutes / 8 GiB standard and 125 minutes / 16 GiB subscribed, matching X's documented `tweet_video` caps. The previous 512 MiB / 140-second defaults describe Direct Message video, which dopost never uploads.
 
 ### Changed
 
@@ -1634,7 +1634,7 @@ All notable changes to this project are documented in this file.
 - MCP `get_dashboard_link` builds an app-origin dashboard URL for `post`, `media`, `account`, and `calendar` views so agents can hand users a link to the visualization.
 - MCP `search_docs` searches a curated offline registry of documentation and assistant skill pages, returning titles, `/docs` paths, and snippets.
 - MCP documents recommended toolsets per client (direct `/mcp` for full-catalog clients, compact `/mcp/code` for constrained ones) and records the accepted gaps: no account connect/disconnect, no bulk operations, and no webhook tools.
-- Native post imports as a separate opt-in library, independent of Analytics. Enabling imports on a Bluesky or Mastodon account stores its native posts (published after opt-in only, never backfilled) in a read-only imported-posts library with per-account checkpoints, daily read budgets, and loop protection against posts published through OpenPost. X native reads stay disabled by the read-cost policy; Threads, Instagram, Facebook, LinkedIn, TikTok, YouTube, and Pinterest are explicit TODOs.
+- Native post imports as a separate opt-in library, independent of Analytics. Enabling imports on a Bluesky or Mastodon account stores its native posts (published after opt-in only, never backfilled) in a read-only imported-posts library with per-account checkpoints, daily read budgets, and loop protection against posts published through dopost. X native reads stay disabled by the read-cost policy; Threads, Instagram, Facebook, LinkedIn, TikTok, YouTube, and Pinterest are explicit TODOs.
 - TikTok authorization is now capability-driven: the login request asks for the publishing scopes (`user.info.basic`, `video.publish`, `video.upload`) plus the optional Display API scopes (`user.info.profile`, `user.info.stats`, `video.list`). Set `OPENPOST_DISABLE_TIKTOK_DISPLAY_API=true` when the TikTok app has no Display API approval so the request asks only for what TikTok can grant.
 
 ### Improved
@@ -1763,7 +1763,7 @@ All notable changes to this project are documented in this file.
 - Fixed workspace creation silently keeping the old workspace when the create dialog remounts mid-flight. Selection of the just-created workspace now survives dialog unmount instead of aborting with no error.
 - Deleting the active workspace from workspace settings now navigates back to the home page as intended. Previously the deletion succeeded and the store switched to another workspace, but the page stayed on the settings URL of the deleted workspace: shrinking the workspace list flips the layout's workspace access key, which remounts the settings page through its onboarding loading gate mid-flight and invalidates the delete handler's still-current guard, so the post-delete navigation never ran. The handler now also navigates when the (possibly remounted) page still shows the deleted workspace.
 - Fixed workspace creation silently keeping the old workspace when a background refresh (such as the layout onboarding check) resolves after the new selection is applied. Implicit refreshes no longer move a selection that is newer than their own intent; they refresh the workspace inventory and keep the current workspace.
-- Correct the default X Post video limits to 20 minutes / 8 GiB standard and 125 minutes / 16 GiB subscribed, matching X's documented `tweet_video` caps. The previous 512 MiB / 140-second defaults describe Direct Message video, which OpenPost never uploads.
+- Correct the default X Post video limits to 20 minutes / 8 GiB standard and 125 minutes / 16 GiB subscribed, matching X's documented `tweet_video` caps. The previous 512 MiB / 140-second defaults describe Direct Message video, which dopost never uploads.
 
 ### Added
 
@@ -1782,7 +1782,7 @@ All notable changes to this project are documented in this file.
 - MCP `get_dashboard_link` builds an app-origin dashboard URL for `post`, `media`, `account`, and `calendar` views so agents can hand users a link to the visualization.
 - MCP `search_docs` searches a curated offline registry of documentation and assistant skill pages, returning titles, `/docs` paths, and snippets.
 - MCP documents recommended toolsets per client (direct `/mcp` for full-catalog clients, compact `/mcp/code` for constrained ones) and records the accepted gaps: no account connect/disconnect, no bulk operations, and no webhook tools.
-- Native post imports as a separate opt-in library, independent of Analytics. Enabling imports on a Bluesky or Mastodon account stores its native posts (published after opt-in only, never backfilled) in a read-only imported-posts library with per-account checkpoints, daily read budgets, and loop protection against posts published through OpenPost. X native reads stay disabled by the read-cost policy; Threads, Instagram, Facebook, LinkedIn, TikTok, YouTube, and Pinterest are explicit TODOs.
+- Native post imports as a separate opt-in library, independent of Analytics. Enabling imports on a Bluesky or Mastodon account stores its native posts (published after opt-in only, never backfilled) in a read-only imported-posts library with per-account checkpoints, daily read budgets, and loop protection against posts published through dopost. X native reads stay disabled by the read-cost policy; Threads, Instagram, Facebook, LinkedIn, TikTok, YouTube, and Pinterest are explicit TODOs.
 - TikTok authorization is now capability-driven: the login request asks for the publishing scopes (`user.info.basic`, `video.publish`, `video.upload`) plus the optional Display API scopes (`user.info.profile`, `user.info.stats`, `video.list`). Set `OPENPOST_DISABLE_TIKTOK_DISPLAY_API=true` when the TikTok app has no Display API approval so the request asks only for what TikTok can grant.
 
 ## [6.2.0] - 2026-09-25
@@ -1793,7 +1793,7 @@ All notable changes to this project are documented in this file.
 
 ### Removed
 
-- Removed the standalone Editors catalog page (`/editors`). Image and video work now starts from the Media library and the editor start pages, and every editor header leads back into OpenPost: the shared editor headers return to OpenPost home, and the Image Editor returns to Media. The Editors entry is gone from workspace navigation.
+- Removed the standalone Editors catalog page (`/editors`). Image and video work now starts from the Media library and the editor start pages, and every editor header leads back into dopost: the shared editor headers return to dopost home, and the Image Editor returns to Media. The Editors entry is gone from workspace navigation.
 
 ## [6.1.8] - 2026-09-25
 
@@ -1867,7 +1867,7 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
-- Show saved OpenPost and local projects together in Image Editor, Video Editor, and Quick Cut, with compact storage and sync status. The storage choice now controls where new projects are saved.
+- Show saved dopost and local projects together in Image Editor, Video Editor, and Quick Cut, with compact storage and sync status. The storage choice now controls where new projects are saved.
 - Give Quick Cut a shared editor start page, clear guidance after marking a selection, and compact kept-part rows with optional settings behind a disclosure.
 - Start background removal as soon as an image is chosen or pasted, download pasted images automatically, and add an accessible draggable before-and-after preview.
 
@@ -1884,7 +1884,7 @@ All notable changes to this project are documented in this file.
 
 ### Removed
 
-- Analytics and the engagement inbox only cover content published through OpenPost. Native provider history reads, the account-content discovery sweep, external analytics sources, and the analytics source filter are gone, along with their coverage warnings and provider read usage.
+- Analytics and the engagement inbox only cover content published through dopost. Native provider history reads, the account-content discovery sweep, external analytics sources, and the analytics source filter are gone, along with their coverage warnings and provider read usage.
 
 ## [6.0.1] - 2026-09-21
 
@@ -1914,7 +1914,7 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
-- Publish native `linux/amd64` and `linux/arm64` container images under one multi-architecture OpenPost tag.
+- Publish native `linux/amd64` and `linux/arm64` container images under one multi-architecture dopost tag.
 - Free browser tools for background removal, image colors and palettes, clipboard-image downloads, icon-based logos, and PNG/JPEG/WebP conversion. Image processing stays on the device, with no account or watermark. Supported conversion pairs have their own searchable pages and format guidance.
 - Quick Cut has its own free-tool page, separate from the full Video Editor.
 - Rasterize a layer or group, merge adjacent layers, or flatten a page into an image with one undo step. These commands bake the pixels inside the page and keep source media unchanged.
@@ -1997,13 +1997,13 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
-- Prepared Android 0.2.37 for the current OpenPost API contract.
+- Prepared Android 0.2.37 for the current dopost API contract.
 
 ## [4.36.2] - 2026-09-19
 
 ### Changed
 
-- Prepared Android 0.2.36 for the current OpenPost API contract.
+- Prepared Android 0.2.36 for the current dopost API contract.
 
 ## [4.36.1] - 2026-09-19
 
@@ -2022,10 +2022,10 @@ All notable changes to this project are documented in this file.
 - PeerTube accounts with more than 15 channels can connect and publish to every channel; the channel list now reads every page instead of stopping at PeerTube's default page of 15.
 - PeerTube videos with more than 100 comment threads bring every thread into the inbox; older threads, and new replies on them, are no longer dropped after the first page.
 - PeerTube account content discovery finishes its cycle and picks up new videos again. It used to get stuck repeating the same page once a channel had a video older than the discovery window, spending the daily read budget on that page and never finding newer uploads.
-- Fixed Facebook video Stories and Reels failing when Meta had not finished fetching the video. OpenPost now uses Meta's hosted-file upload session, validates the credential-bearing upload host, keeps polling the accepted upload through temporary failures, and finishes only after the upload completes.
+- Fixed Facebook video Stories and Reels failing when Meta had not finished fetching the video. dopost now uses Meta's hosted-file upload session, validates the credential-bearing upload host, keeps polling the accepted upload through temporary failures, and finishes only after the upload completes.
 - Fixed provider network errors retaining credential-bearing request URLs in stored or logged error text.
-- Fixed Threads posts with accents, curly punctuation, or emoji passing OpenPost's character check and then exceeding Meta's UTF-8 byte limit.
-- Fixed Facebook analytics using feed-post fields for Stories, Reels, and video posts. OpenPost now requests the metric family supported by each Graph object type.
+- Fixed Threads posts with accents, curly punctuation, or emoji passing dopost's character check and then exceeding Meta's UTF-8 byte limit.
+- Fixed Facebook analytics using feed-post fields for Stories, Reels, and video posts. dopost now requests the metric family supported by each Graph object type.
 - Replies to replies on Threads posts reach the engagement inbox, threaded under the reply they answer. Only top-level replies were collected before, so a follower answering the account's own reply never showed up.
 - Reconcile public TikTok videos when publishing completes without a public post ID, while keeping ambiguous matches pending instead of republishing or saving a broken link.
 
@@ -2086,7 +2086,7 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
-- Connect Telegram channels and groups through an instance-owned bot: post a one-time command inside the chat, then schedule text and media messages from OpenPost.
+- Connect Telegram channels and groups through an instance-owned bot: post a one-time command inside the chat, then schedule text and media messages from dopost.
 - Drag video-editor sidebar content straight onto the timeline: backgrounds, stickers, stock assets, and Lottie animations now land on the hovered track at the drop frame with a live placement preview, and saved AI voice and music previews drag out as audio clips.
 
 ## [4.34.2] - 2026-09-16
@@ -2100,7 +2100,7 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
-- Show the live OpenPost GitHub star count beside the wordmark on the public landing navigation.
+- Show the live dopost GitHub star count beside the wordmark on the public landing navigation.
 
 ### Fixed
 
@@ -2137,7 +2137,7 @@ All notable changes to this project are documented in this file.
 
 - Keep configured Discord bot accounts connected and online through the worker Gateway.
 - Rotate a truthful bot presence, with optional Twitch or YouTube streaming mode.
-- Add the live OpenPost GitHub star count beside the authenticated app logo, linking to the repository.
+- Add the live dopost GitHub star count beside the authenticated app logo, linking to the repository.
 
 ### Changed
 
@@ -2177,7 +2177,7 @@ All notable changes to this project are documented in this file.
 - Connect PieFed accounts with instance credentials and publish to communities through its native API, sharing the Lemmy authoring experience.
 - Connected Fediverse accounts now name their detected server software (Pixelfed, PeerTube, Lemmy, PieFed, GoToSocial, Akkoma, Pleroma, or Friendica) instead of showing a generic provider name.
 - New `/platforms` guides for Pixelfed, PeerTube, Lemmy, and PieFed, plus self-hosting integration guides for each.
-- Maintainer diagnostic reports are on by default for self-hosted instances. Upgrading activates an external reporting channel where previous versions sent nothing: instances send privacy-limited failure reports (normalized error codes, build, sanitized stack frames, occurrence counts) to the official OpenPost receiver through a bounded queue that never blocks application work and never touches the application database. Set `OPENPOST_DIAGNOSTICS_ENABLED=false` to opt out; the environment disable always wins and clears pending reports. Browser reports additionally stop on Do Not Track or Global Privacy Control.
+- Maintainer diagnostic reports are on by default for self-hosted instances. Upgrading activates an external reporting channel where previous versions sent nothing: instances send privacy-limited failure reports (normalized error codes, build, sanitized stack frames, occurrence counts) to the official dopost receiver through a bounded queue that never blocks application work and never touches the application database. Set `OPENPOST_DIAGNOSTICS_ENABLED=false` to opt out; the environment disable always wins and clears pending reports. Browser reports additionally stop on Do Not Track or Global Privacy Control.
 - The official receiver (`POST /api/v1/diagnostics/ingest`, enabled with `OPENPOST_DIAGNOSTICS_INGEST_ENABLED` plus the server-only `OPENPOST_DIAGNOSTICS_DISCORD_WEBHOOK_URL`) validates, quota-limits, and forwards accepted cross-instance reports to the maintainer Discord channel.
 - Uncaught browser exceptions and unhandled promise rejections now report through the viewer's own instance as normalized codes with app-relative locations, never message text. Chunk-load deployment skew stays excluded.
 - Send feedback is now one click away in the app sidebar, the mobile More menu, and the Video and Image Editor headers, and onboarding invites new workspaces to report anything missing or broken.
@@ -2298,7 +2298,7 @@ All notable changes to this project are documented in this file.
 ### Documentation
 
 - Added separate illustrated self-hosting guides for all 12 social networks, with provider-specific setup, callback URLs, permissions, connection checks, and troubleshooting.
-- Rewrote customer, self-hosting, and AI assistant guides; reorganized navigation and added distinct page icons. Screenshots can be enlarged, and OpenPost connection screenshots follow the reader's light or dark theme.
+- Rewrote customer, self-hosting, and AI assistant guides; reorganized navigation and added distinct page icons. Screenshots can be enlarged, and dopost connection screenshots follow the reader's light or dark theme.
 - Corrected LinkedIn first-connection permissions, Telegram self-hosting instructions, Pinterest approval requirements, Calendar views, and AI client setup. Older integration URLs redirect to the new guides.
 
 ## [4.30.3] - 2026-09-12
@@ -2555,7 +2555,7 @@ All notable changes to this project are documented in this file.
 - Fixed Video Editor cloud saves failing on reactive project state, screen recordings rejected for missing WebM duration metadata, and anonymous camera or microphone choices crashing the recorder.
 - Browser Stop sharing now imports the finished recording. Failed imports remain recoverable, and a late upload cannot insert clips into a different project.
 - Kept canvas text entry local until commit, preserved spaces while typing, corrected zoom and volume icons, and made project metadata and recording setup fit narrow screens.
-- Kept cloud exports and render queues in browser storage, separate from local workspace folders. Cloud save status now names OpenPost.
+- Kept cloud exports and render queues in browser storage, separate from local workspace folders. Cloud save status now names dopost.
 - Preserved public Svelte error codes in telemetry while continuing to redact URL parameters.
 - Rejected malformed saved speech-cleanup timings while preserving valid settings.
 - Theme creation opens the new draft in the editor. Unpublished drafts remain available to edit, and failed creation keeps the entered name for retry.
@@ -2647,9 +2647,9 @@ All notable changes to this project are documented in this file.
 - Documentation edit links point to the current source directory, and the default theme initializes once.
 - Release builds now place server, CLI, and MCP binaries where the upload step expects them.
 - Bluesky mentions now resolve complete multi-segment handles instead of a single captured domain segment.
-- Bluesky accounts hosted on a self-hosted or third-party PDS can now be connected and used: OpenPost resolves the PDS from the handle's DID document at sign-in and talks to that server for the account. Sign in with the handle, not an email. Accounts on bsky.social are unchanged. Video uploads still go through Bluesky's video service and are not covered for accounts on other PDSes. When the PDS cannot be resolved, sign-in now fails instead of falling back to bsky.social.
+- Bluesky accounts hosted on a self-hosted or third-party PDS can now be connected and used: dopost resolves the PDS from the handle's DID document at sign-in and talks to that server for the account. Sign in with the handle, not an email. Accounts on bsky.social are unchanged. Video uploads still go through Bluesky's video service and are not covered for accounts on other PDSes. When the PDS cannot be resolved, sign-in now fails instead of falling back to bsky.social.
 - Composer destination tabs now show only "All" or the connected account name.
-- LinkedIn profile refresh now saves the profile photo on OpenPost storage so browser privacy controls and expiring provider URLs cannot hide it.
+- LinkedIn profile refresh now saves the profile photo on dopost storage so browser privacy controls and expiring provider URLs cannot hide it.
 - Preserve each repost stage and completed removal across worker restarts, enforce evaluation deadlines, and use each provider's correct native unrepost identifier.
 - Production pages now link the PWA manifest and register the service worker from nested editor routes. Install icons include PNG and maskable variants.
 - Service-worker updates wait for open windows to close. Public app caches exclude API responses, authorization URLs, query-bearing navigations, and original media. Updates remove the previous unrestricted page cache after activation.
@@ -2659,9 +2659,9 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
-- Let trusted self-hosting proxies sign users into OpenPost and provision their first workspace without a second onboarding flow.
+- Let trusted self-hosting proxies sign users into dopost and provision their first workspace without a second onboarding flow.
 - Schedule several native repost stages from one workspace rule or publication override, with an option to remove the preceding repost before the next stage.
-- Desktop users can install OpenPost from the profile menu. Supported browsers offer a dismissible, one-time installation invitation; other desktop browsers show manual installation instructions.
+- Desktop users can install dopost from the profile menu. Supported browsers offer a dismissible, one-time installation invitation; other desktop browsers show manual installation instructions.
 
 ### Improved
 
@@ -2757,7 +2757,7 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
-- Keep page and mobile data available while OpenPost refreshes it in the background, with fewer repeated loading states when moving through the app.
+- Keep page and mobile data available while dopost refreshes it in the background, with fewer repeated loading states when moving through the app.
 - Load the app shell with one startup request instead of a settings chain, and keep workspace data isolated per workspace and per signed-in actor.
 - Apply one organization theme across authenticated product chrome while preserving provider marks, status meaning, workspace identity, and specialized editor visuals.
 - Page theme revision history and uploaded assets with stable cursors instead of loading an Organization's full history at once.
@@ -2805,7 +2805,7 @@ All notable changes to this project are documented in this file.
 
 - Added consent-aware browser analytics choices with persistent first-party, limited cookieless, and fully off modes across the app, website, and documentation.
 - Added a Refresh profile action to connected account details so current provider names and profile pictures can be fetched without reconnecting the account.
-- Published verifiable OpenPost Agent Skills, current API and MCP discovery metadata, and a standard favicon for integration directories.
+- Published verifiable dopost Agent Skills, current API and MCP discovery metadata, and a standard favicon for integration directories.
 
 ### Fixed
 
@@ -2851,11 +2851,11 @@ All notable changes to this project are documented in this file.
 - Polished Analytics into one accessible managed-and-external content scan with truthful account-history coverage, server evidence details, and phone-safe Repurpose actions.
 - Require current Pinterest Standard access and matching live certification before production connection or publishing is advertised.
 - Keep Pinterest production delivery gated on current Standard access and live certification, and stop rather than replay a Pin create whose outcome may be ambiguous.
-- Move OpenPost's canonical website, documentation, Hosted service, public media, telemetry proxy, and support address to the `openpo.st` domain while keeping the recorded old-domain compatibility paths available.
+- Move dopost's canonical website, documentation, Hosted service, public media, telemetry proxy, and support address to the `openpo.st` domain while keeping the recorded old-domain compatibility paths available.
 - Keep the Hosted sign-in page reviewable without creating a second marketing homepage, with direct pricing and policy links plus a no-JavaScript fallback.
 - Re-register a dynamic Mastodon application when its configured callback changes, so a new connection returns to the current Hosted domain while existing grants stay intact.
-- Replace the custom billing form with Paddle's managed checkout overlay and support Paddle transaction links without requiring an OpenPost sign-in.
-- Redesign marketing and documentation social preview images with clearer type and restrained OpenPost branding.
+- Replace the custom billing form with Paddle's managed checkout overlay and support Paddle transaction links without requiring a dopost sign-in.
+- Redesign marketing and documentation social preview images with clearer type and restrained dopost branding.
 
 ### Added
 
@@ -2869,17 +2869,17 @@ All notable changes to this project are documented in this file.
 - Added authenticated Telegram channel observation from bot installation onward, including external channel posts, semantic reaction counts, account-only member counts, and independent observation and analytics readiness.
 - Added Discord bot installation with guild selection and permitted text or announcement channel targets while keeping incoming-webhook connections available.
 - Added certification-gated Discord bot delivery for typed embeds, direct attachments, and permission-approved member or role mentions with deny-all implicit mention defaults and durable reconciliation. Bot mode remains unavailable until certified; existing incoming-webhook connections remain supported and are not placed behind the bot certification gate.
-- Added certification-gated, bounded Discord bot analytics for approximate guild membership plus reactions and thread replies on exact OpenPost-published message receipts. Bot analytics remain unavailable until certified, never read guild message history, and do not affect existing Discord webhook support or invent views, reach, or impressions.
+- Added certification-gated, bounded Discord bot analytics for approximate guild membership plus reactions and thread replies on exact dopost-published message receipts. Bot analytics remain unavailable until certified, never read guild message history, and do not affect existing Discord webhook support or invent views, reach, or impressions.
 - Added a bounded account-content inventory with immutable analytics snapshots, discovery checkpoints, normalized observations, and optional provider discovery and batch-measurement contracts.
 - Added durable, rate-aware account content discovery with bounded initial history, daily eligibility, truthful provider outcomes, and crash-safe page continuation.
-- Added bounded YouTube upload discovery with paginated channel history, lifetime video statistics, and exact matching to OpenPost-published Renditions.
-- Added source-bound whole-account analytics reads with deduplicated OpenPost and external content, per-account discovery coverage, and provider metric semantics.
-- Added stored, explainable analytics insights with compatible-period ranking, explicit insufficient-data states, source context, and unified OpenPost and external content results.
+- Added bounded YouTube upload discovery with paginated channel history, lifetime video statistics, and exact matching to dopost-published Renditions.
+- Added source-bound whole-account analytics reads with deduplicated dopost and external content, per-account discovery coverage, and provider metric semantics.
+- Added stored, explainable analytics insights with compatible-period ranking, explicit insufficient-data states, source context, and unified dopost and external content results.
 - Added an editor-authorized Repurpose action for managed and externally discovered analytics content that opens fresh local direction review without changing the source, creating a draft, contacting a provider, or starting an AI build.
 - Added date-bounded YouTube Analytics report metrics while keeping Data API lifetime counters visibly separate.
-- Added bounded account-content discovery for connected Instagram professional accounts, Threads profiles, and Facebook Pages, with approved-scope checks, safe links, truthful partial coverage, and exact matching to OpenPost-published Renditions.
-- Added bounded TikTok video discovery with opaque pagination, inline lifetime metrics, safe public URLs, and exact matching to OpenPost-published Renditions.
-- Added bounded public-post discovery for Mastodon and Bluesky with server-scoped identities, safe links, explicit partial coverage, pagination, and exact matching to OpenPost-published Renditions.
+- Added bounded account-content discovery for connected Instagram professional accounts, Threads profiles, and Facebook Pages, with approved-scope checks, safe links, truthful partial coverage, and exact matching to dopost-published Renditions.
+- Added bounded TikTok video discovery with opaque pagination, inline lifetime metrics, safe public URLs, and exact matching to dopost-published Renditions.
+- Added bounded public-post discovery for Mastodon and Bluesky with server-scoped identities, safe links, explicit partial coverage, pagination, and exact matching to dopost-published Renditions.
 - Added bounded X and scope-gated LinkedIn Organization Page account-history discovery. X provider reads remain disabled until the operator grants a positive daily request budget, and LinkedIn member history remains unavailable.
 - Added instance-owned Pinterest, Telegram bot, and Discord bot application contracts, typed destination settings, and provider-safe target identities while preserving Discord incoming webhooks as a separate connection mode.
 - Added durable, single-use signed bot connection codes and safe idempotent webhook ingestion for upcoming bot providers.
@@ -2985,7 +2985,7 @@ All notable changes to this project are documented in this file.
 - Rebuilt clip transforms around FreeCut's Position, Size, Rotation, Anchor, and Appearance workflow with scrubbable unit-aware fields, mixed selections, linked dimensions, grouped blend modes, reset actions, and one-step undo.
 - Matched FreeCut's source-pixel crop workflow with multi-clip scrubbing, reset and auto-key controls, signed edge softness, and the same fixed-source crop geometry in preview and export.
 - Rebuilt playback controls around FreeCut's live speed and fade workflow, including mixed multi-clip values, linked A/V rate stretching, reset actions, reverse status, and one undo entry per gesture.
-- Matched FreeCut's multi-clip audio core with linked-audio selection, live dB gain and fade controls, throttled pitch editing, gain auto-keying, mixed values, and atomic resets while retaining OpenPost's advanced EQ and cleanup tools.
+- Matched FreeCut's multi-clip audio core with linked-audio selection, live dB gain and fade controls, throttled pitch editing, gain auto-keying, mixed values, and atomic resets while retaining dopost's advanced EQ and cleanup tools.
 - Rebuilt parametric EQ from FreeCut's source with an interactive logarithmic response graph, pointer and keyboard band editing, mixed multi-clip presets, linked-audio targeting, and one undo step per edit.
 - Added FreeCut's shape gradient swap and path-order controls, including undoable reverse and first-point actions in each path point's keyboard-accessible context menu.
 - Added FreeCut's independent None, Shadow, Outline, and Glow text effects, including atomic multi-text selection updates.
@@ -3010,14 +3010,14 @@ All notable changes to this project are documented in this file.
 - Centralized marketing navigation views in one categorized registry.
 - Made the mobile first-use screen lead with Hosted sign-in while keeping self-hosted setup clear and secondary.
 - Reduced the depth of primary mobile buttons to match the flatter app hierarchy.
-- Simplified the marketing and documentation entry points around OpenPost's real publication workflow.
+- Simplified the marketing and documentation entry points around dopost's real publication workflow.
 - Grouped documentation navigation by user task and clarified that provider adapters and Hosted certification are separate.
-- Shortened the README product copy and added reproducible OpenPost Image Editor and OpenPost Video Editor screenshots.
+- Shortened the README product copy and added reproducible dopost Image Editor and dopost Video Editor screenshots.
 - Consolidated Publications, Inbox communications, and account management on their canonical routes across the web and mobile apps.
 - Removed the public app homepage and the legacy Studio, Video Studio, Activity, Posts, and standalone Accounts routes without redirects.
 - Flattened routine app and editor controls so depth marks only the current focal action or a temporary layer.
 - Made Editors visible in primary workspace navigation and added readable labels to mobile navigation.
-- Simplified the OpenPost Image Editor start screen to lead with real starter templates.
+- Simplified the dopost Image Editor start screen to lead with real starter templates.
 - Reduced visual noise in the marketing hero and Image Editor template chooser.
 - Made the first Image Editor guidance select the primary editable text and avoid redundant desktop actions.
 
@@ -3100,7 +3100,7 @@ All notable changes to this project are documented in this file.
 - Keep the Video Editor keyframe graph and dope sheet usable together at narrow widths.
 - Keep compact calendar date ranges visible and align published-history checks with the visible calendar item.
 - Keep the mobile Video Editor inspector actions clear of the timeline at short phone heights.
-- Release commands now stay bound to the OpenPost repository when a checkout has extra review remotes.
+- Release commands now stay bound to the dopost repository when a checkout has extra review remotes.
 
 ### Added
 
@@ -3173,7 +3173,7 @@ All notable changes to this project are documented in this file.
 - Keep auto-caption word timing inside edited cue bounds and treat a cleared word as deletion instead of retaining a blank transcript token.
 - Keep exact merged WebM Quick Cut exports in VP9 and Opus, show real export eligibility before rendering, and reject invalid ranges before they enter the project.
 - Keep camera and microphone recording available when a previously selected input was unplugged by falling back to the browser default and clearing the stale choice.
-- Preserve the originating draft when sending a Video Editor export to OpenPost and attach the uploaded video when the composer opens.
+- Preserve the originating draft when sending a Video Editor export to dopost and attach the uploaded video when the composer opens.
 - Resume a previously running Video Editor render queue after reload while keeping interrupted renders safely paused.
 - Refresh the open Saved exports list for every completed queue job, including jobs that finish within the same millisecond.
 - List saved image-sequence folders beside rendered files and delete a sequence folder recursively after confirmation.
@@ -3182,7 +3182,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
-- Restore the saved Video Editor workspace before opening a project deep link or creating a project from another OpenPost surface.
+- Restore the saved Video Editor workspace before opening a project deep link or creating a project from another dopost surface.
 - Keep selected-clip actions contained in a compact, touch-safe inspector toolbar.
 
 ## [4.6.0] - 2026-08-27
@@ -3191,7 +3191,7 @@ All notable changes to this project are documented in this file.
 
 - Video Editor beat analysis and keyframe controls now stay out of the timeline until opened.
 - The Video Editor inspector now shows only relevant Properties, Motion, Effects, or Transcript controls while keeping export actions fixed in place.
-- FreeCut schema 15 projects now open as backed-up, writable OpenPost projects with their effects, audio levels, transitions, keyframes, captions, Lottie settings, and Motion compositions preserved.
+- FreeCut schema 15 projects now open as backed-up, writable dopost projects with their effects, audio levels, transitions, keyframes, captions, Lottie settings, and Motion compositions preserved.
 - The writing canvas is open again, scheduling is shorter, and the desktop media picker shows every source.
 - Interface sounds now start enabled for visitors who have not saved a preference.
 - The landing page leads with the product, the navigation is shorter, and pricing is easier to scan.
@@ -3248,7 +3248,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
-- The official n8n package now passes current npm and n8n publication checks while keeping write-capable OpenPost actions unavailable to AI tools.
+- The official n8n package now passes current npm and n8n publication checks while keeping write-capable dopost actions unavailable to AI tools.
 
 ## [4.3.0] - 2026-08-27
 
@@ -3281,7 +3281,7 @@ All notable changes to this project are documented in this file.
 - Text items in the focused 2D composition timeline now show typed In, Loop and Out bands derived from the real `textMotion` spec via the shared `getTextMotionTimelineBands` math (including `segmentTextUnits` unit counts, stagger, and half-clip clamping, exact to FreeCut). Bands are rendered in both the sticky layer list and the scrollable lane, culled via the shared viewport, with localized preset and slot labels, duration and unit suffixes, and offset metadata.
 - In and Out band bodies drag to change `offsetFrames` from the clip edge; Loop bodies do not offer offset. Band edges drag to change `durationFrames` (In right edge, Out left edge, Loop right handle). Loop duration edits do not create a false offset. All drags use `beginTextMotionEdit` / `updateTextMotionLive` / `commitTextMotionEdit` with a single undo per gesture, live preview via the shared store, `isTrackEffectivelyLocked` group-lock guards, pointer capture with `lostpointercapture` handling, a single stored cleanup for `pointermove` / `up` / `cancel` / `keydown` / `lostcapture` called on every terminal path and onDestroy, Escape and pointercancel restore the exact snapshot even before the 3px threshold, and `pointercancel`/`lostcapture`/`unmount` do not synthesize PointerEvent. No-op drags (clamped to start) add no undo and do not call `onedit`.
 - Advertise the hosted API, authentication flow, Markdown pages, sitemap, and OpenAPI contract through an RFC 9727 API catalog, `/auth.md`, and homepage HTTP Link headers.
-- Meme Maker now uses OpenPost's own fast, watermark-free renderer, a full built-in template catalog, a larger editing workbench, and template-specific AI guidance.
+- Meme Maker now uses dopost's own fast, watermark-free renderer, a full built-in template catalog, a larger editing workbench, and template-specific AI guidance.
 - Added the official `@getopenpost/n8n-nodes-openpost` package with importable workspace-listing and draft-creation workflows.
 - Added a dedicated n8n CI gate for generated contracts, types, tests, lint, builds, package loading, npm payload inspection, and package version discipline.
 - Video Editor preview and export now share one WebGL2 compositor and a bounded GPU texture/framebuffer pool. The ping-pong targets reuse exact-size allocations across resize cycles, clear stale pixels, stay isolated per GL context, cap at 96 MB/8 entries, and release on device loss/dispose without leaking ImageBitmap or OffscreenCanvas. Transition branches no longer detach from their canvases on parent resize, and disposing one live stack does not invalidate another. Real Chromium WebGL2 tests cover reuse, resize, context separation, dispose, transition pixel regression, and a layered-timeline allocation benchmark proving second-frame reuse.
@@ -3291,7 +3291,7 @@ All notable changes to this project are documented in this file.
 - Motion compositions now reuse full layer-group controls and can publish plain text and solid text or shape colors. Every placed instance gets independent resettable overrides without changing the source, with matching nested live preview and export output.
 - Video Editor ASCII and Paper halftone effects now include their full typed control surfaces and render in both preview and export.
 - GPU effects now render on image, text, and subtitle clips as well as video, with one text raster path shared by preview and export.
-- The full 54-effect FreeCut GPU catalog now runs in OpenPost, including exact HQ pixel sort and complete direction/order controls for the streak variant.
+- The full 54-effect FreeCut GPU catalog now runs in dopost, including exact HQ pixel sort and complete direction/order controls for the streak variant.
 - Timed adjustment layers now apply ordered CSS and GPU effects to every active visual clip below them in preview and export.
 - All 25 clip blend modes now composite against the finished layers below in live preview and export, with one shared GPU stack and an exact CPU fallback.
 - A full keyframe value graph now exposes sampled easing curves, direct Bezier handles, shared multi-key selection and movement, snapping, zoom, pan, fit, Alt duplication, keyboard edits, and transition-safe ranges.
@@ -3305,7 +3305,7 @@ All notable changes to this project are documented in this file.
 - Projects now support reusable sequences and compound clips with ordered tabs, per-sequence view and undo state, cycle-safe nesting, source-window-correct dissolve, and recursive visual/audio preview and export. Media-pool cards render cached frames from the real nested compositor, create deep independent duplicates, and confirm the exact root and nested reference impact before undoable deletion.
 - The Scene Browser now detects cuts off the main thread, stores lazy thumbnails and Lab palettes, captions scenes with local LFM, indexes text and images with MiniLM and CLIP, ranks keyword, semantic, color, and palette searches, and inserts exact source ranges by button or drag with progress, cancellation, and undo.
 - Local auto-captions now use a complete Parakeet and Whisper engine registry with model and language controls, safe fallback, streamed decode, warm worker reuse, staged download and inference progress, cancellation, source-window and playback-speed mapping, and removable browser model caches.
-- Local voice generation now matches FreeCut with Kokoro, Supertonic 3, and MOSS Nano, all engine voices and language controls, real progress and cancellation, reusable previews, one-time media-pool saves, and atomic insertion at the playhead. OpenPost also pins the Supertonic and MOSS revisions, verifies resumable MOSS files, falls back from unavailable WebGPU adapters, and allows MOSS speed adjustment.
+- Local voice generation now matches FreeCut with Kokoro, Supertonic 3, and MOSS Nano, all engine voices and language controls, real progress and cancellation, reusable previews, one-time media-pool saves, and atomic insertion at the playhead. dopost also pins the Supertonic and MOSS revisions, verifies resumable MOSS files, falls back from unavailable WebGPU adapters, and allows MOSS speed adjustment.
 - The complete Video Editor now ships in English, Spanish, French, German, European and Brazilian Portuguese, Turkish, Japanese, Korean, and Simplified Chinese, with native language labels and strict catalog and placeholder checks.
 - Shape clips now include rectangle, circle, ellipse, triangle, star, polygon, and heart presets with solid or linear fills, strokes, rounded geometry, direct transforms, effects, blending, nested composition support, and one shared preview/export renderer.
 - Shape strokes now support arc-length trim ranges, cyclic offsets, open-path wrapping, animated variable-width start and end tapers, cap-aware outlines, bounded project loading, and the same pixels in preview and export.
@@ -3326,7 +3326,7 @@ All notable changes to this project are documented in this file.
 - Project markers now render on the ruler with names and colors, drag or move by keyboard, edit label/frame/color, jump with controls or bracket shortcuts, delete with Shift+M, and participate correctly in snapshot undo and redo.
 - Timeline zoom now matches FreeCut with a logarithmic control, pointer-anchored coalesced wheel zoom, playhead-anchored buttons, fit and 100% controls, and the full keyboard shortcut set.
 - Hovering the timeline now skims the program monitor through a separate ghost playhead and timecode without moving the edit position or seeking audio. Pointer work is coalesced to one update per animation frame and stops during playback, touch input, zoom, dialogs, and edit gestures.
-- All 36 supported Video Editor commands now use one customizable shortcut catalog with browser-local persistence, physical-key capture, command and browser conflict checks, unassign and reset controls, search and filters, and versioned OpenPost or matching FreeCut preset import and export.
+- All 36 supported Video Editor commands now use one customizable shortcut catalog with browser-local persistence, physical-key capture, command and browser conflict checks, unassign and reset controls, search and filters, and versioned dopost or matching FreeCut preset import and export.
 - Selected clips can clear all animation or one property with Shift+A or the timeline toolbar. The confirmation reports the exact key count, keeps locked tracks unchanged, and records the whole multi-clip edit as one undo step.
 - Canvas move and resize gestures now snap to canvas edges, centers, quarter positions, and neighboring layer bounds with screen-stable hysteresis, localized live guides, rotation-aware bounds, and Alt bypass. The timeline magnet controls both timeline and canvas snapping.
 - Interface sounds are now opt-in with persisted volume and Signature, Velvet, or Crisp themes. Editor cues stop during preview playback, stay out of exports, and give one result cue for selection, split, delete, effect, snap, linked-selection, skimming, workspace, and track-state actions.
@@ -3369,11 +3369,11 @@ All notable changes to this project are documented in this file.
 - Speech cleanup now reviews filler words, phrases, signal silence, and transcript gaps before editing. A local CLAP audio model ranks transcript matches by confidence, leaves low-confidence words unchecked, reports model and scoring progress, falls back to explicit review when audio is unavailable, and unloads through shared model controls. Cleanup also supports presets, custom detection lists, exact cut totals, audition, selection, cancellation, caption retiming, and one locked-track-safe, sync-lock-aware ripple undo.
 - Transcript editing can now stage words without changing the timeline, show exact struck-through words and duration, restore any selection, clear the review, and commit every staged source-time span as one caption-aware ripple edit and one undo step.
 - Transcript search now finds exact phrases as they are typed, falls back to bounded typo-tolerant word matches only when exact search fails, highlights every result, and jumps between timed words from a compact keyboard-friendly control.
-- Editor settings now persist undo depth, snapping, timeline detail, local transcription defaults, and an optional 5 to 30 minute safety save. OpenPost still saves completed edits after 800 ms, while the safety timer catches dirty work during long idle sessions without overlapping an active write. The Storage section prepares proxies, clears only rebuildable waveform and filmstrip data, regenerates thumbnails, removes session proxies, and manages local models without touching source media, edits, or exports.
+- Editor settings now persist undo depth, snapping, timeline detail, local transcription defaults, and an optional 5 to 30 minute safety save. dopost still saves completed edits after 800 ms, while the safety timer catches dirty work during long idle sessions without overlapping an active write. The Storage section prepares proxies, clears only rebuildable waveform and filmstrip data, regenerates thumbnails, removes session proxies, and manages local models without touching source media, edits, or exports.
 - The project media panel now imports direct URLs, GIFs, and safe SVG files; searches, filters, sorts, and groups assets; and shows codec, size, storage, tag, and attribution details without leaving the editor.
 - Projects now detect unavailable media on open, restore expired file access, relink moved sources with fresh metadata and previews, and recover orphaned timeline clips through safe automatic or manual replacements with locked-track checks and atomic undo.
 - The project browser now shows cover images, duration, resolution, aspect ratio, and frame rate; searches, filters, and sorts in either direction; supports range and keyboard multi-selection with one bulk action; renames projects; and creates deep duplicates. Its Trash section restores projects, deletes one or all projects with shared-media checks, reports partial cleanup, and removes entries older than 30 days. Duplicates preserve media links and cover art while remapping timeline, caption, effect, keyframe, expression, transition, and saved-animation IDs.
-- Project files now upgrade through an ordered, append-only schema registry. OpenPost writes a legacy project backup with media links, cover art, and external folder access before it persists the new document, and it leaves projects from newer editor versions untouched.
+- Project files now upgrade through an ordered, append-only schema registry. dopost writes a legacy project backup with media links, cover art, and external folder access before it persists the new document, and it leaves projects from newer editor versions untouched.
 - Projects can now export and import checksummed `.openpost.json` snapshots. Imports migrate old projects, reject newer schemas, remap project IDs, match available media without copying it, keep missing sources recoverable, and roll back failed writes.
 - Projects can now travel as `.openpost.zip` bundles with their source media, saved animations, and cover image. Export streams bytes to disk with live progress, cancellation, and no media recompression; import verifies every path, size, and SHA-256 hash before it remaps IDs, reuses safe local media, or commits the project, and cancellation removes partial files.
 - Color grading now includes a direct Master, Red, Green, and Blue curves graph with arbitrary control points, large touch targets, precise keyboard edits, live preview, channel reset, and one-step undo across compatible selected clips. Preview and export share the same exact 256-sample GPU lookup texture.
@@ -3457,7 +3457,7 @@ All notable changes to this project are documented in this file.
 - Source Monitor now owns hover and focus routing, uses native positive `playbackRate` where browser audio stays safe, and falls back to exact frame-by-frame `requestAnimationFrame` seeking plus reverse-audio grains for reverse shuttle with correct `in`/`out` clamping. `K` pauses only the active monitor and leaves the other transport untouched.
 - Added a compact localized shuttle indicator (`J`/`L` with direction arrow and speed) for transient shuttle mode, including the first `1x` press, with subtle styling at `1x` and highlighted styling at `2x`/`4x`. Normal play and every explicit pause reset the transport to `1x` normal mode.
 - Mobile pairing now identifies the app and platform, and the approval page uses the requesting app name with device-neutral copy.
-- The mobile launcher icon now gives the OpenPost mark more space.
+- The mobile launcher icon now gives the dopost mark more space.
 - Grow can now focus on people who already follow you, require a minimum number of mutual connections, and sort by best match, follow-back potential, or most mutuals.
 - Connected account settings now open in a compact side drawer with a fixed action bar and a collapsed developer shortcut instead of a tall modal.
 
@@ -3469,7 +3469,7 @@ All notable changes to this project are documented in this file.
 - Streaming is bounded: every scalable path writes to an OPFS `StreamTarget` scratch file. Export helpers return a plain `{scratchPath, fileName, scratchFile, wasLossless, reason, estimatedBytes}` token (serializable, no closure) and a production `discardScratchFile` helper (tested via `structuredClone`). Only the main thread copies chunkwise (4 MiB) via `openBlobWriter` (static imports, reader cancel/release in `finally`, partial final rollback). No `BufferTarget` or `arrayBuffer` for large outputs; temp files for merged transcode are also streaming and cleaned on success/cancel/init/encode/mux failure.
 - Export semantics: no dummy `import('mediabunny')`, no speculative comments; `Conversion.isValid===false` throws `UnsupportedStreamCopyError` without retry, `AbortError`/mux failures are not retried, fallback only from explicit preflight before `output.start()`; sequence numbers monotonic per track; exact merged retains ordered segments without gaps; nearest-keyframe requires explicit before/after choice (default before with delta shown) and never includes outside content without UI warning; audio respects exact kept boundary and encoder delay; every early throw disposes `Input` and discards scratch; decoder configs handled per source or forced to one consistent encode.
 - Preflight is per segment for individual exports; one non-keyframe exact segment does not force other independent segments to transcode. Merged export chooses one unified path.
-- UI is exercised for multi-file picker, source switching, segment preview/loop across A/B/A, reconnect, project import/export, sequential individual and merged exports, cancellation, send-to-OpenPost, keyboard I/O/frame-step, 44 px targets and 320/390/desktop no-overflow, light/dark, with console clean.
+- UI is exercised for multi-file picker, source switching, segment preview/loop across A/B/A, reconnect, project import/export, sequential individual and merged exports, cancellation, send-to-dopost, keyboard I/O/frame-step, 44 px targets and 320/390/desktop no-overflow, light/dark, with console clean.
 - Local editing assistant now runs fully on device behind a WebGPU gate with a cancellable Gemma worker, streamed status, bounded history, grounded clip refs, typed and runtime-validated tool registry, one corrective retry for invalid model JSON, one bounded transcript lookup hop, explicit plan review before any mutation with destructive and review labels, sequential step results that stop on first failure, each timeline edit undoable through existing public actions, model runtime registration and unload, model cache visibility and quota-aware first-load preflight that blocks when insufficient, and no fake persistence. Tools cover find clips, search transcript, select, seek, add title, split, ripple delete, set speed, set volume, trim, add transition, open silence review and open filler review with scoped targets. The left rail adds an Assistant versus Generate switcher above voice and music with short direct copy, keyboard tabs, visible focus, 44px touch targets, 320px and 390px fit and dark theme support. Wired through the video editor route with project-scoped state and autosave. Includes pure tests for invalid JSON correction, stale refs, confirmation before mutation, cancellation, sequential results and scoped handoff, and browser tests for plan review, mobile overflow and keyboard behavior.
 - Video Editor browser storage for presets, diagnostics, voiceover preferences, local AI models, processing scratch files, exports, and recorder recovery now has an exact privacy-inventory entry with its purpose and retention. Non-cache local AI backends no longer carry fake Cache Storage names.
 - Marketing type checks now follow only the shared frontend modules the site imports instead of treating the full Video Editor source and test tree as marketing code.
@@ -3478,7 +3478,7 @@ All notable changes to this project are documented in this file.
 - Source monitoring, timeline marker editing, and composition authoring now use the shared input, slider, checkbox, and select controls while keeping frame-accurate keyboard edits, grouped blend modes, compact editor sizing, and narrow-screen fit.
 - All 21 WebGPU transitions now compile and render through a real Chromium GPU adapter in browser tests, with read-back pixel proof for outgoing, midpoint, incoming, and advertised direction behavior. Sparkles, Chromatic, Liquid Distort, and Light Leak Burn now preserve exact endpoint frames.
 - Motion, shape, Lottie, color, effect, expression, and published-control panels now use shared editor controls. Repeated keyboard slider input previews every step but commits one undo entry when the key gesture ends.
-- Quick Cut, recording, transcription, local AI, scene, project, keyframe, shortcut, and timeline tools now use the same accessible form controls as the rest of OpenPost. Select menus keep their labels and disabled states, checked recording sources retain their visible selection, and the editor has no remaining native form-control exceptions.
+- Quick Cut, recording, transcription, local AI, scene, project, keyframe, shortcut, and timeline tools now use the same accessible form controls as the rest of dopost. Select menus keep their labels and disabled states, checked recording sources retain their visible selection, and the editor has no remaining native form-control exceptions.
 
 ### Tests
 
@@ -3529,7 +3529,7 @@ All notable changes to this project are documented in this file.
 
 ### Removed
 
-- The entire cloud-synced OpenPost Video Editor: frontend editor (~23k lines), `/video-editor/*` sync API, `videoproject` package, `VideoProject*`/`VideoReturnToken` models, bundled editor model packs and audio assets, and the `@openpost/video-project` package. Migration 107 drops `video_projects`, `video_project_assets`, `video_project_revisions`, `video_return_tokens`, and `media_attachments.video_project_id`.
+- The entire cloud-synced dopost Video Editor: frontend editor (~23k lines), `/video-editor/*` sync API, `videoproject` package, `VideoProject*`/`VideoReturnToken` models, bundled editor model packs and audio assets, and the `@openpost/video-project` package. Migration 107 drops `video_projects`, `video_project_assets`, `video_project_revisions`, `video_return_tokens`, and `media_attachments.video_project_id`.
 - Composer return-token handoff. "Edit video" now links to `/video-editor` via plain URL parameters.
 - Removed the unused settings search, duplicate media-retention information, and the duplicate Organization deletion control from Workspace settings.
 
@@ -3537,10 +3537,10 @@ All notable changes to this project are documented in this file.
 
 - Video Editor effects can now be dragged onto one visual clip or a compatible multi-selection, with live drop previews and one undo step.
 - The Video Editor timeline now supports drag-marquee selection across tracks, with additive selection modifiers and a visible selection box.
-- OpenPost Video Editor now supports ripple trim, rate stretch from either edge, linked-selection controls and shortcuts, multi-clip link and unlink actions, group moves and deletes, visible transition spans, and explicit transition removal.
+- dopost Video Editor now supports ripple trim, rate stretch from either edge, linked-selection controls and shortcuts, multi-clip link and unlink actions, group moves and deletes, visible transition spans, and explicit transition removal.
 - Video Editor move, trim, slip, and slide tools now keep synchronized audio and video companions aligned across every affected track.
 - Timeline edits now preserve valid transition handles and keyframes instead of leaving broken cuts or moving keys into blend-owned frames.
-- **OpenPost Video Editor** (`/video-editor`, Chromium-only): workspace folder on your disk is the source of truth (projects, media, caches, exports as plain files). The editor includes a layered multi-track preview, undo/redo, text and subtitle editing, broad clip keyframes with cubic and spring easing, a WebGL2 effects and color stack, cached waveforms and filmstrips, proxies, scene and silence tools, and transcript word editing. Rendered export supports MP4, MOV, WebM, MKV, MP3, AAC, and WAV with codec, size, quality, range, subtitle, progress, and cancel controls. Send to OpenPost uploads the finished export to the media library.
+- **dopost Video Editor** (`/video-editor`, Chromium-only): workspace folder on your disk is the source of truth (projects, media, caches, exports as plain files). The editor includes a layered multi-track preview, undo/redo, text and subtitle editing, broad clip keyframes with cubic and spring easing, a WebGL2 effects and color stack, cached waveforms and filmstrips, proxies, scene and silence tools, and transcript word editing. Rendered export supports MP4, MOV, WebM, MKV, MP3, AAC, and WAV with codec, size, quality, range, subtitle, progress, and cancel controls. Send to dopost uploads the finished export to the media library.
 - Preview controls now match FreeCut's device-only monitor gain and mute, fit and fixed zoom presets, native fullscreen, audio-only playback, and full-resolution frame capture. Captured frames download and also join the project's media pool.
 - Timeline editing now exposes ordered video and audio track creation, safe track removal, sticky lock/visibility/mute/solo/sync-lock controls, adaptive snapping, trim-start and trim-end handles, rolling cuts, source slip, neighbor-aware slide, and source-bound rate stretch. Pointer work is frame-accurate, cancelable, and grouped into one undo step; the same tools support one-frame and ten-frame keyboard edits.
 - **Quick Cut** (`/quick-cut`): fast lossless trimming - mark I/O segments, save each without re-encoding via stream-copy. Inspired by LosslessCut's segment flow (behavioral reference only).
@@ -3619,7 +3619,7 @@ All notable changes to this project are documented in this file.
 - Published a dedicated Self-hosted product path with an explicit no-software-fee boundary outside Hosted service plans, complete operator responsibilities, current deployment and source links, responsive no-JavaScript HTML, and an agent-readable Markdown representation.
 - Completed local application-state recovery with distinct offline, forbidden, not-found, rejected-request, and server-error guidance; in-place connection recovery; focused and announced error states; and destructive confirmations that retain only unfinished targets and remain open when an operation does not complete. Media and provider-configuration deletion are idempotent so a retry can safely reconcile a response lost after commit.
 - Proved the collaboration-and-safety cohort across truthful invitation recovery, atomic Workspace and Organization deletion, accepted ownership transfer, permission-safe audit exports, and responsive, localized Daily email and temporary Mute controls.
-- Shared one local Turbo task cache across OpenPost worktrees with a 2 GiB total cap, removed immutable editor models and audio from frontend cache archives and build-tool copy inputs, validated their declared inventory before linking them across generated web, Go embed, and Android trees, and omitted them from CI checkouts that do not build the application. CI keeps exact-run frontend caches ephemeral so source-map uploads still execute.
+- Shared one local Turbo task cache across dopost worktrees with a 2 GiB total cap, removed immutable editor models and audio from frontend cache archives and build-tool copy inputs, validated their declared inventory before linking them across generated web, Go embed, and Android trees, and omitted them from CI checkouts that do not build the application. CI keeps exact-run frontend caches ephemeral so source-map uploads still execute.
 - Organization Owners can now select and permanently delete any owned Organization without Workspace access after a complete preview, exact-name confirmation, and recent authentication; unconfirmed Paddle subscriptions, outstanding checkouts, pending ownership transfer, provider-scheduled work, other provider work, and cleanup remain explicit blockers, canceled checkouts cannot resume and retain an opaque boundary that terminates late Paddle subscriptions, failure is atomic, affected access, credentials, current and evidenced historical invitation email Jobs, ownership-expiry or notification Jobs end on success, and only content-free lifecycle and required billing evidence remains.
 - Updated `golang.org/x/image` to 0.45.0 to fix excessive memory allocation while validating VP8L images.
 - Added temporary account-wide and Workspace notification Mutes on both Notifications and Settings, with visible absolute end times and an idempotent end-now action. Mutes pause optional Immediate and Daily email without changing saved preferences, conservatively suppress pre-upgrade queued optional mail whose Workspace scope is unknown, resolve the Workspace scope first when scopes overlap, expire automatically, keep in-app notifications immediate, and never suppress Transactional security, access, invitation, or critical billing email. Workspace-bound credentials receive only their Workspace Mutes when they reconcile state. Database upgrades apply migration 100 automatically.
@@ -3636,7 +3636,7 @@ All notable changes to this project are documented in this file.
 - Proved the complete daily-workflow cohort across paged Engagement and Messages history, request races and retries, all eight exact Rendition outcomes, and responsive, localized Accounts and Paddle billing journeys.
 - Marketing and documentation builds now prove one complete public delivery contract across every eligible HTML and Markdown route, including prerendered meaning, discovery, safety, deterministic output, cache planning, size limits, and explicit artifact content types.
 - Composer destination controls now retain a usable mobile scroll area when first-use guidance is present.
-- Split the billing page into Paddle-backed subscription facts, OpenPost usage, and Paddle-managed payment tasks; added verified billing-contact display, purpose-specific payment and cancellation links with a fresh generic portal fallback, qualified list-price estimates, and kept payment methods and invoice documents managed in Paddle.
+- Split the billing page into Paddle-backed subscription facts, dopost usage, and Paddle-managed payment tasks; added verified billing-contact display, purpose-specific payment and cancellation links with a fresh generic portal fallback, qualified list-price estimates, and kept payment methods and invoice documents managed in Paddle.
 - Documentation builds now expand controlled includes, normalize supported VitePress and raw HTML, publish useful no-JavaScript API guidance, and generate a bounded, provenance-preserving `llms-full.txt` convenience corpus from reviewed catalogue policy.
 - Updated CI and release images to Go 1.26.6 for the latest standard-library security fixes, provisioned Nix before repository policy checks, and made partial browser-job reruns reuse the newest canonical build artifact.
 - Direct and Settings-embedded social account management now share one explicitly configured Workspace component, while each route keeps its own authentication, OAuth continuation, URL cleanup, and one-time feedback without redirect flashes.
@@ -3878,7 +3878,7 @@ All notable changes to this project are documented in this file.
 - Restored release-gate browser fixtures for provider readiness and canonical publication summaries, and fixed documentation-link and production-image manifest script checks.
 - Pinned every external action used by the Star History workflow to a reviewed full commit so the workflow satisfies the repository supply-chain policy.
 - Migration 084 retires required-SSO organization-wide app tokens, normalizes existing `allow` policies to workspace-scoped access, and limits the policy API and settings UI to one assured workspace or denial. Existing unbound tokens are not assigned to a workspace and can no longer access required-SSO resources; revoke them and issue one assured token per workspace.
-- Aligned scoped automation across Huma and the authenticated upload-session content route, kept OpenPost credentials off presigned storage hosts, enforced required-SSO and workspace boundaries across REST, MCP, and CLI access paths, and made `cli:full` account and organization behavior explicit.
+- Aligned scoped automation across Huma and the authenticated upload-session content route, kept dopost credentials off presigned storage hosts, enforced required-SSO and workspace boundaries across REST, MCP, and CLI access paths, and made `cli:full` account and organization behavior explicit.
 - Required a signed-in browser for CLI and MCP device approval and general instance administration, while retaining only typed provider-certification test operations for deliberate unscoped instance-admin automation.
 - Enforced the same scope, workspace, and required-SSO checks for header and query-token media access, kept credential-served media out of shared caches, and limited public signed-media caching to the signature lifetime.
 - Migration 083 replaces request-time legacy authoring sweeps with aggregate-scoped translation and a resumable bounded backfill that repairs indexed publication job identities, preserves authorization provenance across REST and MCP, and keeps authoring query counts independent of unrelated history.
@@ -3896,7 +3896,7 @@ All notable changes to this project are documented in this file.
 - Pinned managed automatic image-caption requests to the verified `azure/eu` OpenRouter route, disabled provider fallbacks, denied provider data collection, and required a zero-data-retention endpoint; cloud startup now fails closed if that policy drifts.
 - Bounded calendar, planner, and activity reads with canonical publication date ranges, stable cursors, complete pagination, and workspace/date-scoped refresh coalescing so autosaves no longer hydrate full history.
 - Added a permission-safe publication timeline for creation, edits, authorization attempts, and provider outcomes while suppressing raw metadata, provider messages, and idempotency details.
-- Added the missing OpenPost Studio overview and made the documentation gate validate every configured VitePress navigation target as well as Markdown links.
+- Added the missing dopost Studio overview and made the documentation gate validate every configured VitePress navigation target as well as Markdown links.
 - Restored composer round trips through both editors so draft text, destinations, schedule, existing media, cancellations, and destination-specific video variants return to the exact originating publication.
 - Isolated the editor catalog by workspace and query, added independent paginated design and video results, and exposed permission-safe cloud-video deletion with consequence copy and optimistic rollback.
 - Gave video previews editor-scoped Blob URL leases, stale-load guards, and bounded pressure cleanup that preserves active projects while reclaiming disposable artifacts.
@@ -3924,7 +3924,7 @@ All notable changes to this project are documented in this file.
 ### Fixed
 
 - Preserve plan and destination context through Google signup and legal acceptance, remove duplicate workspace bootstrap redirects, and send existing Google users back to their intended destination instead of checkout.
-- Keep payment entry inside an OpenPost checkout dialog with the active theme and plan summary, while Paddle continues to securely host the sensitive payment fields.
+- Keep payment entry inside a dopost checkout dialog with the active theme and plan summary, while Paddle continues to securely host the sensitive payment fields.
 - Constrain hosted Paddle catalog prices to one subscription unit so checkout no longer offers duplicate copies of the same plan.
 - Fixed SQLite upgrades from versions before 1.1.16 by rebuilding populated legacy post tables safely when migration 038 adds the draft revision timestamp.
 
@@ -4028,12 +4028,12 @@ All notable changes to this project are documented in this file.
 - Added persisted text underline, strikethrough, and word or character wrapping, plus explicit shape no-fill/no-stroke controls and aspect-locked numeric sizing.
 - Added an explicit, undoable restore action for non-destructive image erase masks.
 
-- Added an OpenPost-native media chooser with device selection, drag and drop, file paste, camera capture, local image and video thumbnails, per-file size and progress, cancel and retry controls, and actionable validation and upload errors.
+- Added a dopost-native media chooser with device selection, drag and drop, file paste, camera capture, local image and video thumbnails, per-file size and progress, cancel and retry controls, and actionable validation and upload errors.
 - Added provider-aware stock-media filters for orientation, size, color, language, order, content safety, collections, image type, category, Editor's Choice, and minimum dimensions where each configured provider supports them.
 
 ### Changed
 
-- Removed Uppy and moved the Media page, composer, Image Editor, Video Editor, workspace image, and profile-picture flows onto shared OpenPost controls; profile pictures now include a square crop preview and upload progress.
+- Removed Uppy and moved the Media page, composer, Image Editor, Video Editor, workspace image, and profile-picture flows onto shared dopost controls; profile pictures now include a square crop preview and upload progress.
 - Combined Library, Device, Camera, Stock, and editor creation in one media-picker surface, with stock providers labeled by their actual photo and video support.
 - Reduced test-suite overhead by removing assertion-free and duplicate checks and by running viewport-independent marketing contracts once instead of once per browser size.
 - Added the standalone video-project unit suite to the default local and CI test gates.
@@ -4073,12 +4073,12 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
-- Replaced the Media page, composer, and editor asset-picker upload paths with one styled Uppy dialog for files, camera capture, stock providers, OpenPost Library selection, and image or video preparation.
+- Replaced the Media page, composer, and editor asset-picker upload paths with one styled Uppy dialog for files, camera capture, stock providers, dopost Library selection, and image or video preparation.
 - Simplified Media around Library, hidden-by-default Temporary uploads, and seven-day Trash, with direct favorite controls and focused filters for reusable assets.
 
 ### Fixed
 
-- Kept Google sign-in from the sign-up page out of new-account checkout when the Google identity already belongs to an OpenPost account with a workspace, while preserving onboarding and selected plan details for first-time accounts.
+- Kept Google sign-in from the sign-up page out of new-account checkout when the Google identity already belongs to a dopost account with a workspace, while preserving onboarding and selected plan details for first-time accounts.
 - Kept media last-use timestamps accurate when posts, publication renditions, image designs, or video projects attach or detach files, and stopped published or failed posts and deleted editor projects from blocking media cleanup.
 - Converted browser SVG uploads to PNG before storage and rejected unconverted SVG input so unsupported vector assets cannot break the Image Editor.
 
@@ -4092,17 +4092,17 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
-- Show the profile owner's highest active OpenPost plan beside their handle on public profiles.
+- Show the profile owner's highest active dopost plan beside their handle on public profiles.
 - Added provider-driven required fields and format validation to the composer for every supported destination.
 - Added a shared design-font catalog to both editors, fifteen varied Image Editor starter templates, keyboard nudging, edge and center snapping while moving, and canvas-aware snapping while resizing.
 - Added a combined Editors hub for image designs and video projects, plus separate Library, Temporary, and seven-day Trash views for workspace media.
 
 ### Changed
 
-- Made the OpenPost Video Editor available on every instance and removed its environment and database-backed feature toggle.
-- Changed the OpenPost wordmark from Geist to Manrope Semibold across the canonical lockups, GitHub README, app shell, public headers, marketing chrome, and dynamic social previews while retaining Geist for interface copy.
+- Made the dopost Video Editor available on every instance and removed its environment and database-backed feature toggle.
+- Changed the dopost wordmark from Geist to Manrope Semibold across the canonical lockups, GitHub README, app shell, public headers, marketing chrome, and dynamic social previews while retaining Geist for interface copy.
 - Replaced the post-type and composer-experience choices with one text-and-thread composer that infers destination formats, asks only for ambiguous Instagram and Facebook formats, keeps direct account tabs for preview and customization, combines Social Sets with account selection, and moves repost overrides into Advanced delivery.
-- Unified OpenPost Media, upload and camera capture, stock providers, and editor creation in the reusable media picker used by the composer and Image Editor; also made the Image Editor's mobile tools, inspector, first-edit guidance, help, and guest export flow more compact and direct.
+- Unified dopost Media, upload and camera capture, stock providers, and editor creation in the reusable media picker used by the composer and Image Editor; also made the Image Editor's mobile tools, inspector, first-edit guidance, help, and guest export flow more compact and direct.
 - Reworked media retention so post-specific uploads are temporary, active drafts, schedules, retries, designs, video projects, tags, favorites, and brand roles protect their files, successful publications move unprotected temporary media to Trash immediately, and idle temporary media moves there after 14 days.
 - Kept logos and other brand assets in the normal reusable Media library while Settings assigns their brand roles; editable projects now live in Editors instead of being mixed into the asset grid.
 
@@ -4123,14 +4123,14 @@ All notable changes to this project are documented in this file.
 - Added a durable personal Composer setting that switches between the default spacious text-and-thread plus focused-media experience and one unified rendition-first composer for every starter preset; both edit the same publications and account versions.
 - Added reusable Social Sets with ordered account membership, a workspace default, optional per-account format defaults, composer management, and destination snapshots that stay stable when a set changes or is deleted.
 - Added per-destination format locks, nullable text and media inheritance, reset controls, destination schedule overrides, and declarative format choices and segment strategies.
-- Added ten image-generated Converge header directions, each delivered in platform-safe X and LinkedIn profile sizes with the exact OpenPost vector lockup, plus a primary slogan-led pair for X and LinkedIn.
+- Added ten image-generated Converge header directions, each delivered in platform-safe X and LinkedIn profile sizes with the exact dopost vector lockup, plus a primary slogan-led pair for X and LinkedIn.
 
 ### Changed
 
 - Unified Post, Thread, Story, Short video, and Video under one publication-and-rendition workflow while preserving the spacious text-and-thread writing canvas as the default composer experience; drafts use shared All channels content, account tabs, destination-specific settings, and canonical `/publications/:id` editing, and linked historical post URLs redirect there.
 - Changed creation modes into starter presets, stopped filtering accounts by a global mode, and made every selected account keep its own visible, independently validated rendition.
 - Replaced active Whop billing with Paddle Merchant of Record billing: localized Paddle.js checkout, sandbox and production isolation, mirrored customers and subscriptions, a Paddle-native billing schema, Paddle-scoped entitlements, raw-body signed webhooks with canonical reconciliation, scheduled-cancellation access, fresh customer portal sessions, configuration, CLI, policies, and operator documentation.
-- Replaced the pen identity with the four-module OpenPost Converge mark across the app, marketing site, documentation, favicons, Android assets, social previews, and downloadable social kit; adopted “Publish clearly.” as the optional short brand line.
+- Replaced the pen identity with the four-module dopost Converge mark across the app, marketing site, documentation, favicons, Android assets, social previews, and downloadable social kit; adopted “Publish clearly.” as the optional short brand line.
 - Replaced the pen-era social header explorations with dark Converge banners for X and LinkedIn, using image-generated physical brand environments, the exact vector lockup, and the new primary line “Turn what you’re building into content. Publish it everywhere.”
 
 ### Breaking
@@ -4141,7 +4141,7 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
-- Added image-generated dark X and LinkedIn profile headers built around the real OpenPost workspace and a restrained OpenPost pen mark.
+- Added image-generated dark X and LinkedIn profile headers built around the real dopost workspace and a restrained dopost pen mark.
 - Added nine image-generated dark X header concepts spanning cinematic, typographic, real-world, graphic, sculptural, layered, spatial, and human brand directions.
 - Added release planning, exact local release checks, candidate and production status reporting, a public running-version endpoint, immutable SHA image smoke tests, and configuration-only startup validation.
 
@@ -4183,14 +4183,14 @@ All notable changes to this project are documented in this file.
 ### Added
 
 - Added tag-based Media organization with many tags per file, multi-tag and Untagged filters, image, video, and audio type filters, sorting, drag-and-drop upload, bulk tag assignment, and the same controls in media pickers and both editors. New uploads remain untagged unless the user explicitly uploads into an active tag.
-- Added a ready-to-use OpenPost social kit with X and LinkedIn banners, profile images, post formats, a five-slide carousel, story layouts, blank templates, campaign copy, and accessible alt text.
+- Added a ready-to-use dopost social kit with X and LinkedIn banners, profile images, post formats, a five-slide carousel, story layouts, blank templates, campaign copy, and accessible alt text.
 - Added declarative route-specific Open Graph and X card images for every marketing and documentation page, rendered on demand by a versioned Cloudflare Pages image endpoint instead of stored per-page files.
 - Added per-event in-app and email notification settings for publishing outcomes, account attention, conversations, failed replies, and workspace invitations, with durable deduplicated email delivery through the configured SMTP, Resend, or Cloudflare provider.
 - Added durable native auto repost rules for X, Mastodon, Bluesky, and LinkedIn, with source and target account selection, delays, evaluation windows, minimum likes/comments/reposts/views, all-or-any gates, plateau checks, per-post inherit/off/custom overrides, and revocable cross-workspace target grants.
 
 ### Changed
 
-- Renamed Studio and Video Studio to OpenPost Image Editor and OpenPost Video Editor across product copy, source names, configuration, APIs, assets, and canonical URLs. Existing `/studio` and `/video-studio` links redirect to the matching editor route.
+- Renamed Studio and Video Studio to dopost Image Editor and dopost Video Editor across product copy, source names, configuration, APIs, assets, and canonical URLs. Existing `/studio` and `/video-studio` links redirect to the matching editor route.
 - Changed the editor API paths from `/api/v1/studio` and `/api/v1/video-studio` to `/api/v1/image-editor` and `/api/v1/video-editor`. API clients must update these paths. Existing editor environment variables remain temporary read aliases, and migration 063 converts stored editor settings, media provenance, project modes, Creator plan settings, checkout attempts, and subscriptions to their new canonical names.
 - Reworked the marketing navigation with a logo-led platform menu and replaced the footer activity grid with a compact single-row publishing pulse.
 - Added local Git-ignored Postiz and Shoutrrr reference checkouts and contributor guidance to consult their current scheduler implementations when designing related features.
@@ -4205,7 +4205,7 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
-- Added an OpenPost-owned embedded Whop checkout with monthly and annual plan selection, exact card-required 14-day trial terms, signed webhook reconciliation, local checkout-attempt mapping, and Whop membership management links.
+- Added a dopost-owned embedded Whop checkout with monthly and annual plan selection, exact card-required 14-day trial terms, signed webhook reconciliation, local checkout-attempt mapping, and Whop membership management links.
 - Added all Whop billing credentials and plan IDs to the encrypted instance-admin Configuration screen, with write-only secrets, environment precedence, and restart status.
 - Added a guided first-account connection flow with OAuth trust details, a three-step activation cue, and a one-time reduced-motion-aware confetti and success-sound celebration.
 
@@ -4214,9 +4214,9 @@ All notable changes to this project are documented in this file.
 - Rebuilt Full Studio around a CapCut-style four-zone workspace with a dominant canvas, grouped creation tools, selection-specific inspector tabs, concise action-first copy, consistent panel gutters, a draggable multi-track timeline, and direct seeking on the timeline ruler instead of a separate progress slider.
 - Replaced Polar billing with Whop across the backend, frontend, CLI, generated contracts, configuration, legal copy, and operator documentation. Cloud operators must configure the Whop API key, account, product, webhook secret, checkout return URL, and all ten monthly and annual plan IDs before upgrading.
 - Changed managed pricing to USD-first plans: Starter $15/month or $150/year, Founder $25/$250, Pro $49/$490, Team $99/$990, and Agency $199/$1,990, each with a card-required 14-day trial.
-- Simplified registration and workspace onboarding, moved plan payment into the OpenPost checkout screen, and removed the username and workspace-name decisions from the critical path.
+- Simplified registration and workspace onboarding, moved plan payment into the dopost checkout screen, and removed the username and workspace-name decisions from the critical path.
 - Reworked the marketing homepage, pricing page, navigation, product metadata, and signup proof around the managed product and interactive demo; self-hosting remains available through documentation and footer links instead of the primary conversion path.
-- Repositioned OpenPost as the all-in-one content team for solo founders, centered on turning company work into content and publishing it everywhere rather than competing as another scheduler.
+- Repositioned dopost as the all-in-one content team for solo founders, centered on turning company work into content and publishing it everywhere rather than competing as another scheduler.
 
 ### Removed
 
@@ -4250,7 +4250,7 @@ All notable changes to this project are documented in this file.
 
 - Made email provider credentials optional at startup so administrators can configure delivery after installation; instances that require verification still block password registration until a transport is ready.
 - Made direct and file-backed environment provider apps authoritative over matching administrator-managed database rows.
-- Rebuilt the marketing homepage around the real OpenPost workflow and product surfaces, with scroll reveals, publishing-activity cells, and a shared animated footer used across marketing pages.
+- Rebuilt the marketing homepage around the real dopost workflow and product surfaces, with scroll reveals, publishing-activity cells, and a shared animated footer used across marketing pages.
 - Moved Quick Cut packet analysis, combined or per-section stream-copy export, and preview-proxy encoding off the UI thread; fast exports now stream directly to a selected file, preserve every supported audio track and source metadata, and reject tracks that cannot be preserved instead of dropping them.
 - Made long-source artifact work staged and event-driven, with indexing, waveform, thumbnail, and proxy progress; serialized heavy work; storage preflight; cancellation, retry, proxy removal, and phase-level restart recovery.
 - Added continuous recording storage-headroom checks and camera or microphone device-loss recovery, including automatic safe stop before browser storage is exhausted.
@@ -4360,7 +4360,7 @@ All notable changes to this project are documented in this file.
 
 - Added workspace creation from the desktop and mobile workspace switchers, with a focused name dialog that refreshes the workspace list and selects the new workspace immediately.
 - Added anonymous, cookie-free Umami analytics to the public marketing and documentation sites while keeping the authenticated application untracked.
-- Added the official OpenPost Discord community to the marketing navigation and footer, documentation navigation, and repository overview.
+- Added the official dopost Discord community to the marketing navigation and footer, documentation navigation, and repository overview.
 
 ### Fixed
 
@@ -4397,7 +4397,7 @@ All notable changes to this project are documented in this file.
 
 - Added a dedicated instance-admin Users table with plan, access, activity, and content details, plus audited five-minute, one-use links for opening a non-admin user's session in a private browser window.
 - Added a live month-and-year label to the rolling sidebar mini-calendar so its position stays clear while scrolling.
-- Added OpenPost Video Studio: a local-first browser editor and recorder with a guided timeline, four social format variants, local captions and cleanup suggestions, crash recovery, incremental MP4/WebM export, optional cloud projects and checkpoints, stock photo/video search, and rendition-aware composer handoff.
+- Added dopost Video Studio: a local-first browser editor and recorder with a guided timeline, four social format variants, local captions and cleanup suggestions, crash recovery, incremental MP4/WebM export, optional cloud projects and checkpoints, stock photo/video search, and rendition-aware composer handoff.
 
 ### Changed
 
@@ -4493,7 +4493,7 @@ This section consolidates the changes shipped between `v1.28.0` and `v1.41.2` be
 - Added destination-aware post previews for all supported social networks, including a live, private preview window from each composer account menu and shared preview rendering in the free public tool.
 - Added empty Studio paint layers that can be created above the current selection and used directly by pencil, bucket, or gradient tools.
 - Added native OIDC login and organization SSO with PKCE, nonce and browser binding, explicit identity linking and JIT provisioning, action-bound step-up grants, managed onboarding, verified-domain discovery, provider assurance, token policy, RP/back-channel logout, encrypted provider secrets, audit events, break-glass access, and one-time Capacitor handoffs.
-- Added a no-account OpenPost Studio at `/studio` with on-device design and image storage, watermark-free export, public starter templates, privacy-safe Umami funnel events, and an explicit path that copies local work into a new or existing workspace.
+- Added a no-account dopost Studio at `/studio` with on-device design and image storage, watermark-free export, public starter templates, privacy-safe Umami funnel events, and an explicit path that copies local work into a new or existing workspace.
 - Added a client-first video workflow across every video-capable composer and the Media library, with browser-side inspection, MP4 remuxing, H.264/AAC transcoding and compression, precise trimming, draggable aspect-ratio cropping, real upload progress and cancellation, durable server verification, poster generation, and retryable processing.
 - Added a cloud-only X request-cost guardrail with durable pre-request reservations, immutable idempotent events only for confirmed successes, separate unresolved exposure, reconciled monthly counters, workspace-visible estimates, and per-workspace safety limits that never gate self-hosted publishing.
 - Added a self-hosted instance-admin update status with running build details, cached and bounded stable release checks, validated official release links, and no auto-update path.
@@ -4574,7 +4574,7 @@ This section consolidates the changes shipped between `v1.28.0` and `v1.41.2` be
 - Kept MCP source-text updates synchronized with the linked text-and-thread editor row so agent edits reopen with the current content and revision.
 - Routed uploads through the storage mode advertised by the server instead of probing an unsupported direct-upload endpoint, and raised the bounded frontend build heap to the verified bundle minimum.
 - Preserved analytics and engagement continuity when OAuth accounts are reconnected, including historical renditions linked to duplicate inactive account rows.
-- Removed content performance for posts that providers report as deleted or unavailable, while keeping the canonical OpenPost publication history.
+- Removed content performance for posts that providers report as deleted or unavailable, while keeping the canonical dopost publication history.
 - Removed generic provider quota caveats from the composer when there is no actionable account problem.
 - Kept Studio export confirmation ahead of late autosave announcements and aligned end-to-end select interactions with the shared shadcn-svelte control.
 - Removed the unused draft `force` request field so conflict overwrite always uses a current revision compare-and-set, and preserved engagement read/archive state across provider edits and deletions.
@@ -4590,7 +4590,7 @@ This section consolidates the changes shipped between `v1.28.0` and `v1.41.2` be
 - Added release and versioning documentation, including the corrected version-line rationale and immutable-tag failure policy.
 - Added an authenticated, operator-configured feedback form for bugs, ideas, and questions with explicit recipients, separately optional screenshot and diagnostics previews, strict privacy limits, durable delivery jobs, and a support fallback when disabled.
 - Added stable per-destination publishing failure categories, safe provider codes and retry times, direct recovery actions, manual target retry, and partial-outcome details in Activity.
-- Added OpenPost Studio with versioned multi-page designs, original starter templates, brand kits and WOFF2 fonts, mobile editing, autosave recovery, client-side background removal, camera capture, export, and composer return.
+- Added dopost Studio with versioned multi-page designs, original starter templates, brand kits and WOFF2 fonts, mobile editing, autosave recovery, client-side background removal, camera capture, export, and composer return.
 - Rebuilt Media around reusable assets, designs, templates, brand resources, collections, tags, provenance, richer filtering, and one shared Library/Upload/Camera/Create picker.
 - Added normalized publication and rendition segments, provider-qualified output profiles, account capability resolution, scoped destination settings, and paginated account option searches.
 - Added authenticated, account-specific publishing options so composer fields can load live provider data such as YouTube playlists and regional video categories.
@@ -4615,7 +4615,7 @@ This section consolidates the changes shipped between `v1.28.0` and `v1.41.2` be
 - Stopped publishing Intel macOS CLI and MCP release binaries; macOS release assets now target Apple Silicon only.
 - Moved destination-specific composer settings into account cog dialogs in the Publish to menu, with structured tag, category, and playlist controls for YouTube.
 - Rewrote the landing, pricing, security, open-source, changelog, platform, comparison, and tools pages around current product behavior, and refreshed the canonical composer, accounts, media, and settings screenshots.
-- Restored the OpenPost composer screenshot as the product-demo preview while keeping the recorded video behind the play action.
+- Restored the dopost composer screenshot as the product-demo preview while keeping the recorded video behind the play action.
 - Updated the project to Go 1.26.5 and current patched `x/image`, `x/net`, `x/text`, and `cookie` dependencies.
 - Replaced broad provider maturity labels with implemented and preview statuses that state provider approval, quota, public-media, and live-account verification constraints.
 - Added the recorded product demo to the public landing page, app profile menu, user docs, and repository overview.
@@ -4634,7 +4634,7 @@ This section consolidates the changes shipped between `v1.28.0` and `v1.41.2` be
 - Replaced generic Instagram, Facebook, YouTube, and TikTok glyphs with their actual brand marks throughout the app.
 - Restored a desktop planning sidebar with a compact schedule calendar, one-click autosaved draft resumption, and always-visible workspace navigation while preserving the mobile bottom navigation and collapsed icon rail.
 - Reworked the authenticated app around persistent primary navigation, a focused Posts area, intent-based composer formats, clearer content customization language, compact social accounts, day drawers, and task-specific settings pages on desktop and mobile.
-- Relicensed OpenPost from MIT to AGPL-3.0-only and restored clear open-source positioning across the project, marketing site, documentation, and authenticated app.
+- Relicensed dopost from MIT to AGPL-3.0-only and restored clear open-source positioning across the project, marketing site, documentation, and authenticated app.
 - Made the project-owned Devenv/direnv workflow durable across NAS/Hermes reboots with a committed environment lock, repo-local caches, frozen installs, non-destructive dotenv setup, explicit command gates, a tracked fast pre-push lint gate, and no shell execution of dotenv data.
 - Documented the intended web, CLI, MCP, and HTTP API surface boundaries, corrected stale marketing automation examples, scoped heavy uploader styles to the uploader itself, and lazy-loaded the documentation API explorer outside its dedicated route.
 - Added mixed-media carousel publishing for Threads and aligned public-media constraints with the publishing modes supported by Threads, Facebook, Instagram, and TikTok.
@@ -4760,7 +4760,7 @@ This section consolidates the changes shipped between `v1.28.0` and `v1.41.2` be
 - Added Bluesky video capability metadata plus rich-text facets, external link cards, quote posts, quote-with-media embeds, and self-label settings.
 - Added LinkedIn document/PDF carousel capability metadata and document upload/publishing support via the LinkedIn Documents API.
 - Added TikTok Upload/Inbox video support with `FILE_UPLOAD` initialization and chunk transfer while keeping Direct Post on verified public media URLs.
-- Added rendition comment inbox/moderation API routes with opaque OpenPost comment IDs, Facebook/Instagram/LinkedIn/Threads comment adapters, and explicit unsupported-provider responses.
+- Added rendition comment inbox/moderation API routes with opaque dopost comment IDs, Facebook/Instagram/LinkedIn/Threads comment adapters, and explicit unsupported-provider responses.
 - Added MCP provider-readiness, publication-validation, media-analysis metadata, publication lifecycle, and rendition comment workflows for automation clients.
 - Added workspace image URLs and moved workspace-scoped navigation into the workspace switcher menu.
 - Added a fullscreen month calendar with workspace/platform filtering, account badges, publication sets, and drag-and-drop rescheduling.
@@ -4835,8 +4835,8 @@ This section consolidates the changes shipped between `v1.28.0` and `v1.41.2` be
 
 ### Changed
 
-- Aligned OpenPost Cloud plan links, environment examples, docs, and landing-page pricing with the full Starter/Creator/Pro/Team/Agency billing catalog.
-- Switched OpenPost Cloud public and in-app pricing from dollar-denominated display to Euro source prices with locale-aware formatting.
+- Aligned dopost Cloud plan links, environment examples, docs, and landing-page pricing with the full Starter/Creator/Pro/Team/Agency billing catalog.
+- Switched dopost Cloud public and in-app pricing from dollar-denominated display to Euro source prices with locale-aware formatting.
 
 ### Fixed
 
@@ -4892,12 +4892,12 @@ This section consolidates the changes shipped between `v1.28.0` and `v1.41.2` be
 ### Added
 
 - Added `OPENPOST_POLAR_API_BASE_URL` and strict cloud-mode Polar billing config validation for hosted checkout, portal, and webhook readiness.
-- Added a production-readiness implementation plan covering OpenPost Cloud, Postgres/S3 drivers, Polar billing, provider readiness, the publication model, MCP/ChatGPT app work, marketing/SEO, and verification.
-- Rebuilt `marketing-site/` as a SvelteKit landing page for OpenPost Cloud with an agentic scheduler position, demo slot, pricing direction, platform grid, FAQ, and lower-page open-core trust section.
+- Added a production-readiness implementation plan covering dopost Cloud, Postgres/S3 drivers, Polar billing, provider readiness, the publication model, MCP/ChatGPT app work, marketing/SEO, and verification.
+- Rebuilt `marketing-site/` as a SvelteKit landing page for dopost Cloud with an agentic scheduler position, demo slot, pricing direction, platform grid, FAQ, and lower-page open-core trust section.
 - Added backend edition, database-driver, and storage-driver configuration primitives, including Postgres Bun driver initialization and S3-compatible storage settings for upcoming cloud storage work.
-- Added an S3-compatible media storage driver behind the `BlobStorage` interface for OpenPost Cloud and R2/S3-backed deployments.
+- Added an S3-compatible media storage driver behind the `BlobStorage` interface for dopost Cloud and R2/S3-backed deployments.
 - Added an entitlement service contract with self-hosted unlimited defaults and static plan-limit decisions for upcoming Polar billing and quota enforcement.
-- Added Playwright smoke coverage for the OpenPost Cloud marketing landing page across desktop and mobile Chrome.
+- Added Playwright smoke coverage for the dopost Cloud marketing landing page across desktop and mobile Chrome.
 - Added an authenticated `/mcp` JSON-RPC foundation with MCP `initialize`, `tools/list`, and a read-only `list_workspaces` tool backed by existing Bearer JWT/API-token authentication.
 - Added monthly `usage_counters` storage plus a usage accounting service for hosted quotas, and enforced the first entitlement boundary on workspace creation while keeping self-hosted defaults unlimited.
 - Added media upload quota enforcement for monthly uploaded bytes and total stored media bytes, with successful new uploads recorded into monthly usage counters.
@@ -4905,15 +4905,15 @@ This section consolidates the changes shipped between `v1.28.0` and `v1.41.2` be
 - Added social account connection quota enforcement in the shared account saver used by OAuth and app-password provider flows.
 - Added MCP `list_accounts` and `create_draft` tools so authenticated assistants can inspect connected accounts and create workspace-scoped draft posts.
 - Added publishing-worker usage accounting for successful published posts and provider publish write calls.
-- Added Polar billing webhook configuration, signature verification, idempotent webhook event storage, and local subscription snapshot tables for OpenPost Cloud.
+- Added Polar billing webhook configuration, signature verification, idempotent webhook event storage, and local subscription snapshot tables for dopost Cloud.
 - Added a subscription-backed entitlement service for cloud-mode workspace quotas using local Polar subscription snapshots.
-- Added authenticated Polar checkout and customer portal API endpoints for OpenPost Cloud billing.
+- Added authenticated Polar checkout and customer portal API endpoints for dopost Cloud billing.
 - Added a workspace billing status API and settings UI summary for current plans and monthly usage.
 - Added publishing-worker quota enforcement for monthly published posts and provider write calls.
 - Added a Playwright app smoke suite that boots the Go server and verifies the authenticated billing settings surface.
 - Added MCP `schedule_post`, `get_post_status`, and `cancel_post` tools with workspace/account validation, scheduled-post quota enforcement, and publish-job queue integration.
 - Added MCP `suggest_next_slot` so assistants can pick the next free configured posting slot before scheduling.
-- Added an `openpost-mcp` CLI stdio proxy that reuses OpenPost CLI profiles and tokens to connect desktop MCP clients to the authenticated remote `/mcp` endpoint.
+- Added an `openpost-mcp` CLI stdio proxy that reuses dopost CLI profiles and tokens to connect desktop MCP clients to the authenticated remote `/mcp` endpoint.
 - Added MCP `upload_media_from_url` with shared media ingestion, upload quota accounting, dedupe, and private/local-address SSRF protection.
 - Added persistent MCP tool-call auditing with user/workspace scope, status, error message, duration, and migration coverage.
 - Added an authenticated MCP activity API and settings panel so users can inspect recent assistant/CLI tool calls, failures, durations, and workspace scope.
@@ -4943,7 +4943,7 @@ This section consolidates the changes shipped between `v1.28.0` and `v1.41.2` be
 - Added MCP `list_provider_catalog` so assistant clients can inspect available, unconfigured, and planned social providers before choosing destinations.
 - Added MCP `list_media` plus source `media_ids` support on draft and scheduling tools so assistant clients can reuse existing workspace media or attach uploaded assets to posts.
 - Added MCP `ping` and Streamable HTTP notification handling, with `openpost-mcp` suppressing empty stdio frames for accepted notifications.
-- Added an MCP Apps scheduler widget resource and `render_scheduler_widget` tool so ChatGPT-style clients can render OpenPost workspaces, accounts, media, providers, drafts, and queue data.
+- Added an MCP Apps scheduler widget resource and `render_scheduler_widget` tool so ChatGPT-style clients can render dopost workspaces, accounts, media, providers, drafts, and queue data.
 - Added the first Publication model schema foundation with `publications`, `publication_assets`, and optional `posts.publication_id` links for the upcoming source-idea → rendition workflow.
 - Added MCP `list_publications` and `create_publication` tools so assistants can work from source ideas and assets before creating platform-specific drafts.
 - Added authenticated publication API endpoints for creating, listing, reading, and updating source publications with media attachments.
@@ -5063,7 +5063,7 @@ This section consolidates the changes shipped between `v1.28.0` and `v1.41.2` be
 
 ### Added
 
-- Scaffold for a new `cli/` Go module (`github.com/openpost/cli`) — a standalone HTTP client for a running OpenPost instance. Includes the config layer (XDG config dir, profile precedence, flag > env > file), the OS keyring token store with an explicit --insecure-storage fallback, a typed API client, a JSON/table output printer, an account-picker that resolves `--accounts x,x:@main,mastodon:server.example` to social_account IDs, a schedule parser that handles RFC3339 / absolute layouts / natural-language ("tomorrow 2pm", "in 3 hours", "next monday 9am") / `now` / `draft`, and Cobra-based `root` and `completion` commands. The CLI does not embed the server, does not open SQLite, and does not import `backend/internal/...`.
+- Scaffold for a new `cli/` Go module (`github.com/openpost/cli`) — a standalone HTTP client for a running dopost instance. Includes the config layer (XDG config dir, profile precedence, flag > env > file), the OS keyring token store with an explicit --insecure-storage fallback, a typed API client, a JSON/table output printer, an account-picker that resolves `--accounts x,x:@main,mastodon:server.example` to social_account IDs, a schedule parser that handles RFC3339 / absolute layouts / natural-language ("tomorrow 2pm", "in 3 hours", "next monday 9am") / `now` / `draft`, and Cobra-based `root` and `completion` commands. The CLI does not embed the server, does not open SQLite, and does not import `backend/internal/...`.
 - First-class API tokens for the CLI and other long-lived automation clients. `api_tokens` table stores sha256-hashed opaque tokens with the format `op_cli_<8-hex-prefix>_<base64url-secret>`; the JWT web path is unchanged. New `Authenticator` interface and `CompositeService` (JWT → API token fallback) wrap the existing `*auth.Service`. Huma handlers now accept the interface; the Echo `JWTMiddleware` is preserved. `GET /api/v1/api-tokens`, `POST /api/v1/api-tokens`, and `DELETE /api/v1/api-tokens/{id}` let users manage tokens from web/CLI; the raw token is returned exactly once on create.
 - `cli_auth_sessions` table for the device-flow authorization flow that will land in the next phase (RFC 8628-style). Both device code and user code are stored as sha256 hashes; only the plain user_code ever leaves the server. Migration 008 and 009 are idempotent and auto-applied on startup, matching the 007 pattern.
 - CLI device-flow authorization endpoints under `/api/v1/cli/auth/`: `POST /start` (opens a session, returns device_code + user_code + verification_url, rate-limited per client IP), `POST /poll` (1 req/s minimum, slow-down + retry-after), `GET /session?user_code=…` (the web approval page), `POST /approve` (mints an `APIToken` via the existing apitokens service, raw token returned once), `POST /deny`. New `internal/services/cli_auth` package wraps the session lifecycle and `CleanupExpired`. The CLI never handles the user's password, TOTP, or passkey — the user approves in the web UI.
@@ -5160,7 +5160,7 @@ This section consolidates the changes shipped between `v1.28.0` and `v1.41.2` be
 
 ### Added
 
-- Documentation page explaining why to self-host OpenPost, plus clearer provider/platform limitations coverage.
+- Documentation page explaining why to self-host dopost, plus clearer provider/platform limitations coverage.
 - Capacitor app asset generation and refreshed Android launcher/splash assets derived from the project brand icon.
 - PWA manifest configuration for the frontend build.
 
@@ -5200,7 +5200,7 @@ This section consolidates the changes shipped between `v1.28.0` and `v1.41.2` be
 ### Added
 
 - Account-level MFA with QR-based TOTP enrollment, passkey registration, and step-up login verification, plus settings UI for managing both methods.
-- VitePress documentation site scaffold under `docs-site/`, including landing page, sidebar/navigation config, OpenPost-themed styling, and first-pass operator/contributor docs.
+- VitePress documentation site scaffold under `docs-site/`, including landing page, sidebar/navigation config, dopost-themed styling, and first-pass operator/contributor docs.
 - Shared asset sync pipeline that copies canonical repo assets into frontend and docs public directories.
 - GitHub Pages workflow for building and deploying the docs site.
 - Token refresh job scheduling plus backend tests covering queued refresh execution and provider-specific refresh credentials.
@@ -5284,4 +5284,4 @@ Changes since `v0.4.2`.
 - `7289963` feat: implement Phase 3 - Media Management & Cleanup
 - `87a1901` feat: implement Phase 2 - Platform Customization & Social Media Sets
 - `80c302c` feat: enhance post management features
-- `cb8a110` feat: add comprehensive roadmap for OpenPost features and priorities
+- `cb8a110` feat: add comprehensive roadmap for dopost features and priorities

@@ -29,7 +29,7 @@ func generate() (string, error) {
 	var document strings.Builder
 	document.WriteString(`---
 title: Media limits
-description: Default attachment limits used by OpenPost before publishing.
+description: Default attachment limits used by dopost before publishing.
 icon: FileCheck
 ---
 
@@ -73,14 +73,14 @@ Sizes are exact bytes, durations are seconds, and attachment counts apply to eac
 	document.WriteString(`
 ## Provider exceptions
 
-Reviewed **26 September 2026**. The table above comes from OpenPost's capability catalogue. Preflight also checks codecs, dimensions, and account restrictions.
+Reviewed **26 September 2026**. The table above comes from dopost's capability catalogue. Preflight also checks codecs, dimensions, and account restrictions.
 
 | Provider | What to check |
 | --- | --- |
 | [Bluesky](https://docs.bsky.app/docs/tutorials/creating-a-post) | A segment can contain images or one [video](https://github.com/bluesky-social/atproto/blob/main/lexicons/app/bsky/embed/video.json). |
 | [X](https://docs.x.com/x-api/media/quickstart/media-upload-chunked) | Premium and verified accounts can have higher video limits. The destination preview applies them. |
 | [TikTok](https://developers.tiktok.com/docs/en/content-posting-api-media-transfer-guide) | The connected creator determines duration and privacy options. URL uploads need a verified domain and accessible HTTPS file. |
-| [YouTube](https://developers.google.com/youtube/v3/docs/videos/insert) | OpenPost's default size cap is lower than the API maximum. Unverified API projects may be limited to private uploads. |
+| [YouTube](https://developers.google.com/youtube/v3/docs/videos/insert) | dopost's default size cap is lower than the API maximum. Unverified API projects may be limited to private uploads. |
 | [LinkedIn](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/videos-api) | Video permissions differ from image and document permissions. |
 | [Mastodon](https://docs.joinmastodon.org/methods/instance/#v2) and [Pixelfed](https://github.com/pixelfed/pixelfed/blob/dev/routes/api.php) | The connected instance's advertised limits override defaults. |
 | [PeerTube](https://docs.joinpeertube.org/api/rest-getting-started) | Instance quota and transcoding policy apply. |

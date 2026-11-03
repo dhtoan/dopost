@@ -26,7 +26,7 @@ test("native previews resolve protected media URLs and authenticate their image 
   }
 });
 
-test("native previews never send OpenPost credentials to outside or local images", () => {
+test("native previews never send dopost credentials to outside or local images", () => {
   for (const uri of [
     "https://cdn.example/photo.png",
     "file:///photo.png",

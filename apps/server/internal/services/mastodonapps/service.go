@@ -21,7 +21,7 @@ import (
 const (
 	defaultScopes             = "read write"
 	registrationStatusActive  = "registered"
-	defaultRegistrationClient = "OpenPost"
+	defaultRegistrationClient = "dopost"
 )
 
 type URLValidator func(context.Context, *url.URL) error

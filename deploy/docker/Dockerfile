@@ -1,6 +1,6 @@
 # The caller supplies the validated, canonical frontend directory as a named
 # BuildKit context. The frontend is built outside this image and embedded into
-# the Go binary at the existing OpenPost boundary.
+# the Go binary at the existing dopost boundary.
 FROM frontend_artifact AS frontend-builder
 
 # Build stage for backend
@@ -29,16 +29,16 @@ FROM docker.io/library/alpine:3.24.3@sha256:be2656061b536c1883c4034790e21d0a09c5
 
 ARG TARGETARCH
 RUN test "${TARGETARCH}" = "amd64" || { \
-      echo "Auno Studio's published container currently supports linux/amd64 only; received ${TARGETARCH:-unknown}." >&2; \
+      echo "dopost's published container currently supports linux/amd64 only; received ${TARGETARCH:-unknown}." >&2; \
       exit 1; \
     }
 
 ARG VERSION=dev
 ARG COMMIT=unknown
-LABEL org.opencontainers.image.title="Auno Studio" \
+LABEL org.opencontainers.image.title="dopost" \
       org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.revision="${COMMIT}" \
-      org.opencontainers.image.source="https://github.com/dhtoan/AunoStudio" \
+      org.opencontainers.image.source="https://github.com/dhtoan/dopost" \
       org.opencontainers.image.base.name="docker.io/library/alpine:3.24.1" \
       org.opencontainers.image.base.digest="sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b"
 

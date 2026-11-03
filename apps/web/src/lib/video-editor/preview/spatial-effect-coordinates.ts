@@ -81,7 +81,7 @@ function cornerPinMapping(
 }
 
 /**
- * OpenPost applies GPU effects to the full source texture before crop and item
+ * dopost applies GPU effects to the full source texture before crop and item
  * transform. Convert the shader UV into the exact project-canvas point drawn by
  * preview and export.
  */

@@ -1,5 +1,5 @@
 /**
- * Clip effect model for the OpenPost Video Editor.
+ * Clip effect model for the dopost Video Editor.
  *
  * Ported from FreeCut (MIT) — types/effects.ts — trimmed to color/blur
  * effects with params that match CSS filter semantics, so the same

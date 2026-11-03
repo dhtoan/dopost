@@ -34,7 +34,7 @@ func TestLinkedInCommunityManagementResolvesOrganizationLogoAsset(t *testing.T) 
 						response.StatusCode = http.StatusBadRequest
 						return response, nil
 					}
-					return jsonResponse(req, `{"id":42,"localizedName":"OpenPost","vanityName":"openpost","logoV2":{"original":"urn:li:digitalmediaAsset:C4D0BAQE6V6rj_w1yVQ","cropped":"urn:li:digitalmediaAsset:C4D0BAQE6V6rj_w1yVQ","cropInfo":{"x":0,"y":0,"width":0,"height":0}}}`), nil
+					return jsonResponse(req, `{"id":42,"localizedName":"dopost","vanityName":"openpost","logoV2":{"original":"urn:li:digitalmediaAsset:C4D0BAQE6V6rj_w1yVQ","cropped":"urn:li:digitalmediaAsset:C4D0BAQE6V6rj_w1yVQ","cropInfo":{"x":0,"y":0,"width":0,"height":0}}}`), nil
 				case "/rest/images/urn:li:image:C4D0BAQE6V6rj_w1yVQ":
 					if req.URL.EscapedPath() != "/rest/images/urn%3Ali%3Aimage%3AC4D0BAQE6V6rj_w1yVQ" {
 						t.Fatalf("image URN must encode Rest.li path syntax: %s", req.URL.EscapedPath())

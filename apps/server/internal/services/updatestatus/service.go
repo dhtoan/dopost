@@ -24,8 +24,8 @@ const (
 	StateDisabled        = "disabled"
 	StateDevelopment     = "development"
 
-	latestReleaseURL = "https://api.github.com/repos/getopenpost/openpost/releases/latest"
-	releaseURLPrefix = "/getopenpost/openpost/releases/tag/"
+	latestReleaseURL = "https://api.github.com/repos/dhtoan/dopost/releases/latest"
+	releaseURLPrefix = "/dhtoan/dopost/releases/tag/"
 	maxResponseBytes = 64 << 10
 	maxRedirects     = 3
 	checkTimeout     = 3 * time.Second

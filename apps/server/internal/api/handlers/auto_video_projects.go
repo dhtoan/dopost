@@ -75,30 +75,30 @@ type DeleteAutoVideoProjectOutput struct {
 func (h *AutoVideoProjectHandler) RegisterRoutes(api huma.API) {
 	auth := huma.Middlewares{middleware.AuthMiddleware(api, h.auth)}
 	huma.Register(api, huma.Operation{
-		OperationID: "get-auno-auto-video-project",
+		OperationID: "get-dopost-auto-video-project",
 		Method:      http.MethodGet,
-		Path:        "/auno/auto-video/projects/{id}",
-		Summary:     "Get Auno Auto Video generation metadata",
-		Tags:        []string{"Auno Auto Video"},
+		Path:        "/dopost/auto-video/projects/{id}",
+		Summary:     "Get dopost Auto Video generation metadata",
+		Tags:        []string{"dopost Auto Video"},
 		Middlewares: auth,
 		Errors:      []int{400, 403, 404, 503},
 	}, h.get)
 	huma.Register(api, huma.Operation{
-		OperationID: "upsert-auno-auto-video-project",
+		OperationID: "upsert-dopost-auto-video-project",
 		Method:      http.MethodPut,
-		Path:        "/auno/auto-video/projects/{id}",
-		Summary:     "Save Auno Auto Video generation metadata",
+		Path:        "/dopost/auto-video/projects/{id}",
+		Summary:     "Save dopost Auto Video generation metadata",
 		Description: "Stores AI provenance and regeneration state separately from the native video project document.",
-		Tags:        []string{"Auno Auto Video"},
+		Tags:        []string{"dopost Auto Video"},
 		Middlewares: auth,
 		Errors:      []int{400, 403, 404, 503},
 	}, h.upsert)
 	huma.Register(api, huma.Operation{
-		OperationID: "delete-auno-auto-video-project",
+		OperationID: "delete-dopost-auto-video-project",
 		Method:      http.MethodDelete,
-		Path:        "/auno/auto-video/projects/{id}",
-		Summary:     "Delete Auno Auto Video generation metadata",
-		Tags:        []string{"Auno Auto Video"},
+		Path:        "/dopost/auto-video/projects/{id}",
+		Summary:     "Delete dopost Auto Video generation metadata",
+		Tags:        []string{"dopost Auto Video"},
 		Middlewares: auth,
 		Errors:      []int{400, 403, 404, 503},
 	}, h.delete)

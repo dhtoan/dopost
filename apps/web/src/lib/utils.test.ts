@@ -32,7 +32,7 @@ describe('formatSocialAccountName', () => {
 
 	it('keeps display-name platforms unprefixed', () => {
 		expect(formatSocialAccountName('Rodrigo', 'linkedin')).toBe('Rodrigo');
-		expect(formatSocialAccountName('OpenPost Studio', 'youtube')).toBe('OpenPost Studio');
+		expect(formatSocialAccountName('dopost Studio', 'youtube')).toBe('dopost Studio');
 	});
 
 	it('keeps Pinterest and Google Business unprefixed', () => {

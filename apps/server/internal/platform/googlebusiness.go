@@ -153,7 +153,7 @@ func (g *GoogleBusinessAdapter) exchangeToken(ctx context.Context, values map[st
 	return exchangeGoogleOAuthToken(ctx, values, label)
 }
 
-// RevokeAuthorization invalidates the provider credential before OpenPost
+// RevokeAuthorization invalidates the provider credential before dopost
 // clears the encrypted local grant.
 func (g *GoogleBusinessAdapter) RevokeAuthorization(ctx context.Context, accessToken string) error {
 	if strings.TrimSpace(accessToken) == "" {
@@ -902,7 +902,7 @@ func (g *GoogleBusinessAdapter) Publish(ctx context.Context, accessToken, accoun
 		return g.ReconcilePublish(ctx, accessToken, accountID, req.ResumeProviderReference)
 	}
 	if req.ResumeProviderState == "creating" {
-		return PublishResult{ProviderState: "creating", RetrySafety: PublishRetryNever}, fmt.Errorf("google business local post create outcome is ambiguous; OpenPost will not replay it")
+		return PublishResult{ProviderState: "creating", RetrySafety: PublishRetryNever}, fmt.Errorf("google business local post create outcome is ambiguous; dopost will not replay it")
 	}
 	if err := g.ValidatePublishingTarget(ctx, accessToken, accountID, req.Settings); err != nil {
 		return PublishResult{}, err

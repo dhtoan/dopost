@@ -18,7 +18,7 @@ const preset: ImageEditorPreset = {
 	profiles: []
 };
 
-describe('OpenPost Image Editor portable projects', () => {
+describe('dopost Image Editor portable projects', () => {
 	it('reopens selected-range text emphasis without changing whole-layer defaults', async () => {
 		const document = blankImageEditorDocument(preset);
 		document.pages[0].layers.push({

@@ -197,11 +197,11 @@
 						"type": "string"
 					},
 					"account_id": {
-						"description": "OpenPost destination account ID",
+						"description": "dopost destination account ID",
 						"type": "string"
 					},
 					"account_ids": {
-						"description": "All connected OpenPost account IDs",
+						"description": "All connected dopost account IDs",
 						"items": {
 							"type": "string"
 						},
@@ -1094,7 +1094,7 @@
 						"type": "string"
 					},
 					"account_ids": {
-						"description": "OpenPost destination account IDs created by this selection",
+						"description": "dopost destination account IDs created by this selection",
 						"items": {
 							"type": "string"
 						},
@@ -1817,7 +1817,7 @@
 					},
 					"profile": {
 						"$ref": "#/components/schemas/AppBrandingProfileInput",
-						"description": "Null restores OpenPost for an organization or inheritance for a workspace"
+						"description": "Null restores dopost for an organization or inheritance for a workspace"
 					}
 				},
 				"required": ["expected_revision"],
@@ -2265,12 +2265,12 @@
 				"required": ["type"],
 				"type": "object"
 			},
-			"AunoAICapabilitiesOutputBody": {
+			"DopostAICapabilitiesOutputBody": {
 				"additionalProperties": false,
 				"properties": {
 					"$schema": {
 						"description": "A URL to the JSON Schema for this object.",
-						"examples": ["https://example.com/api/v1/schemas/AunoAICapabilitiesOutputBody.json"],
+						"examples": ["https://example.com/api/v1/schemas/DopostAICapabilitiesOutputBody.json"],
 						"format": "uri",
 						"readOnly": true,
 						"type": "string"
@@ -2454,7 +2454,7 @@
 						"type": "string"
 					},
 					"authenticated": {
-						"description": "Whether the request has a valid OpenPost session",
+						"description": "Whether the request has a valid dopost session",
 						"type": "boolean"
 					},
 					"user": {
@@ -3221,11 +3221,11 @@
 						"type": "string"
 					},
 					"id": {
-						"description": "OpenPost checkout attempt or Paddle portal session ID",
+						"description": "dopost checkout attempt or Paddle portal session ID",
 						"type": "string"
 					},
 					"plan_id": {
-						"description": "OpenPost plan ID",
+						"description": "dopost plan ID",
 						"type": "string"
 					},
 					"price_ids": {
@@ -3244,7 +3244,7 @@
 						"type": "string"
 					},
 					"return_url": {
-						"description": "OpenPost URL used after Paddle checkout completes",
+						"description": "dopost URL used after Paddle checkout completes",
 						"type": "string"
 					},
 					"trial_ends_at": {
@@ -3252,11 +3252,11 @@
 						"type": "string"
 					},
 					"url": {
-						"description": "OpenPost checkout URL or short-lived Paddle customer portal URL",
+						"description": "dopost checkout URL or short-lived Paddle customer portal URL",
 						"type": "string"
 					},
 					"used_generic_fallback": {
-						"description": "Whether Paddle omitted the purpose-specific link and OpenPost returned the generic portal",
+						"description": "Whether Paddle omitted the purpose-specific link and dopost returned the generic portal",
 						"type": "boolean"
 					},
 					"workspace_id": {
@@ -3325,11 +3325,11 @@
 						"type": "string"
 					},
 					"edition": {
-						"description": "Configured OpenPost edition",
+						"description": "Configured dopost edition",
 						"type": "string"
 					},
 					"enabled": {
-						"description": "Whether browser telemetry is enabled for this OpenPost instance",
+						"description": "Whether browser telemetry is enabled for this dopost instance",
 						"type": "boolean"
 					},
 					"environment": {
@@ -3341,7 +3341,7 @@
 						"type": "string"
 					},
 					"revision": {
-						"description": "Running OpenPost source revision",
+						"description": "Running dopost source revision",
 						"type": "string"
 					},
 					"ui_host": {
@@ -3349,7 +3349,7 @@
 						"type": "string"
 					},
 					"version": {
-						"description": "Running OpenPost version",
+						"description": "Running dopost version",
 						"type": "string"
 					}
 				},
@@ -3621,7 +3621,7 @@
 						"type": ["array", "null"]
 					},
 					"profiles": {
-						"description": "Content profiles supported by OpenPost",
+						"description": "Content profiles supported by dopost",
 						"items": {
 							"$ref": "#/components/schemas/Profile"
 						},
@@ -5555,11 +5555,11 @@
 						"type": "string"
 					},
 					"design_document_id": {
-						"description": "Producing OpenPost Image Editor design ID",
+						"description": "Producing dopost Image Editor design ID",
 						"type": "string"
 					},
 					"design_page_id": {
-						"description": "Producing OpenPost Image Editor page ID",
+						"description": "Producing dopost Image Editor page ID",
 						"type": "string"
 					},
 					"filename": {
@@ -9136,11 +9136,11 @@
 						"type": "string"
 					},
 					"account_id": {
-						"description": "OpenPost destination account ID",
+						"description": "dopost destination account ID",
 						"type": "string"
 					},
 					"account_ids": {
-						"description": "All connected OpenPost account IDs",
+						"description": "All connected dopost account IDs",
 						"items": {
 							"type": "string"
 						},
@@ -9627,7 +9627,7 @@
 						"type": "string"
 					},
 					"edition": {
-						"description": "Configured OpenPost edition",
+						"description": "Configured dopost edition",
 						"type": "string"
 					},
 					"revision": {
@@ -12155,7 +12155,7 @@
 						"type": "integer"
 					},
 					"revision": {
-						"description": "OpenPost source revision reported by the sending instance",
+						"description": "dopost source revision reported by the sending instance",
 						"maxLength": 128,
 						"type": "string"
 					},
@@ -12170,7 +12170,7 @@
 						"type": "string"
 					},
 					"version": {
-						"description": "OpenPost release reported by the sending instance",
+						"description": "dopost release reported by the sending instance",
 						"maxLength": 64,
 						"type": "string"
 					}
@@ -13572,11 +13572,11 @@
 						"type": "string"
 					},
 					"design_document_id": {
-						"description": "Producing OpenPost Image Editor design",
+						"description": "Producing dopost Image Editor design",
 						"type": "string"
 					},
 					"design_page_id": {
-						"description": "Producing OpenPost Image Editor page",
+						"description": "Producing dopost Image Editor page",
 						"type": "string"
 					},
 					"duration_ms": {
@@ -13962,11 +13962,11 @@
 						"type": "boolean"
 					},
 					"design_document_id": {
-						"description": "Producing OpenPost Image Editor design ID",
+						"description": "Producing dopost Image Editor design ID",
 						"type": "string"
 					},
 					"design_page_id": {
-						"description": "Producing OpenPost Image Editor page ID",
+						"description": "Producing dopost Image Editor page ID",
 						"type": "string"
 					},
 					"height": {
@@ -16701,7 +16701,7 @@
 						"type": ["array", "null"]
 					},
 					"template_id": {
-						"description": "OpenPost meme template ID",
+						"description": "dopost meme template ID",
 						"maxLength": 80,
 						"minLength": 1,
 						"type": "string"
@@ -17232,7 +17232,7 @@
 						"type": "string"
 					},
 					"capabilities": {
-						"description": "High-level OpenPost capabilities available or planned for this provider",
+						"description": "High-level dopost capabilities available or planned for this provider",
 						"items": {
 							"type": "string"
 						},
@@ -17474,7 +17474,7 @@
 				"additionalProperties": false,
 				"properties": {
 					"count": {
-						"description": "Published OpenPost publications on this date",
+						"description": "Published dopost publications on this date",
 						"format": "int64",
 						"type": "integer"
 					},
@@ -17538,7 +17538,7 @@
 						"type": "integer"
 					},
 					"plan_id": {
-						"description": "Highest active OpenPost plan available to the profile owner",
+						"description": "Highest active dopost plan available to the profile owner",
 						"type": "string"
 					},
 					"top_platforms": {
@@ -19133,7 +19133,7 @@
 						"type": "string"
 					},
 					"username": {
-						"description": "Optional unique public username; OpenPost creates one from the email when omitted",
+						"description": "Optional unique public username; dopost creates one from the email when omitted",
 						"maxLength": 30,
 						"minLength": 3,
 						"pattern": "^[A-Za-z0-9](?:[A-Za-z0-9_-]*[A-Za-z0-9])?$",
@@ -19257,7 +19257,7 @@
 						"type": "string"
 					},
 					"template_id": {
-						"description": "OpenPost meme template ID",
+						"description": "dopost meme template ID",
 						"maxLength": 80,
 						"minLength": 1,
 						"type": "string"
@@ -21283,7 +21283,7 @@
 						"type": "integer"
 					},
 					"evaluation_window_seconds": {
-						"description": "How long OpenPost may wait for engagement gates",
+						"description": "How long dopost may wait for engagement gates",
 						"format": "int64",
 						"maximum": 2592000,
 						"minimum": 900,
@@ -26338,7 +26338,7 @@
 						"type": "boolean"
 					},
 					"latest_version": {
-						"description": "Latest stable OpenPost release tag",
+						"description": "Latest stable dopost release tag",
 						"type": "string"
 					},
 					"published_at": {
@@ -29014,7 +29014,7 @@
 		},
 		"securitySchemes": {
 			"bearerAuth": {
-				"bearerFormat": "OpenPost API token or session JWT",
+				"bearerFormat": "dopost API token or session JWT",
 				"scheme": "bearer",
 				"type": "http"
 			},
@@ -29028,16 +29028,16 @@
 	"info": {
 		"contact": {
 			"email": "hello@openpo.st",
-			"name": "OpenPost support",
+			"name": "dopost support",
 			"url": "https://openpo.st/contact"
 		},
-		"description": "OpenPost HTTP API for workspace-scoped social publishing. Use it to inspect accounts and provider readiness, manage media and publications, schedule work, and read publishing results. Every operation still follows token scopes, workspace roles, plan limits, provider capabilities, and destination validation.",
+		"description": "dopost HTTP API for workspace-scoped social publishing. Use it to inspect accounts and provider readiness, manage media and publications, schedule work, and read publishing results. Every operation still follows token scopes, workspace roles, plan limits, provider capabilities, and destination validation.",
 		"license": {
 			"identifier": "AGPL-3.0-only",
 			"name": "AGPL-3.0-only"
 		},
 		"termsOfService": "https://openpo.st/terms",
-		"title": "OpenPost API",
+		"title": "dopost API",
 		"version": "1.0.0"
 	},
 	"openapi": "3.1.0",
@@ -31443,12 +31443,12 @@
 				"operationId": "refresh-account-metadata",
 				"parameters": [
 					{
-						"description": "OpenPost account ID",
+						"description": "dopost account ID",
 						"in": "path",
 						"name": "account_id",
 						"required": true,
 						"schema": {
-							"description": "OpenPost account ID",
+							"description": "dopost account ID",
 							"type": "string"
 						}
 					}
@@ -34663,16 +34663,16 @@
 				"tags": ["Auth", "Workspaces"]
 			}
 		},
-		"/auno/ai/capabilities": {
+		"/dopost/ai/capabilities": {
 			"get": {
 				"description": "Returns provider and local capability availability without exposing credentials or secret values.",
-				"operationId": "get-auno-ai-capabilities",
+				"operationId": "get-dopost-ai-capabilities",
 				"responses": {
 					"200": {
 						"content": {
 							"application/json": {
 								"schema": {
-									"$ref": "#/components/schemas/AunoAICapabilitiesOutputBody"
+									"$ref": "#/components/schemas/DopostAICapabilitiesOutputBody"
 								}
 							}
 						},
@@ -34689,14 +34689,14 @@
 						"description": "Error"
 					}
 				},
-				"summary": "Get Auno AI capability status",
-				"tags": ["Auno AI"]
+				"summary": "Get dopost AI capability status",
+				"tags": ["dopost AI"]
 			}
 		},
-		"/auno/auto-video/documentary/runs": {
+		"/dopost/auto-video/documentary/runs": {
 			"post": {
-				"description": "Persistent Auno Documentary Long-form workflow. Generated outputs remain editable and are stored separately from the native video project until handoff.",
-				"operationId": "create-auno-documentary-run",
+				"description": "Persistent dopost Documentary Long-form workflow. Generated outputs remain editable and are stored separately from the native video project until handoff.",
+				"operationId": "create-dopost-documentary-run",
 				"requestBody": {
 					"content": {
 						"application/json": {
@@ -34809,14 +34809,14 @@
 						"description": "Service Unavailable"
 					}
 				},
-				"summary": "Create an Auno documentary run",
-				"tags": ["Auno Auto Video"]
+				"summary": "Create a dopost documentary run",
+				"tags": ["dopost Auto Video"]
 			}
 		},
-		"/auno/auto-video/documentary/runs/{run_id}": {
+		"/dopost/auto-video/documentary/runs/{run_id}": {
 			"delete": {
-				"description": "Persistent Auno Documentary Long-form workflow. Generated outputs remain editable and are stored separately from the native video project until handoff.",
-				"operationId": "delete-auno-documentary-run",
+				"description": "Persistent dopost Documentary Long-form workflow. Generated outputs remain editable and are stored separately from the native video project until handoff.",
+				"operationId": "delete-dopost-documentary-run",
 				"parameters": [
 					{
 						"description": "Documentary run ID",
@@ -34941,12 +34941,12 @@
 						"description": "Service Unavailable"
 					}
 				},
-				"summary": "Delete an Auno documentary run",
-				"tags": ["Auno Auto Video"]
+				"summary": "Delete a dopost documentary run",
+				"tags": ["dopost Auto Video"]
 			},
 			"get": {
-				"description": "Persistent Auno Documentary Long-form workflow. Generated outputs remain editable and are stored separately from the native video project until handoff.",
-				"operationId": "get-auno-documentary-run",
+				"description": "Persistent dopost Documentary Long-form workflow. Generated outputs remain editable and are stored separately from the native video project until handoff.",
+				"operationId": "get-dopost-documentary-run",
 				"parameters": [
 					{
 						"description": "Documentary run ID",
@@ -35072,12 +35072,12 @@
 						"description": "Service Unavailable"
 					}
 				},
-				"summary": "Get an Auno documentary run",
-				"tags": ["Auno Auto Video"]
+				"summary": "Get a dopost documentary run",
+				"tags": ["dopost Auto Video"]
 			},
 			"put": {
-				"description": "Persistent Auno Documentary Long-form workflow. Generated outputs remain editable and are stored separately from the native video project until handoff.",
-				"operationId": "update-auno-documentary-run",
+				"description": "Persistent dopost Documentary Long-form workflow. Generated outputs remain editable and are stored separately from the native video project until handoff.",
+				"operationId": "update-dopost-documentary-run",
 				"parameters": [
 					{
 						"description": "Documentary run ID",
@@ -35202,14 +35202,14 @@
 						"description": "Service Unavailable"
 					}
 				},
-				"summary": "Update an Auno documentary run",
-				"tags": ["Auno Auto Video"]
+				"summary": "Update a dopost documentary run",
+				"tags": ["dopost Auto Video"]
 			}
 		},
-		"/auno/auto-video/documentary/runs/{run_id}/beats": {
+		"/dopost/auto-video/documentary/runs/{run_id}/beats": {
 			"post": {
-				"description": "Persistent Auno Documentary Long-form workflow. Generated outputs remain editable and are stored separately from the native video project until handoff.",
-				"operationId": "generate-auno-documentary-beats",
+				"description": "Persistent dopost Documentary Long-form workflow. Generated outputs remain editable and are stored separately from the native video project until handoff.",
+				"operationId": "generate-dopost-documentary-beats",
 				"parameters": [
 					{
 						"description": "Documentary run ID",
@@ -35335,13 +35335,13 @@
 					}
 				},
 				"summary": "Generate documentary beat timing",
-				"tags": ["Auno Auto Video"]
+				"tags": ["dopost Auto Video"]
 			}
 		},
-		"/auno/auto-video/documentary/runs/{run_id}/ideas": {
+		"/dopost/auto-video/documentary/runs/{run_id}/ideas": {
 			"post": {
-				"description": "Persistent Auno Documentary Long-form workflow. Generated outputs remain editable and are stored separately from the native video project until handoff.",
-				"operationId": "generate-auno-documentary-ideas",
+				"description": "Persistent dopost Documentary Long-form workflow. Generated outputs remain editable and are stored separately from the native video project until handoff.",
+				"operationId": "generate-dopost-documentary-ideas",
 				"parameters": [
 					{
 						"description": "Documentary run ID",
@@ -35467,13 +35467,13 @@
 					}
 				},
 				"summary": "Generate documentary idea candidates",
-				"tags": ["Auno Auto Video"]
+				"tags": ["dopost Auto Video"]
 			}
 		},
-		"/auno/auto-video/documentary/runs/{run_id}/script": {
+		"/dopost/auto-video/documentary/runs/{run_id}/script": {
 			"post": {
-				"description": "Persistent Auno Documentary Long-form workflow. Generated outputs remain editable and are stored separately from the native video project until handoff.",
-				"operationId": "generate-auno-documentary-script",
+				"description": "Persistent dopost Documentary Long-form workflow. Generated outputs remain editable and are stored separately from the native video project until handoff.",
+				"operationId": "generate-dopost-documentary-script",
 				"parameters": [
 					{
 						"description": "Documentary run ID",
@@ -35599,13 +35599,13 @@
 					}
 				},
 				"summary": "Generate documentary narration",
-				"tags": ["Auno Auto Video"]
+				"tags": ["dopost Auto Video"]
 			}
 		},
-		"/auno/auto-video/documentary/runs/{run_id}/thumbnails": {
+		"/dopost/auto-video/documentary/runs/{run_id}/thumbnails": {
 			"post": {
-				"description": "Persistent Auno Documentary Long-form workflow. Generated outputs remain editable and are stored separately from the native video project until handoff.",
-				"operationId": "generate-auno-documentary-thumbnails",
+				"description": "Persistent dopost Documentary Long-form workflow. Generated outputs remain editable and are stored separately from the native video project until handoff.",
+				"operationId": "generate-dopost-documentary-thumbnails",
 				"parameters": [
 					{
 						"description": "Documentary run ID",
@@ -35731,13 +35731,13 @@
 					}
 				},
 				"summary": "Generate documentary thumbnail plans",
-				"tags": ["Auno Auto Video"]
+				"tags": ["dopost Auto Video"]
 			}
 		},
-		"/auno/auto-video/documentary/runs/{run_id}/visuals": {
+		"/dopost/auto-video/documentary/runs/{run_id}/visuals": {
 			"post": {
-				"description": "Persistent Auno Documentary Long-form workflow. Generated outputs remain editable and are stored separately from the native video project until handoff.",
-				"operationId": "generate-auno-documentary-visuals",
+				"description": "Persistent dopost Documentary Long-form workflow. Generated outputs remain editable and are stored separately from the native video project until handoff.",
+				"operationId": "generate-dopost-documentary-visuals",
 				"parameters": [
 					{
 						"description": "Documentary run ID",
@@ -35863,13 +35863,13 @@
 					}
 				},
 				"summary": "Generate documentary visual plans",
-				"tags": ["Auno Auto Video"]
+				"tags": ["dopost Auto Video"]
 			}
 		},
-		"/auno/auto-video/documentary/runs/{run_id}/visuals/{beat_id}": {
+		"/dopost/auto-video/documentary/runs/{run_id}/visuals/{beat_id}": {
 			"post": {
-				"description": "Persistent Auno Documentary Long-form workflow. Generated outputs remain editable and are stored separately from the native video project until handoff.",
-				"operationId": "regenerate-auno-documentary-beat-visual",
+				"description": "Persistent dopost Documentary Long-form workflow. Generated outputs remain editable and are stored separately from the native video project until handoff.",
+				"operationId": "regenerate-dopost-documentary-beat-visual",
 				"parameters": [
 					{
 						"description": "Documentary run ID",
@@ -36005,12 +36005,12 @@
 					}
 				},
 				"summary": "Regenerate one documentary beat visual",
-				"tags": ["Auno Auto Video"]
+				"tags": ["dopost Auto Video"]
 			}
 		},
-		"/auno/auto-video/projects/{id}": {
+		"/dopost/auto-video/projects/{id}": {
 			"delete": {
-				"operationId": "delete-auno-auto-video-project",
+				"operationId": "delete-dopost-auto-video-project",
 				"parameters": [
 					{
 						"description": "Native video project ID",
@@ -36105,11 +36105,11 @@
 						"description": "Service Unavailable"
 					}
 				},
-				"summary": "Delete Auno Auto Video generation metadata",
-				"tags": ["Auno Auto Video"]
+				"summary": "Delete dopost Auto Video generation metadata",
+				"tags": ["dopost Auto Video"]
 			},
 			"get": {
-				"operationId": "get-auno-auto-video-project",
+				"operationId": "get-dopost-auto-video-project",
 				"parameters": [
 					{
 						"description": "Native video project ID",
@@ -36205,12 +36205,12 @@
 						"description": "Service Unavailable"
 					}
 				},
-				"summary": "Get Auno Auto Video generation metadata",
-				"tags": ["Auno Auto Video"]
+				"summary": "Get dopost Auto Video generation metadata",
+				"tags": ["dopost Auto Video"]
 			},
 			"put": {
 				"description": "Stores AI provenance and regeneration state separately from the native video project document.",
-				"operationId": "upsert-auno-auto-video-project",
+				"operationId": "upsert-dopost-auto-video-project",
 				"parameters": [
 					{
 						"description": "Native video project ID",
@@ -36305,14 +36305,14 @@
 						"description": "Service Unavailable"
 					}
 				},
-				"summary": "Save Auno Auto Video generation metadata",
-				"tags": ["Auno Auto Video"]
+				"summary": "Save dopost Auto Video generation metadata",
+				"tags": ["dopost Auto Video"]
 			}
 		},
-		"/auno/auto-video/source/resolve": {
+		"/dopost/auto-video/source/resolve": {
 			"post": {
 				"description": "Safely fetches and extracts a bounded public URL for use as untrusted source material.",
-				"operationId": "resolve-auno-auto-video-source",
+				"operationId": "resolve-dopost-auto-video-source",
 				"requestBody": {
 					"content": {
 						"application/json": {
@@ -36395,14 +36395,14 @@
 						"description": "Service Unavailable"
 					}
 				},
-				"summary": "Resolve an Auno Auto Video source",
-				"tags": ["Auno Auto Video"]
+				"summary": "Resolve a dopost Auto Video source",
+				"tags": ["dopost Auto Video"]
 			}
 		},
-		"/auno/auto-video/storyboard": {
+		"/dopost/auto-video/storyboard": {
 			"post": {
 				"description": "Plans scene copy and visual intent only. It does not render, save, schedule, or publish media.",
-				"operationId": "generate-auno-auto-video-storyboard",
+				"operationId": "generate-dopost-auto-video-storyboard",
 				"requestBody": {
 					"content": {
 						"application/json": {
@@ -36495,8 +36495,8 @@
 						"description": "Service Unavailable"
 					}
 				},
-				"summary": "Generate an editable Auno Auto Video storyboard",
-				"tags": ["Auno Auto Video"]
+				"summary": "Generate an editable dopost Auto Video storyboard",
+				"tags": ["dopost Auto Video"]
 			}
 		},
 		"/auth/account": {
@@ -38385,7 +38385,7 @@
 						"description": "Error"
 					}
 				},
-				"summary": "Revoke the OpenPost session and prepare optional provider logout",
+				"summary": "Revoke the dopost session and prepare optional provider logout",
 				"tags": ["Auth"]
 			}
 		},
@@ -40399,12 +40399,12 @@
 				"operationId": "resume-billing-checkout",
 				"parameters": [
 					{
-						"description": "Opaque OpenPost checkout attempt ID",
+						"description": "Opaque dopost checkout attempt ID",
 						"in": "path",
 						"name": "attempt_id",
 						"required": true,
 						"schema": {
-							"description": "Opaque OpenPost checkout attempt ID",
+							"description": "Opaque dopost checkout attempt ID",
 							"type": "string"
 						}
 					}
@@ -40470,12 +40470,12 @@
 				"operationId": "consume-billing-checkout-return",
 				"parameters": [
 					{
-						"description": "Opaque OpenPost checkout attempt ID",
+						"description": "Opaque dopost checkout attempt ID",
 						"in": "path",
 						"name": "attempt_id",
 						"required": true,
 						"schema": {
-							"description": "Opaque OpenPost checkout attempt ID",
+							"description": "Opaque dopost checkout attempt ID",
 							"type": "string"
 						}
 					}
@@ -41390,12 +41390,12 @@
 				"operationId": "delete-comment",
 				"parameters": [
 					{
-						"description": "Opaque OpenPost comment ID",
+						"description": "Opaque dopost comment ID",
 						"in": "path",
 						"name": "id",
 						"required": true,
 						"schema": {
-							"description": "Opaque OpenPost comment ID",
+							"description": "Opaque dopost comment ID",
 							"type": "string"
 						}
 					}
@@ -41481,12 +41481,12 @@
 				"operationId": "hide-comment",
 				"parameters": [
 					{
-						"description": "Opaque OpenPost comment ID",
+						"description": "Opaque dopost comment ID",
 						"in": "path",
 						"name": "id",
 						"required": true,
 						"schema": {
-							"description": "Opaque OpenPost comment ID",
+							"description": "Opaque dopost comment ID",
 							"type": "string"
 						}
 					}
@@ -41572,12 +41572,12 @@
 				"operationId": "reply-to-comment",
 				"parameters": [
 					{
-						"description": "Opaque OpenPost comment ID",
+						"description": "Opaque dopost comment ID",
 						"in": "path",
 						"name": "id",
 						"required": true,
 						"schema": {
-							"description": "Opaque OpenPost comment ID",
+							"description": "Opaque dopost comment ID",
 							"type": "string"
 						}
 					}
@@ -41670,7 +41670,7 @@
 		},
 		"/diagnostics/config": {
 			"get": {
-				"description": "Whether this instance sends privacy-limited diagnostic reports to OpenPost. No receiver URL, token, or installation identifier is exposed.",
+				"description": "Whether this instance sends privacy-limited diagnostic reports to dopost. No receiver URL, token, or installation identifier is exposed.",
 				"operationId": "get-diagnostics-config",
 				"responses": {
 					"200": {
@@ -41700,7 +41700,7 @@
 		},
 		"/diagnostics/ingest": {
 			"post": {
-				"description": "Public receiver for privacy-limited diagnostic reports sent by OpenPost instances. Strictly validated and quota-limited; accepted reports are forwarded to the maintainer channel.",
+				"description": "Public receiver for privacy-limited diagnostic reports sent by dopost instances. Strictly validated and quota-limited; accepted reports are forwarded to the maintainer channel.",
 				"operationId": "ingest-diagnostics",
 				"requestBody": {
 					"content": {
@@ -41780,7 +41780,7 @@
 		},
 		"/diagnostics/public-config": {
 			"get": {
-				"description": "Whether this instance sends privacy-limited diagnostic reports to OpenPost. Browser reports always go through their own instance.",
+				"description": "Whether this instance sends privacy-limited diagnostic reports to dopost. Browser reports always go through their own instance.",
 				"operationId": "get-diagnostics-public-config",
 				"responses": {
 					"200": {
@@ -44657,7 +44657,7 @@
 		},
 		"/github-stars": {
 			"get": {
-				"description": "Returns a cached public count for the OpenPost GitHub repository when GitHub is available.",
+				"description": "Returns a cached public count for the dopost GitHub repository when GitHub is available.",
 				"operationId": "get-github-star-count",
 				"responses": {
 					"200": {
@@ -44682,7 +44682,7 @@
 					}
 				},
 				"security": [],
-				"summary": "Get the OpenPost GitHub star count",
+				"summary": "Get the dopost GitHub star count",
 				"tags": ["System"]
 			}
 		},
@@ -45171,8 +45171,8 @@
 						"description": "Internal Server Error"
 					}
 				},
-				"summary": "Get the workspace OpenPost Image Editor brand kit",
-				"tags": ["OpenPost Image Editor"]
+				"summary": "Get the workspace dopost Image Editor brand kit",
+				"tags": ["dopost Image Editor"]
 			},
 			"put": {
 				"operationId": "update-image-editor-brand-kit",
@@ -45238,8 +45238,8 @@
 						"description": "Internal Server Error"
 					}
 				},
-				"summary": "Create or update the workspace OpenPost Image Editor brand kit",
-				"tags": ["OpenPost Image Editor"]
+				"summary": "Create or update the workspace dopost Image Editor brand kit",
+				"tags": ["dopost Image Editor"]
 			}
 		},
 		"/image-editor/designs": {
@@ -45347,8 +45347,8 @@
 						"description": "Internal Server Error"
 					}
 				},
-				"summary": "List OpenPost Image Editor designs",
-				"tags": ["OpenPost Image Editor"]
+				"summary": "List dopost Image Editor designs",
+				"tags": ["dopost Image Editor"]
 			},
 			"post": {
 				"operationId": "create-image-editor-design",
@@ -45424,8 +45424,8 @@
 						"description": "Internal Server Error"
 					}
 				},
-				"summary": "Create an OpenPost Image Editor design",
-				"tags": ["OpenPost Image Editor"]
+				"summary": "Create a dopost Image Editor design",
+				"tags": ["dopost Image Editor"]
 			}
 		},
 		"/image-editor/designs/{id}": {
@@ -45493,8 +45493,8 @@
 						"description": "Internal Server Error"
 					}
 				},
-				"summary": "Move an OpenPost Image Editor design to trash",
-				"tags": ["OpenPost Image Editor"]
+				"summary": "Move a dopost Image Editor design to trash",
+				"tags": ["dopost Image Editor"]
 			},
 			"get": {
 				"operationId": "get-image-editor-design",
@@ -45560,8 +45560,8 @@
 						"description": "Internal Server Error"
 					}
 				},
-				"summary": "Get an OpenPost Image Editor design",
-				"tags": ["OpenPost Image Editor"]
+				"summary": "Get a dopost Image Editor design",
+				"tags": ["dopost Image Editor"]
 			},
 			"patch": {
 				"operationId": "update-image-editor-design",
@@ -45657,8 +45657,8 @@
 						"description": "Internal Server Error"
 					}
 				},
-				"summary": "Save an OpenPost Image Editor design with optimistic concurrency",
-				"tags": ["OpenPost Image Editor"]
+				"summary": "Save a dopost Image Editor design with optimistic concurrency",
+				"tags": ["dopost Image Editor"]
 			}
 		},
 		"/image-editor/designs/{id}/duplicate": {
@@ -45726,8 +45726,8 @@
 						"description": "Internal Server Error"
 					}
 				},
-				"summary": "Duplicate an OpenPost Image Editor design",
-				"tags": ["OpenPost Image Editor"]
+				"summary": "Duplicate a dopost Image Editor design",
+				"tags": ["dopost Image Editor"]
 			}
 		},
 		"/image-editor/designs/{id}/favorite": {
@@ -45795,8 +45795,8 @@
 						"description": "Internal Server Error"
 					}
 				},
-				"summary": "Toggle an OpenPost Image Editor design favorite",
-				"tags": ["OpenPost Image Editor"]
+				"summary": "Toggle a dopost Image Editor design favorite",
+				"tags": ["dopost Image Editor"]
 			}
 		},
 		"/image-editor/designs/{id}/restore": {
@@ -45864,8 +45864,8 @@
 						"description": "Internal Server Error"
 					}
 				},
-				"summary": "Restore a trashed OpenPost Image Editor design",
-				"tags": ["OpenPost Image Editor"]
+				"summary": "Restore a trashed dopost Image Editor design",
+				"tags": ["dopost Image Editor"]
 			}
 		},
 		"/image-editor/designs/{id}/revisions": {
@@ -45963,8 +45963,8 @@
 						"description": "Internal Server Error"
 					}
 				},
-				"summary": "List OpenPost Image Editor design recovery revisions and checkpoints",
-				"tags": ["OpenPost Image Editor"]
+				"summary": "List dopost Image Editor design recovery revisions and checkpoints",
+				"tags": ["dopost Image Editor"]
 			},
 			"post": {
 				"operationId": "create-image-editor-design-checkpoint",
@@ -46060,8 +46060,8 @@
 						"description": "Internal Server Error"
 					}
 				},
-				"summary": "Create a named OpenPost Image Editor design checkpoint",
-				"tags": ["OpenPost Image Editor"]
+				"summary": "Create a named dopost Image Editor design checkpoint",
+				"tags": ["dopost Image Editor"]
 			}
 		},
 		"/image-editor/designs/{id}/revisions/{revision_id}": {
@@ -46159,8 +46159,8 @@
 						"description": "Internal Server Error"
 					}
 				},
-				"summary": "Remove a named OpenPost Image Editor checkpoint",
-				"tags": ["OpenPost Image Editor"]
+				"summary": "Remove a named dopost Image Editor checkpoint",
+				"tags": ["dopost Image Editor"]
 			},
 			"get": {
 				"operationId": "get-image-editor-design-revision",
@@ -46244,8 +46244,8 @@
 						"description": "Internal Server Error"
 					}
 				},
-				"summary": "Inspect an OpenPost Image Editor design revision",
-				"tags": ["OpenPost Image Editor"]
+				"summary": "Inspect a dopost Image Editor design revision",
+				"tags": ["dopost Image Editor"]
 			}
 		},
 		"/image-editor/designs/{id}/revisions/{revision_id}/restore": {
@@ -46351,8 +46351,8 @@
 						"description": "Internal Server Error"
 					}
 				},
-				"summary": "Restore an OpenPost Image Editor design revision as a new head",
-				"tags": ["OpenPost Image Editor"]
+				"summary": "Restore a dopost Image Editor design revision as a new head",
+				"tags": ["dopost Image Editor"]
 			}
 		},
 		"/image-editor/effect-presets/{id}": {
@@ -46431,7 +46431,7 @@
 					}
 				},
 				"summary": "Delete a workspace layer effect preset",
-				"tags": ["OpenPost Image Editor"]
+				"tags": ["dopost Image Editor"]
 			},
 			"put": {
 				"operationId": "save-image-editor-effect-preset",
@@ -46509,7 +46509,7 @@
 					}
 				},
 				"summary": "Save a workspace layer effect preset",
-				"tags": ["OpenPost Image Editor"]
+				"tags": ["dopost Image Editor"]
 			}
 		},
 		"/image-editor/presets": {
@@ -46538,8 +46538,8 @@
 					}
 				},
 				"security": [],
-				"summary": "List OpenPost Image Editor presets and runtime configuration",
-				"tags": ["OpenPost Image Editor"]
+				"summary": "List dopost Image Editor presets and runtime configuration",
+				"tags": ["dopost Image Editor"]
 			}
 		},
 		"/image-editor/public-templates": {
@@ -46568,8 +46568,8 @@
 					}
 				},
 				"security": [],
-				"summary": "List built-in OpenPost Image Editor templates available without a workspace",
-				"tags": ["OpenPost Image Editor"]
+				"summary": "List built-in dopost Image Editor templates available without a workspace",
+				"tags": ["dopost Image Editor"]
 			}
 		},
 		"/image-editor/return-tokens": {
@@ -46637,8 +46637,8 @@
 						"description": "Internal Server Error"
 					}
 				},
-				"summary": "Create a one-time OpenPost Image Editor composer return token",
-				"tags": ["OpenPost Image Editor"]
+				"summary": "Create a one-time dopost Image Editor composer return token",
+				"tags": ["dopost Image Editor"]
 			}
 		},
 		"/image-editor/return-tokens/{token}/complete": {
@@ -46736,8 +46736,8 @@
 						"description": "Internal Server Error"
 					}
 				},
-				"summary": "Store ordered OpenPost Image Editor exports for a composer return",
-				"tags": ["OpenPost Image Editor"]
+				"summary": "Store ordered dopost Image Editor exports for a composer return",
+				"tags": ["dopost Image Editor"]
 			}
 		},
 		"/image-editor/return-tokens/{token}/consume": {
@@ -46825,8 +46825,8 @@
 						"description": "Internal Server Error"
 					}
 				},
-				"summary": "Consume a completed OpenPost Image Editor composer return token",
-				"tags": ["OpenPost Image Editor"]
+				"summary": "Consume a completed dopost Image Editor composer return token",
+				"tags": ["dopost Image Editor"]
 			}
 		},
 		"/image-editor/templates": {
@@ -46895,8 +46895,8 @@
 						"description": "Internal Server Error"
 					}
 				},
-				"summary": "List built-in and workspace OpenPost Image Editor templates",
-				"tags": ["OpenPost Image Editor"]
+				"summary": "List built-in and workspace dopost Image Editor templates",
+				"tags": ["dopost Image Editor"]
 			},
 			"post": {
 				"operationId": "create-image-editor-template",
@@ -46962,8 +46962,8 @@
 						"description": "Internal Server Error"
 					}
 				},
-				"summary": "Save an OpenPost Image Editor design as a workspace template",
-				"tags": ["OpenPost Image Editor"]
+				"summary": "Save a dopost Image Editor design as a workspace template",
+				"tags": ["dopost Image Editor"]
 			}
 		},
 		"/image-editor/templates/{id}": {
@@ -47031,8 +47031,8 @@
 						"description": "Internal Server Error"
 					}
 				},
-				"summary": "Delete a workspace OpenPost Image Editor template",
-				"tags": ["OpenPost Image Editor"]
+				"summary": "Delete a workspace dopost Image Editor template",
+				"tags": ["dopost Image Editor"]
 			},
 			"patch": {
 				"operationId": "update-image-editor-template",
@@ -47118,8 +47118,8 @@
 						"description": "Internal Server Error"
 					}
 				},
-				"summary": "Replace a workspace OpenPost Image Editor template snapshot",
-				"tags": ["OpenPost Image Editor"]
+				"summary": "Replace a workspace dopost Image Editor template snapshot",
+				"tags": ["dopost Image Editor"]
 			}
 		},
 		"/image-editor/templates/{id}/instantiate": {
@@ -47207,8 +47207,8 @@
 						"description": "Internal Server Error"
 					}
 				},
-				"summary": "Create an OpenPost Image Editor design from a template",
-				"tags": ["OpenPost Image Editor"]
+				"summary": "Create a dopost Image Editor design from a template",
+				"tags": ["dopost Image Editor"]
 			}
 		},
 		"/image-generations": {
@@ -50405,7 +50405,7 @@
 		},
 		"/memes/templates/{template_id}/thumbnail": {
 			"get": {
-				"description": "Returns bounded cacheable image bytes from OpenPost's configured template catalog.",
+				"description": "Returns bounded cacheable image bytes from dopost's configured template catalog.",
 				"operationId": "get-meme-template-thumbnail",
 				"parameters": [
 					{
@@ -56771,7 +56771,7 @@
 		},
 		"/publications/{id}": {
 			"delete": {
-				"description": "Permanently removes a publication and its destinations from OpenPost. Published posts remain on the social networks. Publications with active delivery cannot be removed.",
+				"description": "Permanently removes a publication and its destinations from dopost. Published posts remain on the social networks. Publications with active delivery cannot be removed.",
 				"operationId": "delete-publication",
 				"parameters": [
 					{
@@ -69771,11 +69771,11 @@
 	],
 	"servers": [
 		{
-			"description": "OpenPost Hosted service",
+			"description": "dopost Hosted service",
 			"url": "https://app.openpo.st/api/v1"
 		},
 		{
-			"description": "The OpenPost instance serving this contract",
+			"description": "The dopost instance serving this contract",
 			"url": "/api/v1"
 		}
 	]

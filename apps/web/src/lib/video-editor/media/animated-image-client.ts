@@ -2,7 +2,7 @@
  * Animated image frame cache: extraction, memory budget, persistence.
  *
  * Ported from FreeCut (MIT) - timeline/services/gif-frame-cache.ts, adapted to
- * OpenPost's worker + OPFS architecture (filmstrip-client.ts shape):
+ * dopost's worker + OPFS architecture (filmstrip-client.ts shape):
  * - All decode work happens in one dedicated worker via WebCodecs
  *   ImageDecoder; frames stream back progressively as transferred bitmaps.
  * - A size-bounded LRU (SizedAccessedMemoryCache) caps decoded memory.

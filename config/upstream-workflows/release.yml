@@ -891,7 +891,7 @@ jobs:
     steps:
       - name: Create openpost-bot token
         id: app-token
-        # Bot writes require the configured OpenPost GitHub App.
+        # Bot writes require the configured dopost GitHub App.
         uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         with:
           app-id: ${{ vars.OPENPOST_BOT_APP_ID }}
@@ -912,7 +912,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          [[ "$BOT_SLUG" == "openpost-bot" ]] || { echo "::error::OpenPost bot credentials are required"; exit 1; }
+          [[ "$BOT_SLUG" == "openpost-bot" ]] || { echo "::error::dopost bot credentials are required"; exit 1; }
           bot_id="$(gh api "users/${BOT_SLUG}[bot]" --jq .id)"
           [[ "$bot_id" =~ ^[0-9]+$ ]] || exit 1
           git config user.name "${BOT_SLUG}[bot]"
@@ -974,12 +974,12 @@ jobs:
                 .
               end) as $summary
               | {
-                  username: "OpenPost Releases",
+                  username: "dopost Releases",
                   avatar_url: "https://avatars.githubusercontent.com/u/316708436?v=4",
                   allowed_mentions: { parse: [] },
                   embeds: [
                     {
-                      title: ("🚀 OpenPost " + $tag + " is live"),
+                      title: ("🚀 dopost " + $tag + " is live"),
                       url: $url,
                       description: ($summary + "\n\n**[Read the full release notes](" + $url + ")**"),
                       color: 12012549,
@@ -993,7 +993,7 @@ jobs:
                           inline: true
                         },
                         {
-                          name: "Use OpenPost",
+                          name: "Use dopost",
                           value: "[Open the app](https://app.openpo.st) · [Self-host](https://openpo.st/docs/guide/quickstart)",
                           inline: true
                         }

@@ -289,7 +289,7 @@ type ProviderInfo struct {
 	Configured                bool                                  `json:"configured" doc:"Whether this provider can currently be connected"`
 	Status                    string                                `json:"status,omitempty" doc:"Provider launch status: available, needs_configuration, or planned"`
 	Description               string                                `json:"description,omitempty" doc:"Short connection or launch note for this provider"`
-	Capabilities              []string                              `json:"capabilities,omitempty" doc:"High-level OpenPost capabilities available or planned for this provider"`
+	Capabilities              []string                              `json:"capabilities,omitempty" doc:"High-level dopost capabilities available or planned for this provider"`
 	Name                      string                                `json:"name,omitempty" doc:"Provider app or server display name"`
 	InstanceURL               string                                `json:"instance_url,omitempty" doc:"Federated server URL, when applicable"`
 	Readiness                 providerreadiness.Decision            `json:"readiness"`
@@ -350,8 +350,8 @@ type ExchangeCodeOutput struct {
 
 type AccountConnectionResponse struct {
 	WorkspaceID       string   `json:"workspace_id" doc:"Workspace receiving the connected destination"`
-	AccountID         string   `json:"account_id" doc:"OpenPost destination account ID"`
-	AccountIDs        []string `json:"account_ids" doc:"All connected OpenPost account IDs"`
+	AccountID         string   `json:"account_id" doc:"dopost destination account ID"`
+	AccountIDs        []string `json:"account_ids" doc:"All connected dopost account IDs"`
 	OpenFreshComposer bool     `json:"open_fresh_composer" doc:"Whether this is the Workspace's first connected destination"`
 }
 
@@ -416,7 +416,7 @@ type CompleteAccountSelectionOutput struct {
 type AccountSelectionCompletionResponse struct {
 	AccountResponse
 	WorkspaceID       string   `json:"workspace_id" doc:"Workspace receiving the connected destinations"`
-	AccountIDs        []string `json:"account_ids" doc:"OpenPost destination account IDs created by this selection"`
+	AccountIDs        []string `json:"account_ids" doc:"dopost destination account IDs created by this selection"`
 	OpenFreshComposer bool     `json:"open_fresh_composer" doc:"Whether these are the Workspace's first connected destinations"`
 }
 
@@ -434,7 +434,7 @@ type UpdateAccountOutput struct {
 }
 
 type RefreshAccountMetadataInput struct {
-	AccountID string `path:"account_id" doc:"OpenPost account ID"`
+	AccountID string `path:"account_id" doc:"dopost account ID"`
 }
 
 type RefreshAccountMetadataOutput struct {

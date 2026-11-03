@@ -14,7 +14,7 @@ import (
 	"strings"
 )
 
-// lemmyAPIVersionBoundary is the newest Lemmy line OpenPost publishes
+// lemmyAPIVersionBoundary is the newest Lemmy line dopost publishes
 // through. Lemmy 1.0 moves to a v4 API with breaking changes; instances on
 // that line get an explicit error instead of silent breakage.
 const lemmyAPIVersionBoundary = "1.0"
@@ -107,7 +107,7 @@ func checkLemmyVersion(version string) error {
 	major := strings.SplitN(trimmed, ".", 2)[0]
 	boundary := strings.SplitN(lemmyAPIVersionBoundary, ".", 2)[0]
 	if major >= boundary {
-		return fmt.Errorf("lemmy %s uses API v4, which OpenPost does not publish through yet; connect an instance on 0.19.x", trimmed)
+		return fmt.Errorf("lemmy %s uses API v4, which dopost does not publish through yet; connect an instance on 0.19.x", trimmed)
 	}
 	return nil
 }

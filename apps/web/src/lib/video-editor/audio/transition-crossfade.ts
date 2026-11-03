@@ -2,7 +2,7 @@
  * Equal-power audio crossfade for visual transitions.
  *
  * Ported from FreeCut (MIT) — canvas-audio.ts equal-power sin/cos — retargeted
- * to OpenPost's TimelineTransition windows. Each audible clip that participates
+ * to dopost's TimelineTransition windows. Each audible clip that participates
  * in an active visual transition receives a multiplicative gain so the summed
  * power stays constant. The gain composes with existing volume/keyframe and
  * track mute/solo gains.

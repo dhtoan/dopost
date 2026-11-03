@@ -36,7 +36,7 @@
  * └── content/proxies/{proxyKey}/       # shared proxies (keyed by content fingerprint)
  * ```
  *
- * Ported from FreeCut (MIT) — paths.ts, trimmed to OpenPost's v1 surface.
+ * Ported from FreeCut (MIT) — paths.ts, trimmed to dopost's v1 surface.
  */
 
 export const WORKSPACE_SCHEMA_VERSION = '2.0';

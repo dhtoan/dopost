@@ -29,7 +29,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           title: (
             <span className="docs-brand">
               <BrandMark size={24} />
-              OpenPost<span className="docs-brand-label">Docs</span>
+              dopost<span className="docs-brand-label">Docs</span>
             </span>
           ),
         }}
@@ -41,7 +41,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         links={[
           {
             type: "icon",
-            url: "https://github.com/getopenpost/openpost",
+            url: "https://github.com/dhtoan/dopost",
             text: "GitHub",
             label: "GitHub",
             icon: <Github aria-hidden="true" />,

@@ -6,7 +6,7 @@ package providerlimits
 // capabilities.TextLength is the canonical server counter API and delegates
 // to TextLength here, while platform adapters call TextLength directly, so
 // the publisher cannot drift from capability validation. The numbers below
-// describe provider behavior, not OpenPost policy: do not change them without
+// describe provider behavior, not dopost policy: do not change them without
 // re-verifying against the provider. The cross-language guard is
 // packages/platform-text/conformance/fixtures.json, asserted by the
 // capabilities conformance test and scripts/check-platform-text-conformance.mjs.

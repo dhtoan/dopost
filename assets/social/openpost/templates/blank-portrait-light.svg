@@ -7,7 +7,7 @@
     <path d="M4 68h28l28 28v28H24a20 20 0 0 1-20-20Z" />
     <path d="m68 96 28-28h28v36a20 20 0 0 1-20 20H68Z" />
   </g>
-    <text x="123.1632" y="93.14999999999999" fill="#2c2825" font-family="Geist" font-size="34.56" font-weight="690" letter-spacing="-0.8640000000000001">OpenPost</text>
+    <text x="123.1632" y="93.14999999999999" fill="#2c2825" font-family="Geist" font-size="34.56" font-weight="690" letter-spacing="-0.8640000000000001">dopost</text>
       <path d="M 81 1240.65 H 999" stroke="#e3ded7" />
       <rect x="648" y="1262.52" width="25.92" height="25.92" rx="5.702400000000001" fill="#f2efea" /><rect x="686.88" y="1262.52" width="25.92" height="25.92" rx="5.702400000000001" fill="#f6ddca" /><rect x="725.76" y="1262.52" width="25.92" height="25.92" rx="5.702400000000001" fill="#d9763e" /><rect x="764.64" y="1262.52" width="25.92" height="25.92" rx="5.702400000000001" fill="#f2efea" /><rect x="803.52" y="1262.52" width="25.92" height="25.92" rx="5.702400000000001" fill="#e9aa7d" /><rect x="842.4" y="1262.52" width="25.92" height="25.92" rx="5.702400000000001" fill="#d9763e" /><rect x="881.28" y="1262.52" width="25.92" height="25.92" rx="5.702400000000001" fill="#f2efea" />
   </svg>

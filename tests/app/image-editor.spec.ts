@@ -17,7 +17,7 @@ test.describe("touch editor discovery", () => {
     await expect(layers).toHaveCount(6);
     await layers.first().click();
     const family = page
-      .getByRole("navigation", { name: "OpenPost Image Editor tools", exact: true })
+      .getByRole("navigation", { name: "dopost Image Editor tools", exact: true })
       .getByRole("button", { name: /^(Select objects|Rectangle select|Ellipse select)$/ });
     expect(await family.evaluate((element) => element.tagName)).toBe("BUTTON");
     await family.focus();
@@ -37,14 +37,14 @@ test.describe("touch editor discovery", () => {
 
     await page.setViewportSize({ width: 320, height: 780 });
     const touchFamily = page
-      .getByRole("navigation", { name: "OpenPost Image Editor tools", exact: true })
+      .getByRole("navigation", { name: "dopost Image Editor tools", exact: true })
       .getByRole("button", { name: "Select", exact: true });
     const touchBounds = (await touchFamily.boundingBox())!;
     expect(touchBounds.width).toBeGreaterThanOrEqual(44);
     expect(touchBounds.height).toBeGreaterThanOrEqual(44);
     const propertiesLabel = page
       .getByRole("navigation", {
-        name: "OpenPost Image Editor tools",
+        name: "dopost Image Editor tools",
         exact: true,
       })
       .getByRole("button", { name: "Properties", exact: true })
@@ -86,7 +86,7 @@ test("desktop Image Editor uses the compact rail and closes Add when another too
   await page.getByRole("button", { name: "New project", exact: true }).click();
 
   const tools = page.getByRole("navigation", {
-    name: "OpenPost Image Editor tools",
+    name: "dopost Image Editor tools",
     exact: true,
   });
   await expect(tools).toBeVisible();
@@ -171,7 +171,7 @@ test("guest camera capture supports crop controls and undo without workspace wri
 
   await page
     .getByRole("navigation", {
-      name: "OpenPost Image Editor tools",
+      name: "dopost Image Editor tools",
       exact: true,
     })
     .getByRole("button", { name: "Add", exact: true })
@@ -299,7 +299,7 @@ test("Image Editor keeps Export rightmost and saved feedback clear at narrow wid
       for (const button of [
         header.getByRole("button", { name: "More actions", exact: true }),
         ...(width === 1600
-          ? [header.getByRole("button", { name: "Save to OpenPost", exact: true })]
+          ? [header.getByRole("button", { name: "Save to dopost", exact: true })]
           : []),
       ]) {
         await expect(button).toBeVisible();
@@ -501,7 +501,7 @@ test("public image editor creates, restores, and exports a local design", async 
 
   const home = page
     .getByRole("banner")
-    .getByRole("button", { name: "OpenPost Image Editor", exact: true });
+    .getByRole("button", { name: "dopost Image Editor", exact: true });
   await home.focus();
   await page.keyboard.press("Enter");
   await expect(page).toHaveURL(/\/image-editor$/);

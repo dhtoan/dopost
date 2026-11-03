@@ -40,10 +40,7 @@ test("marketing discovery build publishes a verifiable complete CLI skill", asyn
   const [skill] = skillIndex.skills;
   assert.equal(skill.name, "openpost-cli");
   assert.equal(skill.type, "archive");
-  assert.match(
-    skill.description,
-    /^Operate a running OpenPost instance through the openpost CLI\./u,
-  );
+  assert.match(skill.description, /^Operate a running dopost instance through the openpost CLI\./u);
   assert.equal(skill.url, "/.well-known/agent-skills/openpost-cli.tar.gz");
 
   const archivePath = path.join(outputDirectory, ".well-known/agent-skills/openpost-cli.tar.gz");
@@ -97,11 +94,11 @@ test("marketing discovery build publishes a verifiable complete CLI skill", asyn
     $schema: "https://static.modelcontextprotocol.io/schemas/v1/server-card.schema.json",
     name: "getopenpost/openpost",
     version: "4.16.0",
-    description: "Create, schedule, publish, and inspect social content through OpenPost.",
-    title: "OpenPost MCP server",
+    description: "Create, schedule, publish, and inspect social content through dopost.",
+    title: "dopost MCP server",
     websiteUrl: "https://openpo.st",
     repository: {
-      url: "https://github.com/getopenpost/openpost",
+      url: "https://github.com/dhtoan/dopost",
       source: "github",
     },
     icons: [{ src: "https://openpo.st/icon.svg", mimeType: "image/svg+xml" }],

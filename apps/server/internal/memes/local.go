@@ -100,7 +100,7 @@ type builtinSemanticRecord struct {
 	Tags         []string `json:"tags"`
 }
 
-// BuiltinProvider renders the pinned OpenPost catalog entirely in-process.
+// BuiltinProvider renders the pinned dopost catalog entirely in-process.
 // Its state is immutable after construction and safe for concurrent use.
 type BuiltinProvider struct {
 	files        fs.FS

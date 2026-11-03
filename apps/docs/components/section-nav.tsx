@@ -59,7 +59,7 @@ export function SectionNav() {
       <div className="docs-topbar">
         <Link href="/" className="docs-brand">
           <BrandMark />
-          OpenPost<span className="docs-brand-label">Docs</span>
+          dopost<span className="docs-brand-label">Docs</span>
         </Link>
         <button type="button" className="docs-search" onClick={() => setOpenSearch(true)}>
           <Search size={17} />
@@ -67,7 +67,7 @@ export function SectionNav() {
           <kbd>⌘ K</kbd>
         </button>
         <div className="docs-header-actions">
-          <a href="https://github.com/getopenpost/openpost" className="docs-github">
+          <a href="https://github.com/dhtoan/dopost" className="docs-github">
             <Github size={16} />
             GitHub
           </a>
@@ -77,7 +77,7 @@ export function SectionNav() {
             href="https://app.openpo.st"
             className="docs-open-app"
           >
-            Open OpenPost
+            Open dopost
             <ArrowUpRight size={16} />
           </a>
         </div>

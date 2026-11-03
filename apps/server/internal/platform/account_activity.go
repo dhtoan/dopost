@@ -46,7 +46,7 @@ type ReviewAdapter interface {
 }
 
 // AccountActivityReplyAdapter preserves provider-specific context, including
-// Mastodon visibility, when replying to a post outside OpenPost's inventory.
+// Mastodon visibility, when replying to a post outside dopost's inventory.
 type AccountActivityReplyAdapter interface {
 	ReplyToAccountActivity(context.Context, string, string, string, inboxactivity.EngagementSubject, string) (string, error)
 }

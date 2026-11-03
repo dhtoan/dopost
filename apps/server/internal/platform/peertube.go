@@ -833,7 +833,7 @@ func (p *PeerTubeAdapter) FetchContentAnalytics(ctx context.Context, accessToken
 		if err != nil {
 			return nil, fmt.Errorf("peertube content analytics: %w", err)
 		}
-		// PeerTube reports dislikes with no OpenPost-native counterpart;
+		// PeerTube reports dislikes with no dopost-native counterpart;
 		// they are omitted rather than relabelled, and a missing key
 		// stays distinct from a measured zero.
 		views, likes := video.Views, video.Likes

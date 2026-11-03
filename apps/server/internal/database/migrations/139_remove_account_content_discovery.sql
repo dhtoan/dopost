@@ -1,4 +1,4 @@
--- OpenPost only tracks content published through OpenPost. Account content
+-- dopost only tracks content published through dopost. Account content
 -- discovery (native provider history, external inventory, observations, and
 -- discovery checkpoints) is removed; drop its tables.
 

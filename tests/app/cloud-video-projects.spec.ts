@@ -18,8 +18,8 @@ test("Cloud Video Projects are the signed-in default with recovery on desktop an
 
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("/video-editor");
-  await expect(page.getByRole("heading", { name: "Saved to OpenPost" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "OpenPost cloud" })).toHaveAttribute(
+  await expect(page.getByRole("heading", { name: "Saved to dopost" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "dopost cloud" })).toHaveAttribute(
     "aria-pressed",
     "true",
   );
@@ -98,7 +98,7 @@ test("Cloud Video Projects are the signed-in default with recovery on desktop an
   await expect(
     history.getByRole("heading", { name: "This project changed elsewhere" }),
   ).toBeVisible();
-  await history.getByRole("button", { name: "Load OpenPost version" }).click();
+  await history.getByRole("button", { name: "Load dopost version" }).click();
   await expect(
     history.getByRole("heading", { name: "This project changed elsewhere" }),
   ).toHaveCount(0);

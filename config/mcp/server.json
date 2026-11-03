@@ -1,10 +1,10 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.rodrgds/openpost",
-  "description": "Manage social publishing workflows through OpenPost",
+  "description": "Manage social publishing workflows through dopost",
   "version": "1.32.4",
   "repository": {
-    "url": "https://github.com/getopenpost/openpost",
+    "url": "https://github.com/dhtoan/dopost",
     "source": "github"
   },
   "websiteUrl": "https://openpo.st/docs/mcp",
@@ -14,5 +14,5 @@
       "url": "https://app.openpo.st/mcp"
     }
   ],
-  "title": "OpenPost"
+  "title": "dopost"
 }

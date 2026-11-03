@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="robots" content="noindex" />
     <meta name="color-scheme" content="light dark" />
-    <title>You're offline | OpenPost</title>
+    <title>You're offline | dopost</title>
     <style>:root {
   color-scheme: light;
   --theme-type-display-family: "Geist Variable", "Geist", system-ui, -apple-system, sans-serif;
@@ -932,21 +932,13 @@ body {
      transform="matrix(2.5,0,0,2.5,96,96)"
      fill="#ffffff"
      id="g12">
-    <path
-       d="M 24,4 H 60 V 32 L 32,60 H 4 V 24 A 20,20 0 0 1 24,4 Z"
-       id="path4" />
-    <path
-       d="m 68,4 h 36 a 20,20 0 0 1 20,20 V 60 H 96 L 68,32 Z"
-       id="path6" />
-    <path
-       d="m 4,68 h 28 l 28,28 v 28 H 24 A 20,20 0 0 1 4,104 Z"
-       id="path8" />
-    <path
-       d="M 68,96 96,68 h 28 v 36 a 20,20 0 0 1 -20,20 H 68 Z"
-       id="path10" />
+    <path d="M88 8h24v112H88Z"/><path fill-rule="evenodd" d="M56 40a40 40 0 1 1 0 80a40 40 0 1 1 0-80Zm0 20a20 20 0 1 0 0 40a20 20 0 1 0 0-40Z"/>
+    
+    
+    
   </g>
 </svg>
-OpenPost</div>
+dopost</div>
       <div class="op-recovery-body">
         <div>
           <h1>You're offline</h1>
@@ -966,7 +958,7 @@ OpenPost</div>
         const copy = translations[language];
         if (!copy) continue;
         document.documentElement.lang = language;
-        document.title = copy[0] + ' | OpenPost';
+        document.title = copy[0] + ' | dopost';
         document.querySelector('h1').textContent = copy[0];
         document.querySelector('.op-recovery-copy').textContent = copy[1];
         document.querySelector('a').textContent = copy[2];

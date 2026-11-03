@@ -27,7 +27,7 @@ describe("selected automation contract generator", () => {
   test("emits only exposed selected operations from the canonical OpenAPI", () => {
     const openapi = {
       openapi: "3.1.0",
-      info: { title: "OpenPost", version: "test" },
+      info: { title: "dopost", version: "test" },
       servers: [{ url: "/api/v1" }],
       paths: {
         "/workspaces": { get: baseOperation("list-workspaces", metadata) },
@@ -63,7 +63,7 @@ describe("selected automation contract generator", () => {
   test("records cursor pagination metadata gaps instead of inventing API support", () => {
     const openapi = {
       openapi: "3.1.0",
-      info: { title: "OpenPost", version: "test" },
+      info: { title: "dopost", version: "test" },
       paths: {
         "/media": {
           get: baseOperation("list-media", {

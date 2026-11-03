@@ -173,12 +173,12 @@ function tunePaperJitter(
 	track: KeyframeTrack | undefined,
 	amount: number
 ): KeyframeTrack | undefined {
-	if (!track?.ids?.some((id) => id.startsWith('auno:paper-jitter:'))) return track;
+	if (!track?.ids?.some((id) => id.startsWith('dopost:paper-jitter:'))) return track;
 	const settled = track.values[track.values.length - 1] ?? 0;
 	return {
 		...track,
 		values: track.values.map((value, index) =>
-			track.ids?.[index]?.startsWith('auno:paper-jitter:')
+			track.ids?.[index]?.startsWith('dopost:paper-jitter:')
 				? settled + (value - settled) * amount
 				: value
 		)
@@ -219,8 +219,8 @@ function tuneAssemblyTiming(
 	let holdIndex = -1;
 	for (let index = 0; index < track.ids.length; index += 1) {
 		const id = track.ids[index] ?? '';
-		if (id.startsWith('auno:assembly:') && id.endsWith(':hold')) holdIndex = index;
-		else if (id.startsWith('auno:assembly:')) assemblyIndex = index;
+		if (id.startsWith('dopost:assembly:') && id.endsWith(':hold')) holdIndex = index;
+		else if (id.startsWith('dopost:assembly:')) assemblyIndex = index;
 	}
 	if (assemblyIndex < 0) return track;
 	const authoredAssembly = frames[assemblyIndex] ?? Math.max(1, end - 1);

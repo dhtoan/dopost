@@ -689,7 +689,7 @@ test("Android keeps its own cadence across core releases", () => {
     };
     git("init");
     git("config", "user.email", "release-test@openpost.local");
-    git("config", "user.name", "OpenPost Release Test");
+    git("config", "user.name", "dopost Release Test");
     writeMobileIdentity(directory, "0.2.0", 2);
     git("add", ".");
     git("commit", "-m", "old release");

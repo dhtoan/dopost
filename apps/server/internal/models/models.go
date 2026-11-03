@@ -752,7 +752,7 @@ type WorkspaceInvitation struct {
 }
 
 // WorkspaceInvitationDeliveryEvent is redacted callback evidence. It records
-// only provider event identity and OpenPost delivery references, never an
+// only provider event identity and dopost delivery references, never an
 // address, invitation secret, provider payload, or response body.
 type WorkspaceInvitationDeliveryEvent struct {
 	bun.BaseModel `bun:"table:workspace_invitation_delivery_events"`
@@ -1254,7 +1254,7 @@ type ProviderInstallation struct {
 	UpdatedAt             time.Time `bun:",nullzero,notnull,default:current_timestamp" json:"updated_at"`
 }
 
-// ProviderAccountBinding separates an OpenPost account from the installation
+// ProviderAccountBinding separates a dopost account from the installation
 // that executes its provider calls. ConnectionRef is opaque and contains no
 // destination credential material.
 type ProviderAccountBinding struct {
@@ -1270,7 +1270,7 @@ type ProviderAccountBinding struct {
 	UpdatedAt          time.Time `bun:",nullzero,notnull,default:current_timestamp" json:"updated_at"`
 }
 
-// ConnectorConnectionSession lets OpenPost complete or diagnose a connection
+// ConnectorConnectionSession lets dopost complete or diagnose a connection
 // without giving the browser direct access to a connector.
 type ConnectorConnectionSession struct {
 	bun.BaseModel `bun:"table:connector_connection_sessions"`
@@ -1625,7 +1625,7 @@ type RenditionMedia struct {
 }
 
 // ImportedPost is the read-only library inventory of native posts authored
-// outside OpenPost. It is owned by the post-import surface, never by
+// outside dopost. It is owned by the post-import surface, never by
 // analytics: analytics reads publications and renditions only, so imported
 // rows cannot clutter analytics views. Origin is always "external"; rows are
 // never published, repurposed, or measured.
@@ -2020,7 +2020,7 @@ type PublicationLifecycleEvent struct {
 }
 
 // PublicationAuthorization is an append-only proof of the exact publication
-// revision and destination payload that an actor allowed OpenPost to send. The
+// revision and destination payload that an actor allowed dopost to send. The
 // three hashes deliberately replace content, media metadata, and provider
 // settings; plaintext payloads and credentials must never be stored here.
 type PublicationAuthorization struct {

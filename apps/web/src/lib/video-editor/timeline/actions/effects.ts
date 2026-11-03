@@ -7,7 +7,7 @@
  * false (and record nothing) when the target is absent or unchanged.
  *
  * Ported from FreeCut (MIT) — ItemEffect instance model (id + enabled),
- * with OpenPost's snapshot-undo action pattern from keyframes.ts.
+ * with dopost's snapshot-undo action pattern from keyframes.ts.
  */
 
 import type {

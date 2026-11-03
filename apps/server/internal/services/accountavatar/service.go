@@ -80,7 +80,7 @@ func (s *Service) Delete(ctx context.Context, avatarURL string) error {
 	return mediastore.DeleteForCleanup(ctx, s.storage, key)
 }
 
-// IsCached identifies only account photos served by OpenPost, never remote URLs.
+// IsCached identifies only account photos served by dopost, never remote URLs.
 func IsCached(rawURL string) bool {
 	return strings.HasPrefix(rawURL, accountAvatarURLPrefix+accountAvatarKeyPrefix) &&
 		!strings.ContainsAny(strings.TrimPrefix(rawURL, accountAvatarURLPrefix), "/?#")

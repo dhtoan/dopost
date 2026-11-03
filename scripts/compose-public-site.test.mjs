@@ -31,7 +31,7 @@ test("composes both builds and keeps control files at the deployment root", asyn
     ),
     writeFile(
       path.join(docs, "_redirects"),
-      "/usage /guides/quickstart 301\n/development https://github.com/getopenpost/openpost 301\n",
+      "/usage /guides/quickstart 301\n/development https://github.com/dhtoan/dopost 301\n",
     ),
   ]);
 

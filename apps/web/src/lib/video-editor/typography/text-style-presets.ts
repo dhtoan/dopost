@@ -1,4 +1,4 @@
-/** FreeCut text style recipes, adapted to OpenPost's numeric weight and box fields. */
+/** FreeCut text style recipes, adapted to dopost's numeric weight and box fields. */
 
 import type { TextSpan, TextStylePresetId, TimelineItem } from '../project/types';
 import { buildTextItemLabelFromText } from './text-item-spans';

@@ -1,8 +1,8 @@
 # Development Setup
 
-This page is for contributors setting up the OpenPost repository.
+This page is for contributors setting up the dopost repository.
 
-OpenPost's root Devenv configuration pins Go, Bun, Node, and the supporting
+dopost's root Devenv configuration pins Go, Bun, Node, and the supporting
 tools used by the repository. On Hermes, provision Nix, Devenv, direnv, and the
 direnv shell hook through the durable host configuration so they return after a
 reboot; do not install project tools globally.
@@ -10,7 +10,7 @@ reboot; do not install project tools globally.
 ## Enter the project environment
 
 ```bash
-git clone https://github.com/getopenpost/openpost.git
+git clone https://github.com/dhtoan/dopost.git
 cd openpost
 direnv allow
 devenv shell -- setup
@@ -73,7 +73,7 @@ The release subcommands are `plan`, `preflight`, `check`, `check-full`, `status`
 
 Use `cache-status` and `cache-prune` to inspect and enforce the 2 GiB Turbo
 task-cache cap and the daily 4 GiB default cap on the shared Go build cache.
-Root commands use the OpenPost directory under the operating system's user
+Root commands use the dopost directory under the operating system's user
 cache, so linked worktrees share entries and one total limit, including inside
 Devenv.
 Shell entry also prunes only when the Turbo cache is idle, so entering another

@@ -1,6 +1,6 @@
-# Auno Studio storage configurations
+# dopost storage configurations
 
-Auno Studio reuses the OpenPost `BlobStorage` boundary. Application and editor code should work with media/project asset identities rather than hard-coded filesystem paths.
+dopost reuses the dopost `BlobStorage` boundary. Application and editor code should work with media/project asset identities rather than hard-coded filesystem paths.
 
 ## Local storage — default
 
@@ -18,7 +18,7 @@ Use this for the default one-container aaPanel installation. Keep `/data` on a p
 OPENPOST_STORAGE_DRIVER=s3
 OPENPOST_S3_ENDPOINT=
 OPENPOST_S3_REGION=us-east-1
-OPENPOST_S3_BUCKET=auno-studio
+OPENPOST_S3_BUCKET=dopost
 OPENPOST_S3_ACCESS_KEY_ID=...
 OPENPOST_S3_SECRET_ACCESS_KEY=...
 OPENPOST_S3_PUBLIC_BASE_URL=https://cdn.example.com
@@ -31,7 +31,7 @@ OPENPOST_S3_FORCE_PATH_STYLE=false
 OPENPOST_STORAGE_DRIVER=s3
 OPENPOST_S3_ENDPOINT=https://ACCOUNT_ID.r2.cloudflarestorage.com
 OPENPOST_S3_REGION=auto
-OPENPOST_S3_BUCKET=auno-studio
+OPENPOST_S3_BUCKET=dopost
 OPENPOST_S3_ACCESS_KEY_ID=...
 OPENPOST_S3_SECRET_ACCESS_KEY=...
 OPENPOST_S3_PUBLIC_BASE_URL=https://media.example.com
@@ -44,7 +44,7 @@ OPENPOST_S3_FORCE_PATH_STYLE=false
 OPENPOST_STORAGE_DRIVER=s3
 OPENPOST_S3_ENDPOINT=https://minio.internal.example.com
 OPENPOST_S3_REGION=us-east-1
-OPENPOST_S3_BUCKET=auno-studio
+OPENPOST_S3_BUCKET=dopost
 OPENPOST_S3_ACCESS_KEY_ID=...
 OPENPOST_S3_SECRET_ACCESS_KEY=...
 OPENPOST_S3_PUBLIC_BASE_URL=https://media.example.com

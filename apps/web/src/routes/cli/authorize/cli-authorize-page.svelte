@@ -61,7 +61,7 @@
 	let authState = $derived($authStore);
 	let userCode = $derived($pageStore.url.searchParams.get('user_code') ?? '');
 	let session = $state<CLIAuthSession | null>(null);
-	let tokenName = $state('OpenPost');
+	let tokenName = $state('dopost');
 	let selectedWorkspaceID = $state<string | null>(null);
 	let error = $state('');
 	let sessionLoadFailed = $state(false);
@@ -99,7 +99,7 @@
 		sessionRequestSequence += 1;
 		decisionRequestSequence += 1;
 		session = null;
-		tokenName = 'OpenPost';
+		tokenName = 'dopost';
 		selectedWorkspaceID = null;
 		error = '';
 		sessionLoadFailed = false;
@@ -136,7 +136,7 @@
 			}
 
 			session = data;
-			tokenName = data.client_name.trim() || 'OpenPost';
+			tokenName = data.client_name.trim() || 'dopost';
 			loadedUserCode = code;
 		} catch (cause) {
 			if (
@@ -187,7 +187,7 @@
 				decision === 'approved'
 					? {
 							user_code: code,
-							name: tokenName.trim() || session.client_name.trim() || 'OpenPost',
+							name: tokenName.trim() || session.client_name.trim() || 'dopost',
 							workspace_id: selectedWorkspaceID ?? ''
 						}
 					: { user_code: code };

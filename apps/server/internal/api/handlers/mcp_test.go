@@ -1158,7 +1158,7 @@ func TestMCPLocalUploadWidgetContractIsAccessibleAndAppScoped(t *testing.T) {
 	require.Contains(t, html, `invoked.slice(0,invoked.length-renderTool.length)+ticketToolDefault`)
 	require.Contains(t, html, `await resolveTicketTool()`)
 	require.Contains(t, html, `callTool(ticketTool,{`)
-	require.Contains(t, html, `This MCP client does not expose the OpenPost upload tool`)
+	require.Contains(t, html, `This MCP client does not expose the dopost upload tool`)
 	require.Contains(t, html, `This MCP client does not support app tool calls.`)
 	require.NotContains(t, html, `callTool('`+mcpToolCreateTicket+`'`)
 	ticketTool := mcpCreateLocalUploadTicketTool()
@@ -1341,7 +1341,7 @@ func TestMCPListPublicationsCursorPagination(t *testing.T) {
 		ID: "rendition-page-failed", PublicationID: "publication-page-5",
 		SocialAccountID: "account-1", Platform: "x", Profile: models.ContentProfileShortText,
 		Body: "Paged 5", SettingsJSON: "{}", Status: models.RenditionStatusFailed,
-		ErrorMessage:   "The provider is rate limiting this account. OpenPost will retry.",
+		ErrorMessage:   "The provider is rate limiting this account. dopost will retry.",
 		ErrorKind:      "rate_limited",
 		ErrorAction:    "retry",
 		ErrorRetryable: true,
@@ -1380,7 +1380,7 @@ func TestMCPListPublicationsCursorPagination(t *testing.T) {
 	require.Equal(t, float64(1), newest["failed_variant_count"])
 	require.Equal(t, "rate_limited", newest["error_kind"])
 	require.Equal(t, "retry", newest["error_action"])
-	require.Equal(t, "The provider is rate limiting this account. OpenPost will retry.", newest["error_message"])
+	require.Equal(t, "The provider is rate limiting this account. dopost will retry.", newest["error_message"])
 	for _, key := range []string{"error_code", "error_http_status", "raw", "response_body", "provider_response"} {
 		require.NotContains(t, newest, key)
 	}

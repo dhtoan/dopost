@@ -637,7 +637,7 @@ func (h *MCPHandler) protectedResourceMetadata(c echo.Context) error {
 		"authorization_servers":    []string{baseURL},
 		"scopes_supported":         []string{mcpScopeRead, mcpScopeFull},
 		"bearer_methods_supported": []string{"header"},
-		"resource_name":            "OpenPost MCP",
+		"resource_name":            "dopost MCP",
 	})
 }
 
@@ -665,7 +665,7 @@ func requestBaseURL(r *http.Request, publicURL string) string {
 
 func (h *MCPHandler) mcpWWWAuthenticate(r *http.Request) string {
 	baseURL := requestBaseURL(r, h.publicURL)
-	return fmt.Sprintf(`Bearer realm="OpenPost MCP", resource_metadata="%s/.well-known/oauth-protected-resource", scope="%s"`, baseURL, mcpScopeFull)
+	return fmt.Sprintf(`Bearer realm="dopost MCP", resource_metadata="%s/.well-known/oauth-protected-resource", scope="%s"`, baseURL, mcpScopeFull)
 }
 
 func (h *MCPHandler) authenticate(r *http.Request) (*middleware.Principal, error) {
@@ -742,11 +742,11 @@ func (h *MCPHandler) mcpInstructions(scope string, mode mcpToolMode) string {
 	var base string
 	switch mode {
 	case mcpToolModeSearch:
-		base = "OpenPost schedules social posts and format-first posts through a compact safety-aware tool surface. Call search_operations with a plain-language task to discover relevant operation names and schemas. Call query_operation only for guaranteed read-only operations. Search again when required fields are unclear. Use render_scheduler_widget directly when a visual summary helps." + shared
+		base = "dopost schedules social posts and format-first posts through a compact safety-aware tool surface. Call search_operations with a plain-language task to discover relevant operation names and schemas. Call query_operation only for guaranteed read-only operations. Search again when required fields are unclear. Use render_scheduler_widget directly when a visual summary helps." + shared
 	case mcpToolModeBoth:
-		base = "OpenPost schedules social posts and format-first posts through a compact safety-aware tool surface. The listed operation tools are callable directly with their own arguments; alternatively, call search_operations with a plain-language task to discover relevant operation names and schemas, then query_operation for guaranteed read-only operations. Search again when required fields are unclear. Use render_scheduler_widget directly when a visual summary helps." + shared
+		base = "dopost schedules social posts and format-first posts through a compact safety-aware tool surface. The listed operation tools are callable directly with their own arguments; alternatively, call search_operations with a plain-language task to discover relevant operation names and schemas, then query_operation for guaranteed read-only operations. Search again when required fields are unclear. Use render_scheduler_widget directly when a visual summary helps." + shared
 	default:
-		base = "OpenPost schedules social posts and format-first posts through a compact safety-aware tool surface. The listed operation tools are callable directly with their own arguments. Call query_operation only for guaranteed read-only operations. Use render_scheduler_widget directly when a visual summary helps." + shared
+		base = "dopost schedules social posts and format-first posts through a compact safety-aware tool surface. The listed operation tools are callable directly with their own arguments. Call query_operation only for guaranteed read-only operations. Use render_scheduler_widget directly when a visual summary helps." + shared
 	}
 	if mcpScopeIsReadOnly(scope) {
 		return base + " This connection is read-only: mutation operations are hidden from discovery and rejected by the server."
@@ -872,7 +872,7 @@ func mcpPlanSocialPostPrompt() map[string]any {
 	return map[string]any{
 		"name":        mcpPromptPlanPost,
 		"title":       "Plan a post",
-		"description": "Turn an idea into a workspace-aware OpenPost Post draft.",
+		"description": "Turn an idea into a workspace-aware dopost Post draft.",
 		"arguments": []map[string]any{
 			{"name": "idea", "description": "The source idea, note, link, or rough content to develop.", "required": true},
 			{"name": "workspace_id", "description": "Optional workspace ID if already known.", "required": false},
@@ -932,11 +932,11 @@ func mcpGetPrompt(raw json.RawMessage, readOnly ...bool) (any, *mcpError) {
 		params.Arguments = normalized
 	}
 	if len(readOnly) > 0 && readOnly[0] && params.Name != mcpPromptReviewQueue {
-		return nil, &mcpError{Code: -32602, Message: "this prompt requires mcp:full because it creates or changes OpenPost data"}
+		return nil, &mcpError{Code: -32602, Message: "this prompt requires mcp:full because it creates or changes dopost data"}
 	}
 	switch params.Name {
 	case mcpPromptPlanPost:
-		return mcpPromptResult("Plan an OpenPost Post draft from an idea.", mcpPlanPostPromptText(params.Arguments)), nil
+		return mcpPromptResult("Plan a dopost Post draft from an idea.", mcpPlanPostPromptText(params.Arguments)), nil
 	case mcpPromptRenditions:
 		return mcpPromptResult("Adapt a Post into platform-native variants.", mcpRenditionsPromptText(params.Arguments)), nil
 	case mcpPromptReviewQueue:
@@ -951,15 +951,15 @@ func (h *MCPHandler) listMCPResources() any {
 		"resources": []map[string]any{{
 			"uri":         mcpAppWidgetURI,
 			"name":        "openpost_scheduler",
-			"title":       "OpenPost Scheduler",
-			"description": "Renders OpenPost workspaces, accounts, media, Posts, Variants, schedules, and provider status in ChatGPT.",
+			"title":       "dopost Scheduler",
+			"description": "Renders dopost workspaces, accounts, media, Posts, Variants, schedules, and provider status in ChatGPT.",
 			"mimeType":    mcpAppWidgetMimeType,
 			"_meta":       h.mcpAppWidgetResourceMeta(),
 		}, {
 			"uri":         mcpUploadWidgetURI,
 			"name":        "openpost_local_media_upload",
-			"title":       "OpenPost local media upload",
-			"description": "Lets a person choose a local image or video and add it to an OpenPost workspace without exposing the upload credential to the model.",
+			"title":       "dopost local media upload",
+			"description": "Lets a person choose a local image or video and add it to a dopost workspace without exposing the upload credential to the model.",
 			"mimeType":    mcpAppWidgetMimeType,
 			"_meta":       h.mcpUploadWidgetResourceMeta(),
 		}},
@@ -1008,7 +1008,7 @@ func (h *MCPHandler) mcpUploadWidgetResourceMeta() map[string]any {
 	ui := map[string]any{"prefersBorder": true, "csp": standardCSP}
 	meta := map[string]any{
 		"ui":                         ui,
-		"openai/widgetDescription":   "Choose a local file and upload it to the selected OpenPost workspace.",
+		"openai/widgetDescription":   "Choose a local file and upload it to the selected dopost workspace.",
 		"openai/widgetPrefersBorder": true,
 		"openai/widgetCSP":           legacyCSP,
 	}
@@ -1027,7 +1027,7 @@ func (h *MCPHandler) mcpAppWidgetResourceMeta() map[string]any {
 	}
 	meta := map[string]any{
 		"ui":                         ui,
-		"openai/widgetDescription":   "OpenPost scheduler view for workspaces, accounts, media, Posts, Variants, schedules, and provider status.",
+		"openai/widgetDescription":   "dopost scheduler view for workspaces, accounts, media, Posts, Variants, schedules, and provider status.",
 		"openai/widgetPrefersBorder": true,
 		"openai/widgetCSP":           legacyCSP,
 	}
@@ -1062,7 +1062,7 @@ func mcpAppWidgetHTML() string {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>OpenPost Scheduler</title>
+<title>dopost Scheduler</title>
 <style>` + mcpUIStyles + `
 .shell { min-height: 100vh; padding: 16px; box-sizing: border-box; }
 .panel { overflow: hidden; }
@@ -1088,7 +1088,7 @@ h1 { margin: 0; font-size: 20px; line-height: 1.2; letter-spacing: 0; }
 </style>
 </head>
 <body data-theme-button="dither">
-<div class="shell"><main class="panel" id="root"><div class="content"><div class="empty">Waiting for OpenPost scheduler data.</div></div></main></div>
+<div class="shell"><main class="panel" id="root"><div class="content"><div class="empty">Waiting for dopost scheduler data.</div></div></main></div>
 <script>
 (function () {
   var root = document.getElementById("root");
@@ -1176,9 +1176,9 @@ h1 { margin: 0; font-size: 20px; line-height: 1.2; letter-spacing: 0; }
     var state = normalizePayload(payload);
     var data = state.data || {};
     var view = state.view || inferView(data);
-    var title = state.title || "OpenPost Scheduler";
+    var title = state.title || "dopost Scheduler";
     var workspace = state.workspace_id ? "Workspace " + state.workspace_id : "Agentic social scheduler";
-    root.innerHTML = '<header class="header" data-dither-panel><div class="brand"><div class="eyebrow">OpenPost</div><h1>' + escapeHTML(title) + '</h1></div><div class="workspace">' + escapeHTML(workspace) + '</div></header><section class="content">' + renderData(view, data) + '</section>';
+    root.innerHTML = '<header class="header" data-dither-panel><div class="brand"><div class="eyebrow">dopost</div><h1>' + escapeHTML(title) + '</h1></div><div class="workspace">' + escapeHTML(workspace) + '</div></header><section class="content">' + renderData(view, data) + '</section>';
   }
   window.addEventListener("message", function (event) {
     if (event.source !== window.parent) return;
@@ -1203,11 +1203,11 @@ h1 { margin: 0; font-size: 20px; line-height: 1.2; letter-spacing: 0; }
 func mcpUploadWidgetHTML() string {
 	return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Upload media to OpenPost</title>
+<title>Upload media to dopost</title>
 <style>` + mcpUIStyles + `
 body{padding:16px}.panel{display:grid;gap:14px;padding:16px;max-width:36rem;margin-inline:auto}h1{font-size:18px;margin:0}p{margin:0;color:var(--muted-foreground);line-height:1.45}.field{display:grid;gap:6px}label{font-size:13px;font-weight:650}input{box-sizing:border-box;width:100%;font:inherit;min-height:44px;border:1px solid var(--input);border-radius:var(--theme-radius-md);padding:8px 12px;background:var(--background);color:var(--foreground)}input:focus-visible{outline:2px solid var(--ring);outline-offset:3px}.status{min-height:22px;font-size:13px;overflow-wrap:anywhere}.error{color:var(--destructive)}.success{color:var(--success-foreground)}
 ::selection { background: var(--selection); color: var(--selection-foreground); }
-</style></head><body data-theme-button="dither"><main class="panel"><div><h1>Add local media</h1><p>Add an image or video to your media library.</p></div><div class="field"><label for="file">Media file</label><input id="file" type="file" accept="image/*,video/*"></div><div class="field"><label for="alt">Alt text <span aria-hidden="true">(optional)</span></label><input id="alt" type="text" maxlength="2000"></div><button id="upload" type="button" data-static-action data-dither-button="always">Upload to OpenPost</button><div id="status" class="status" role="status" aria-live="polite"></div></main>
+</style></head><body data-theme-button="dither"><main class="panel"><div><h1>Add local media</h1><p>Add an image or video to your media library.</p></div><div class="field"><label for="file">Media file</label><input id="file" type="file" accept="image/*,video/*"></div><div class="field"><label for="alt">Alt text <span aria-hidden="true">(optional)</span></label><input id="alt" type="text" maxlength="2000"></div><button id="upload" type="button" data-static-action data-dither-button="always">Upload to dopost</button><div id="status" class="status" role="status" aria-live="polite"></div></main>
 <script>
 (function(){` + mcpUploadWidgetToolNames() + `var file=document.getElementById('file'),alt=document.getElementById('alt'),button=document.getElementById('upload'),status=document.getElementById('status');
 function input(){return (window.openai&&window.openai.toolInput)||{};} function show(text,kind){status.textContent=text;status.className='status '+(kind||'');}
@@ -1222,7 +1222,7 @@ function input(){return (window.openai&&window.openai.toolInput)||{};} function 
 var ticketToolPromise=null;
 function resolveTicketTool(){if(ticketToolPromise)return ticketToolPromise;ticketToolPromise=new Promise(function(resolve){var request={jsonrpc:'2.0',id:'openpost-upload-init',method:'ui/initialize',params:{appInfo:{name:'openpost-local-upload',version:'1.0.0'},appCapabilities:{},protocolVersion:'2026-01-26'}};var timer=null;function finish(name){if(timer!==null)window.clearTimeout(timer);window.removeEventListener('message',onHostMessage);resolve(name)}function onHostMessage(event){if(event.source!==window.parent)return;var data=event.data;if(!data||data.jsonrpc!=='2.0'||data.id!==request.id)return;window.parent.postMessage({jsonrpc:'2.0',method:'ui/notifications/initialized',params:{}},'*');var invoked=data.result&&data.result.hostContext&&data.result.hostContext.toolInfo&&data.result.hostContext.toolInfo.tool&&data.result.hostContext.toolInfo.tool.name;if(typeof invoked==='string'&&invoked.slice(-renderTool.length)===renderTool){finish(invoked.slice(0,invoked.length-renderTool.length)+ticketToolDefault)}else{finish(ticketToolDefault)}}timer=window.setTimeout(function(){finish(ticketToolDefault)},3000);window.addEventListener('message',onHostMessage);window.parent.postMessage(request,'*')});return ticketToolPromise}
 function isToolNotFound(error){var text=error&&error.message?String(error.message):'';return /tool/i.test(text)&&/unknown|no such|not (found|exist|supported|available)/i.test(text)}
-button.addEventListener('click',async function(){var selected=file.files&&file.files[0],workspace=input().workspace_id;if(!selected){show('Choose a file first.','error');file.focus();return}if(!workspace){show('The upload is missing a workspace. Ask the agent to reopen it.','error');return}if(!window.openai||!window.openai.callTool){show('This MCP client does not support app tool calls.','error');return}button.disabled=true;show('Preparing secure upload…');try{var ticketTool=await resolveTicketTool();var ticket;try{ticket=await window.openai.callTool(ticketTool,{workspace_id:workspace,filename:selected.name,mime_type:selected.type||'application/octet-stream',size:selected.size,alt_text:alt.value.trim()})}catch(error){if(isToolNotFound(error)){throw new Error('This MCP client does not expose the OpenPost upload tool ('+ticketTool+'). If it renames tools, connect the OpenPost MCP server directly and try again.')}throw error}var upload=ticket&&ticket._meta&&ticket._meta.upload;if(!upload)throw new Error('OpenPost did not return an upload ticket');show('Uploading '+selected.name+'…');var response=await fetch(upload.url,{method:upload.method||'PUT',headers:upload.headers||{},body:selected});var result=await response.json();if(!response.ok)throw new Error(result.error||'Upload failed');show('Uploaded '+(result.original_filename||selected.name)+'.','success');if(window.openai.sendFollowUpMessage){await window.openai.sendFollowUpMessage({prompt:'Use the OpenPost media item '+result.id+' ('+(result.original_filename||selected.name)+') in this conversation.'});}}catch(error){show(error&&error.message?error.message:'Upload failed.','error')}finally{button.disabled=false}});
+button.addEventListener('click',async function(){var selected=file.files&&file.files[0],workspace=input().workspace_id;if(!selected){show('Choose a file first.','error');file.focus();return}if(!workspace){show('The upload is missing a workspace. Ask the agent to reopen it.','error');return}if(!window.openai||!window.openai.callTool){show('This MCP client does not support app tool calls.','error');return}button.disabled=true;show('Preparing secure upload…');try{var ticketTool=await resolveTicketTool();var ticket;try{ticket=await window.openai.callTool(ticketTool,{workspace_id:workspace,filename:selected.name,mime_type:selected.type||'application/octet-stream',size:selected.size,alt_text:alt.value.trim()})}catch(error){if(isToolNotFound(error)){throw new Error('This MCP client does not expose the dopost upload tool ('+ticketTool+'). If it renames tools, connect the dopost MCP server directly and try again.')}throw error}var upload=ticket&&ticket._meta&&ticket._meta.upload;if(!upload)throw new Error('dopost did not return an upload ticket');show('Uploading '+selected.name+'…');var response=await fetch(upload.url,{method:upload.method||'PUT',headers:upload.headers||{},body:selected});var result=await response.json();if(!response.ok)throw new Error(result.error||'Upload failed');show('Uploaded '+(result.original_filename||selected.name)+'.','success');if(window.openai.sendFollowUpMessage){await window.openai.sendFollowUpMessage({prompt:'Use the dopost media item '+result.id+' ('+(result.original_filename||selected.name)+') in this conversation.'});}}catch(error){show(error&&error.message?error.message:'Upload failed.','error')}finally{button.disabled=false}});
 resolveTicketTool();
 }());
 </script></body></html>`
@@ -1250,7 +1250,7 @@ func mcpPromptResult(description, text string) map[string]any {
 
 func mcpPlanPostPromptText(args map[string]string) string {
 	return strings.TrimSpace(fmt.Sprintf(`
-Use OpenPost as an agentic social media scheduler.
+Use dopost as an agentic social media scheduler.
 
 Source idea:
 %s
@@ -1269,7 +1269,7 @@ workspace_id: %s
 
 func mcpRenditionsPromptText(args map[string]string) string {
 	return strings.TrimSpace(fmt.Sprintf(`
-Adapt an existing OpenPost Post into platform-native variants.
+Adapt an existing dopost Post into platform-native variants.
 
 workspace_id: %s
 post_id: %s
@@ -1286,7 +1286,7 @@ Workflow:
 
 func mcpReviewQueuePromptText(args map[string]string) string {
 	return strings.TrimSpace(fmt.Sprintf(`
-Review the OpenPost publishing queue and recommend useful next actions.
+Review the dopost publishing queue and recommend useful next actions.
 
 workspace_id: %s
 window: %s
@@ -1480,8 +1480,8 @@ func mcpOperationCatalog() []mcpOperationDefinition {
 func mcpSearchTool() map[string]any {
 	return mcpToolDescriptor(map[string]any{
 		"name":  mcpToolSearch,
-		"title": "Search OpenPost operations",
-		"description": "Search the OpenPost capability catalog before a task when the exact operation or arguments are unknown. " +
+		"title": "Search dopost operations",
+		"description": "Search the dopost capability catalog before a task when the exact operation or arguments are unknown. " +
 			"Returns matching operation names, input and output schemas, safety annotations, and the required query_operation or execute_operation tool.",
 		"inputSchema": map[string]any{
 			"type": "object",
@@ -1506,8 +1506,8 @@ func mcpSearchTool() map[string]any {
 func mcpQueryTool() map[string]any {
 	return mcpToolDescriptor(map[string]any{
 		"name":        mcpToolQuery,
-		"title":       "Query OpenPost",
-		"description": "Run one guaranteed read-only operation returned by search_operations; use it to inspect OpenPost without changing state. Returns that operation's structured result and rejects every mutation.",
+		"title":       "Query dopost",
+		"description": "Run one guaranteed read-only operation returned by search_operations; use it to inspect dopost without changing state. Returns that operation's structured result and rejects every mutation.",
 		"inputSchema": mcpDelegatedOperationInputSchema(
 			"Exact read-only operation name returned by search_operations.",
 			"Arguments matching the read-only operation input schema returned by search_operations.",
@@ -1518,7 +1518,7 @@ func mcpQueryTool() map[string]any {
 func mcpExecuteTool() map[string]any {
 	return mcpToolDescriptor(map[string]any{
 		"name":        mcpToolExecute,
-		"title":       "Execute OpenPost mutation",
+		"title":       "Execute dopost mutation",
 		"description": "Run one state-changing or external-action operation returned by search_operations; use it only after mutation approval. Returns that operation's structured result and rejects every read-only operation.",
 		"inputSchema": mcpDelegatedOperationInputSchema(
 			"Exact state-changing operation name returned by search_operations.",
@@ -1844,7 +1844,7 @@ func mcpCreatePublicationTool() mcpOperationDefinition {
 				"detail":          mcpDetailSchema(),
 				"content_profile": map[string]any{
 					"type":        "string",
-					"description": "OpenPost content profile: short_text, thread, link_share, image_post, carousel, story, short_video, or long_video.",
+					"description": "dopost content profile: short_text, thread, link_share, image_post, carousel, story, short_video, or long_video.",
 					"enum":        []string{"short_text", "thread", "link_share", "image_post", "carousel", "story", "short_video", "long_video"},
 				},
 				"title":       map[string]any{"type": "string", "description": "Internal post title."},
@@ -1944,7 +1944,7 @@ func mcpUpdatePublicationTool() mcpOperationDefinition {
 				},
 				"title": map[string]any{"type": "string", "description": "Optional replacement internal title used to identify the post."},
 				"content_profile": map[string]any{
-					"type": "string", "description": "Optional replacement OpenPost content profile.",
+					"type": "string", "description": "Optional replacement dopost content profile.",
 					"enum": []string{"short_text", "thread", "link_share", "image_post", "carousel", "story", "short_video", "long_video"},
 				},
 				"source_text": map[string]any{"type": "string", "description": "Optional replacement canonical source copy used to derive destination outputs."},
@@ -2239,7 +2239,7 @@ func mcpListRenditionCommentsTool() mcpOperationDefinition {
 	return mcpOperationDescriptor(map[string]any{
 		"name":        mcpToolComments,
 		"title":       "List variant comments",
-		"description": "Read live comments before replying to or moderating a published variant. Returns up to limit provider comments with opaque OpenPost comment IDs safe for follow-up actions. Results beyond limit are truncated in provider order; the response text notes when truncation occurred.",
+		"description": "Read live comments before replying to or moderating a published variant. Returns up to limit provider comments with opaque dopost comment IDs safe for follow-up actions. Results beyond limit are truncated in provider order; the response text notes when truncation occurred.",
 		"inputSchema": map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -2382,7 +2382,7 @@ func mcpSearchDocsTool() mcpOperationDefinition {
 	return mcpOperationDescriptor(map[string]any{
 		"name":        mcpToolSearchDocs,
 		"title":       "Search docs",
-		"description": "Search OpenPost documentation and assistant skills when setup, concept, or how-to guidance is needed. Returns matching guide titles, /docs paths, and snippets; resolve paths against the app origin. Backed by a curated offline registry, so it never calls external services.",
+		"description": "Search dopost documentation and assistant skills when setup, concept, or how-to guidance is needed. Returns matching guide titles, /docs paths, and snippets; resolve paths against the app origin. Backed by a curated offline registry, so it never calls external services.",
 		"inputSchema": map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -2471,7 +2471,7 @@ func mcpRenderSchedulerWidgetTool() map[string]any {
 				},
 				"data": map[string]any{
 					"type":                 "object",
-					"description":          "Structured data returned by another OpenPost MCP tool.",
+					"description":          "Structured data returned by another dopost MCP tool.",
 					"additionalProperties": true,
 				},
 			},
@@ -2485,7 +2485,7 @@ func mcpRenderLocalUploadTool() map[string]any {
 	return mcpToolDescriptor(map[string]any{
 		"name":        mcpToolRenderUpload,
 		"title":       "Upload local media",
-		"description": "Open a secure file picker so the user can add an image or video from their device to an OpenPost workspace. Returns the selected workspace for the upload widget.",
+		"description": "Open a secure file picker so the user can add an image or video from their device to a dopost workspace. Returns the selected workspace for the upload widget.",
 		"inputSchema": map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -2614,8 +2614,8 @@ type mcpToolStatus struct {
 
 var mcpToolStatuses = map[string]mcpToolStatus{
 	mcpToolSearch:         {Invoking: "Searching operations", Invoked: "Operations found"},
-	mcpToolQuery:          {Invoking: "Querying OpenPost", Invoked: "OpenPost query complete"},
-	mcpToolExecute:        {Invoking: "Running OpenPost mutation", Invoked: "OpenPost mutation complete"},
+	mcpToolQuery:          {Invoking: "Querying dopost", Invoked: "dopost query complete"},
+	mcpToolExecute:        {Invoking: "Running dopost mutation", Invoked: "dopost mutation complete"},
 	mcpToolWorkspaces:     {Invoking: "Loading workspaces", Invoked: "Workspaces loaded"},
 	mcpToolProviders:      {Invoking: "Loading providers", Invoked: "Providers loaded"},
 	mcpToolAccounts:       {Invoking: "Loading accounts", Invoked: "Accounts loaded"},
@@ -2901,9 +2901,9 @@ func searchMCPOperations(args map[string]any, allowedModes ...mcpOperationMode) 
 	for _, match := range matches {
 		operations = append(operations, match.doc)
 	}
-	message := fmt.Sprintf("Found %d OpenPost operation(s) for %q.", len(operations), input.Query)
+	message := fmt.Sprintf("Found %d dopost operation(s) for %q.", len(operations), input.Query)
 	if len(operations) == 0 {
-		message = "No matching OpenPost operations found. Try a focused capability phrase such as 'draft', 'scheduled post', 'media', or 'connected accounts'."
+		message = "No matching dopost operations found. Try a focused capability phrase such as 'draft', 'scheduled post', 'media', or 'connected accounts'."
 	}
 	return map[string]any{
 		"content": []mcpContent{{Type: "text", Text: message}},
@@ -3011,7 +3011,7 @@ func mcpOperationSearchRelevant(terms []string, name, title, description, schema
 	if len(queryActions) > 0 && !queryActions[operationAction] {
 		return false
 	}
-	// A bare action such as "delete" does not identify an OpenPost object. Refusing
+	// A bare action such as "delete" does not identify a dopost object. Refusing
 	// it is safer than guessing a state-changing operation from the verb alone.
 	if len(meaningfulTerms) == 0 {
 		return false
@@ -3489,7 +3489,7 @@ func (h *MCPHandler) renderSchedulerWidget(args map[string]any) (any, *mcpError)
 	return map[string]any{
 		"content": []mcpContent{{
 			Type: "text",
-			Text: "Rendered OpenPost scheduler view.",
+			Text: "Rendered dopost scheduler view.",
 		}},
 		"structuredContent": map[string]any{
 			"view":         view,
@@ -5431,27 +5431,27 @@ type mcpDocEntry struct {
 // assistant skill pages. It stays static so search_docs never touches the
 // network; paths resolve under /docs on the app origin.
 var mcpDocRegistry = []mcpDocEntry{
-	{Title: "Connect AI assistants (MCP)", Path: "/docs/mcp", Snippet: "Setup entry point for connecting ChatGPT, Claude, and other assistants to OpenPost.", Keywords: "mcp setup connect assistant install"},
+	{Title: "Connect AI assistants (MCP)", Path: "/docs/mcp", Snippet: "Setup entry point for connecting ChatGPT, Claude, and other assistants to dopost.", Keywords: "mcp setup connect assistant install"},
 	{Title: "Endpoints and tools", Path: "/docs/mcp/mcp-guide/endpoints-and-tools", Snippet: "Direct versus compact MCP endpoints, tool modes, and the full operation list.", Keywords: "mcp endpoints tools direct compact code mode operations"},
 	{Title: "Permissions and safety", Path: "/docs/mcp/mcp-guide/permissions-and-safety", Snippet: "MCP scopes, approvals, destructive actions, and workspace boundaries.", Keywords: "mcp scopes permissions safety approval mcp:read mcp:full destructive"},
 	{Title: "MCP use cases", Path: "/docs/mcp/mcp-guide/use-cases", Snippet: "Example assistant workflows for drafting, scheduling, and reviewing content.", Keywords: "mcp use cases workflows examples draft schedule"},
 	{Title: "Self-hosted and local MCP", Path: "/docs/mcp/mcp-guide/self-hosted-and-local", Snippet: "Run the MCP server self-hosted and connect local clients and the stdio proxy.", Keywords: "mcp self-hosted local stdio proxy openpost-mcp"},
 	{Title: "MCP media guide", Path: "/docs/mcp/mcp-guide/media", Snippet: "Upload and attach media through MCP, including local file picks.", Keywords: "mcp media upload image video local picker"},
-	{Title: "Assistant skills", Path: "/docs/mcp/skills", Snippet: "Installable skills that teach assistants OpenPost workflows.", Keywords: "skills install assistant capabilities"},
+	{Title: "Assistant skills", Path: "/docs/mcp/skills", Snippet: "Installable skills that teach assistants dopost workflows.", Keywords: "skills install assistant capabilities"},
 	{Title: "Assistant skill use cases", Path: "/docs/mcp/skills/use-cases", Snippet: "When each assistant skill helps and what it automates.", Keywords: "skills use cases when workflows"},
-	{Title: "Install assistant skills", Path: "/docs/mcp/skills/install", Snippet: "How to install OpenPost skills into a compatible assistant.", Keywords: "skills install setup howto"},
-	{Title: "OpenPost CLI skill", Path: "/docs/mcp/skills/openpost-cli", Snippet: "Operate OpenPost from the terminal through the openpost CLI.", Keywords: "skills cli terminal command openpost-cli"},
-	{Title: "ChatGPT setup", Path: "/docs/mcp/chatgpt", Snippet: "Connect ChatGPT to OpenPost with the scheduler widget and deep research.", Keywords: "chatgpt setup openai apps widget connector"},
-	{Title: "Claude setup", Path: "/docs/mcp/claude", Snippet: "Connect Claude to OpenPost over MCP.", Keywords: "claude setup anthropic connector"},
-	{Title: "Claude Code setup", Path: "/docs/mcp/claude-code", Snippet: "Use OpenPost from Claude Code sessions.", Keywords: "claude code cli setup terminal"},
-	{Title: "Claude Desktop setup", Path: "/docs/mcp/claude-desktop", Snippet: "Add OpenPost to Claude Desktop's MCP servers.", Keywords: "claude desktop mcp server config"},
-	{Title: "Codex setup", Path: "/docs/mcp/codex", Snippet: "Use OpenPost from Codex.", Keywords: "codex setup openai cli"},
-	{Title: "Cursor setup", Path: "/docs/mcp/cursor", Snippet: "Add OpenPost to Cursor's MCP configuration.", Keywords: "cursor setup ide mcp config"},
-	{Title: "Gemini CLI setup", Path: "/docs/mcp/gemini-cli", Snippet: "Use OpenPost from Gemini CLI.", Keywords: "gemini cli setup google terminal"},
-	{Title: "OpenCode setup", Path: "/docs/mcp/opencode", Snippet: "Use OpenPost from OpenCode.", Keywords: "opencode setup terminal agent"},
-	{Title: "VS Code setup", Path: "/docs/mcp/vs-code", Snippet: "Add OpenPost to VS Code's MCP support.", Keywords: "vs code vscode setup ide github copilot"},
-	{Title: "GitHub Copilot setup", Path: "/docs/mcp/github-copilot", Snippet: "Use OpenPost from GitHub Copilot.", Keywords: "github copilot setup ide"},
-	{Title: "Perplexity setup", Path: "/docs/mcp/perplexity", Snippet: "Use OpenPost from Perplexity.", Keywords: "perplexity setup search assistant"},
+	{Title: "Install assistant skills", Path: "/docs/mcp/skills/install", Snippet: "How to install dopost skills into a compatible assistant.", Keywords: "skills install setup howto"},
+	{Title: "dopost CLI skill", Path: "/docs/mcp/skills/openpost-cli", Snippet: "Operate dopost from the terminal through the openpost CLI.", Keywords: "skills cli terminal command openpost-cli"},
+	{Title: "ChatGPT setup", Path: "/docs/mcp/chatgpt", Snippet: "Connect ChatGPT to dopost with the scheduler widget and deep research.", Keywords: "chatgpt setup openai apps widget connector"},
+	{Title: "Claude setup", Path: "/docs/mcp/claude", Snippet: "Connect Claude to dopost over MCP.", Keywords: "claude setup anthropic connector"},
+	{Title: "Claude Code setup", Path: "/docs/mcp/claude-code", Snippet: "Use dopost from Claude Code sessions.", Keywords: "claude code cli setup terminal"},
+	{Title: "Claude Desktop setup", Path: "/docs/mcp/claude-desktop", Snippet: "Add dopost to Claude Desktop's MCP servers.", Keywords: "claude desktop mcp server config"},
+	{Title: "Codex setup", Path: "/docs/mcp/codex", Snippet: "Use dopost from Codex.", Keywords: "codex setup openai cli"},
+	{Title: "Cursor setup", Path: "/docs/mcp/cursor", Snippet: "Add dopost to Cursor's MCP configuration.", Keywords: "cursor setup ide mcp config"},
+	{Title: "Gemini CLI setup", Path: "/docs/mcp/gemini-cli", Snippet: "Use dopost from Gemini CLI.", Keywords: "gemini cli setup google terminal"},
+	{Title: "OpenCode setup", Path: "/docs/mcp/opencode", Snippet: "Use dopost from OpenCode.", Keywords: "opencode setup terminal agent"},
+	{Title: "VS Code setup", Path: "/docs/mcp/vs-code", Snippet: "Add dopost to VS Code's MCP support.", Keywords: "vs code vscode setup ide github copilot"},
+	{Title: "GitHub Copilot setup", Path: "/docs/mcp/github-copilot", Snippet: "Use dopost from GitHub Copilot.", Keywords: "github copilot setup ide"},
+	{Title: "Perplexity setup", Path: "/docs/mcp/perplexity", Snippet: "Use dopost from Perplexity.", Keywords: "perplexity setup search assistant"},
 	{Title: "Choose an agent connection", Path: "/docs/mcp/choose-an-agent-connection", Snippet: "Compare MCP, CLI, API, and n8n automation surfaces.", Keywords: "choose compare mcp cli api n8n automation which"},
 	{Title: "Quickstart", Path: "/docs/guides/quickstart", Snippet: "Create a workspace, connect an account, and publish a first post.", Keywords: "quickstart start first post publish begin onboard"},
 	{Title: "Publishing guide", Path: "/docs/guides/publishing", Snippet: "Draft, validate, schedule, and publish posts across destinations.", Keywords: "publishing publish schedule draft validate destinations"},
@@ -5463,11 +5463,11 @@ var mcpDocRegistry = []mcpDocEntry{
 	{Title: "Troubleshooting", Path: "/docs/guides/troubleshooting", Snippet: "Fix failed posts, disconnected accounts, and validation errors.", Keywords: "troubleshooting failed error fix retry validation disconnect"},
 	{Title: "Workspaces guide", Path: "/docs/guides/workspaces", Snippet: "Organize teams, roles, and workspaces.", Keywords: "workspaces teams roles members organization"},
 	{Title: "Automation overview", Path: "/docs/automate", Snippet: "Compare API, CLI, SDK, and n8n automation options.", Keywords: "automate automation api cli sdk n8n webhooks program"},
-	{Title: "API overview", Path: "/docs/automate/api", Snippet: "Authenticate and call the OpenPost REST API.", Keywords: "api rest openapi tokens authentication reference"},
-	{Title: "CLI overview", Path: "/docs/automate/cli", Snippet: "Script OpenPost from the terminal with the openpost CLI.", Keywords: "cli terminal scripts command line"},
-	{Title: "n8n overview", Path: "/docs/automate/n8n", Snippet: "Automate OpenPost with n8n workflows.", Keywords: "n8n workflow automation nodes zapier"},
-	{Title: "Self-hosting overview", Path: "/docs/self-hosting", Snippet: "Run OpenPost on your own infrastructure with Docker or a binary.", Keywords: "self-hosting self host docker deploy server homelab"},
-	{Title: "Self-hosting configuration", Path: "/docs/self-hosting/configuration", Snippet: "Environment variables and runtime configuration for self-hosted OpenPost.", Keywords: "self-hosting configuration env environment variables config"},
+	{Title: "API overview", Path: "/docs/automate/api", Snippet: "Authenticate and call the dopost REST API.", Keywords: "api rest openapi tokens authentication reference"},
+	{Title: "CLI overview", Path: "/docs/automate/cli", Snippet: "Script dopost from the terminal with the openpost CLI.", Keywords: "cli terminal scripts command line"},
+	{Title: "n8n overview", Path: "/docs/automate/n8n", Snippet: "Automate dopost with n8n workflows.", Keywords: "n8n workflow automation nodes zapier"},
+	{Title: "Self-hosting overview", Path: "/docs/self-hosting", Snippet: "Run dopost on your own infrastructure with Docker or a binary.", Keywords: "self-hosting self host docker deploy server homelab"},
+	{Title: "Self-hosting configuration", Path: "/docs/self-hosting/configuration", Snippet: "Environment variables and runtime configuration for self-hosted dopost.", Keywords: "self-hosting configuration env environment variables config"},
 }
 
 type mcpDocHit struct {

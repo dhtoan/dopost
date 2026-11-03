@@ -2,7 +2,7 @@
 
 This page is for contributors changing durable background work.
 
-OpenPost uses durable background jobs stored in the configured database.
+dopost uses durable background jobs stored in the configured database.
 
 ## Why
 

@@ -247,7 +247,7 @@ describe('NotificationPreferences', () => {
 
 		await vi.waitFor(() =>
 			expect(mocks.showToast).toHaveBeenCalledWith(
-				'OpenPost could not save your notification preferences.',
+				'dopost could not save your notification preferences.',
 				'error'
 			)
 		);

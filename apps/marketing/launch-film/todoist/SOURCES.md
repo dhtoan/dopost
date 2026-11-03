@@ -1,6 +1,6 @@
 # Todoist sample material
 
-The launch film follows an invented Todoist 12 release, so it shows a real brand's real look. The update is sample material and OpenPost is not affiliated with Todoist.
+The launch film follows an invented Todoist 12 release, so it shows a real brand's real look. The update is sample material and dopost is not affiliated with Todoist.
 
 | File                                      | Source                                                                                         |
 | ----------------------------------------- | ---------------------------------------------------------------------------------------------- |

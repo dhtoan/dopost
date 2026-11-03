@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-const MediaURLConfigurationError = "Provider publishing needs a public HTTPS media URL. Ask an OpenPost administrator to configure OPENPOST_MEDIA_URL."
+const MediaURLConfigurationError = "Provider publishing needs a public HTTPS media URL. Ask a dopost administrator to configure OPENPOST_MEDIA_URL."
 
 type Result struct {
 	Ready      bool

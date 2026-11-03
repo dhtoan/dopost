@@ -1,7 +1,7 @@
 package platform
 
 // AccountContentOrigin identifies where analytics content was published.
-// OpenPost only tracks content published through OpenPost; there is no
+// dopost only tracks content published through dopost; there is no
 // inventory for content published elsewhere.
 type AccountContentOrigin string
 

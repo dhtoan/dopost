@@ -22,7 +22,7 @@
 			identity: story.preview
 				? { displayName: 'Studio example', handle: 'yourstudio' }
 				: {
-						displayName: 'OpenPost',
+						displayName: 'dopost',
 						handle: platform.slug === 'mastodon' ? 'openpost@mastodon.social' : 'openpost'
 					},
 			segments: (platform.slug === 'x'
@@ -49,7 +49,7 @@
 				platform.slug === 'bluesky'
 					? {
 							kind: 'link',
-							title: 'OpenPost',
+							title: 'dopost',
 							description: 'Write posts, edit images and videos, and plan your week.',
 							domain: 'openpo.st'
 						}

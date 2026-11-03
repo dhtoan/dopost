@@ -349,7 +349,7 @@
           <section class="side-card follow-card">
             <h2>Who to follow</h2>
             {@render followRow(
-              "OpenPost Image Editor Notes",
+              "dopost Image Editor Notes",
               "studionotes",
               "#2563eb",
             )}
@@ -455,7 +455,7 @@
         </aside>
         <section class="facebook-feed">
           <div class="facebook-stories" aria-hidden="true">
-            {#each ["Create story", "Maya", "Ari", "OpenPost Image Editor"] as story, index (story)}
+            {#each ["Create story", "Maya", "Ari", "dopost Image Editor"] as story, index (story)}
               <div
                 style={`--story-tone: ${["#0866ff", "#7c3aed", "#db2777", "#0f766e"][index]}`}
               >
@@ -474,7 +474,7 @@
           </div>
           <SocialPreview {model} {scheme} />
           {@render nativeContextPost(
-            "OpenPost Community",
+            "dopost Community",
             "This week’s community round-up is ready. Thanks to everyone who shared feedback.",
             "#0866ff",
           )}
@@ -486,7 +486,7 @@
           </div>
           {@render contactRow("Maya Chen", "#7c3aed")}
           {@render contactRow("Ari Santos", "#db2777")}
-          {@render contactRow("OpenPost Image Editor Notes", "#2563eb")}
+          {@render contactRow("dopost Image Editor Notes", "#2563eb")}
           {@render contactRow("Open Design", "#0f766e")}
         </aside>
         {@render mobileNav()}
@@ -551,7 +551,7 @@
               <b>See all</b>
             </div>
             {@render followRow(
-              "OpenPost Image Editor Notes",
+              "dopost Image Editor Notes",
               "studionotes",
               "#2563eb",
             )}
@@ -618,7 +618,7 @@
                       "Behind the scenes: launch day",
                       "Weekly product and design notes",
                     ][index]}</strong
-                  ><small>OpenPost Image Editor</small><small
+                  ><small>dopost Image Editor</small><small
                     >{index + 3}K views · {index + 1} days ago</small
                   >
                 </div>
@@ -672,7 +672,7 @@
             >{/each}
         </aside>
         <aside class="channel-rail">
-          <header><strong>OpenPost</strong><ChevronDown /></header>
+          <header><strong>dopost</strong><ChevronDown /></header>
           <span>TEXT CHANNELS</span>
           {@render navItem("hash", "general", true)}
           {@render navItem("hash", "content")}
@@ -694,7 +694,7 @@
         </aside>
         <section class="discord-chat">
           <header>
-            <Hash /><strong>general</strong><span>OpenPost community chat</span>
+            <Hash /><strong>general</strong><span>dopost community chat</span>
             <div><Bell /><Users /><Search /></div>
           </header>
           <div class="chat-history">
@@ -711,10 +711,10 @@
         </section>
         <aside class="member-rail">
           <span>MEMBERS</span>
-          {@render followRow("OpenPost", "Creator", "#5865f2")}
+          {@render followRow("dopost", "Creator", "#5865f2")}
           {@render followRow("Maya", "Online", "#7c3aed")}
           {@render followRow("Ari", "Online", "#db2777")}
-          {@render followRow("OpenPost Image Editor Bot", "BOT", "#0f766e")}
+          {@render followRow("dopost Image Editor Bot", "BOT", "#0f766e")}
         </aside>
       </div>
     {:else if model.platform === "telegram"}

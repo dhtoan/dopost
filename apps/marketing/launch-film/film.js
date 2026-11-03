@@ -1,4 +1,4 @@
-// OpenPost launch film. Every frame is a pure function of time: render.mjs calls window.film.seek(t).
+// dopost launch film. Every frame is a pure function of time: render.mjs calls window.film.seek(t).
 import { createEngine } from './engine.js';
 import { DURATION, BPM, FPS, T, BAR, BEAT, cues, score } from './timeline.js';
 import { createScene, noise } from './kit.js';

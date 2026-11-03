@@ -2,11 +2,11 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add a persistent Documentary Long-form mode to Auno Auto Video that implements the approved Vox Style workflow through an editable native OpenPost project, while completing the remaining Phase 4 deterministic preview/export, runtime visual-QA, E2E, provenance, and release-candidate gates.
+**Goal:** Add a persistent Documentary Long-form mode to dopost Auto Video that implements the approved Vox Style workflow through an editable native dopost project, while completing the remaining Phase 4 deterministic preview/export, runtime visual-QA, E2E, provenance, and release-candidate gates.
 
-**Architecture:** Documentary planning is a dedicated provider-neutral Go service with a durable run record that exists before a native video project is created. The web wizard consumes that run state, generates native beat-level OpenPost items/compositions, and reuses Auno Motion, project persistence, Media Library, and editor ownership semantics. Vox Style is exposed in UI while its runtime ID remains `documentary-paper-collage`; all long-form media enrichment is optional and degraded-mode safe.
+**Architecture:** Documentary planning is a dedicated provider-neutral Go service with a durable run record that exists before a native video project is created. The web wizard consumes that run state, generates native beat-level dopost items/compositions, and reuses dopost Motion, project persistence, Media Library, and editor ownership semantics. Vox Style is exposed in UI while its runtime ID remains `documentary-paper-collage`; all long-form media enrichment is optional and degraded-mode safe.
 
-**Tech Stack:** Go 1.26.6, Echo/Huma/Bun ORM, SQLite/PostgreSQL, Svelte 5/SvelteKit, TypeScript, Bun, Vitest, Playwright Chromium, `@auno/motion`, OpenPost Video Editor native `TimelineItem`/`SubComposition` structures, local/cloud project storage, provider-neutral `ai.Generator`, existing local TTS and ACE-Step music seams.
+**Tech Stack:** Go 1.26.6, Echo/Huma/Bun ORM, SQLite/PostgreSQL, Svelte 5/SvelteKit, TypeScript, Bun, Vitest, Playwright Chromium, `@dopost/motion`, dopost Video Editor native `TimelineItem`/`SubComposition` structures, local/cloud project storage, provider-neutral `ai.Generator`, existing local TTS and ACE-Step music seams.
 
 **Spec:** `docs/superpowers/specs/2026-09-15-vox-long-form-documentary-design.md`
 
@@ -18,8 +18,8 @@
 - V1 Documentary Long-form defaults to `1920x1080`, `16:9`, and the existing project FPS default.
 - Allowed V1 documentary durations are exactly `30`, `60`, `120`, `180`, and `300` seconds.
 - Existing short-form server validation remains `10..180` seconds and the existing five short-form formats remain unchanged.
-- AI generation must end as editable native OpenPost project state wherever possible; do not make opaque MP4 scenes the authoritative project representation.
-- Complex generated motion uses existing OpenPost `composition` items and `SubComposition` with editable controls; do not add a new timeline item kind.
+- AI generation must end as editable native dopost project state wherever possible; do not make opaque MP4 scenes the authoritative project representation.
+- Complex generated motion uses existing dopost `composition` items and `SubComposition` with editable controls; do not add a new timeline item kind.
 - Source material is untrusted data and never overrides system/planner instructions.
 - The workflow must remain usable with text planning only; TTS, image generation, video generation, and music are optional enrichments.
 - No paid external AI/media API is called from browser E2E tests; use deterministic fixtures/adapters.
@@ -29,7 +29,7 @@
 - Motion regeneration changes only motion-owned structures and preserves voice, captions, music, manually edited non-motion items, and unrelated scenes.
 - Preview/export comparison happens before codec encoding whenever codec output prevents exact pixel equality.
 - Visual QA reports measurable failures only; it does not pretend to score subjective aesthetics.
-- Keep OpenPost AGPL obligations and Bang Motion MIT attribution intact.
+- Keep dopost AGPL obligations and Bang Motion MIT attribution intact.
 - Follow red → green → refactor. No production behavior change is added before a focused failing regression test.
 - Do not tag stable `2.0.0` or declare `2.0.0-rc.1` ready until all release gates in Task 20 are green and evidence is recorded.
 
@@ -51,15 +51,15 @@ apps/server/internal/services/documentary/
 apps/server/internal/api/handlers/
   auto_video_documentary.go  authenticated Huma routes; media/source resolution
 
-apps/web/src/lib/auno/documentary/
+apps/web/src/lib/dopost/documentary/
   types.ts             browser contract
   api.ts               typed request helpers
   state.ts             local run editor state and stale-step helpers
-  compiler.ts          native OpenPost project compiler
+  compiler.ts          native dopost project compiler
   enrichment.ts        long-form voice/caption/media enrichment
   beat-window.ts       bounded rendering window for 100+ beats
 
-apps/web/src/lib/components/auno-documentary/
+apps/web/src/lib/components/dopost-documentary/
   documentary-wizard.svelte
   documentary-step-nav.svelte
   documentary-ideas.svelte
@@ -68,14 +68,14 @@ apps/web/src/lib/components/auno-documentary/
   documentary-prompt-pack.svelte
   documentary-thumbnails.svelte
 
-packages/auno-motion/src/
+packages/dopost-motion/src/
   documentary-paper-collage.ts  Vox-style deterministic behavior
 
-apps/web/src/lib/auno/motion/
+apps/web/src/lib/dopost/motion/
   runtime-probe.ts       preview/export frame measurement contract
   runtime-visual-qa.ts   runtime canvas/DOM measurements
 
-tests/app/auno/
+tests/app/dopost/
   deterministic browser fixtures and E2E gates
 ```
 
@@ -84,13 +84,15 @@ tests/app/auno/
 ## Task 1: Complete the Phase 4 deterministic preview/export probe contract
 
 **Files:**
-- Create: `apps/web/src/lib/auno/motion/frame-probe.test.ts`
-- Create: `apps/web/src/lib/auno/motion/runtime-probe.ts`
-- Create: `apps/web/src/lib/auno/motion/runtime-probe.test.ts`
+
+- Create: `apps/web/src/lib/dopost/motion/frame-probe.test.ts`
+- Create: `apps/web/src/lib/dopost/motion/runtime-probe.ts`
+- Create: `apps/web/src/lib/dopost/motion/runtime-probe.test.ts`
 - Modify: `apps/web/src/lib/video-editor/preview/capture-frame.ts`
 - Modify: the existing export frame-render owner under `apps/web/src/lib/video-editor/export/` after locating the single pre-encode frame function
 
 **Interfaces:**
+
 - Consumes: `MotionProbePlan`, `frameProbeFrames(totalFrames)`, editor seek state, preview canvas, and export pre-encode canvas/image bitmap.
 - Produces:
   - `type FramePixelProbe = { frame: number; width: number; height: number; rgba: Uint8ClampedArray }`
@@ -101,20 +103,24 @@ tests/app/auno/
 - [ ] **Step 1: Write pure probe and pixel-diff tests**
 
 ```ts
-import { describe, expect, it } from 'vitest';
-import { frameProbeFrames } from '@auno/motion';
-import { compareFramePixelProbes } from './runtime-probe';
+import { describe, expect, it } from "vitest";
+import { frameProbeFrames } from "@dopost/motion";
+import { compareFramePixelProbes } from "./runtime-probe";
 
-describe('motion frame probes', () => {
-  it('uses 0/25/50/75/last for a 10 second 30 fps project', () => {
+describe("motion frame probes", () => {
+  it("uses 0/25/50/75/last for a 10 second 30 fps project", () => {
     expect(frameProbeFrames(300)).toEqual([0, 75, 150, 225, 299]);
   });
 
-  it('reports exact equality for identical pre-encode pixels', () => {
+  it("reports exact equality for identical pre-encode pixels", () => {
     const rgba = new Uint8ClampedArray([0, 0, 0, 255, 255, 255, 255, 255]);
     const a = { frame: 75, width: 2, height: 1, rgba };
     const b = { frame: 75, width: 2, height: 1, rgba: new Uint8ClampedArray(rgba) };
-    expect(compareFramePixelProbes(a, b, 0)).toEqual({ changedPixels: 0, maxChannelDelta: 0, ratio: 0 });
+    expect(compareFramePixelProbes(a, b, 0)).toEqual({
+      changedPixels: 0,
+      maxChannelDelta: 0,
+      ratio: 0,
+    });
   });
 });
 ```
@@ -124,7 +130,7 @@ describe('motion frame probes', () => {
 Run:
 
 ```bash
-bun --cwd apps/web x vitest run src/lib/auno/motion/frame-probe.test.ts src/lib/auno/motion/runtime-probe.test.ts
+bun --cwd apps/web x vitest run src/lib/dopost/motion/frame-probe.test.ts src/lib/dopost/motion/runtime-probe.test.ts
 ```
 
 Expected: FAIL because `runtime-probe.ts` and pixel comparison do not exist.
@@ -146,13 +152,13 @@ export interface FramePixelDiff {
 }
 
 export function captureCanvasProbe(canvas: HTMLCanvasElement, frame: number): FramePixelProbe {
-  const context = canvas.getContext('2d', { willReadFrequently: true });
-  if (!context) throw new Error('2D preview canvas is unavailable');
+  const context = canvas.getContext("2d", { willReadFrequently: true });
+  if (!context) throw new Error("2D preview canvas is unavailable");
   return {
     frame,
     width: canvas.width,
     height: canvas.height,
-    rgba: context.getImageData(0, 0, canvas.width, canvas.height).data
+    rgba: context.getImageData(0, 0, canvas.width, canvas.height).data,
   };
 }
 ```
@@ -170,7 +176,7 @@ The hook is accepted only by the existing test/debug render entry point; product
 - [ ] **Step 4: Re-run focused tests and frontend check**
 
 ```bash
-bun --cwd apps/web x vitest run src/lib/auno/motion/frame-probe.test.ts src/lib/auno/motion/runtime-probe.test.ts src/lib/video-editor/preview/capture-frame.test.ts
+bun --cwd apps/web x vitest run src/lib/dopost/motion/frame-probe.test.ts src/lib/dopost/motion/runtime-probe.test.ts src/lib/video-editor/preview/capture-frame.test.ts
 bun run check -- frontend
 ```
 
@@ -179,7 +185,7 @@ Expected: PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add apps/web/src/lib/auno/motion/frame-probe.test.ts apps/web/src/lib/auno/motion/runtime-probe.ts apps/web/src/lib/auno/motion/runtime-probe.test.ts apps/web/src/lib/video-editor/preview/capture-frame.ts apps/web/src/lib/video-editor/export
+git add apps/web/src/lib/dopost/motion/frame-probe.test.ts apps/web/src/lib/dopost/motion/runtime-probe.ts apps/web/src/lib/dopost/motion/runtime-probe.test.ts apps/web/src/lib/video-editor/preview/capture-frame.ts apps/web/src/lib/video-editor/export
 git commit -m "test: add deterministic preview export probe hooks"
 ```
 
@@ -188,12 +194,14 @@ git commit -m "test: add deterministic preview export probe hooks"
 ## Task 2: Add runtime visual-QA measurements and merge them with static QA
 
 **Files:**
-- Create: `apps/web/src/lib/auno/motion/runtime-visual-qa.ts`
-- Create: `apps/web/src/lib/auno/motion/runtime-visual-qa.test.ts`
-- Modify: `apps/web/src/lib/auno/motion/visual-qa.ts`
-- Create: `apps/web/src/lib/auno/motion/visual-qa.test.ts`
+
+- Create: `apps/web/src/lib/dopost/motion/runtime-visual-qa.ts`
+- Create: `apps/web/src/lib/dopost/motion/runtime-visual-qa.test.ts`
+- Modify: `apps/web/src/lib/dopost/motion/visual-qa.ts`
+- Create: `apps/web/src/lib/dopost/motion/visual-qa.test.ts`
 
 **Interfaces:**
+
 - Consumes: authored static diagnostics plus runtime visible bounds, text rectangles, required subject IDs, sampled foreground/background colors, composition status, asset readiness.
 - Produces:
   - `RuntimeVisualMeasurement`
@@ -203,36 +211,36 @@ git commit -m "test: add deterministic preview export probe hooks"
 - [ ] **Step 1: Write failing measurable-runtime tests**
 
 ```ts
-it('reports a required subject that is not visible at the probe frame', () => {
+it("reports a required subject that is not visible at the probe frame", () => {
   const issues = measureRuntimeVisualQA({
-    sceneId: 'beat-7',
+    sceneId: "beat-7",
     stage: { x: 0, y: 0, width: 1920, height: 1080 },
     visibleItems: [],
-    requiredSubjectIds: ['subject-doc'],
+    requiredSubjectIds: ["subject-doc"],
     textRects: [],
-    assets: []
+    assets: [],
   });
-  expect(issues.map((issue) => issue.code)).toContain('visual.missing_subject');
+  expect(issues.map((issue) => issue.code)).toContain("visual.missing_subject");
 });
 
-it('reports low contrast only from measured colors', () => {
+it("reports low contrast only from measured colors", () => {
   const issues = measureRuntimeVisualQA({
-    sceneId: 'beat-2',
+    sceneId: "beat-2",
     stage: { x: 0, y: 0, width: 1920, height: 1080 },
-    visibleItems: ['label'],
+    visibleItems: ["label"],
     requiredSubjectIds: [],
     textRects: [],
     assets: [],
-    contrastSamples: [{ itemId: 'label', foreground: '#777777', background: '#808080' }]
+    contrastSamples: [{ itemId: "label", foreground: "#777777", background: "#808080" }],
   });
-  expect(issues.map((issue) => issue.code)).toContain('visual.low_contrast');
+  expect(issues.map((issue) => issue.code)).toContain("visual.low_contrast");
 });
 ```
 
 - [ ] **Step 2: Confirm red**
 
 ```bash
-bun --cwd apps/web x vitest run src/lib/auno/motion/runtime-visual-qa.test.ts src/lib/auno/motion/visual-qa.test.ts
+bun --cwd apps/web x vitest run src/lib/dopost/motion/runtime-visual-qa.test.ts src/lib/dopost/motion/visual-qa.test.ts
 ```
 
 Expected: FAIL because runtime measurement API does not exist.
@@ -244,7 +252,7 @@ Use WCAG relative luminance for a measured text/background pair and flag contras
 - [ ] **Step 4: Verify focused QA tests**
 
 ```bash
-bun --cwd apps/web x vitest run src/lib/auno/motion/runtime-visual-qa.test.ts src/lib/auno/motion/visual-qa.test.ts
+bun --cwd apps/web x vitest run src/lib/dopost/motion/runtime-visual-qa.test.ts src/lib/dopost/motion/visual-qa.test.ts
 bun run check -- frontend
 ```
 
@@ -253,7 +261,7 @@ Expected: PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add apps/web/src/lib/auno/motion/runtime-visual-qa.ts apps/web/src/lib/auno/motion/runtime-visual-qa.test.ts apps/web/src/lib/auno/motion/visual-qa.ts apps/web/src/lib/auno/motion/visual-qa.test.ts
+git add apps/web/src/lib/dopost/motion/runtime-visual-qa.ts apps/web/src/lib/dopost/motion/runtime-visual-qa.test.ts apps/web/src/lib/dopost/motion/visual-qa.ts apps/web/src/lib/dopost/motion/visual-qa.test.ts
 git commit -m "test: add runtime motion visual measurements"
 ```
 
@@ -262,6 +270,7 @@ git commit -m "test: add runtime motion visual measurements"
 ## Task 3: Define the documentary domain, duration contract, and stable dependency fingerprints
 
 **Files:**
+
 - Create: `apps/server/internal/services/documentary/types.go`
 - Create: `apps/server/internal/services/documentary/validation.go`
 - Create: `apps/server/internal/services/documentary/dependencies.go`
@@ -269,6 +278,7 @@ git commit -m "test: add runtime motion visual measurements"
 - Create: `apps/server/internal/services/documentary/dependencies_test.go`
 
 **Interfaces:**
+
 - Produces constants `ModeDocumentaryLongForm`, `StyleDocumentaryPaperCollage`, `SchemaVersion = 1`.
 - Produces `Run`, `Idea`, `Script`, `Beat`, `VisualPlan`, `ThumbnailPlan`, `VoiceManifest`, `StepState`, and stable `Fingerprint(parts ...string) string`.
 - Produces `ValidateDuration(seconds int) error` accepting only `30,60,120,180,300`.
@@ -344,13 +354,15 @@ git commit -m "feat: define long form documentary domain"
 ## Task 4: Persist documentary runs before native project creation
 
 **Files:**
+
 - Create: `apps/server/internal/database/migrations/9001_auno_documentary_runs.sql`
-- Create: `apps/server/internal/models/auno_documentary.go`
+- Create: `apps/server/internal/models/dopost_documentary.go`
 - Create: `apps/server/internal/services/documentary/state.go`
 - Create: `apps/server/internal/services/documentary/state_test.go`
 - Modify: `apps/server/internal/database/migrations/migrations_test.go`
 
 **Interfaces:**
+
 - Produces `type Store struct` with `Create`, `Get`, `Upsert`, `Delete`, `AttachProject`.
 - Documentary run ID is independent of `video_projects.id`; `project_id` is nullable and uses `ON DELETE SET NULL`.
 
@@ -400,7 +412,7 @@ Expected: PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add apps/server/internal/database/migrations/9001_auno_documentary_runs.sql apps/server/internal/models/auno_documentary.go apps/server/internal/services/documentary/state.go apps/server/internal/services/documentary/state_test.go apps/server/internal/database/migrations/migrations_test.go
+git add apps/server/internal/database/migrations/9001_auno_documentary_runs.sql apps/server/internal/models/dopost_documentary.go apps/server/internal/services/documentary/state.go apps/server/internal/services/documentary/state_test.go apps/server/internal/database/migrations/migrations_test.go
 git commit -m "feat: persist documentary generation runs"
 ```
 
@@ -409,21 +421,23 @@ git commit -m "feat: persist documentary generation runs"
 ## Task 5: Add the provider-neutral documentary planner facade and API routes
 
 **Files:**
+
 - Create: `apps/server/internal/services/documentary/planner.go`
 - Create: `apps/server/internal/api/handlers/auto_video_documentary.go`
 - Create: `apps/server/internal/api/handlers/auto_video_documentary_test.go`
 - Modify: `apps/server/internal/api/routes.go`
-- Modify: `apps/server/cmd/openpost/auno_ai_routing.go`
+- Modify: `apps/server/cmd/openpost/dopost_ai_routing.go`
 - Modify: `apps/server/cmd/openpost/main.go`
 
 **Interfaces:**
+
 - `documentary.Planner` methods: `GenerateIdeas`, `GenerateScript`, `GenerateBeats`, `GenerateVisuals`, `GenerateThumbnails`.
-- Routes under `/auno/auto-video/documentary/runs`.
+- Routes under `/dopost/auto-video/documentary/runs`.
 - Reuses existing workspace edit authorization, `sourcecontext.Loader`, `resolveAutoVideoMediaSource`, `mediastore.BlobStorage`, and the same Gemini/OpenRouter selection policy as short-form Auto Video.
 
 - [ ] **Step 1: Write route contract tests**
 
-Assert unauthenticated requests are rejected, workspace edit access is required, a run can be created with no source, and `target_duration_seconds: 300` is accepted for documentary create/update while existing short-form `/auno/auto-video/storyboard` still rejects values above 180.
+Assert unauthenticated requests are rejected, workspace edit access is required, a run can be created with no source, and `target_duration_seconds: 300` is accepted for documentary create/update while existing short-form `/dopost/auto-video/storyboard` still rejects values above 180.
 
 - [ ] **Step 2: Confirm red**
 
@@ -448,18 +462,18 @@ type Planner interface {
 Register:
 
 ```text
-POST   /auno/auto-video/documentary/runs
-GET    /auno/auto-video/documentary/runs/{run_id}
-PUT    /auno/auto-video/documentary/runs/{run_id}
-DELETE /auno/auto-video/documentary/runs/{run_id}
-POST   /auno/auto-video/documentary/runs/{run_id}/ideas
-POST   /auno/auto-video/documentary/runs/{run_id}/script
-POST   /auno/auto-video/documentary/runs/{run_id}/beats
-POST   /auno/auto-video/documentary/runs/{run_id}/visuals
-POST   /auno/auto-video/documentary/runs/{run_id}/thumbnails
+POST   /dopost/auto-video/documentary/runs
+GET    /dopost/auto-video/documentary/runs/{run_id}
+PUT    /dopost/auto-video/documentary/runs/{run_id}
+DELETE /dopost/auto-video/documentary/runs/{run_id}
+POST   /dopost/auto-video/documentary/runs/{run_id}/ideas
+POST   /dopost/auto-video/documentary/runs/{run_id}/script
+POST   /dopost/auto-video/documentary/runs/{run_id}/beats
+POST   /dopost/auto-video/documentary/runs/{run_id}/visuals
+POST   /dopost/auto-video/documentary/runs/{run_id}/thumbnails
 ```
 
-If the run has a media source, resolve it through the existing same-package `resolveAutoVideoMediaSource`; if source is omitted, pass no multimodal parts. Add `DocumentaryPlanner documentary.Planner` to `RouteDeps` and initialize it from the same provider/model selected by `aunoAutoVideoPlanner` without introducing a second credential path.
+If the run has a media source, resolve it through the existing same-package `resolveAutoVideoMediaSource`; if source is omitted, pass no multimodal parts. Add `DocumentaryPlanner documentary.Planner` to `RouteDeps` and initialize it from the same provider/model selected by `dopostAutoVideoPlanner` without introducing a second credential path.
 
 - [ ] **Step 4: Verify handler and generated contract boundary**
 
@@ -473,7 +487,7 @@ Expected: PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add apps/server/internal/services/documentary/planner.go apps/server/internal/api/handlers/auto_video_documentary.go apps/server/internal/api/handlers/auto_video_documentary_test.go apps/server/internal/api/routes.go apps/server/cmd/openpost/auno_ai_routing.go apps/server/cmd/openpost/main.go apps/web/openapi.json packages/api-contract/src/schema.d.ts
+git add apps/server/internal/services/documentary/planner.go apps/server/internal/api/handlers/auto_video_documentary.go apps/server/internal/api/handlers/auto_video_documentary_test.go apps/server/internal/api/routes.go apps/server/cmd/openpost/dopost_ai_routing.go apps/server/cmd/openpost/main.go apps/web/openapi.json packages/api-contract/src/schema.d.ts
 git commit -m "feat: expose documentary generation API"
 ```
 
@@ -482,10 +496,12 @@ git commit -m "feat: expose documentary generation API"
 ## Task 6: Generate exactly ten distinct documentary ideas
 
 **Files:**
+
 - Create: `apps/server/internal/services/documentary/ideas.go`
 - Create: `apps/server/internal/services/documentary/ideas_test.go`
 
 **Interfaces:**
+
 - Consumes `IdeasInput{RunID, Language, Niche, CustomTopic, Source, Parts}`.
 - Produces `IdeasResult{Ideas []Idea, Model string}` with exactly 10 normalized ideas.
 
@@ -520,10 +536,10 @@ The response schema is:
         "required": ["title", "hook", "subterritory", "evidence_anchors"],
         "additionalProperties": false,
         "properties": {
-          "title": {"type": "string"},
-          "hook": {"type": "string"},
-          "subterritory": {"type": "string"},
-          "evidence_anchors": {"type": "array", "items": {"type": "string"}, "maxItems": 8}
+          "title": { "type": "string" },
+          "hook": { "type": "string" },
+          "subterritory": { "type": "string" },
+          "evidence_anchors": { "type": "array", "items": { "type": "string" }, "maxItems": 8 }
         }
       }
     }
@@ -553,10 +569,12 @@ git commit -m "feat: generate documentary idea candidates"
 ## Task 7: Generate and validate continuous documentary scripts
 
 **Files:**
+
 - Create: `apps/server/internal/services/documentary/script.go`
 - Create: `apps/server/internal/services/documentary/script_test.go`
 
 **Interfaces:**
+
 - Consumes selected idea/topic, approved duration, language, source evidence and multimodal parts.
 - Produces `Script{Text, WordCount, TargetWordCount, EvidenceRefs, Fingerprint}`.
 
@@ -598,12 +616,14 @@ git commit -m "feat: generate documentary narration scripts"
 ## Task 8: Segment scripts into stable 2–3 second beats and invalidate downstream state correctly
 
 **Files:**
+
 - Create: `apps/server/internal/services/documentary/beats.go`
 - Create: `apps/server/internal/services/documentary/beats_test.go`
 - Modify: `apps/server/internal/services/documentary/dependencies.go`
 - Modify: `apps/server/internal/services/documentary/dependencies_test.go`
 
 **Interfaces:**
+
 - Produces stable beat IDs and cumulative estimated timings.
 - Produces `InvalidateFrom(run *Run, changed Step) Run` that marks only dependent downstream outputs stale.
 
@@ -646,6 +666,7 @@ git commit -m "feat: segment documentary narration into beats"
 ## Task 9: Generate visual plans, animation briefs, prompt packs, and three thumbnails
 
 **Files:**
+
 - Create: `apps/server/internal/services/documentary/visuals.go`
 - Create: `apps/server/internal/services/documentary/visuals_test.go`
 - Create: `apps/server/internal/services/documentary/thumbnails.go`
@@ -654,6 +675,7 @@ git commit -m "feat: segment documentary narration into beats"
 - Create: `apps/server/internal/services/documentary/promptpack_test.go`
 
 **Interfaces:**
+
 - `DocumentaryVisualIntent` accepts exactly the approved intent catalog.
 - Each `VisualPlan` has hero description, up to three supports, optional short label, prompt, `RequiredSubjectIDs`, optional `MediaID`, and structured `AnimationBrief`.
 - `SerializePromptPack(plans []VisualPlan) string` returns independent blocks separated by one blank line.
@@ -669,7 +691,7 @@ Assert invalid visual intent is rejected, support count >3 is rejected, labels o
 cd apps/server && go test ./internal/services/documentary -run 'Visual|PromptPack|Thumbnail' -v
 ```
 
-- [ ] **Step 3: Implement original Auno structured prompts**
+- [ ] **Step 3: Implement original dopost structured prompts**
 
 Use the approved palette/material language as structured constraints, not copied long prompt prose. `AnimationBrief` fields:
 
@@ -703,14 +725,16 @@ git commit -m "feat: plan documentary visuals and thumbnails"
 ## Task 10: Add browser documentary contracts, API client, and stale-state model
 
 **Files:**
-- Create: `apps/web/src/lib/auno/documentary/types.ts`
-- Create: `apps/web/src/lib/auno/documentary/api.ts`
-- Create: `apps/web/src/lib/auno/documentary/state.ts`
-- Create: `apps/web/src/lib/auno/documentary/state.test.ts`
-- Modify: `apps/web/src/lib/auno/auto-video/types.ts`
+
+- Create: `apps/web/src/lib/dopost/documentary/types.ts`
+- Create: `apps/web/src/lib/dopost/documentary/api.ts`
+- Create: `apps/web/src/lib/dopost/documentary/state.ts`
+- Create: `apps/web/src/lib/dopost/documentary/state.test.ts`
+- Modify: `apps/web/src/lib/dopost/auto-video/types.ts`
 
 **Interfaces:**
-- Browser types mirror server JSON without redefining OpenPost project types.
+
+- Browser types mirror server JSON without redefining dopost project types.
 - Adds internal Auto Video storyboard format `'documentary'` for editor sidecar interoperability while keeping short-form selector types separate.
 - Produces `DocumentaryRunEditor` pure state helpers and `documentaryRunToMotionScenes(run)`.
 
@@ -721,7 +745,7 @@ Assert a reloaded run preserves current step/selected idea, changing script mark
 - [ ] **Step 2: Confirm red**
 
 ```bash
-bun --cwd apps/web x vitest run src/lib/auno/documentary/state.test.ts
+bun --cwd apps/web x vitest run src/lib/dopost/documentary/state.test.ts
 ```
 
 - [ ] **Step 3: Implement browser types and API calls**
@@ -729,14 +753,14 @@ bun --cwd apps/web x vitest run src/lib/auno/documentary/state.test.ts
 Use generated API contract types where available. `api.ts` exposes:
 
 ```ts
-createDocumentaryRun(input)
-getDocumentaryRun(workspaceId, runId)
-updateDocumentaryRun(input)
-generateDocumentaryIdeas(workspaceId, runId)
-generateDocumentaryScript(workspaceId, runId)
-generateDocumentaryBeats(workspaceId, runId)
-generateDocumentaryVisuals(workspaceId, runId)
-generateDocumentaryThumbnails(workspaceId, runId)
+createDocumentaryRun(input);
+getDocumentaryRun(workspaceId, runId);
+updateDocumentaryRun(input);
+generateDocumentaryIdeas(workspaceId, runId);
+generateDocumentaryScript(workspaceId, runId);
+generateDocumentaryBeats(workspaceId, runId);
+generateDocumentaryVisuals(workspaceId, runId);
+generateDocumentaryThumbnails(workspaceId, runId);
 ```
 
 Do not store credentials or provider secrets in browser state.
@@ -744,14 +768,14 @@ Do not store credentials or provider secrets in browser state.
 - [ ] **Step 4: Verify**
 
 ```bash
-bun --cwd apps/web x vitest run src/lib/auno/documentary/state.test.ts
+bun --cwd apps/web x vitest run src/lib/dopost/documentary/state.test.ts
 bun run check -- frontend
 ```
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add apps/web/src/lib/auno/documentary apps/web/src/lib/auno/auto-video/types.ts
+git add apps/web/src/lib/dopost/documentary apps/web/src/lib/dopost/auto-video/types.ts
 git commit -m "feat: add documentary browser state contracts"
 ```
 
@@ -760,17 +784,19 @@ git commit -m "feat: add documentary browser state contracts"
 ## Task 11: Add Documentary Long-form mode and modular wizard UI
 
 **Files:**
-- Create: `apps/web/src/lib/components/auno-documentary/documentary-wizard.svelte`
-- Create: `apps/web/src/lib/components/auno-documentary/documentary-step-nav.svelte`
-- Create: `apps/web/src/lib/components/auno-documentary/documentary-ideas.svelte`
-- Create: `apps/web/src/lib/components/auno-documentary/documentary-script.svelte`
-- Create: `apps/web/src/lib/components/auno-documentary/documentary-prompt-pack.svelte`
-- Create: `apps/web/src/lib/components/auno-documentary/documentary-thumbnails.svelte`
-- Create: `apps/web/src/lib/auno/documentary/wizard-model.ts`
-- Create: `apps/web/src/lib/auno/documentary/wizard-model.test.ts`
+
+- Create: `apps/web/src/lib/components/dopost-documentary/documentary-wizard.svelte`
+- Create: `apps/web/src/lib/components/dopost-documentary/documentary-step-nav.svelte`
+- Create: `apps/web/src/lib/components/dopost-documentary/documentary-ideas.svelte`
+- Create: `apps/web/src/lib/components/dopost-documentary/documentary-script.svelte`
+- Create: `apps/web/src/lib/components/dopost-documentary/documentary-prompt-pack.svelte`
+- Create: `apps/web/src/lib/components/dopost-documentary/documentary-thumbnails.svelte`
+- Create: `apps/web/src/lib/dopost/documentary/wizard-model.ts`
+- Create: `apps/web/src/lib/dopost/documentary/wizard-model.test.ts`
 - Modify: `apps/web/src/routes/auto-video/+page.svelte`
 
 **Interfaces:**
+
 - `Auto Video` mode selector: `short-form | documentary-long-form`.
 - Documentary defaults: landscape canvas, Vox Style, English US, duration 60 unless user selects another approved preset.
 - Wizard resumes a durable run by run ID.
@@ -782,7 +808,7 @@ Assert documentary mode selects `landscape`, `documentary-paper-collage`, and al
 - [ ] **Step 2: Confirm red**
 
 ```bash
-bun --cwd apps/web x vitest run src/lib/auno/documentary/wizard-model.test.ts
+bun --cwd apps/web x vitest run src/lib/dopost/documentary/wizard-model.test.ts
 ```
 
 - [ ] **Step 3: Implement wizard and isolate existing short-form UI**
@@ -803,7 +829,7 @@ Documentary source is optional. Its source picker reuses the existing 25 MB Medi
 - [ ] **Step 4: Verify UI model and frontend checks**
 
 ```bash
-bun --cwd apps/web x vitest run src/lib/auno/documentary/wizard-model.test.ts
+bun --cwd apps/web x vitest run src/lib/dopost/documentary/wizard-model.test.ts
 bun run check -- frontend
 bun run check -- ui-consistency
 ```
@@ -811,7 +837,7 @@ bun run check -- ui-consistency
 - [ ] **Step 5: Commit**
 
 ```bash
-git add apps/web/src/lib/components/auno-documentary apps/web/src/lib/auno/documentary/wizard-model.ts apps/web/src/lib/auno/documentary/wizard-model.test.ts apps/web/src/routes/auto-video/+page.svelte
+git add apps/web/src/lib/components/dopost-documentary apps/web/src/lib/dopost/documentary/wizard-model.ts apps/web/src/lib/dopost/documentary/wizard-model.test.ts apps/web/src/routes/auto-video/+page.svelte
 git commit -m "feat: add long form documentary wizard"
 ```
 
@@ -820,19 +846,21 @@ git commit -m "feat: add long form documentary wizard"
 ## Task 12: Add the beat editor with bounded rendering for 100+ beats
 
 **Files:**
-- Create: `apps/web/src/lib/auno/documentary/beat-window.ts`
-- Create: `apps/web/src/lib/auno/documentary/beat-window.test.ts`
-- Create: `apps/web/src/lib/components/auno-documentary/documentary-beat-editor.svelte`
-- Create: `apps/web/src/lib/auno/documentary/fixtures.ts`
+
+- Create: `apps/web/src/lib/dopost/documentary/beat-window.ts`
+- Create: `apps/web/src/lib/dopost/documentary/beat-window.test.ts`
+- Create: `apps/web/src/lib/components/dopost-documentary/documentary-beat-editor.svelte`
+- Create: `apps/web/src/lib/dopost/documentary/fixtures.ts`
 
 **Interfaces:**
+
 - `visibleBeatWindow(total, anchor, radius=18)` returns a stable `[start,end)` with at most 37 rows for normal radius.
 - Beat editor supports edit narration, split, merge with adjacent, change visual intent, replace media ID, regenerate one visual plan.
 
 - [ ] **Step 1: Write failing 120-beat tests**
 
 ```ts
-it('bounds a 120 beat project to a small rendering window', () => {
+it("bounds a 120 beat project to a small rendering window", () => {
   expect(visibleBeatWindow(120, 60, 18)).toEqual({ start: 42, end: 79 });
   expect(79 - 42).toBeLessThanOrEqual(37);
 });
@@ -843,7 +871,7 @@ Also assert split preserves total duration and merge preserves start/end range.
 - [ ] **Step 2: Confirm red**
 
 ```bash
-bun --cwd apps/web x vitest run src/lib/auno/documentary/beat-window.test.ts
+bun --cwd apps/web x vitest run src/lib/dopost/documentary/beat-window.test.ts
 ```
 
 - [ ] **Step 3: Implement the beat editor**
@@ -853,32 +881,34 @@ Render only the computed window plus top/bottom spacers. Use stable beat IDs as 
 - [ ] **Step 4: Verify**
 
 ```bash
-bun --cwd apps/web x vitest run src/lib/auno/documentary/beat-window.test.ts
+bun --cwd apps/web x vitest run src/lib/dopost/documentary/beat-window.test.ts
 bun run check -- frontend
 ```
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add apps/web/src/lib/auno/documentary/beat-window.ts apps/web/src/lib/auno/documentary/beat-window.test.ts apps/web/src/lib/auno/documentary/fixtures.ts apps/web/src/lib/components/auno-documentary/documentary-beat-editor.svelte
+git add apps/web/src/lib/dopost/documentary/beat-window.ts apps/web/src/lib/dopost/documentary/beat-window.test.ts apps/web/src/lib/dopost/documentary/fixtures.ts apps/web/src/lib/components/dopost-documentary/documentary-beat-editor.svelte
 git commit -m "feat: add scalable documentary beat editor"
 ```
 
 ---
 
-## Task 13: Add the tenth Auno Motion Style and deterministic paper-motion primitives
+## Task 13: Add the tenth dopost Motion Style and deterministic paper-motion primitives
 
 **Files:**
-- Modify: `packages/auno-motion/src/types.ts`
-- Modify: `packages/auno-motion/src/styles.ts`
-- Modify: `packages/auno-motion/src/planner.ts`
-- Modify: `packages/auno-motion/src/recommend.ts`
-- Modify: `packages/auno-motion/src/index.ts`
-- Create: `packages/auno-motion/src/documentary-paper-collage.ts`
-- Create: `packages/auno-motion/src/documentary-paper-collage.test.ts`
-- Create: `packages/auno-motion/src/determinism-guard.test.ts`
+
+- Modify: `packages/dopost-motion/src/types.ts`
+- Modify: `packages/dopost-motion/src/styles.ts`
+- Modify: `packages/dopost-motion/src/planner.ts`
+- Modify: `packages/dopost-motion/src/recommend.ts`
+- Modify: `packages/dopost-motion/src/index.ts`
+- Create: `packages/dopost-motion/src/documentary-paper-collage.ts`
+- Create: `packages/dopost-motion/src/documentary-paper-collage.test.ts`
+- Create: `packages/dopost-motion/src/determinism-guard.test.ts`
 
 **Interfaces:**
+
 - Adds style ID `documentary-paper-collage`, UI label `Vox Style`.
 - Produces pure primitives `paperSlideAt`, `paperDropSettleAt`, `stampHitAt`, `pinPopAt`, `labelStripAt`, `stringDrawAt`, `markerUnderlineAt`, `arrowDrawAt`, `paperCornerLiftAt`, `shadowBreatheAt`, `halftoneFlickerAt`.
 
@@ -886,12 +916,12 @@ git commit -m "feat: add scalable documentary beat editor"
 
 Assert style catalog now has exactly 10 IDs; Vox default camera has `xTravel <= 0.004`, `yTravel <= 0.004`, `rotationDegrees <= 0.1`, transition language only hard-cut/crossfade, and every primitive returns the same value for the same seed/element/time regardless of call order.
 
-Static guard reads production files under `packages/auno-motion/src` and fails on `Math.random(`, `Date.now(`, or `performance.now(` outside tests.
+Static guard reads production files under `packages/dopost-motion/src` and fails on `Math.random(`, `Date.now(`, or `performance.now(` outside tests.
 
 - [ ] **Step 2: Confirm red**
 
 ```bash
-bun test packages/auno-motion/src/documentary-paper-collage.test.ts packages/auno-motion/src/determinism-guard.test.ts
+bun test packages/dopost-motion/src/documentary-paper-collage.test.ts packages/dopost-motion/src/determinism-guard.test.ts
 ```
 
 - [ ] **Step 3: Implement the style and quantized motion**
@@ -916,14 +946,14 @@ Add a planner refinement for Vox that keeps camera locked by default and places 
 - [ ] **Step 4: Verify**
 
 ```bash
-bun test packages/auno-motion/src/documentary-paper-collage.test.ts packages/auno-motion/src/determinism-guard.test.ts
+bun test packages/dopost-motion/src/documentary-paper-collage.test.ts packages/dopost-motion/src/determinism-guard.test.ts
 bun run check -- frontend
 ```
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add packages/auno-motion/src
+git add packages/dopost-motion/src
 git commit -m "feat: add documentary paper collage motion style"
 ```
 
@@ -932,14 +962,16 @@ git commit -m "feat: add documentary paper collage motion style"
 ## Task 14: Add functional Vox Motion Composition controls and fix composition authoring labels
 
 **Files:**
+
 - Modify: `apps/web/src/lib/video-editor/project/types.ts`
 - Modify: `apps/web/src/lib/video-editor/sequences/composition-controls.ts`
 - Modify: `apps/web/src/lib/video-editor/sequences/composition-controls.test.ts`
 - Modify: `apps/web/src/lib/video-editor/components/composition-controls-authoring.svelte`
-- Modify: `apps/web/src/lib/auno/motion/motion-composition.ts`
-- Create: `apps/web/src/lib/auno/motion/motion-composition.test.ts`
+- Modify: `apps/web/src/lib/dopost/motion/motion-composition.ts`
+- Create: `apps/web/src/lib/dopost/motion/motion-composition.test.ts`
 
 **Interfaces:**
+
 - Adds bounded control properties `motion.paperJitter`, `motion.shadowDepth`, `motion.holdRatio`, `motion.assemblyOrder`.
 - Existing generic override UI continues to use `number`/`select`; controls must alter resolved native subcomposition items, not be decorative metadata.
 
@@ -950,40 +982,42 @@ Create a Vox composition, apply overrides `{ 'paper-jitter':'0.2', 'shadow-depth
 - [ ] **Step 2: Confirm red**
 
 ```bash
-bun --cwd apps/web x vitest run src/lib/video-editor/sequences/composition-controls.test.ts src/lib/auno/motion/motion-composition.test.ts
+bun --cwd apps/web x vitest run src/lib/video-editor/sequences/composition-controls.test.ts src/lib/dopost/motion/motion-composition.test.ts
 ```
 
 - [ ] **Step 3: Implement control semantics**
 
-Extend `CompositionControlProperty` and its Zod enum. `paperJitter` scales only Auno paper-element x/y/rotation micro-offset tracks; `shadowDepth` scales authored shadow/opacity separation; `holdRatio` moves the final assembly keyframe to `round(duration * (1-holdRatio))`; `assemblyOrder` accepts only `back-to-front` or `hero-first` and deterministically remaps child entrance offsets.
+Extend `CompositionControlProperty` and its Zod enum. `paperJitter` scales only dopost paper-element x/y/rotation micro-offset tracks; `shadowDepth` scales authored shadow/opacity separation; `holdRatio` moves the final assembly keyframe to `round(duration * (1-holdRatio))`; `assemblyOrder` accepts only `back-to-front` or `hero-first` and deterministically remaps child entrance offsets.
 
 Fix `propertyLabel()` in `composition-controls-authoring.svelte` so it handles all existing `shape.shapeType`, `motion.intensity`, `motion.depth`, `motion.speed` plus the new properties; never return `undefined` for a published control.
 
 - [ ] **Step 4: Verify**
 
 ```bash
-bun --cwd apps/web x vitest run src/lib/video-editor/sequences/composition-controls.test.ts src/lib/auno/motion/motion-composition.test.ts
+bun --cwd apps/web x vitest run src/lib/video-editor/sequences/composition-controls.test.ts src/lib/dopost/motion/motion-composition.test.ts
 bun run check -- frontend
 ```
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add apps/web/src/lib/video-editor/project/types.ts apps/web/src/lib/video-editor/sequences/composition-controls.ts apps/web/src/lib/video-editor/sequences/composition-controls.test.ts apps/web/src/lib/video-editor/components/composition-controls-authoring.svelte apps/web/src/lib/auno/motion/motion-composition.ts apps/web/src/lib/auno/motion/motion-composition.test.ts
+git add apps/web/src/lib/video-editor/project/types.ts apps/web/src/lib/video-editor/sequences/composition-controls.ts apps/web/src/lib/video-editor/sequences/composition-controls.test.ts apps/web/src/lib/video-editor/components/composition-controls-authoring.svelte apps/web/src/lib/dopost/motion/motion-composition.ts apps/web/src/lib/dopost/motion/motion-composition.test.ts
 git commit -m "feat: expose editable Vox motion controls"
 ```
 
 ---
 
-## Task 15: Compile documentary beats and real source media into a native OpenPost project
+## Task 15: Compile documentary beats and real source media into a native dopost project
 
 **Files:**
-- Create: `apps/web/src/lib/auno/documentary/compiler.ts`
-- Create: `apps/web/src/lib/auno/documentary/compiler.test.ts`
-- Modify: `apps/web/src/lib/auno/auto-video/types.ts`
-- Modify: `apps/web/src/lib/auno/auto-video/sidecar.ts`
+
+- Create: `apps/web/src/lib/dopost/documentary/compiler.ts`
+- Create: `apps/web/src/lib/dopost/documentary/compiler.test.ts`
+- Modify: `apps/web/src/lib/dopost/auto-video/types.ts`
+- Modify: `apps/web/src/lib/dopost/auto-video/sidecar.ts`
 
 **Interfaces:**
+
 - `compileDocumentaryRunToProject(run, assets): { project, sidecar, motionGraph }`.
 - Native project uses landscape 1920×1080 and stable tracks for labels, annotations, motion, visuals, captions, voice, music.
 - Sidecar `generationGraph.documentary` stores compact `{runId, beatIds, style}` manifest.
@@ -995,7 +1029,7 @@ Build a three-beat fixture: one placeholder beat, one image media beat, one vide
 - [ ] **Step 2: Confirm red**
 
 ```bash
-bun --cwd apps/web x vitest run src/lib/auno/documentary/compiler.test.ts
+bun --cwd apps/web x vitest run src/lib/dopost/documentary/compiler.test.ts
 ```
 
 - [ ] **Step 3: Implement native compilation**
@@ -1017,14 +1051,14 @@ For each beat, derive `from` and `durationInFrames` from absolute beat timing. U
 - [ ] **Step 4: Verify**
 
 ```bash
-bun --cwd apps/web x vitest run src/lib/auno/documentary/compiler.test.ts src/lib/auno/motion/motion-composition.test.ts
+bun --cwd apps/web x vitest run src/lib/dopost/documentary/compiler.test.ts src/lib/dopost/motion/motion-composition.test.ts
 bun run check -- frontend
 ```
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add apps/web/src/lib/auno/documentary/compiler.ts apps/web/src/lib/auno/documentary/compiler.test.ts apps/web/src/lib/auno/auto-video/types.ts apps/web/src/lib/auno/auto-video/sidecar.ts
+git add apps/web/src/lib/dopost/documentary/compiler.ts apps/web/src/lib/dopost/documentary/compiler.test.ts apps/web/src/lib/dopost/auto-video/types.ts apps/web/src/lib/dopost/auto-video/sidecar.ts
 git commit -m "feat: compile documentary beats to native projects"
 ```
 
@@ -1033,11 +1067,13 @@ git commit -m "feat: compile documentary beats to native projects"
 ## Task 16: Generate long-form voice in bounded chunks, reflow beats from actual audio, and create captions
 
 **Files:**
-- Create: `apps/web/src/lib/auno/documentary/enrichment.ts`
-- Create: `apps/web/src/lib/auno/documentary/enrichment.test.ts`
-- Modify: `apps/web/src/lib/video-editor/auno/auno-auto-video-panel.svelte`
+
+- Create: `apps/web/src/lib/dopost/documentary/enrichment.ts`
+- Create: `apps/web/src/lib/dopost/documentary/enrichment.test.ts`
+- Modify: `apps/web/src/lib/video-editor/dopost/dopost-auto-video-panel.svelte`
 
 **Interfaces:**
+
 - `planVoiceChunks(beats, maxEstimatedSeconds=25): DocumentaryVoiceChunk[]`.
 - `redistributeBeatDurations(beats, chunkMeasurements): DocumentaryBeat[]` preserves beat order and exact measured chunk totals.
 - `generateDocumentaryVoice` reuses existing local TTS/cloud-local asset import seams.
@@ -1049,7 +1085,7 @@ Assert a 60-second fixture becomes at least three chunks with each estimated dur
 - [ ] **Step 2: Confirm red**
 
 ```bash
-bun --cwd apps/web x vitest run src/lib/auno/documentary/enrichment.test.ts
+bun --cwd apps/web x vitest run src/lib/dopost/documentary/enrichment.test.ts
 ```
 
 - [ ] **Step 3: Implement enrichment and degraded mode**
@@ -1058,19 +1094,19 @@ Use existing `generateLocalSpeech`, `importCloudProjectAssetFile`, and local `im
 
 If local TTS is unavailable, return a `NarrationPackage` containing script, voice direction metadata, and chunk text ranges; do not block project creation.
 
-The Video Editor Auno panel detects the documentary manifest and offers `Generate documentary voice` instead of calling existing per-scene short-form TTS 100+ times.
+The Video Editor dopost panel detects the documentary manifest and offers `Generate documentary voice` instead of calling existing per-scene short-form TTS 100+ times.
 
 - [ ] **Step 4: Verify**
 
 ```bash
-bun --cwd apps/web x vitest run src/lib/auno/documentary/enrichment.test.ts src/lib/video-editor/auno
+bun --cwd apps/web x vitest run src/lib/dopost/documentary/enrichment.test.ts src/lib/video-editor/dopost
 bun run check -- frontend
 ```
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add apps/web/src/lib/auno/documentary/enrichment.ts apps/web/src/lib/auno/documentary/enrichment.test.ts apps/web/src/lib/video-editor/auno/auno-auto-video-panel.svelte
+git add apps/web/src/lib/dopost/documentary/enrichment.ts apps/web/src/lib/dopost/documentary/enrichment.test.ts apps/web/src/lib/video-editor/dopost/dopost-auto-video-panel.svelte
 git commit -m "feat: add long form documentary voice reflow"
 ```
 
@@ -1079,14 +1115,16 @@ git commit -m "feat: add long form documentary voice reflow"
 ## Task 17: Add capability-level degraded media behavior and optional generated-asset import seams
 
 **Files:**
-- Create: `apps/web/src/lib/auno/documentary/capabilities.ts`
-- Create: `apps/web/src/lib/auno/documentary/capabilities.test.ts`
-- Create: `apps/web/src/lib/auno/documentary/assets.ts`
-- Create: `apps/web/src/lib/auno/documentary/assets.test.ts`
+
+- Create: `apps/web/src/lib/dopost/documentary/capabilities.ts`
+- Create: `apps/web/src/lib/dopost/documentary/capabilities.test.ts`
+- Create: `apps/web/src/lib/dopost/documentary/assets.ts`
+- Create: `apps/web/src/lib/dopost/documentary/assets.test.ts`
 - Modify: `apps/server/internal/api/handlers/auto_video.go`
-- Modify: `apps/web/src/lib/components/auno-documentary/documentary-wizard.svelte`
+- Modify: `apps/web/src/lib/components/dopost-documentary/documentary-wizard.svelte`
 
 **Interfaces:**
+
 - Capability levels: `text-only`, `tts-image`, `full-media`.
 - `documentaryNextActions(capabilities, run)` always includes a viable text-only action.
 - Generated image/video assets enter Media Library/project through existing upload/import boundaries and keep native editable placeholder/composition until explicitly replaced.
@@ -1098,27 +1136,27 @@ Assert text-only mode offers prompt-pack export + placeholder project creation; 
 - [ ] **Step 2: Confirm red**
 
 ```bash
-bun --cwd apps/web x vitest run src/lib/auno/documentary/capabilities.test.ts src/lib/auno/documentary/assets.test.ts
+bun --cwd apps/web x vitest run src/lib/dopost/documentary/capabilities.test.ts src/lib/dopost/documentary/assets.test.ts
 ```
 
 - [ ] **Step 3: Implement capability mapping**
 
-Extend `/auno/ai/capabilities` with non-secret booleans for configured documentary text planner and optional server image/video generation only when such provider support actually exists. Keep existing browser TTS/music flags. Do not claim ElevenLabs/OmniFlash availability unless an actual configured adapter exists.
+Extend `/dopost/ai/capabilities` with non-secret booleans for configured documentary text planner and optional server image/video generation only when such provider support actually exists. Keep existing browser TTS/music flags. Do not claim ElevenLabs/OmniFlash availability unless an actual configured adapter exists.
 
 `assets.ts` imports completed generated media through the existing media upload/project asset interfaces and returns media IDs; it never places provider URLs directly into project JSON.
 
 - [ ] **Step 4: Verify**
 
 ```bash
-bun --cwd apps/web x vitest run src/lib/auno/documentary/capabilities.test.ts src/lib/auno/documentary/assets.test.ts
-cd apps/server && go test ./internal/api/handlers -run AunoAI -v
+bun --cwd apps/web x vitest run src/lib/dopost/documentary/capabilities.test.ts src/lib/dopost/documentary/assets.test.ts
+cd apps/server && go test ./internal/api/handlers -run DopostAI -v
 cd ../.. && bun run check -- contracts && bun run check -- frontend
 ```
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add apps/web/src/lib/auno/documentary/capabilities.ts apps/web/src/lib/auno/documentary/capabilities.test.ts apps/web/src/lib/auno/documentary/assets.ts apps/web/src/lib/auno/documentary/assets.test.ts apps/server/internal/api/handlers/auto_video.go apps/web/src/lib/components/auno-documentary/documentary-wizard.svelte apps/web/openapi.json packages/api-contract/src/schema.d.ts
+git add apps/web/src/lib/dopost/documentary/capabilities.ts apps/web/src/lib/dopost/documentary/capabilities.test.ts apps/web/src/lib/dopost/documentary/assets.ts apps/web/src/lib/dopost/documentary/assets.test.ts apps/server/internal/api/handlers/auto_video.go apps/web/src/lib/components/dopost-documentary/documentary-wizard.svelte apps/web/openapi.json packages/api-contract/src/schema.d.ts
 git commit -m "feat: add documentary degraded media modes"
 ```
 
@@ -1127,6 +1165,7 @@ git commit -m "feat: add documentary degraded media modes"
 ## Task 18: Close remaining Phase 4 provenance and deterministic-contract release debt
 
 **Files:**
+
 - Populate: `third_party/bang-motion/` with pinned upstream reference snapshot at `0f1bd1103835890354496d009af62885fe0a05d5`
 - Preserve: `third_party/bang-motion/UPSTREAM.md`
 - Preserve: `licenses/bang-motion/LICENSE`
@@ -1134,12 +1173,13 @@ git commit -m "feat: add documentary degraded media modes"
 - Create: `scripts/check-third-party-notices.mjs`
 - Modify: `NOTICE.md`
 - Modify: `docs/compliance/third-party-inventory.md`
-- Create: `packages/auno-motion/src/easing.ts`
-- Create: `packages/auno-motion/src/easing.test.ts`
-- Create: `apps/server/internal/aunomotion/compiler_test.go`
-- Create: `apps/web/src/lib/auno/motion/cross-runtime-contract.test.ts`
+- Create: `packages/dopost-motion/src/easing.ts`
+- Create: `packages/dopost-motion/src/easing.test.ts`
+- Create: `apps/server/internal/dopostmotion/compiler_test.go`
+- Create: `apps/web/src/lib/dopost/motion/cross-runtime-contract.test.ts`
 
 **Interfaces:**
+
 - Vendor snapshot is provenance/reference only; runtime imports from `third_party/bang-motion` are forbidden.
 - Go/web complex Motion Composition compiler shapes agree on IDs, tracks, duration, controls, and nested item kinds.
 
@@ -1153,32 +1193,32 @@ Cross-runtime fixture asserts composition ID, timeline item ID/type, duration fr
 
 ```bash
 bun scripts/check-bang-motion-vendor.mjs
-cd apps/server && go test ./internal/aunomotion -v
-cd ../.. && bun --cwd apps/web x vitest run src/lib/auno/motion/cross-runtime-contract.test.ts
+cd apps/server && go test ./internal/dopostmotion -v
+cd ../.. && bun --cwd apps/web x vitest run src/lib/dopost/motion/cross-runtime-contract.test.ts
 ```
 
 Expected: vendor check fails before snapshot and parity test fails before fixture coverage.
 
 - [ ] **Step 3: Vendor exact reference source and add deterministic easing**
 
-Copy the exact pinned upstream snapshot while excluding `.git`. Keep upstream LICENSE both in the snapshot and `licenses/bang-motion/LICENSE`. Runtime production code remains under Auno modules.
+Copy the exact pinned upstream snapshot while excluding `.git`. Keep upstream LICENSE both in the snapshot and `licenses/bang-motion/LICENSE`. Runtime production code remains under dopost modules.
 
-`easing.ts` contains pure functions only, e.g. `clamp01`, `easeOutCubic`, `easeInOutCubic`, and `steppedEase(progress, steps)`. Add notice checker that verifies OpenPost and Bang Motion sections and required license paths exist.
+`easing.ts` contains pure functions only, e.g. `clamp01`, `easeOutCubic`, `easeInOutCubic`, and `steppedEase(progress, steps)`. Add notice checker that verifies dopost and Bang Motion sections and required license paths exist.
 
 - [ ] **Step 4: Verify provenance/parity**
 
 ```bash
 bun scripts/check-bang-motion-vendor.mjs
 bun scripts/check-third-party-notices.mjs
-bun test packages/auno-motion/src/easing.test.ts packages/auno-motion/src/determinism-guard.test.ts
-cd apps/server && go test ./internal/aunomotion -v
-cd ../.. && bun --cwd apps/web x vitest run src/lib/auno/motion/cross-runtime-contract.test.ts
+bun test packages/dopost-motion/src/easing.test.ts packages/dopost-motion/src/determinism-guard.test.ts
+cd apps/server && go test ./internal/dopostmotion -v
+cd ../.. && bun --cwd apps/web x vitest run src/lib/dopost/motion/cross-runtime-contract.test.ts
 ```
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add third_party/bang-motion licenses/bang-motion NOTICE.md docs/compliance/third-party-inventory.md scripts/check-bang-motion-vendor.mjs scripts/check-third-party-notices.mjs packages/auno-motion/src/easing.ts packages/auno-motion/src/easing.test.ts apps/server/internal/aunomotion/compiler_test.go apps/web/src/lib/auno/motion/cross-runtime-contract.test.ts
+git add third_party/bang-motion licenses/bang-motion NOTICE.md docs/compliance/third-party-inventory.md scripts/check-bang-motion-vendor.mjs scripts/check-third-party-notices.mjs packages/dopost-motion/src/easing.ts packages/dopost-motion/src/easing.test.ts apps/server/internal/dopostmotion/compiler_test.go apps/web/src/lib/dopost/motion/cross-runtime-contract.test.ts
 git commit -m "chore: complete motion provenance and parity gates"
 ```
 
@@ -1187,13 +1227,15 @@ git commit -m "chore: complete motion provenance and parity gates"
 ## Task 19: Add deterministic browser comparison, visual-QA coverage, full Vox E2E, and affected-surface CI
 
 **Files:**
-- Create: `tests/app/auno/fixtures/documentary-fixture.ts`
-- Create: `tests/app/auno/motion-determinism.spec.ts`
-- Create: `tests/app/auno/motion-visual-qa.spec.ts`
-- Create: `tests/app/auno/vox-documentary.spec.ts`
-- Create: `.github/workflows/auno-phase4-release.yml`
+
+- Create: `tests/app/dopost/fixtures/documentary-fixture.ts`
+- Create: `tests/app/dopost/motion-determinism.spec.ts`
+- Create: `tests/app/dopost/motion-visual-qa.spec.ts`
+- Create: `tests/app/dopost/vox-documentary.spec.ts`
+- Create: `.github/workflows/dopost-phase4-release.yml`
 
 **Interfaces:**
+
 - Browser suite uses existing `tests/app/playwright.config.ts` and deterministic local fixtures; no paid network model calls.
 - The fixed long-form fixture contains at least 120 beats.
 
@@ -1220,7 +1262,7 @@ assert same tolerance
 - [ ] **Step 2: Run and confirm red**
 
 ```bash
-bunx playwright test --config tests/app/playwright.config.ts tests/app/auno/motion-determinism.spec.ts tests/app/auno/motion-visual-qa.spec.ts tests/app/auno/vox-documentary.spec.ts --workers=1
+bunx playwright test --config tests/app/playwright.config.ts tests/app/dopost/motion-determinism.spec.ts tests/app/dopost/motion-visual-qa.spec.ts tests/app/dopost/vox-documentary.spec.ts --workers=1
 ```
 
 Expected: FAIL until required test-only fixture routes/hooks are wired.
@@ -1232,31 +1274,31 @@ Any debug hook must be guarded by the existing dev/test build boundary and absen
 The workflow triggers on pull request/push path changes under:
 
 ```text
-packages/auno-motion/**
-apps/server/internal/aunomotion/**
+packages/dopost-motion/**
+apps/server/internal/dopostmotion/**
 apps/server/internal/services/autovideo/**
 apps/server/internal/services/documentary/**
 apps/server/internal/api/handlers/auto_video*.go
-apps/server/internal/models/auno_*.go
+apps/server/internal/models/dopost_*.go
 apps/server/internal/database/migrations/900*.sql
-apps/web/src/lib/auno/**
-apps/web/src/lib/components/auno-documentary/**
+apps/web/src/lib/dopost/**
+apps/web/src/lib/components/dopost-documentary/**
 apps/web/src/routes/auto-video/**
-tests/app/auno/**
+tests/app/dopost/**
 third_party/bang-motion/**
 NOTICE.md
 docs/compliance/third-party-inventory.md
 ```
 
-Jobs: motion-package, backend-documentary, frontend-auno, browser-auno, compliance. Use repository-owned root commands and `tests/app/playwright.config.ts`.
+Jobs: motion-package, backend-documentary, frontend-dopost, browser-dopost, compliance. Use repository-owned root commands and `tests/app/playwright.config.ts`.
 
 - [ ] **Step 4: Verify E2E and workflow syntax/checks**
 
 ```bash
-bunx playwright test --config tests/app/playwright.config.ts tests/app/auno/motion-determinism.spec.ts tests/app/auno/motion-visual-qa.spec.ts tests/app/auno/vox-documentary.spec.ts --workers=1
+bunx playwright test --config tests/app/playwright.config.ts tests/app/dopost/motion-determinism.spec.ts tests/app/dopost/motion-visual-qa.spec.ts tests/app/dopost/vox-documentary.spec.ts --workers=1
 bun run check -- workflows
 bun run check -- frontend
-cd apps/server && go test ./internal/services/documentary ./internal/aunomotion ./internal/services/autovideo -v
+cd apps/server && go test ./internal/services/documentary ./internal/dopostmotion ./internal/services/autovideo -v
 ```
 
 Expected: PASS.
@@ -1264,7 +1306,7 @@ Expected: PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add tests/app/auno .github/workflows/auno-phase4-release.yml
+git add tests/app/dopost .github/workflows/dopost-phase4-release.yml
 git commit -m "test: gate Vox documentary and motion end to end"
 ```
 
@@ -1273,11 +1315,13 @@ git commit -m "test: gate Vox documentary and motion end to end"
 ## Task 20: Run the full Phase 4/Vox release-candidate gate and record real evidence
 
 **Files:**
+
 - Create only after gates pass: `docs/releases/2.0.0-rc.1-phase4-verification.md`
 - Modify after gates pass: `docs/compliance/third-party-inventory.md`
 - Add changelog fragment under `changes/` using the repository's current fragment naming convention discovered by `scripts/changelog-fragments.mjs`
 
 **Interfaces:**
+
 - Produces release evidence for candidate `2.0.0-rc.1`; it does not create/tag stable `2.0.0`.
 
 - [ ] **Step 1: Install exactly from the lock and run complete static/test gates**
@@ -1293,13 +1337,13 @@ cd apps/server && go test ./... && cd ../..
 
 All commands must exit 0. Fix product/test defects rather than weakening gates.
 
-- [ ] **Step 2: Run Auno browser gates**
+- [ ] **Step 2: Run dopost browser gates**
 
 ```bash
-bunx playwright test --config tests/app/playwright.config.ts tests/app/auno --workers=1
+bunx playwright test --config tests/app/playwright.config.ts tests/app/dopost --workers=1
 ```
 
-All Auno Motion/Vox tests must pass with the pinned Chromium behavior from the app config.
+All dopost Motion/Vox tests must pass with the pinned Chromium behavior from the app config.
 
 - [ ] **Step 3: Run deployment, storage, database, provenance, and security gates**
 
@@ -1315,11 +1359,11 @@ bun run check -- release-version
 bash scripts/bun-audit.sh
 ```
 
-If any named Auno-specific deployment script is still absent when execution reaches this task, create it in the earlier owning deployment task only after confirming the current repository equivalent; do not silently skip the requirement. The gate recorded in evidence must name the actual repository command that proved aaPanel compose, degraded-AI readiness, and storage configuration.
+If any named dopost-specific deployment script is still absent when execution reaches this task, create it in the earlier owning deployment task only after confirming the current repository equivalent; do not silently skip the requirement. The gate recorded in evidence must name the actual repository command that proved aaPanel compose, degraded-AI readiness, and storage configuration.
 
 - [ ] **Step 4: Build the real candidate artifact and prove revision/readiness**
 
-Use the repository's canonical server/web release path described in `docs/agents/deployable-inventory.md`, building candidate image `ghcr.io/dhtoan/aunostudio:2.0.0-rc.1` or the exact Auno registry target configured by the release files at execution time. Record the immutable image digest.
+Use the repository's canonical server/web release path described in `docs/agents/deployable-inventory.md`, building candidate image `ghcr.io/dhtoan/dopost:2.0.0-rc.1` or the exact dopost registry target configured by the release files at execution time. Record the immutable image digest.
 
 Boot the candidate against SQLite + local storage and verify:
 
@@ -1372,7 +1416,7 @@ Then:
 
 ```bash
 git add docs/releases/2.0.0-rc.1-phase4-verification.md docs/compliance/third-party-inventory.md changes
-git commit -m "docs: record Auno Studio 2.0 release candidate verification"
+git commit -m "docs: record dopost 2.0 release candidate verification"
 ```
 
 Do not create a stable `2.0.0` tag in this task. Invoke `superpowers:requesting-code-review` and resolve all blocking findings before stable acceptance.
@@ -1398,4 +1442,4 @@ Checkpoint after Task 20: only then may `2.0.0-rc.1` be described as verified.
 - **Spec coverage:** Source/no-source, topic/niche, exactly ten ideas, duration presets, continuous script, provider-neutral voice, 2–3 second beats, visual prompt pack, optional animation assets, three thumbnails, native project compilation, selective regeneration, 100+ beat performance, provider degradation, deterministic preview/export, runtime Visual QA, restart persistence, and release proof all have owning tasks.
 - **No-placeholder scan:** The plan contains no implementation `TBD`/`TODO`; route names, types, duration values, test commands, thresholds, IDs, and release evidence fields are explicit.
 - **Type consistency:** Server uses `documentary-paper-collage`, `documentary-long-form`, and schema version 1 consistently; browser adapters mirror those values; Vox UI label does not become a provider/runtime identifier.
-- **Repository consistency:** Browser E2E lives under existing `tests/app/` and uses `tests/app/playwright.config.ts`; a new `.github/workflows/auno-phase4-release.yml` is created because no existing workflow directory/file owns this Auno-specific gate; persistent long-form run state is separate from project-keyed `auno_auto_video_projects` because it must exist before native project creation.
+- **Repository consistency:** Browser E2E lives under existing `tests/app/` and uses `tests/app/playwright.config.ts`; a new `.github/workflows/dopost-phase4-release.yml` is created because no existing workflow directory/file owns this dopost-specific gate; persistent long-form run state is separate from project-keyed `auno_auto_video_projects` because it must exist before native project creation.

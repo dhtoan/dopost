@@ -1067,7 +1067,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/auno/ai/capabilities": {
+    "/dopost/ai/capabilities": {
         parameters: {
             query?: never;
             header?: never;
@@ -1075,10 +1075,10 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get Auno AI capability status
+         * Get dopost AI capability status
          * @description Returns provider and local capability availability without exposing credentials or secret values.
          */
-        get: operations["get-auno-ai-capabilities"];
+        get: operations["get-dopost-ai-capabilities"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1087,7 +1087,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/auno/auto-video/documentary/runs": {
+    "/dopost/auto-video/documentary/runs": {
         parameters: {
             query?: never;
             header?: never;
@@ -1097,17 +1097,17 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Create an Auno documentary run
-         * @description Persistent Auno Documentary Long-form workflow. Generated outputs remain editable and are stored separately from the native video project until handoff.
+         * Create a dopost documentary run
+         * @description Persistent dopost Documentary Long-form workflow. Generated outputs remain editable and are stored separately from the native video project until handoff.
          */
-        post: operations["create-auno-documentary-run"];
+        post: operations["create-dopost-documentary-run"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/auno/auto-video/documentary/runs/{run_id}": {
+    "/dopost/auto-video/documentary/runs/{run_id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -1115,27 +1115,27 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get an Auno documentary run
-         * @description Persistent Auno Documentary Long-form workflow. Generated outputs remain editable and are stored separately from the native video project until handoff.
+         * Get a dopost documentary run
+         * @description Persistent dopost Documentary Long-form workflow. Generated outputs remain editable and are stored separately from the native video project until handoff.
          */
-        get: operations["get-auno-documentary-run"];
+        get: operations["get-dopost-documentary-run"];
         /**
-         * Update an Auno documentary run
-         * @description Persistent Auno Documentary Long-form workflow. Generated outputs remain editable and are stored separately from the native video project until handoff.
+         * Update a dopost documentary run
+         * @description Persistent dopost Documentary Long-form workflow. Generated outputs remain editable and are stored separately from the native video project until handoff.
          */
-        put: operations["update-auno-documentary-run"];
+        put: operations["update-dopost-documentary-run"];
         post?: never;
         /**
-         * Delete an Auno documentary run
-         * @description Persistent Auno Documentary Long-form workflow. Generated outputs remain editable and are stored separately from the native video project until handoff.
+         * Delete a dopost documentary run
+         * @description Persistent dopost Documentary Long-form workflow. Generated outputs remain editable and are stored separately from the native video project until handoff.
          */
-        delete: operations["delete-auno-documentary-run"];
+        delete: operations["delete-dopost-documentary-run"];
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/auno/auto-video/documentary/runs/{run_id}/beats": {
+    "/dopost/auto-video/documentary/runs/{run_id}/beats": {
         parameters: {
             query?: never;
             header?: never;
@@ -1146,16 +1146,16 @@ export interface paths {
         put?: never;
         /**
          * Generate documentary beat timing
-         * @description Persistent Auno Documentary Long-form workflow. Generated outputs remain editable and are stored separately from the native video project until handoff.
+         * @description Persistent dopost Documentary Long-form workflow. Generated outputs remain editable and are stored separately from the native video project until handoff.
          */
-        post: operations["generate-auno-documentary-beats"];
+        post: operations["generate-dopost-documentary-beats"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/auno/auto-video/documentary/runs/{run_id}/ideas": {
+    "/dopost/auto-video/documentary/runs/{run_id}/ideas": {
         parameters: {
             query?: never;
             header?: never;
@@ -1166,16 +1166,16 @@ export interface paths {
         put?: never;
         /**
          * Generate documentary idea candidates
-         * @description Persistent Auno Documentary Long-form workflow. Generated outputs remain editable and are stored separately from the native video project until handoff.
+         * @description Persistent dopost Documentary Long-form workflow. Generated outputs remain editable and are stored separately from the native video project until handoff.
          */
-        post: operations["generate-auno-documentary-ideas"];
+        post: operations["generate-dopost-documentary-ideas"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/auno/auto-video/documentary/runs/{run_id}/script": {
+    "/dopost/auto-video/documentary/runs/{run_id}/script": {
         parameters: {
             query?: never;
             header?: never;
@@ -1186,16 +1186,16 @@ export interface paths {
         put?: never;
         /**
          * Generate documentary narration
-         * @description Persistent Auno Documentary Long-form workflow. Generated outputs remain editable and are stored separately from the native video project until handoff.
+         * @description Persistent dopost Documentary Long-form workflow. Generated outputs remain editable and are stored separately from the native video project until handoff.
          */
-        post: operations["generate-auno-documentary-script"];
+        post: operations["generate-dopost-documentary-script"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/auno/auto-video/documentary/runs/{run_id}/thumbnails": {
+    "/dopost/auto-video/documentary/runs/{run_id}/thumbnails": {
         parameters: {
             query?: never;
             header?: never;
@@ -1206,16 +1206,16 @@ export interface paths {
         put?: never;
         /**
          * Generate documentary thumbnail plans
-         * @description Persistent Auno Documentary Long-form workflow. Generated outputs remain editable and are stored separately from the native video project until handoff.
+         * @description Persistent dopost Documentary Long-form workflow. Generated outputs remain editable and are stored separately from the native video project until handoff.
          */
-        post: operations["generate-auno-documentary-thumbnails"];
+        post: operations["generate-dopost-documentary-thumbnails"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/auno/auto-video/documentary/runs/{run_id}/visuals": {
+    "/dopost/auto-video/documentary/runs/{run_id}/visuals": {
         parameters: {
             query?: never;
             header?: never;
@@ -1226,16 +1226,16 @@ export interface paths {
         put?: never;
         /**
          * Generate documentary visual plans
-         * @description Persistent Auno Documentary Long-form workflow. Generated outputs remain editable and are stored separately from the native video project until handoff.
+         * @description Persistent dopost Documentary Long-form workflow. Generated outputs remain editable and are stored separately from the native video project until handoff.
          */
-        post: operations["generate-auno-documentary-visuals"];
+        post: operations["generate-dopost-documentary-visuals"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/auno/auto-video/documentary/runs/{run_id}/visuals/{beat_id}": {
+    "/dopost/auto-video/documentary/runs/{run_id}/visuals/{beat_id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -1246,38 +1246,38 @@ export interface paths {
         put?: never;
         /**
          * Regenerate one documentary beat visual
-         * @description Persistent Auno Documentary Long-form workflow. Generated outputs remain editable and are stored separately from the native video project until handoff.
+         * @description Persistent dopost Documentary Long-form workflow. Generated outputs remain editable and are stored separately from the native video project until handoff.
          */
-        post: operations["regenerate-auno-documentary-beat-visual"];
+        post: operations["regenerate-dopost-documentary-beat-visual"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/auno/auto-video/projects/{id}": {
+    "/dopost/auto-video/projects/{id}": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        /** Get Auno Auto Video generation metadata */
-        get: operations["get-auno-auto-video-project"];
+        /** Get dopost Auto Video generation metadata */
+        get: operations["get-dopost-auto-video-project"];
         /**
-         * Save Auno Auto Video generation metadata
+         * Save dopost Auto Video generation metadata
          * @description Stores AI provenance and regeneration state separately from the native video project document.
          */
-        put: operations["upsert-auno-auto-video-project"];
+        put: operations["upsert-dopost-auto-video-project"];
         post?: never;
-        /** Delete Auno Auto Video generation metadata */
-        delete: operations["delete-auno-auto-video-project"];
+        /** Delete dopost Auto Video generation metadata */
+        delete: operations["delete-dopost-auto-video-project"];
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/auno/auto-video/source/resolve": {
+    "/dopost/auto-video/source/resolve": {
         parameters: {
             query?: never;
             header?: never;
@@ -1287,17 +1287,17 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Resolve an Auno Auto Video source
+         * Resolve a dopost Auto Video source
          * @description Safely fetches and extracts a bounded public URL for use as untrusted source material.
          */
-        post: operations["resolve-auno-auto-video-source"];
+        post: operations["resolve-dopost-auto-video-source"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/auno/auto-video/storyboard": {
+    "/dopost/auto-video/storyboard": {
         parameters: {
             query?: never;
             header?: never;
@@ -1307,10 +1307,10 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Generate an editable Auno Auto Video storyboard
+         * Generate an editable dopost Auto Video storyboard
          * @description Plans scene copy and visual intent only. It does not render, save, schedule, or publish media.
          */
-        post: operations["generate-auno-auto-video-storyboard"];
+        post: operations["generate-dopost-auto-video-storyboard"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1772,7 +1772,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Revoke the OpenPost session and prepare optional provider logout */
+        /** Revoke the dopost session and prepare optional provider logout */
         post: operations["logout-oidc-session"];
         delete?: never;
         options?: never;
@@ -2535,7 +2535,7 @@ export interface paths {
         };
         /**
          * Get maintainer diagnostics reporting settings
-         * @description Whether this instance sends privacy-limited diagnostic reports to OpenPost. No receiver URL, token, or installation identifier is exposed.
+         * @description Whether this instance sends privacy-limited diagnostic reports to dopost. No receiver URL, token, or installation identifier is exposed.
          */
         get: operations["get-diagnostics-config"];
         put?: never;
@@ -2557,7 +2557,7 @@ export interface paths {
         put?: never;
         /**
          * Ingest a cross-instance diagnostic report
-         * @description Public receiver for privacy-limited diagnostic reports sent by OpenPost instances. Strictly validated and quota-limited; accepted reports are forwarded to the maintainer channel.
+         * @description Public receiver for privacy-limited diagnostic reports sent by dopost instances. Strictly validated and quota-limited; accepted reports are forwarded to the maintainer channel.
          */
         post: operations["ingest-diagnostics"];
         delete?: never;
@@ -2575,7 +2575,7 @@ export interface paths {
         };
         /**
          * Get maintainer diagnostics reporting switch
-         * @description Whether this instance sends privacy-limited diagnostic reports to OpenPost. Browser reports always go through their own instance.
+         * @description Whether this instance sends privacy-limited diagnostic reports to dopost. Browser reports always go through their own instance.
          */
         get: operations["get-diagnostics-public-config"];
         put?: never;
@@ -3204,8 +3204,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get the OpenPost GitHub star count
-         * @description Returns a cached public count for the OpenPost GitHub repository when GitHub is available.
+         * Get the dopost GitHub star count
+         * @description Returns a cached public count for the dopost GitHub repository when GitHub is available.
          */
         get: operations["get-github-star-count"];
         put?: never;
@@ -3320,9 +3320,9 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get the workspace OpenPost Image Editor brand kit */
+        /** Get the workspace dopost Image Editor brand kit */
         get: operations["get-image-editor-brand-kit"];
-        /** Create or update the workspace OpenPost Image Editor brand kit */
+        /** Create or update the workspace dopost Image Editor brand kit */
         put: operations["update-image-editor-brand-kit"];
         post?: never;
         delete?: never;
@@ -3338,10 +3338,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List OpenPost Image Editor designs */
+        /** List dopost Image Editor designs */
         get: operations["list-image-editor-designs"];
         put?: never;
-        /** Create an OpenPost Image Editor design */
+        /** Create a dopost Image Editor design */
         post: operations["create-image-editor-design"];
         delete?: never;
         options?: never;
@@ -3356,15 +3356,15 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get an OpenPost Image Editor design */
+        /** Get a dopost Image Editor design */
         get: operations["get-image-editor-design"];
         put?: never;
         post?: never;
-        /** Move an OpenPost Image Editor design to trash */
+        /** Move a dopost Image Editor design to trash */
         delete: operations["delete-image-editor-design"];
         options?: never;
         head?: never;
-        /** Save an OpenPost Image Editor design with optimistic concurrency */
+        /** Save a dopost Image Editor design with optimistic concurrency */
         patch: operations["update-image-editor-design"];
         trace?: never;
     };
@@ -3377,7 +3377,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Duplicate an OpenPost Image Editor design */
+        /** Duplicate a dopost Image Editor design */
         post: operations["duplicate-image-editor-design"];
         delete?: never;
         options?: never;
@@ -3398,7 +3398,7 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        /** Toggle an OpenPost Image Editor design favorite */
+        /** Toggle a dopost Image Editor design favorite */
         patch: operations["toggle-image-editor-design-favorite"];
         trace?: never;
     };
@@ -3411,7 +3411,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Restore a trashed OpenPost Image Editor design */
+        /** Restore a trashed dopost Image Editor design */
         post: operations["restore-image-editor-design"];
         delete?: never;
         options?: never;
@@ -3426,10 +3426,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List OpenPost Image Editor design recovery revisions and checkpoints */
+        /** List dopost Image Editor design recovery revisions and checkpoints */
         get: operations["list-image-editor-design-revisions"];
         put?: never;
-        /** Create a named OpenPost Image Editor design checkpoint */
+        /** Create a named dopost Image Editor design checkpoint */
         post: operations["create-image-editor-design-checkpoint"];
         delete?: never;
         options?: never;
@@ -3444,12 +3444,12 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Inspect an OpenPost Image Editor design revision */
+        /** Inspect a dopost Image Editor design revision */
         get: operations["get-image-editor-design-revision"];
         put?: never;
         post?: never;
         /**
-         * Remove a named OpenPost Image Editor checkpoint
+         * Remove a named dopost Image Editor checkpoint
          * @description Removes only the selected named checkpoint and its snapshot references. The current design and other versions remain unchanged.
          */
         delete: operations["delete-image-editor-design-checkpoint"];
@@ -3467,7 +3467,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Restore an OpenPost Image Editor design revision as a new head */
+        /** Restore a dopost Image Editor design revision as a new head */
         post: operations["restore-image-editor-design-revision"];
         delete?: never;
         options?: never;
@@ -3500,7 +3500,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List OpenPost Image Editor presets and runtime configuration */
+        /** List dopost Image Editor presets and runtime configuration */
         get: operations["list-image-editor-presets"];
         put?: never;
         post?: never;
@@ -3517,7 +3517,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List built-in OpenPost Image Editor templates available without a workspace */
+        /** List built-in dopost Image Editor templates available without a workspace */
         get: operations["list-public-image-editor-templates"];
         put?: never;
         post?: never;
@@ -3536,7 +3536,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Create a one-time OpenPost Image Editor composer return token */
+        /** Create a one-time dopost Image Editor composer return token */
         post: operations["create-image-editor-return-token"];
         delete?: never;
         options?: never;
@@ -3553,7 +3553,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Store ordered OpenPost Image Editor exports for a composer return */
+        /** Store ordered dopost Image Editor exports for a composer return */
         post: operations["complete-image-editor-return-token"];
         delete?: never;
         options?: never;
@@ -3570,7 +3570,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Consume a completed OpenPost Image Editor composer return token */
+        /** Consume a completed dopost Image Editor composer return token */
         post: operations["consume-image-editor-return-token"];
         delete?: never;
         options?: never;
@@ -3585,10 +3585,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List built-in and workspace OpenPost Image Editor templates */
+        /** List built-in and workspace dopost Image Editor templates */
         get: operations["list-image-editor-templates"];
         put?: never;
-        /** Save an OpenPost Image Editor design as a workspace template */
+        /** Save a dopost Image Editor design as a workspace template */
         post: operations["create-image-editor-template"];
         delete?: never;
         options?: never;
@@ -3606,11 +3606,11 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
-        /** Delete a workspace OpenPost Image Editor template */
+        /** Delete a workspace dopost Image Editor template */
         delete: operations["delete-image-editor-template"];
         options?: never;
         head?: never;
-        /** Replace a workspace OpenPost Image Editor template snapshot */
+        /** Replace a workspace dopost Image Editor template snapshot */
         patch: operations["update-image-editor-template"];
         trace?: never;
     };
@@ -3623,7 +3623,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Create an OpenPost Image Editor design from a template */
+        /** Create a dopost Image Editor design from a template */
         post: operations["instantiate-image-editor-template"];
         delete?: never;
         options?: never;
@@ -4174,7 +4174,7 @@ export interface paths {
         };
         /**
          * Load a meme template thumbnail
-         * @description Returns bounded cacheable image bytes from OpenPost's configured template catalog.
+         * @description Returns bounded cacheable image bytes from dopost's configured template catalog.
          */
         get: operations["get-meme-template-thumbnail"];
         put?: never;
@@ -5295,7 +5295,7 @@ export interface paths {
         post?: never;
         /**
          * Delete a publication
-         * @description Permanently removes a publication and its destinations from OpenPost. Published posts remain on the social networks. Publications with active delivery cannot be removed.
+         * @description Permanently removes a publication and its destinations from dopost. Published posts remain on the social networks. Publications with active delivery cannot be removed.
          */
         delete: operations["delete-publication"];
         options?: never;
@@ -7232,9 +7232,9 @@ export interface components {
              * @example https://example.com/api/v1/schemas/AccountConnectionResponse.json
              */
             readonly $schema?: string;
-            /** @description OpenPost destination account ID */
+            /** @description dopost destination account ID */
             account_id: string;
-            /** @description All connected OpenPost account IDs */
+            /** @description All connected dopost account IDs */
             account_ids: string[] | null;
             /** @description Whether this is the Workspace's first connected destination */
             open_fresh_composer: boolean;
@@ -7548,7 +7548,7 @@ export interface components {
             account_avatar_url: string;
             /** @description Platform-specific account ID */
             account_id: string;
-            /** @description OpenPost destination account IDs created by this selection */
+            /** @description dopost destination account IDs created by this selection */
             account_ids: string[] | null;
             /** @description Normalized identity kind, such as person, organization, creator, or business */
             account_kind?: string;
@@ -7845,7 +7845,7 @@ export interface components {
             allow_workspace_override?: boolean;
             /** Format: int64 */
             expected_revision: number;
-            /** @description Null restores OpenPost for an organization or inheritance for a workspace */
+            /** @description Null restores dopost for an organization or inheritance for a workspace */
             profile?: components["schemas"]["AppBrandingProfileInput"];
         };
         AppendProviderApprovalReviewInputBody: {
@@ -8010,11 +8010,11 @@ export interface components {
             type: string;
             workspace_id?: string;
         };
-        AunoAICapabilitiesOutputBody: {
+        DopostAICapabilitiesOutputBody: {
             /**
              * Format: uri
              * @description A URL to the JSON Schema for this object.
-             * @example https://example.com/api/v1/schemas/AunoAICapabilitiesOutputBody.json
+             * @example https://example.com/api/v1/schemas/DopostAICapabilitiesOutputBody.json
              */
             readonly $schema?: string;
             active_model: string;
@@ -8086,7 +8086,7 @@ export interface components {
              * @example https://example.com/api/v1/schemas/AuthSessionStateOutputBody.json
              */
             readonly $schema?: string;
-            /** @description Whether the request has a valid OpenPost session */
+            /** @description Whether the request has a valid dopost session */
             authenticated: boolean;
             user?: components["schemas"]["UserProfile"];
         };
@@ -8405,9 +8405,9 @@ export interface components {
             customer_email?: string;
             /** @description Explicit Paddle.js environment: sandbox or production */
             environment?: string;
-            /** @description OpenPost checkout attempt or Paddle portal session ID */
+            /** @description dopost checkout attempt or Paddle portal session ID */
             id?: string;
-            /** @description OpenPost plan ID */
+            /** @description dopost plan ID */
             plan_id?: string;
             /** @description Paddle price IDs for localized previews in the selected billing period */
             price_ids?: {
@@ -8417,13 +8417,13 @@ export interface components {
             provider_price_id?: string;
             /** @description Requested Paddle portal destination */
             purpose?: string;
-            /** @description OpenPost URL used after Paddle checkout completes */
+            /** @description dopost URL used after Paddle checkout completes */
             return_url?: string;
             /** @description Expected end of the 14-day trial */
             trial_ends_at?: string;
-            /** @description OpenPost checkout URL or short-lived Paddle customer portal URL */
+            /** @description dopost checkout URL or short-lived Paddle customer portal URL */
             url?: string;
-            /** @description Whether Paddle omitted the purpose-specific link and OpenPost returned the generic portal */
+            /** @description Whether Paddle omitted the purpose-specific link and dopost returned the generic portal */
             used_generic_fallback?: boolean;
             /** @description Workspace bound to this checkout attempt */
             workspace_id?: string;
@@ -8460,19 +8460,19 @@ export interface components {
             readonly $schema?: string;
             /** @description PostHog browser ingestion endpoint or proxy */
             api_host?: string;
-            /** @description Configured OpenPost edition */
+            /** @description Configured dopost edition */
             edition: string;
-            /** @description Whether browser telemetry is enabled for this OpenPost instance */
+            /** @description Whether browser telemetry is enabled for this dopost instance */
             enabled: boolean;
             /** @description Deployment environment attached to telemetry */
             environment: string;
             /** @description Browser-safe PostHog project token */
             project_token?: string;
-            /** @description Running OpenPost source revision */
+            /** @description Running dopost source revision */
             revision: string;
             /** @description PostHog user interface host used for generated links */
             ui_host?: string;
-            /** @description Running OpenPost version */
+            /** @description Running dopost version */
             version: string;
         };
         Build: {
@@ -8573,7 +8573,7 @@ export interface components {
             readonly $schema?: string;
             /** @description Provider/profile capability matrix */
             capabilities: components["schemas"]["Capability"][] | null;
-            /** @description Content profiles supported by OpenPost */
+            /** @description Content profiles supported by dopost */
             profiles: components["schemas"]["Profile"][] | null;
         };
         Capability: {
@@ -9389,9 +9389,9 @@ export interface components {
             asset_kind?: "library" | "brand_asset" | "brand_font" | "design_preview" | "template_preview" | "project_asset";
             /** @description Optional SHA-256 used to reuse an identical ready asset in this workspace */
             client_sha256?: string;
-            /** @description Producing OpenPost Image Editor design ID */
+            /** @description Producing dopost Image Editor design ID */
             design_document_id?: string;
-            /** @description Producing OpenPost Image Editor page ID */
+            /** @description Producing dopost Image Editor page ID */
             design_page_id?: string;
             /** @description Original filename */
             filename: string;
@@ -10959,9 +10959,9 @@ export interface components {
              * @example https://example.com/api/v1/schemas/FediverseLoginResponse.json
              */
             readonly $schema?: string;
-            /** @description OpenPost destination account ID */
+            /** @description dopost destination account ID */
             account_id: string;
-            /** @description All connected OpenPost account IDs */
+            /** @description All connected dopost account IDs */
             account_ids: string[] | null;
             /** @description Pending selection ID for the channel picker */
             connection_id?: string;
@@ -11197,7 +11197,7 @@ export interface components {
              * @example https://example.com/api/v1/schemas/Get-running-versionResponse.json
              */
             readonly $schema?: string;
-            /** @description Configured OpenPost edition */
+            /** @description Configured dopost edition */
             edition: string;
             /** @description Full source revision embedded in the server */
             revision: string;
@@ -12125,7 +12125,7 @@ export interface components {
              * @description Retry count, when relevant
              */
             retry_count?: number;
-            /** @description OpenPost source revision reported by the sending instance */
+            /** @description dopost source revision reported by the sending instance */
             revision: string;
             /** @description Normalized media storage driver */
             storage_driver?: string;
@@ -12134,7 +12134,7 @@ export interface components {
              * @enum {string}
              */
             surface: "browser" | "backend" | "worker";
-            /** @description OpenPost release reported by the sending instance */
+            /** @description dopost release reported by the sending instance */
             version: string;
         };
         IngestDiagnosticsOutputBody: {
@@ -12798,9 +12798,9 @@ export interface components {
             container_format?: string;
             /** @description Creation time */
             created_at: string;
-            /** @description Producing OpenPost Image Editor design */
+            /** @description Producing dopost Image Editor design */
             design_document_id?: string;
-            /** @description Producing OpenPost Image Editor page */
+            /** @description Producing dopost Image Editor page */
             design_page_id?: string;
             /**
              * Format: int64
@@ -12992,9 +12992,9 @@ export interface components {
             asset_kind: string;
             /** @description Whether an existing media attachment was reused */
             deduped: boolean;
-            /** @description Producing OpenPost Image Editor design ID */
+            /** @description Producing dopost Image Editor design ID */
             design_document_id?: string;
-            /** @description Producing OpenPost Image Editor page ID */
+            /** @description Producing dopost Image Editor page ID */
             design_page_id?: string;
             /**
              * Format: int64
@@ -14095,7 +14095,7 @@ export interface components {
             format: "png" | "jpg" | "jpeg" | "gif" | "webp";
             /** @description Workspace media IDs for replaceable image slots */
             overlay_media_ids?: string[] | null;
-            /** @description OpenPost meme template ID */
+            /** @description dopost meme template ID */
             template_id: string;
             /** @description Workspace ID */
             workspace_id: string;
@@ -14348,7 +14348,7 @@ export interface components {
         ProviderInfo: {
             /** @description Primary connection method retained for compatibility */
             auth_mode: string;
-            /** @description High-level OpenPost capabilities available or planned for this provider */
+            /** @description High-level dopost capabilities available or planned for this provider */
             capabilities?: string[] | null;
             /** @description Whether this provider can currently be connected */
             configured: boolean;
@@ -14437,7 +14437,7 @@ export interface components {
         PublicProfileActivityDay: {
             /**
              * Format: int64
-             * @description Published OpenPost publications on this date
+             * @description Published dopost publications on this date
              */
             count: number;
             /** @description UTC activity date in YYYY-MM-DD format */
@@ -14470,7 +14470,7 @@ export interface components {
             longest_streak?: number;
             /** Format: int64 */
             peak_posts?: number;
-            /** @description Highest active OpenPost plan available to the profile owner */
+            /** @description Highest active dopost plan available to the profile owner */
             plan_id?: string;
             top_platforms?: components["schemas"]["PublicProfileRanking"][] | null;
             top_workspaces?: components["schemas"]["PublicProfileRanking"][] | null;
@@ -15169,7 +15169,7 @@ export interface components {
             password: string;
             /** @description Integrity-protected hosted plan and billing-period choice; required for hosted registration */
             purchase_choice_token?: string;
-            /** @description Optional unique public username; OpenPost creates one from the email when omitted */
+            /** @description Optional unique public username; dopost creates one from the email when omitted */
             username?: string;
         };
         RemoveAvatarOutputBody: {
@@ -15232,7 +15232,7 @@ export interface components {
              * @enum {string}
              */
             retention_class: "library" | "temporary";
-            /** @description OpenPost meme template ID */
+            /** @description dopost meme template ID */
             template_id: string;
             /** @description Workspace ID */
             workspace_id: string;
@@ -16060,7 +16060,7 @@ export interface components {
             delay_seconds: number;
             /**
              * Format: int64
-             * @description How long OpenPost may wait for engagement gates
+             * @description How long dopost may wait for engagement gates
              */
             evaluation_window_seconds: number;
             /**
@@ -17908,7 +17908,7 @@ export interface components {
             disabled_reason?: "managed_edition" | "configuration";
             /** @description Whether release checks run in this process */
             effective_enabled: boolean;
-            /** @description Latest stable OpenPost release tag */
+            /** @description Latest stable dopost release tag */
             latest_version?: string;
             /** @description Latest release publication time */
             published_at?: string;
@@ -20849,7 +20849,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description OpenPost account ID */
+                /** @description dopost account ID */
                 account_id: string;
             };
             cookie?: never;
@@ -23012,7 +23012,7 @@ export interface operations {
             };
         };
     };
-    "get-auno-ai-capabilities": {
+    "get-dopost-ai-capabilities": {
         parameters: {
             query?: never;
             header?: never;
@@ -23027,7 +23027,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["AunoAICapabilitiesOutputBody"];
+                    "application/json": components["schemas"]["DopostAICapabilitiesOutputBody"];
                 };
             };
             /** @description Error */
@@ -23041,7 +23041,7 @@ export interface operations {
             };
         };
     };
-    "create-auno-documentary-run": {
+    "create-dopost-documentary-run": {
         parameters: {
             query?: never;
             header?: never;
@@ -23146,7 +23146,7 @@ export interface operations {
             };
         };
     };
-    "get-auno-documentary-run": {
+    "get-dopost-documentary-run": {
         parameters: {
             query: {
                 /** @description Workspace ID */
@@ -23253,7 +23253,7 @@ export interface operations {
             };
         };
     };
-    "update-auno-documentary-run": {
+    "update-dopost-documentary-run": {
         parameters: {
             query?: never;
             header?: never;
@@ -23361,7 +23361,7 @@ export interface operations {
             };
         };
     };
-    "delete-auno-documentary-run": {
+    "delete-dopost-documentary-run": {
         parameters: {
             query?: never;
             header?: never;
@@ -23469,7 +23469,7 @@ export interface operations {
             };
         };
     };
-    "generate-auno-documentary-beats": {
+    "generate-dopost-documentary-beats": {
         parameters: {
             query?: never;
             header?: never;
@@ -23577,7 +23577,7 @@ export interface operations {
             };
         };
     };
-    "generate-auno-documentary-ideas": {
+    "generate-dopost-documentary-ideas": {
         parameters: {
             query?: never;
             header?: never;
@@ -23685,7 +23685,7 @@ export interface operations {
             };
         };
     };
-    "generate-auno-documentary-script": {
+    "generate-dopost-documentary-script": {
         parameters: {
             query?: never;
             header?: never;
@@ -23793,7 +23793,7 @@ export interface operations {
             };
         };
     };
-    "generate-auno-documentary-thumbnails": {
+    "generate-dopost-documentary-thumbnails": {
         parameters: {
             query?: never;
             header?: never;
@@ -23901,7 +23901,7 @@ export interface operations {
             };
         };
     };
-    "generate-auno-documentary-visuals": {
+    "generate-dopost-documentary-visuals": {
         parameters: {
             query?: never;
             header?: never;
@@ -24009,7 +24009,7 @@ export interface operations {
             };
         };
     };
-    "regenerate-auno-documentary-beat-visual": {
+    "regenerate-dopost-documentary-beat-visual": {
         parameters: {
             query?: never;
             header?: never;
@@ -24119,7 +24119,7 @@ export interface operations {
             };
         };
     };
-    "get-auno-auto-video-project": {
+    "get-dopost-auto-video-project": {
         parameters: {
             query: {
                 /** @description Workspace ID */
@@ -24199,7 +24199,7 @@ export interface operations {
             };
         };
     };
-    "upsert-auno-auto-video-project": {
+    "upsert-dopost-auto-video-project": {
         parameters: {
             query?: never;
             header?: never;
@@ -24280,7 +24280,7 @@ export interface operations {
             };
         };
     };
-    "delete-auno-auto-video-project": {
+    "delete-dopost-auto-video-project": {
         parameters: {
             query?: never;
             header?: never;
@@ -24361,7 +24361,7 @@ export interface operations {
             };
         };
     };
-    "resolve-auno-auto-video-source": {
+    "resolve-dopost-auto-video-source": {
         parameters: {
             query?: never;
             header?: never;
@@ -24439,7 +24439,7 @@ export interface operations {
             };
         };
     };
-    "generate-auno-auto-video-storyboard": {
+    "generate-dopost-auto-video-storyboard": {
         parameters: {
             query?: never;
             header?: never;
@@ -27792,7 +27792,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description Opaque OpenPost checkout attempt ID */
+                /** @description Opaque dopost checkout attempt ID */
                 attempt_id: string;
             };
             cookie?: never;
@@ -27851,7 +27851,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description Opaque OpenPost checkout attempt ID */
+                /** @description Opaque dopost checkout attempt ID */
                 attempt_id: string;
             };
             cookie?: never;
@@ -28621,7 +28621,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description Opaque OpenPost comment ID */
+                /** @description Opaque dopost comment ID */
                 id: string;
             };
             cookie?: never;
@@ -28698,7 +28698,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description Opaque OpenPost comment ID */
+                /** @description Opaque dopost comment ID */
                 id: string;
             };
             cookie?: never;
@@ -28775,7 +28775,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
-                /** @description Opaque OpenPost comment ID */
+                /** @description Opaque dopost comment ID */
                 id: string;
             };
             cookie?: never;

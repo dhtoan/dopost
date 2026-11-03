@@ -9,7 +9,7 @@
 		mobileNavigation,
 		primaryNavigation
 	} from '$lib/app-navigation';
-	import { AUNO_CREATE_ACTIONS } from '$lib/auno/create-actions';
+	import { DOPOST_CREATE_ACTIONS } from '$lib/dopost/create-actions';
 	import { ui } from '$lib/stores/ui.svelte';
 	import { m } from '$lib/paraglide/messages';
 	import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
@@ -115,7 +115,7 @@
 							{/snippet}
 						</DropdownMenu.Trigger>
 						<DropdownMenu.Content side="top" align="center" class="w-[min(20rem,calc(100vw-2rem))]">
-							{#each AUNO_CREATE_ACTIONS as action (action.id)}
+							{#each DOPOST_CREATE_ACTIONS as action (action.id)}
 								<DropdownMenu.Item
 									class="min-h-11 gap-3"
 									onclick={() => openCreateAction(action.href)}

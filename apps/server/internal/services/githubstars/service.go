@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	repositoryAPIURL = "https://api.github.com/repos/getopenpost/openpost"
+	repositoryAPIURL = "https://api.github.com/repos/dhtoan/dopost"
 	maxResponseBytes = 64 << 10
 	maxRedirects     = 3
 	requestTimeout   = 3 * time.Second

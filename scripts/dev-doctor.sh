@@ -15,7 +15,7 @@ pass() {
   printf 'OK    %s\n' "$*"
 }
 
-printf 'OpenPost development doctor\n\n'
+printf 'dopost development doctor\n\n'
 
 available_kb="$(df -Pk "$repo_root" | awk 'NR == 2 { print $4 }')"
 available_gb=$((available_kb / 1024 / 1024))

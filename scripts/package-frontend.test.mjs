@@ -124,7 +124,7 @@ async function fixture() {
   await mkdir(path.join(source, "assets"), { recursive: true });
   await writeImmutableAssetFixture(source);
   await Promise.all([
-    writeFile(path.join(source, "index.html"), "<!doctype html><h1>OpenPost</h1>\n"),
+    writeFile(path.join(source, "index.html"), "<!doctype html><h1>dopost</h1>\n"),
     writeFile(
       path.join(source, "app-routes.json"),
       `${JSON.stringify({ schema_version: 1, routes: ["/", "/settings"] })}\n`,
@@ -168,7 +168,7 @@ test("atomically mirrors the complete artifact and removes stale files", async (
   }
   assert.equal(
     await readFile(path.join(destination, "index.html"), "utf8"),
-    "<!doctype html><h1>OpenPost</h1>\n",
+    "<!doctype html><h1>dopost</h1>\n",
   );
   assert.equal(
     await readFile(path.join(destination, "assets/app.js"), "utf8"),

@@ -154,7 +154,7 @@ test("requires a bounded observation-only 24-hour AI crawl snapshot", () => {
 test("reads explicit Markdown and intentional native links from discovery files", () => {
   assert.deepEqual(
     linksFromMarkdown(`
-# OpenPost
+# dopost
 
 - [Guide](https://openpo.st/docs/usage/index.md)
 - [OpenAPI](https://openpo.st/docs/openapi.json): authoritative JSON.

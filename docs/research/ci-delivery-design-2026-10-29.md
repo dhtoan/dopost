@@ -1,4 +1,4 @@
-# OpenPost CI and delivery design
+# dopost CI and delivery design
 
 Date: 2026-10-29. Scope: measured diagnosis and an implementation playbook, not a claim that the proposed pipeline is deployed. Source baseline: v7.34.2, tag `27522bef39a703431eccf3b04a84654583770a05`; public changelog recording commit `c87e97bd9314bf1b9c57aacaeea3babffa251b41`.
 

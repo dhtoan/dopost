@@ -8,7 +8,7 @@
  * un-splittable partial segments and float rounding at range edges.
  *
  * Ported from FreeCut (MIT) - edit/range-removal-actions.ts, with locked-track,
- * transition, and sync-lock repair for OpenPost's multi-track timeline.
+ * transition, and sync-lock repair for dopost's multi-track timeline.
  */
 
 import type { TimelineItem } from '$lib/video-editor/project/types';

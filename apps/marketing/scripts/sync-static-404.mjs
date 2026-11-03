@@ -17,7 +17,7 @@ const html = `<!doctype html>
     <meta name="color-scheme" content="light dark" />
     <link rel="icon" href="/icon.svg" />
     <link rel="license" href="/assets/brand/fonts/LICENSE-Geist.txt" />
-    <title>Page not found · OpenPost</title>
+    <title>Page not found · dopost</title>
     <style>${await staticUICSS()}
       @font-face { font-family: Geist; src: url('/assets/brand/fonts/Geist-Regular.ttf') format('truetype'); font-weight: 400; font-display: swap; }
       @font-face { font-family: Geist; src: url('/assets/brand/fonts/Geist-SemiBold.ttf') format('truetype'); font-weight: 600; font-display: swap; }
@@ -25,8 +25,8 @@ const html = `<!doctype html>
   </head>
   <body data-theme-button="dither">
     <main class="op-recovery">
-      <a class="op-recovery-brand" href="/" aria-label="OpenPost home">
-        <picture><source srcset="/assets/brand/logo-dark.svg" media="(prefers-color-scheme: dark)" /><img src="/assets/brand/logo.svg" alt="" width="28" height="28" /></picture>OpenPost
+      <a class="op-recovery-brand" href="/" aria-label="dopost home">
+        <picture><source srcset="/assets/brand/logo-dark.svg" media="(prefers-color-scheme: dark)" /><img src="/assets/brand/logo.svg" alt="" width="28" height="28" /></picture>dopost
       </a>
       <div class="op-recovery-body">
         <div>

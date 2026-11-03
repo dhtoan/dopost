@@ -221,7 +221,7 @@ func (h *DocumentaryHandler) generationRun(
 		return nil, huma.Error503ServiceUnavailable("Documentary planning is not configured")
 	}
 	userID := middleware.GetUserID(ctx)
-	if !h.limiter.Allow("auno-documentary:"+userID, documentaryRequestsPerMinute, time.Minute) {
+	if !h.limiter.Allow("dopost-documentary:"+userID, documentaryRequestsPerMinute, time.Minute) {
 		return nil, huma.Error429TooManyRequests("Documentary planning limit reached; try again in one minute")
 	}
 	run, err := h.store.Get(ctx, input.Body.WorkspaceID, input.PathID)

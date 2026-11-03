@@ -4,7 +4,7 @@
  * as source-frame positions.
  *
  * Ported from FreeCut (MIT) — scene-sampling concept (histogram comparison
- * over sparsely decoded frames), retargeted to mediabunny + OpenPost's
+ * over sparsely decoded frames), retargeted to mediabunny + dopost's
  * FrameHistogram detection core.
  */
 

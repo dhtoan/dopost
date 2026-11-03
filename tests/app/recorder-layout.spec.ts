@@ -19,12 +19,12 @@ test("Recorder keeps its identity and save controls usable on phones", async ({
   await page.getByRole("button", { name: "More options", exact: true }).click();
   const storage = page.getByRole("group", { name: "Save new projects to", exact: true });
   const local = storage.getByRole("button", { name: "This device", exact: true });
-  const cloud = storage.getByRole("button", { name: "OpenPost cloud", exact: true });
+  const cloud = storage.getByRole("button", { name: "dopost cloud", exact: true });
   for (const width of [390, 360, 320]) {
     await page.setViewportSize({ width, height: 900 });
     for (const colorScheme of ["light", "dark"] as const) {
       await page.emulateMedia({ colorScheme, reducedMotion: "reduce" });
-      await expect(header.getByRole("link", { name: "OpenPost home", exact: true })).toBeVisible();
+      await expect(header.getByRole("link", { name: "dopost home", exact: true })).toBeVisible();
       await expect(local).toBeVisible();
       await expect(cloud).toBeVisible();
       await expect

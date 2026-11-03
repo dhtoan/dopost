@@ -36,7 +36,7 @@ func (i *InstagramAdapter) ReplyPrivatelyToComment(ctx context.Context, token, a
 }
 
 // InstagramWebhookCommentReader hydrates signed comment events for media that
-// was published outside OpenPost, using the same canonical Inbox identity.
+// was published outside dopost, using the same canonical Inbox identity.
 type InstagramWebhookCommentReader interface {
 	ReadWebhookComment(context.Context, string, string, string, string) (Comment, string, error)
 }

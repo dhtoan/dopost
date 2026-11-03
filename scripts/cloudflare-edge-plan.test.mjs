@@ -273,8 +273,7 @@ test("inspection is read-only and reports unmanaged overlaps", async () => {
     report.conflicts.every(
       ({ ref, reason }) =>
         ref === "someone-else" &&
-        reason ===
-          "unmanaged rule shares an OpenPost-owned phase; resolve its ownership before apply",
+        reason === "unmanaged rule shares a dopost-owned phase; resolve its ownership before apply",
     ),
   );
 });

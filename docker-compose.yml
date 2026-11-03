@@ -1,8 +1,8 @@
 services:
-  auno-studio:
-    image: ghcr.io/dhtoan/aunostudio:${AUNO_IMAGE_TAG:-latest}
+  dopost:
+    image: ghcr.io/dhtoan/dopost:${DOPOST_IMAGE_TAG:-${AUNO_IMAGE_TAG:-latest}}
     platform: linux/amd64
-    container_name: auno-studio
+    container_name: dopost
     restart: unless-stopped
     stop_grace_period: 15s
 
@@ -10,7 +10,7 @@ services:
       - .env
 
     ports:
-      - "127.0.0.1:${AUNO_HOST_PORT:-8080}:8080"
+      - "127.0.0.1:${DOPOST_HOST_PORT:-${AUNO_HOST_PORT:-8080}}:8080"
 
     volumes:
       - auno_studio_data:/data

@@ -1,7 +1,7 @@
 /*
- * User-editable keyboard commands for OpenPost Video Editor.
+ * User-editable keyboard commands for dopost Video Editor.
  * Binding normalization and preset migration follow FreeCut's MIT-licensed
- * hotkey configuration while the command set stays tied to OpenPost actions.
+ * hotkey configuration while the command set stays tied to dopost actions.
  */
 import { z } from 'zod';
 

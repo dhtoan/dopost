@@ -1,4 +1,4 @@
-// Package discordpresence keeps the configured OpenPost Discord bot connected
+// Package discordpresence keeps the configured dopost Discord bot connected
 // to the Gateway and publishes its rotating presence.
 package discordpresence
 

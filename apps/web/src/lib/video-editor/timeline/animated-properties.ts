@@ -3,7 +3,7 @@
  *
  * Ported from FreeCut (MIT) - features/keyframes/utils/animatable-properties.ts,
  * animated-transform-resolver.ts, animated-crop-resolver.ts, and
- * animated-text-item.ts. Adapted to OpenPost's item model.
+ * animated-text-item.ts. Adapted to dopost's item model.
  */
 import type {
 	KeyframeProperty,

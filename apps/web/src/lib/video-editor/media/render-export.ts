@@ -3,7 +3,7 @@
  * into one composed video file.
  *
  * Ported from FreeCut (MIT) - features/export/utils/canvas-render-orchestrator.ts,
- * client-renderer.ts, and canvas-audio.ts - retargeted to OpenPost's
+ * client-renderer.ts, and canvas-audio.ts - retargeted to dopost's
  * TimelineItem model with a worker-safe render loop, explicit main-thread
  * fallback, persistent chunked audio DSP, and OPFS-backed output streaming.
  */

@@ -69,7 +69,7 @@ test("the README can omit the certification section", () => {
   assert.doesNotThrow(() =>
     validatePublicClaimSurfaceSources(manifest, {
       ...sources,
-      readme: "# OpenPost\n\nSee the provider documentation for integration details.",
+      readme: "# dopost\n\nSee the provider documentation for integration details.",
     }),
   );
 });

@@ -2,7 +2,7 @@
 
 ## Supported Versions
 
-Security patches are currently provided for the latest OpenPost release.
+Security patches are currently provided for the latest dopost release.
 
 | Version        | Supported |
 | -------------- | --------- |
@@ -36,7 +36,7 @@ Email the maintainer at `openpost+security@rgo.pt` and include:
 
 - Run behind a reverse proxy with TLS.
 - Configure a proper firewall.
-- Do not expose the OpenPost port directly to the internet unless that is part of your deliberate reverse-proxy setup.
+- Do not expose the dopost port directly to the internet unless that is part of your deliberate reverse-proxy setup.
 - For Threads media publishing, confirm that Meta can reach the public media endpoint.
 - Use HTTPS before configuring production OAuth callbacks for X, Mastodon, LinkedIn, Threads, Facebook, Instagram, TikTok, or YouTube.
 
@@ -57,14 +57,14 @@ Email the maintainer at `openpost+security@rgo.pt` and include:
 ### Assistant And Automation Access
 
 - Prefer an `mcp:read` token when a client only needs to inspect workspaces, accounts, media, drafts, schedules, or delivery state. The MCP server omits mutation tools for this scope and rejects cached or direct mutation calls.
-- Use `mcp:full` only when the client must create drafts or renditions, upload media, schedule, publish, reply, or moderate. OpenPost separates read operations from `execute_operation`, but the MCP client controls whether and when it asks for approval.
+- Use `mcp:full` only when the client must create drafts or renditions, upload media, schedule, publish, reply, or moderate. dopost separates read operations from `execute_operation`, but the MCP client controls whether and when it asks for approval.
 - Limit each MCP token to one workspace when possible. Create a separate token per client and revoke it from Settings when the connection is no longer needed.
-- Treat API tokens as secrets. OpenPost stores only their hashes and shows the raw value once.
-- Connected-provider credentials remain on the OpenPost server and are not returned through MCP responses.
+- Treat API tokens as secrets. dopost stores only their hashes and shows the raw value once.
+- Connected-provider credentials remain on the dopost server and are not returned through MCP responses.
 
-## Security Features in OpenPost
+## Security Features in dopost
 
-OpenPost includes:
+dopost includes:
 
 - Encrypted provider access and refresh tokens at rest
 - Bcrypt password hashing
@@ -78,8 +78,8 @@ OpenPost includes:
 
 ## Third-Party Dependencies
 
-OpenPost uses Go modules, Bun/npm frontend dependencies, and Docker base images. Keep deployments updated to receive dependency fixes.
+dopost uses Go modules, Bun/npm frontend dependencies, and Docker base images. Keep deployments updated to receive dependency fixes.
 
 ## Scope
 
-This policy applies to the OpenPost server, embedded frontend, and OAuth integrations. It does not cover third-party OAuth providers, deployment infrastructure, or external storage services you configure.
+This policy applies to the dopost server, embedded frontend, and OAuth integrations. It does not cover third-party OAuth providers, deployment infrastructure, or external storage services you configure.

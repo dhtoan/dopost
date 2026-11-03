@@ -1,8 +1,8 @@
 services:
-  auno-studio:
+  dopost:
     environment:
       OPENPOST_DATABASE_DRIVER: postgres
-      OPENPOST_DATABASE_URL: postgres://${POSTGRES_USER:-auno}:${POSTGRES_PASSWORD:-change-me}@postgres:5432/${POSTGRES_DB:-auno}?sslmode=disable
+      OPENPOST_DATABASE_URL: postgres://${POSTGRES_USER:-dopost}:${POSTGRES_PASSWORD:-change-me}@postgres:5432/${POSTGRES_DB:-dopost}?sslmode=disable
     depends_on:
       postgres:
         condition: service_healthy
@@ -12,13 +12,13 @@ services:
     profiles: ["postgres"]
     restart: unless-stopped
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-auno}
+      POSTGRES_USER: ${POSTGRES_USER:-dopost}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
-      POSTGRES_DB: ${POSTGRES_DB:-auno}
+      POSTGRES_DB: ${POSTGRES_DB:-dopost}
     volumes:
       - auno_postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-auno} -d ${POSTGRES_DB:-auno}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-dopost} -d ${POSTGRES_DB:-dopost}"]
       interval: 10s
       timeout: 5s
       retries: 10

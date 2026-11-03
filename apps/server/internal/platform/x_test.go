@@ -576,7 +576,7 @@ func xTaggedUsersRequest(mediaSettings string, media []MediaItem) *PublishReques
 
 func TestXTweetRejectsTaggedUserHandlesWithoutResolution(t *testing.T) {
 	_, err := buildXTweetPayload(xTaggedUsersRequest("@someone", nil))
-	if err == nil || !strings.Contains(err.Error(), "must be an X user ID or a handle OpenPost can resolve") {
+	if err == nil || !strings.Contains(err.Error(), "must be an X user ID or a handle dopost can resolve") {
 		t.Fatalf("expected tagged-user handle rejection, got %v", err)
 	}
 

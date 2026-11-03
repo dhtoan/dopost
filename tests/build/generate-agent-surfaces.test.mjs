@@ -270,13 +270,13 @@ test("semantic HTML determinism retains maintained documents and ignores only fr
   const maintained = `<!doctype html><html><head>
     <link rel="stylesheet" href="/maintained.css">
     <style>.notice { color: red; }</style>
-    <script type="application/ld+json">{"name":"OpenPost"}</script>
+    <script type="application/ld+json">{"name":"dopost"}</script>
   </head><body data-v-owner="maintained"><!-- maintained note --><!--license--><!--[owner note]--><template><p>Maintained fallback</p></template><span style="color: red">Maintained style</span></body></html>`;
   for (const [kind, changed] of [
     ["linked stylesheet", maintained.replace("/maintained.css", "/changed.css")],
     ["inline style", maintained.replace("color: red", "color: blue")],
     ["inline style attribute", maintained.replace('style="color: red"', 'style="color: blue"')],
-    ["JSON-LD", maintained.replace('"OpenPost"', '"Changed"')],
+    ["JSON-LD", maintained.replace('"dopost"', '"Changed"')],
     ["maintained comment", maintained.replace("maintained note", "changed note")],
     ["seven-character comment", maintained.replace("license", "credits")],
     ["bracketed comment", maintained.replace("owner note", "reviewed note")],
@@ -474,7 +474,7 @@ function markdownOutsideFences(markdown) {
 
 const marketingHTML = `<!doctype html>
 <html><head>
-<title>OpenPost - Social publishing</title>
+<title>dopost - Social publishing</title>
 <meta name="description" content="Create, adapt, and publish from one workspace.">
 <link rel="canonical" href="https://openpo.st">
 <link rel="alternate" type="text/markdown" href="https://openpo.st/index.md">
@@ -498,13 +498,13 @@ test("marketing production projection emits deterministic homepage Markdown and 
   const projection = {
     surface: "marketing",
     outputDirectory: directory,
-    corpus: { title: "OpenPost product", surface: "marketing" },
+    corpus: { title: "dopost product", surface: "marketing" },
     pages: [
       {
         sourcePath: htmlPath,
         outputPath: "index.md",
         route: {
-          title: "OpenPost - Social publishing",
+          title: "dopost - Social publishing",
           description: "Create, adapt, and publish from one workspace.",
           canonical: "https://openpo.st",
           agentDiscovery: { membership: "primary" },
@@ -513,13 +513,13 @@ test("marketing production projection emits deterministic homepage Markdown and 
     ],
     knownCanonicalURLs: ["https://openpo.st/", "https://openpo.st/features"],
     discovery: {
-      title: "OpenPost",
+      title: "dopost",
       description: "Create, adapt, and publish from one workspace.",
-      whenToUse: ["Use OpenPost for destination-specific publishing."],
-      whenNotToUse: ["Do not use OpenPost as a social network."],
+      whenToUse: ["Use dopost for destination-specific publishing."],
+      whenNotToUse: ["Do not use dopost as a social network."],
       links: [
         {
-          title: "OpenPost overview",
+          title: "dopost overview",
           description: "See the product workflow.",
           url: "https://openpo.st/index.md",
         },
@@ -537,14 +537,14 @@ test("marketing production projection emits deterministic homepage Markdown and 
   assert.match(corpus, /A linked card keeps its heading and description\./u);
   assert.doesNotMatch(corpus, /Navigation noise|privateState/u);
   const sitemap = await readFile(path.join(directory, "sitemap.md"), "utf8");
-  assert.match(sitemap, /\[OpenPost - Social publishing\]\(https:\/\/openpo\.st\/index\.md\)/u);
+  assert.match(sitemap, /\[dopost - Social publishing\]\(https:\/\/openpo\.st\/index\.md\)/u);
   assert.match(sitemap, /Canonical: https:\/\/openpo\.st/u);
   await generateAgentSurface(projection);
 
   assert.equal(await readFile(path.join(directory, "index.md"), "utf8"), firstMarkdown);
   assert.equal(await readFile(path.join(directory, "llms.txt"), "utf8"), firstDiscovery);
-  assert.match(firstMarkdown, /^<!-- Generated from the canonical OpenPost public page/m);
-  assert.match(firstMarkdown, /^Title: OpenPost - Social publishing$/m);
+  assert.match(firstMarkdown, /^<!-- Generated from the canonical dopost public page/m);
+  assert.match(firstMarkdown, /^Title: dopost - Social publishing$/m);
   assert.match(firstMarkdown, /^Description: Create, adapt, and publish from one workspace\.$/m);
   assert.match(firstMarkdown, /^Canonical: https:\/\/openpo\.st\/$/m);
   assert.match(firstMarkdown, /^Source: \[https:\/\/openpo\.st\/\]/m);
@@ -552,12 +552,12 @@ test("marketing production projection emits deterministic homepage Markdown and 
   assert.match(firstMarkdown, /^# Publish everywhere$/m);
   assert.match(firstMarkdown, /\[See the features\]\(https:\/\/openpo\.st\/features\)/);
   assert.doesNotMatch(firstMarkdown, /Navigation noise|privateState/);
-  assert.match(firstDiscovery, /^# OpenPost$/m);
-  assert.match(firstDiscovery, /^## When to use OpenPost$/m);
-  assert.match(firstDiscovery, /Use OpenPost for destination-specific publishing\./u);
-  assert.match(firstDiscovery, /^## When OpenPost is not a fit$/m);
-  assert.match(firstDiscovery, /Do not use OpenPost as a social network\./u);
-  assert.match(firstDiscovery, /\[OpenPost overview\]\(https:\/\/openpo\.st\/index\.md\)/);
+  assert.match(firstDiscovery, /^# dopost$/m);
+  assert.match(firstDiscovery, /^## When to use dopost$/m);
+  assert.match(firstDiscovery, /Use dopost for destination-specific publishing\./u);
+  assert.match(firstDiscovery, /^## When dopost is not a fit$/m);
+  assert.match(firstDiscovery, /Do not use dopost as a social network\./u);
+  assert.match(firstDiscovery, /\[dopost overview\]\(https:\/\/openpo\.st\/index\.md\)/);
 });
 
 test("marketing projection enforces the individual representation size ceiling", async () => {
@@ -573,7 +573,7 @@ test("marketing projection enforces the individual representation size ceiling",
       surface: "marketing",
       outputDirectory: directory,
       pages: [{ sourcePath: htmlPath, outputPath: "index.md" }],
-      discovery: { title: "OpenPost", description: "Overview.", links: [] },
+      discovery: { title: "dopost", description: "Overview.", links: [] },
     }),
     /https:\/\/openpo\.st\/: representation exceeds 256 KiB/u,
   );
@@ -596,7 +596,7 @@ test("documentation size exceptions require reviewed canonical metadata", async 
     pages: [page],
     discovery: {
       title: "Documentation",
-      description: "OpenPost documentation.",
+      description: "dopost documentation.",
       links: [],
     },
   };
@@ -657,13 +657,13 @@ test("marketing projection rejects rendered metadata that drifts from its canoni
           outputPath: "index.md",
           route: {
             path: "/",
-            title: "Canonical OpenPost title",
-            description: "Canonical OpenPost description.",
+            title: "Canonical dopost title",
+            description: "Canonical dopost description.",
             canonical: "https://openpo.st/",
           },
         },
       ],
-      discovery: { title: "OpenPost", description: "Overview.", links: [] },
+      discovery: { title: "dopost", description: "Overview.", links: [] },
     }),
     /https:\/\/openpo\.st\/: rendered title does not match canonical route metadata/u,
   );
@@ -684,7 +684,7 @@ test("marketing projection preserves tables and informative images with absolute
 </ul>
 <picture>
   <source srcset="/proof-dark.png" media="(prefers-color-scheme: dark)">
-  <img src="/proof.png" alt="OpenPost publishing result">
+  <img src="/proof.png" alt="dopost publishing result">
 </picture>
 <img src="/decoration.svg" alt="">
 <script>privateState = true</script>`,
@@ -695,12 +695,12 @@ test("marketing projection preserves tables and informative images with absolute
     surface: "marketing",
     outputDirectory: directory,
     pages: [{ sourcePath: htmlPath, outputPath: "index.md" }],
-    discovery: { title: "OpenPost", description: "Overview.", links: [] },
+    discovery: { title: "dopost", description: "Overview.", links: [] },
   });
   const markdown = await readFile(path.join(directory, "index.md"), "utf8");
   assert.match(markdown, /\| Plan \| Price \|\n\| --- \| --- \|\n\| Starter \| \$15 \|/u);
   assert.match(markdown, /- One workspace\n- Three accounts/u);
-  assert.match(markdown, /!\[OpenPost publishing result\]\(https:\/\/openpo\.st\/proof\.png\)/u);
+  assert.match(markdown, /!\[dopost publishing result\]\(https:\/\/openpo\.st\/proof\.png\)/u);
   assert.doesNotMatch(markdown, /decoration\.svg/u);
 });
 
@@ -720,12 +720,12 @@ test("documentation projection keeps one canonical heading for an ordinary sourc
         outputPath: "accounts.md",
         canonical: "https://openpo.st/docs/usage/accounts",
         title: "Accounts",
-        description: "Connect social accounts to OpenPost.",
+        description: "Connect social accounts to dopost.",
       },
     ],
     discovery: {
-      title: "OpenPost Documentation",
-      description: "OpenPost product and operating documentation.",
+      title: "dopost Documentation",
+      description: "dopost product and operating documentation.",
       links: [],
     },
   });
@@ -807,7 +807,7 @@ import { SetupScreenshot } from "@/components/setup-screenshot";
   alt="Callback URL field"
   width={960}
   height={540}
-  caption="Enter your OpenPost callback URL."
+  caption="Enter your dopost callback URL."
   sourceUrl="https://docs.postiz.com/providers/threads"
   edited
 />
@@ -832,7 +832,7 @@ import { SetupScreenshot } from "@/components/setup-screenshot";
     markdown,
     /!\[Callback URL field\]\(https:\/\/openpo\.st\/docs\/integrations\/callback\.png\)/u,
   );
-  assert.match(markdown, /Enter your OpenPost callback URL\./u);
+  assert.match(markdown, /Enter your dopost callback URL\./u);
   assert.match(
     markdown,
     /\[Screenshot from Postiz's guide\]\(https:\/\/docs\.postiz\.com\/providers\/threads\)/u,
@@ -882,16 +882,16 @@ test("documentation full corpus groups selected pages with provenance and no rep
         },
       }),
     ],
-    corpus: { title: "OpenPost Documentation Full Corpus" },
+    corpus: { title: "dopost Documentation Full Corpus" },
     discovery: {
       title: "Documentation",
-      description: "OpenPost documentation.",
+      description: "dopost documentation.",
       links: [],
     },
   });
 
   const corpus = await readFile(path.join(directory, "llms-full.txt"), "utf8");
-  assert.match(corpus, /^# OpenPost Documentation Full Corpus$/m);
+  assert.match(corpus, /^# dopost Documentation Full Corpus$/m);
   assert.match(corpus, /OpenPost convenience artifact/u);
   assert.match(corpus, /not part of the llms\.txt v2 proposal/u);
   assert.match(corpus, /^## User guide$/m);
@@ -938,11 +938,11 @@ test("documentation full corpus warns above 1 MiB and fails above 2 MiB", async 
     surface: "documentation",
     outputDirectory: directory,
     pages: pages.slice(0, 5),
-    corpus: { title: "OpenPost Documentation Full Corpus" },
+    corpus: { title: "dopost Documentation Full Corpus" },
     warn: (message) => warnings.push(message),
     discovery: {
       title: "Documentation",
-      description: "OpenPost documentation.",
+      description: "dopost documentation.",
       links: [],
     },
   };
@@ -981,10 +981,10 @@ test("documentation full corpus warns above 1 MiB and fails above 2 MiB", async 
         },
       },
     ],
-    corpus: { title: "OpenPost Documentation Full Corpus" },
+    corpus: { title: "dopost Documentation Full Corpus" },
     discovery: {
       title: "Documentation",
-      description: "OpenPost documentation.",
+      description: "dopost documentation.",
       links: [],
     },
   };
@@ -1010,11 +1010,11 @@ test("projection validation rejects unsafe or incomplete production contracts", 
     pages: [{ sourcePath: htmlPath, outputPath: "index.md" }],
     knownCanonicalURLs: ["https://openpo.st/", "https://openpo.st/features"],
     discovery: {
-      title: "OpenPost",
+      title: "dopost",
       description: "Public product information.",
       links: [
         {
-          title: "OpenPost overview",
+          title: "dopost overview",
           description: "Public product information.",
           url: "https://openpo.st/index.md",
         },
@@ -1341,7 +1341,7 @@ test(
     ]) {
       const markdown = await readFile(path.join(production.directory, "index.md"), "utf8");
       const discovery = await readFile(path.join(production.directory, "llms.txt"), "utf8");
-      assert.match(markdown, /^<!-- Generated from the canonical OpenPost public page/m);
+      assert.match(markdown, /^<!-- Generated from the canonical dopost public page/m);
       assert.match(
         markdown,
         new RegExp(`^Canonical: ${production.canonical.replaceAll(".", "\\.")}$`, "m"),
@@ -1446,8 +1446,8 @@ test(
     );
 
     const marketingDiscovery = await readFile(path.join(marketingDirectory, "llms.txt"), "utf8");
-    assert.match(marketingDiscovery, /^## When to use OpenPost$/m);
-    assert.match(marketingDiscovery, /^## When OpenPost is not a fit$/m);
+    assert.match(marketingDiscovery, /^## When to use dopost$/m);
+    assert.match(marketingDiscovery, /^## When dopost is not a fit$/m);
     for (const url of [
       "https://openpo.st/docs/openapi.json",
       "https://openpo.st/docs/automate/index.md",
@@ -1632,7 +1632,7 @@ test(
       productionHTMLContract(html, {
         canonical: entry.canonical,
         description: entry.description,
-        title: `${entry.socialTitle} | OpenPost Docs`,
+        title: `${entry.socialTitle} | dopost Docs`,
         home: entry.page === "index.mdx",
       });
       assert.ok(
@@ -1686,7 +1686,7 @@ test(
     assert.match(docsDiscovery, /\[OpenAPI JSON\]\(https:\/\/openpo\.st\/docs\/openapi\.json\)/u);
     assert.match(
       docsDiscovery,
-      /\[OpenPost documentation full corpus\]\(https:\/\/openpo\.st\/docs\/llms-full\.txt\)/u,
+      /\[dopost documentation full corpus\]\(https:\/\/openpo\.st\/docs\/llms-full\.txt\)/u,
     );
     assert.ok(Buffer.byteLength(docsCorpus, "utf8") < 1024 * 1024);
     assert.match(docsCorpus, /OpenPost convenience artifact/u);

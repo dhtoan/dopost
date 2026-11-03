@@ -25,7 +25,7 @@ class FakeBroadcastChannel {
 
 const model = createPreviewModel({
 	platform: 'instagram',
-	identity: { displayName: 'OpenPost', handle: 'openpost' },
+	identity: { displayName: 'dopost', handle: 'openpost' },
 	segments: [{ id: 'primary', text: 'Private preview copy' }]
 });
 

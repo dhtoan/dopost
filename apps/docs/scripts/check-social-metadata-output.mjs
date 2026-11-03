@@ -32,7 +32,7 @@ for (const file of files) {
   const outputPath = path.relative(dist, file).split(path.sep).join("/");
   const route =
     outputPath === "index.html" ? "/" : `/${outputPath.replace(/(?:\/index)?\.html$/, "")}`;
-  const documentTitle = html.match(/<title>([^<]+) \| OpenPost Docs<\/title>/u)?.[1];
+  const documentTitle = html.match(/<title>([^<]+) \| dopost Docs<\/title>/u)?.[1];
   const headHTML = html.match(/<head(?:\s[^>]*)?>([\s\S]*?)<\/head>/iu)?.[1] ?? "";
   const head = parseFragment(headHTML);
   const noindex = head.childNodes.some((node) => {
@@ -57,7 +57,7 @@ for (const file of files) {
     problems.push(`${outputPath}: Open Graph title exceeds 80 characters`);
   }
   for (const expected of [
-    'property="og:site_name" content="OpenPost Docs"',
+    'property="og:site_name" content="dopost Docs"',
     'property="og:image:type" content="image/png"',
     'property="og:image:width" content="1200"',
     'property="og:image:height" content="630"',

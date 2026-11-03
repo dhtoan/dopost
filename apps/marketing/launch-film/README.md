@@ -1,7 +1,7 @@
-# OpenPost launch film
+# dopost launch film
 
 An 87-second, 1920x1080, 60 fps launch film made in code. A founder ships, the work of telling everyone floods in and
-drags them under, and OpenPost pulls them back up. The rest shows what that buys them: posts that write themselves,
+drags them under, and dopost pulls them back up. The rest shows what that buys them: posts that write themselves,
 perfect versions for every network, visuals and video, one-click scheduling, and knowing what to do next.
 
 ```sh
@@ -39,7 +39,7 @@ Everything sits on the 120 BPM bar grid of the music. `timeline.js` holds the ti
    come down and lock into the mark.
 4. **Up (0:22).** The filter opens as the camera climbs, the score drops out for one gasp, and the waterline crosses
    the lens on the drop. The mark steps left, "Meet your content team." writes itself beside it, is erased, and
-   "OpenPost" is typed in the same place.
+   "dopost" is typed in the same place.
 5. **The product (0:30).** The camera dives through the mark into a workflow, where a glowing line runs one readable
    step at a time. Build draft opens in place and every step shows its work: notes pop in, the post streams, network
    marks land, and each drawn check throws its own burst. The review node opens into a composer that stays still while

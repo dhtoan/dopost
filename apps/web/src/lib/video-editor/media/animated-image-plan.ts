@@ -3,7 +3,7 @@
  *
  * Ported from FreeCut (MIT) - timeline/services/gif-frame-cache.ts
  * (cumulative-delay lookup) and clip-filmstrip/image-filmstrip.tsx (tile
- * geometry), retargeted to OpenPost's TimelineItem model.
+ * geometry), retargeted to dopost's TimelineItem model.
  */
 
 import type { MediaMetadata } from './types';

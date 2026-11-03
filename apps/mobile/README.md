@@ -1,10 +1,10 @@
-# OpenPost Mobile
+# dopost Mobile
 
-OpenPost Mobile is a standalone Expo app. It uses native tabs and platform controls instead of a web view, and talks to the same `/api/v1` contract as the web app.
+dopost Mobile is a standalone Expo app. It uses native tabs and platform controls instead of a web view, and talks to the same `/api/v1` contract as the web app.
 
 ## What it includes
 
-- OpenPost Hosted or a self-hosted HTTPS server
+- dopost Hosted or a self-hosted HTTPS server
 - Email, password, TOTP, and browser device pairing
 - Workspace selection and secure token storage
 - Ideate: one idea, four options, generated visuals, and voice defaults
@@ -16,7 +16,7 @@ OpenPost Mobile is a standalone Expo app. It uses native tabs and platform contr
 - Video capture and projects, plus stored account and destination analytics
 - Shared web theme tokens, icon packs, and Bayer textures, with native safe areas
 
-Settings stay in the web app. Use **Open web app** in the workspace menu, available from the OpenPost header.
+Settings stay in the web app. Use **Open web app** in the workspace menu, available from the dopost header.
 
 ## Prerequisites
 

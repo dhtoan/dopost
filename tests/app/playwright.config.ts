@@ -129,7 +129,7 @@ export default defineConfig({
       },
       command: [
         `rm -f ${dbPath}`,
-        ...(usePrebuiltArtifact ? [] : ["VITE_AUNO_E2E=1 bun run build -- frontend"]),
+        ...(usePrebuiltArtifact ? [] : ["VITE_DOPOST_E2E=1 bun run build -- frontend"]),
         [
           "cd apps/server &&",
           `OPENPOST_PORT=${port}`,
@@ -139,9 +139,9 @@ export default defineConfig({
           'THREADS_CLIENT_ID="e2e-threads-client"',
           'THREADS_CLIENT_SECRET="e2e-threads-secret"',
           "OPENPOST_DISABLE_REGISTRATIONS=false",
-          "OPENPOST_AUNO_E2E_FIXTURES=1",
+          "OPENPOST_DOPOST_E2E_FIXTURES=1",
           "OPENPOST_EMAIL_PROVIDER=smtp",
-          'OPENPOST_EMAIL_FROM="OpenPost <hello@openpost.test>"',
+          'OPENPOST_EMAIL_FROM="dopost <hello@openpost.test>"',
           `OPENPOST_SMTP_HOST=${host}`,
           `OPENPOST_SMTP_PORT=${smtpPort}`,
           "OPENPOST_SMTP_TLS_MODE=none",

@@ -163,7 +163,7 @@ export default function HomeScreen() {
         {closure ? (
           <BodyText>{closure}</BodyText>
         ) : hasSchedule && posts.length === 0 && canEdit ? (
-          <BodyText>Write a post and pick a time. OpenPost handles the rest.</BodyText>
+          <BodyText>Write a post and pick a time. dopost handles the rest.</BodyText>
         ) : null}
       </ScrollView>
     </Screen>

@@ -3,7 +3,7 @@
  * speech engine and convert word timings into cues on a subtitle
  * item as one undoable step.
  *
- * Ported from FreeCut (MIT) transcription flow, retargeted to OpenPost's
+ * Ported from FreeCut (MIT) transcription flow, retargeted to dopost's
  * timeline store and cue model.
  */
 

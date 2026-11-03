@@ -27,7 +27,7 @@ type ReviewContext struct {
 }
 
 // EngagementSubject is an upstream post or review, independent of whether it
-// was authored in OpenPost. Its optional native references are used for replies.
+// was authored in dopost. Its optional native references are used for replies.
 type EngagementSubject struct {
 	Kind       string         `json:"kind"`
 	RemoteID   string         `json:"remote_id"`

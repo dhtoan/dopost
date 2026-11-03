@@ -25,7 +25,7 @@ function key(
 	};
 }
 
-describe('OpenPost Image Editor command registry', () => {
+describe('dopost Image Editor command registry', () => {
 	it('has no shortcut collisions', () => {
 		const shortcuts = IMAGE_EDITOR_COMMANDS.flatMap((command) =>
 			command.shortcuts.map((shortcut) => ({ command: command.id, shortcut }))

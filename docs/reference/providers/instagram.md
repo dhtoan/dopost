@@ -47,7 +47,7 @@ Configure Instagram through the provider app registry. For bootstrap/self-hostin
 ]
 ```
 
-If `redirect_uri` is omitted, OpenPost derives it from `OPENPOST_APP_URL`.
+If `redirect_uri` is omitted, dopost derives it from `OPENPOST_APP_URL`.
 
 ## Current Scope
 
@@ -59,7 +59,7 @@ If `redirect_uri` is omitted, OpenPost derives it from `OPENPOST_APP_URL`.
 - Publishes Stories and lists, replies to, hides, and deletes eligible comments when Comments and replies is enabled for that account.
 - Supports inbox collection for Direct messages when enabled and replies within Meta's reply window. Direct messages and Comments and replies are separate per-account choices that start off.
 - Grow is not available for Instagram.
-- Supports scheduling and platform variants through the normal OpenPost post flow.
+- Supports scheduling and platform variants through the normal dopost post flow.
 
 Direct messages, Comments and replies, and Analytics are optional and per connected account. Disabling a feature stops future provider reads and writes without deleting history or revoking provider authorization. Availability depends on provider support, required scopes, and plan access as distinct facts.
 
@@ -82,7 +82,7 @@ Caption limits come from the capability catalogue. Meta documents publishing in 
 
 ## Analytics
 
-Analytics is an optional feature per connected Instagram account. It starts off for a new account. Enable it after connection or in Account details. OpenPost collects account followers and media count plus post likes, comments, and the views, reach, saves, and shares that Meta returns for the media type when enabled. Analytics requires `instagram_manage_insights` for Facebook Login or `instagram_business_manage_insights` for direct Instagram Login. Reconnect after adding or approving the relevant permission. Disabling Analytics stops future Instagram analytics collection without deleting stored metrics or revoking authorization.
+Analytics is an optional feature per connected Instagram account. It starts off for a new account. Enable it after connection or in Account details. dopost collects account followers and media count plus post likes, comments, and the views, reach, saves, and shares that Meta returns for the media type when enabled. Analytics requires `instagram_manage_insights` for Facebook Login or `instagram_business_manage_insights` for direct Instagram Login. Reconnect after adding or approving the relevant permission. Disabling Analytics stops future Instagram analytics collection without deleting stored metrics or revoking authorization.
 
 ## Troubleshooting
 
@@ -90,5 +90,5 @@ Analytics is an optional feature per connected Instagram account. It starts off 
 - Media publish failures usually mean the media URL is not public HTTPS or Meta cannot fetch it.
 - Permission errors may require Meta app review for the permissions of the selected login method. Page permissions apply only to Facebook Login.
 - Graph error `100/33` means Meta cannot access an object or perform the requested operation. It does not prove that a Page or post was deleted. Check Instagram before retrying a failed or uncertain delivery. If the post is live, do not publish it again.
-- A `100/33` response from the final publish request keeps the saved container pending for status reconciliation. OpenPost confirms publication from the container status without sending another publish request. An unreadable container remains unresolved rather than being guessed as published.
+- A `100/33` response from the final publish request keeps the saved container pending for status reconciliation. dopost confirms publication from the container status without sending another publish request. An unreadable container remains unresolved rather than being guessed as published.
 - Direct messages require their own per-account opt-in and the message-management permission for the selected login method. A person must message the professional account first. The `/inbox/changes` endpoint reads stored inbox updates; its server errors are separate from provider collection failures.

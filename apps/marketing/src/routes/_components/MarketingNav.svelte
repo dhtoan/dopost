@@ -90,7 +90,7 @@
 			<a
 				class="focus-ring inline-flex min-h-11 items-center gap-2 rounded-md"
 				href={resolve('/')}
-				aria-label="OpenPost home"
+				aria-label="dopost home"
 			>
 				<ThemeImage
 					lightSrc="/assets/brand/logo.svg"
@@ -101,9 +101,7 @@
 					loading="eager"
 					class="shrink-0"
 				/>
-				<span class="font-brand text-sm leading-none font-semibold tracking-[-0.02em]"
-					>OpenPost</span
-				>
+				<span class="font-brand text-sm leading-none font-semibold tracking-[-0.02em]">dopost</span>
 			</a>
 			<GitHubStarPill />
 		</div>

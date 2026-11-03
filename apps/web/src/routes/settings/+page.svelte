@@ -32,7 +32,7 @@
 		security: () => import('$lib/components/settings/SecuritySettingsTab.svelte'),
 		developer: () => import('$lib/components/settings/DeveloperSettingsTab.svelte'),
 		general: () => import('$lib/components/settings/WorkspacePreferencesSettings.svelte'),
-		ai: () => import('$lib/components/settings/AunoAISettingsTab.svelte'),
+		ai: () => import('$lib/components/settings/DopostAISettingsTab.svelte'),
 		brand: () => import('$lib/components/settings/BrandSettingsTab.svelte'),
 		'app-branding': () => import('$lib/components/settings/AppBrandingSettings.svelte'),
 		appearance: () => import('$lib/components/themes/appearance-settings.svelte'),

@@ -25,7 +25,7 @@ export function startProfileSpan(area: string, operation: string): (() => void) 
 				devtools: {
 					dataType: 'track-entry',
 					track: area,
-					trackGroup: 'OpenPost',
+					trackGroup: 'dopost',
 					color: 'tertiary'
 				}
 			}

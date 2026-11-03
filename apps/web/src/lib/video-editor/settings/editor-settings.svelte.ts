@@ -35,7 +35,7 @@ export type ColorPalette = (typeof COLOR_PALETTES)[number];
 
 // Persisted layout-dock flags port FreeCut's MIT-licensed editor layout
 // (Copyright (c) 2025 FreeCut): per-device sidebar open state and full-column
-// expansion. Theater mode is OpenPost-specific.
+// expansion. Theater mode is dopost-specific.
 
 export interface EditorSettingsValue {
 	maxUndoHistory: number;

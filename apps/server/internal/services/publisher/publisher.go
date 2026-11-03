@@ -1595,7 +1595,7 @@ func (s *Service) loadReadyRenditionMediaDelivery(ctx context.Context, publicati
 		if state.Status == platform.MediaUploadFailed && state.RetryClassification == platform.MediaRetryTerminal {
 			return "", &platform.MediaUploadError{
 				RetryClassification: platform.MediaRetryTerminal,
-				Err:                 errors.New("the previous provider media upload ended with an unknown or rejected outcome; OpenPost did not upload it again"),
+				Err:                 errors.New("the previous provider media upload ended with an unknown or rejected outcome; dopost did not upload it again"),
 			}
 		}
 		return "", nil

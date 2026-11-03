@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "OpenPost",
+    "name": "dopost",
     "slug": "openpost",
     "version": "0.2.72",
     "orientation": "portrait",
@@ -37,8 +37,8 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "Allow OpenPost to attach photos to your posts.",
-          "cameraPermission": "Allow OpenPost to take a photo for your post."
+          "photosPermission": "Allow dopost to attach photos to your posts.",
+          "cameraPermission": "Allow dopost to take a photo for your post."
         }
       ],
       [

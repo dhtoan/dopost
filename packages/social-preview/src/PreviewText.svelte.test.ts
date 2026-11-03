@@ -52,7 +52,7 @@ it("measures wrapping on resize instead of applying a character cutoff", async (
 
 it("lays out mixed Arabic and Hebrew paragraphs independently of an English author", async () => {
   const target = container();
-  const text = "مرحبا OpenPost!\nשלום OpenPost!\nHello OpenPost!";
+  const text = "مرحبا dopost!\nשלום dopost!\nHello dopost!";
   const screen = await render(PreviewText, {
     target,
     props: { text, author: "alice", lines: 10 },
@@ -67,12 +67,12 @@ it("lays out mixed Arabic and Hebrew paragraphs independently of an English auth
     range.setEnd(textNode, offset + 1);
     return range.getBoundingClientRect();
   }
-  for (const line of ["مرحبا OpenPost!", "שלום OpenPost!"]) {
+  for (const line of ["مرحبا dopost!", "שלום dopost!"]) {
     const start = textNode.textContent!.indexOf(line);
     expect(characterBounds(start).x).toBeGreaterThan(characterBounds(start + line.length - 1).x);
   }
   const english = textNode.textContent!.indexOf("Hello");
   expect(characterBounds(english).x).toBeLessThan(characterBounds(english + 13).x);
-  await screen.rerender({ text: "Hello OpenPost!" });
+  await screen.rerender({ text: "Hello dopost!" });
   expect(getComputedStyle(paragraph).direction).toBe("ltr");
 });

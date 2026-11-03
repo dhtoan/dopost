@@ -114,7 +114,7 @@ const checks = {
       "scripts/npm-view-result.test.mjs",
       "scripts/mobile-release.test.mjs",
       "scripts/release-assets.test.mjs",
-      "scripts/auno-container-release.test.mjs",
+      "scripts/dopost-container-release.test.mjs",
       "scripts/release-lifecycle.test.mjs",
       "scripts/ci-artifacts.test.mjs",
       "scripts/ci-run-coordination.test.mjs",

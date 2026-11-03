@@ -28,7 +28,7 @@ type workflowFailingBuilder struct{}
 func TestWorkflowBuilderPreservesLongWritingInstructions(t *testing.T) {
 	server := newPublicationBuildTestServer(t)
 	actions := workflowActions{builds: server.handler}
-	instructions := "Make a simple Twitter post following the format:\n\nWhat you can now use OpenPost for, in your benefit (that will bring the reader of the post more $ or more views), that changed or was added in this release. Basically a use case that they definitely want to read.\n\nNow in OpenPost v[...] (or something like this)"
+	instructions := "Make a simple Twitter post following the format:\n\nWhat you can now use dopost for, in your benefit (that will bring the reader of the post more $ or more views), that changed or was added in this release. Basically a use case that they definitely want to read.\n\nNow in dopost v[...] (or something like this)"
 	input := workflows.EffectRequest{
 		RunID: "release-run", StepID: "build", Kind: workflows.KindBuild,
 		Authority: workspaceaccess.StoredAuthority{UserID: "user-1", WorkspaceID: "ws-1", OrganizationID: "org-1", AssuredAt: server.handler.now()},

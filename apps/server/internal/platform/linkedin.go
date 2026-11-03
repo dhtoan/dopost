@@ -941,7 +941,7 @@ func (l *LinkedInAdapter) createPost(ctx context.Context, accessToken, authorURN
 
 var linkedInPostIDPattern = regexp.MustCompile(`^(urn:li:(share|ugcPost):[A-Za-z0-9_-]+|[0-9]+)$`)
 
-// validateLinkedInPostID rejects a provider post id OpenPost could never
+// validateLinkedInPostID rejects a provider post id dopost could never
 // reconcile with. LinkedIn returns share or ugcPost URNs (numeric today,
 // alphanumeric tolerated) or a bare numeric id depending on version. A
 // missing id stays accepted; a malformed one cannot be looked up, retried,

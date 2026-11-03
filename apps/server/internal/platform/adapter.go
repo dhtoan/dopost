@@ -13,7 +13,7 @@ import (
 type PublishRequest struct {
 	Content          string // Post text content
 	RenditionID      string // Owning Rendition for provider-specific durable receipts
-	Profile          string // OpenPost content profile, e.g. short_text, carousel, story, short_video
+	Profile          string // dopost content profile, e.g. short_text, carousel, story, short_video
 	OutputProfile    string // Provider-qualified output profile, e.g. instagram.carousel
 	Title            string // Provider-specific title for video/link surfaces
 	Description      string // Provider-specific description for video/link surfaces
@@ -196,7 +196,7 @@ type DirectMediaPublisher interface {
 }
 
 // InstanceCredentialPublisher marks a provider whose write credential belongs
-// to the OpenPost instance rather than a Workspace account. The credential
+// to the dopost instance rather than a Workspace account. The credential
 // stays inside the provider implementation and never crosses the publisher or
 // token-manager boundary.
 type InstanceCredentialPublisher interface {
@@ -361,7 +361,7 @@ type PublishingTargetValidator interface {
 	ValidatePublishingTarget(ctx context.Context, accessToken, accountID string, settings map[string]interface{}) error
 }
 
-// AuthorizationRevoker invalidates a provider credential before OpenPost
+// AuthorizationRevoker invalidates a provider credential before dopost
 // clears the encrypted local grant.
 type AuthorizationRevoker interface {
 	RevokeAuthorization(ctx context.Context, accessToken string) error

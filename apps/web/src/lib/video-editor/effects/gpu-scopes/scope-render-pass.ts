@@ -1,4 +1,4 @@
-/** Ported from FreeCut (MIT), adapted to OpenPost's Svelte scope surface. */
+/** Ported from FreeCut (MIT), adapted to dopost's Svelte scope surface. */
 const SCOPE_CLEAR_COLOR: GPUColor = { r: 0.04, g: 0.04, b: 0.04, a: 1 };
 
 export function createScopeRenderBindGroupLayout(

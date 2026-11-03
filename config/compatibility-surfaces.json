@@ -790,7 +790,7 @@
       "kind": "rest",
       "owner": "authentication",
       "status": "retained",
-      "decision": "Retain. The route revokes the OpenPost session and returns a validated provider RP-initiated logout URL when the configured provider supports it.",
+      "decision": "Retain. The route revokes the dopost session and returns a validated provider RP-initiated logout URL when the configured provider supports it.",
       "operations": [
         {
           "method": "POST",

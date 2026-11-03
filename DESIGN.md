@@ -1,5 +1,5 @@
 ---
-name: OpenPost
+name: dopost
 description: Calm publishing workspace with one warm accent, a dithered signature, semantic themes, and uniform shared chrome.
 colors:
   primary: "oklch(0.45 0.125 45)"
@@ -88,7 +88,7 @@ components:
     padding: "1rem"
 ---
 
-# Design System: OpenPost
+# Design System: dopost
 
 ## Overview
 
@@ -96,7 +96,7 @@ components:
 
 `docs/specs/calm-ux.md` is the binding contract for shared grammar and navigation. Where this document and that contract differ, the contract wins.
 
-OpenPost is a calm working environment for solo founders and creators who do not want to waste time, and it must still work for small teams and agencies. Each screen answers one question. Organizations without saved theme settings start with Calm: near-white paper or soft charcoal, Manrope, soft dividers, and one warm accent. Dither is the signature material that ties the product together, on focal and primary actions, charts, progress, skeletons, empty states, and brand moments. Saved organization and workspace choices take precedence. Dither and Dither Moss remain selectable themes. Marketing preserves its green, blue, and lilac public palette, with Dither as a restrained visual effect. Workshop remains the complete fallback and documentation reference.
+dopost is a calm working environment for solo founders and creators who do not want to waste time, and it must still work for small teams and agencies. Each screen answers one question. Organizations without saved theme settings start with Calm: near-white paper or soft charcoal, Manrope, soft dividers, and one warm accent. Dither is the signature material that ties the product together, on focal and primary actions, charts, progress, skeletons, empty states, and brand moments. Saved organization and workspace choices take precedence. Dither and Dither Moss remain selectable themes. Marketing preserves its green, blue, and lilac public palette, with Dither as a restrained visual effect. Workshop remains the complete fallback and documentation reference.
 
 The authenticated app stays focused and predictable. Marketing keeps its spacious public layout, colorful authored panels, shared neutral controls, and sparse Dither texture. Documentation uses Fumadocs with separate Guides, Self-hosting, and API reference navigation, sharing the product palette, assets, and direct voice. Every built-in family supports its declared schemes completely. When a family does not support the effective scheme, the complete Workshop scheme renders instead. Themes never mix token fragments.
 
@@ -110,9 +110,9 @@ The authenticated app stays focused and predictable. Marketing keeps its spaciou
 
 ## Identity
 
-The Converge symbol is the canonical OpenPost mark. Four equal rounded modules face one centered opening, expressing one workspace publishing outward. Preserve the exact supplied geometry: four-fold symmetry, even axis gaps, and a square footprint that remains legible at 16px. Do not redraw it as a pen, star, flower, window, or generic app grid.
+The Converge symbol is the canonical dopost mark. Four equal rounded modules face one centered opening, expressing one workspace publishing outward. Preserve the exact supplied geometry: four-fold symmetry, even axis gaps, and a square footprint that remains legible at 16px. Do not redraw it as a pen, star, flower, window, or generic app grid.
 
-Use the standalone mark when “OpenPost” is already written beside it or space is compact. Use the supplied outlined Manrope Semibold lockup for README, brand references, and static compositions that need the complete name. Transparent public marks use burnt orange `#B45309` on light backgrounds and peach-orange `#FD975D` on dark backgrounds. Public components use `ThemeImage` to follow the visitor's appearance choice; the authenticated app mark follows the active theme's `--action-focal` role. On Workshop Orange, use the reversed white lockup. “Your socials, on steroids.” is the approved brand headline; it is optional, never mandatory UI chrome.
+Use the standalone mark when “dopost” is already written beside it or space is compact. Use the supplied outlined Manrope Semibold lockup for README, brand references, and static compositions that need the complete name. Transparent public marks use burnt orange `#B45309` on light backgrounds and peach-orange `#FD975D` on dark backgrounds. Public components use `ThemeImage` to follow the visitor's appearance choice; the authenticated app mark follows the active theme's `--action-focal` role. On Workshop Orange, use the reversed white lockup. “Your socials, on steroids.” is the approved brand headline; it is optional, never mandatory UI chrome.
 
 README lockups keep the exact outlined wordmark and three solid Converge modules, while the bottom-left module dissolves outward and down-left through sparse square transparent gaps. The light and dark assets use the paired public mark colors; reversed and background-backed artwork keeps its existing treatment.
 
@@ -148,7 +148,7 @@ The public palette lives in `apps/marketing/src/routes/layout.css`. Paired `mark
 
 The landing page opens with a zoomable product tour using raw 2x screenshots, without the README frame or shadow. Later sections layer focused crops of actual editing, calendar, and analytics controls instead of repeating full app windows. Use colored panels and a tools-and-resources grid with concise copy. Keep trial terms and channel availability next to signup actions. Show only sourced testimonials. Label illustrative channel posts as examples and keep product-tour videos linked rather than embedded.
 
-The shared marketing footer places a decorative ASCII OpenPost wordmark above the brand and link rows on mint. A paper-plane illustration overlaps the section above it. Keep link rows compact while preserving 44px coarse-pointer targets. Pointer movement changes the wordmark's characters; reduced motion keeps them still.
+The shared marketing footer places a decorative ASCII dopost wordmark above the brand and link rows on mint. A paper-plane illustration overlaps the section above it. Keep link rows compact while preserving 44px coarse-pointer targets. Pointer movement changes the wordmark's characters; reduced motion keeps them still.
 
 Feature artwork lives in `assets/brand/features/` for the README, public feature sections, and existing customer guides. Use large, recognizable feature silhouettes on transparent backgrounds, without a Converge frame or enclosing tile. Keep square dithering sparse so the silhouette reads at 24px. Colors draw from the green, orange, yellow, and blue badge palette, with enough contrast in both schemes. Application page titles, navigation, editor entry points, and controls use the theme icon system, without feature artwork. The Converge brand mark remains protected. Distribute public artwork through `scripts/asset-surfaces.ts`.
 
@@ -183,7 +183,7 @@ Organization themes are versioned visual documents. They may control semantic co
 
 ### Hierarchy
 
-- **Wordmark** (`wordmark`): The resolved app display name beside its mark, defaulting to OpenPost and Converge, set at Semibold with restrained negative tracking.
+- **Wordmark** (`wordmark`): The resolved app display name beside its mark, defaulting to dopost and Converge, set at Semibold with restrained negative tracking.
 - **Display** (`display`): Public hero and major campaign headings, with strong contrast and tight tracking.
 - **App title** (`app-title`): Authenticated route `h1` headings through the shared page header.
 - **Body** (`body`): Controls, app copy, descriptions, and most supporting text; long prose should stay near 65–75 characters per line.
@@ -202,19 +202,19 @@ Public pages use a wider 78rem frame and larger responsive section spacing. Docu
 
 Use the established 4px spacing family, but vary it by hierarchy: tight within controls and metadata groups, moderate within sections, generous between major public-page ideas. Prefer `gap` for sibling relationships.
 
-### OpenPost Image Editor
+### dopost Image Editor
 
-OpenPost Image Editor is an immersive, task-specific workspace inside OpenPost rather than a general design product. Its chrome uses the resolved semantic theme. The central pasteboard, page boundary, selection handles, transparency grid, and direct-manipulation glyphs use protected editor roles so authored work remains legible in every theme.
+dopost Image Editor is an immersive, task-specific workspace inside dopost rather than a general design product. Its chrome uses the resolved semantic theme. The central pasteboard, page boundary, selection handles, transparency grid, and direct-manipulation glyphs use protected editor roles so authored work remains legible in every theme.
 
 Desktop uses one header row with the File, Edit, Layer, Select, Tools, View, and Help menus inline beside the title, an eight-slot tool rail (Add, Select, Crop, Text, Shape, Draw, Eyedropper, View), an asset pane, one active canvas, Layers and Properties panes, and an ordered page strip. Save state is a quiet icon with a tooltip; agent connection is a dot on the assistant button. Rulers default off. Layer eye and lock controls appear on hover or focus, or when active, and always on coarse pointers. Properties keeps text content and formatting together, with Transform, Layer, and Effects collapsed after them. Each persistent side or bottom pane has an accessible resize seam and a stable reset size. Phones use the same document model with a short top bar, a horizontal bottom tool rail, one contextual sheet at a time, a full-height Layers sheet, a non-modal Properties sheet that leaves the canvas visible and interactive, and a collapsible page strip. Coarse-pointer actions remain at least 44px. Two-finger input pans or zooms the canvas; one-finger input transforms the selected layer.
 
 Each tool family uses one rail button with an internal corner indicator. A click activates the remembered variant; clicking the active tool, right-clicking, or pressing ArrowDown or ArrowRight opens its attached menu. Do not add a separate narrow chevron target beside the rail. Expanded pages occupy the ordered thumbnail strip; collapsed pages use its compact status row. Tool options stay in one scrollable row, with essential actions first, so wrapping controls cannot expand across the artwork. The narrow-screen More menu uses the same command registry as desktop menus. Color keeps a live canvas above its non-modal control dock on phones. Desktop Color uses a compact Layers pane so grading controls receive the available height; Edit and Color retain separate pane sizes.
 
-The DOM-based Layers tree and Properties controls are the accessible equivalents of direct canvas editing. Every persistent change runs through the command system, exposes undo and redo, and announces saves, conflicts, exports, uploads, camera state, and background-removal state. OpenPost Image Editor uses a scoped theme runtime; it does not copy another editor's CSS, generated utilities, or trade dress.
+The DOM-based Layers tree and Properties controls are the accessible equivalents of direct canvas editing. Every persistent change runs through the command system, exposes undo and redo, and announces saves, conflicts, exports, uploads, camera state, and background-removal state. dopost Image Editor uses a scoped theme runtime; it does not copy another editor's CSS, generated utilities, or trade dress.
 
-### OpenPost Video Editor
+### dopost Video Editor
 
-OpenPost Video Editor uses a four-zone editing model: one quiet header row at the top, where the project title opens its details and save state is an icon, a fixed tool rail with one full-height content pane on the left, one dominant preview in the center, and selection-specific inspector tabs on the right. The timeline begins beside the left content pane and owns playback position; its ruler is the seek control, so a second progress slider must not compete with it. Each persistent side or bottom pane has an accessible resize seam and a stable reset size. Semantic selection and focal roles mark the active family, property tab, playhead, and Export action. Waveforms, timeline state, canvas bounds, and media keep protected editor roles.
+dopost Video Editor uses a four-zone editing model: one quiet header row at the top, where the project title opens its details and save state is an icon, a fixed tool rail with one full-height content pane on the left, one dominant preview in the center, and selection-specific inspector tabs on the right. The timeline begins beside the left content pane and owns playback position; its ruler is the seek control, so a second progress slider must not compete with it. Each persistent side or bottom pane has an accessible resize seam and a stable reset size. Semantic selection and focal roles mark the active family, property tab, playhead, and Export action. Waveforms, timeline state, canvas bounds, and media keep protected editor roles.
 
 Editors share `editor-header.svelte`, and their start pages return to Studio. The Video Editor rail groups tools into Media, Text, Captions, Effects, Elements, and Library, with the assistant pinned at the bottom. Media filter, sort, and view options share one popover. Track headers use one 44px row. Keyframe and reset controls appear with their row, and authored keys stay visible. Phones use a bottom tab bar of Media, Text, Effects, Properties, and Timeline, with the preview always visible and panels in sheets. Recorder is one centered setup card with secondary settings under More options. Quick Cut keeps one source row above the preview, with mark, remove, keep, loop, and zoom in the transport row and Find clips in Cleanup. Placement hints appear inline in the timeline status during an active placement, never as floating coachmarks. Keep inspector settings contextual. Selection exposes Properties, Animation, Effects, and Transcript only where applicable. Properties leads with content, geometry, and audio gain; anchor, appearance, crop, playback, pitch, and advanced audio settings use named disclosures. Mark modified appearance, crop, and playback groups so their state remains visible when closed. Scene detection belongs in selected-clip actions. Phones replace both side panels with the bottom tab bar and one sheet while preserving the same timeline and project document. Quick Cut remains the explicit stream-copy path and Full Editor remains the composed edit path.
 
@@ -259,7 +259,7 @@ Workshop uses a 12px base corner, 10px controls, 12px cards, and 14–16px promi
 
 ### Dither material
 
-Dither is OpenPost's signature and the one texture across the product. Never remove it from the surfaces below without an explicit brand decision.
+Dither is dopost's signature and the one texture across the product. Never remove it from the surfaces below without an explicit brand decision.
 
 Calm applies it to focal and primary buttons, chart fills, progress, skeletons, empty-state halos, and brand moments such as the Home greeting. Ordinary and quiet buttons stay plain so secondary actions never look disabled, and tool buttons inside editors stay plain. Its focal accent is `oklch(0.45 0.125 45)` in light and `oklch(0.76 0.115 45)` in dark, which keeps text at 4.5:1 over the texture. The Dither theme itself pairs orange-brown actions at hue 45 with warm paper or charcoal and Geist, and textures ordinary buttons too. Dither Moss uses green actions, warm neutrals, DM Sans, and tonal navigation.
 
@@ -302,7 +302,7 @@ Custom Dither button recipes must meet the text and texture contrast ranges in e
 - **Style:** 36px standard height, medium corners, full input border, and a faint tonal fill.
 - **Focus:** Semantic border plus a visible 2px ring.
 - **Error / Disabled:** Error uses Failure Red border and ring; disabled controls retain legible text while clearly reducing emphasis.
-- **Implementation:** Use the shared Shadcn-svelte `Input`, `Textarea`, `Select`/`AppSelect`, `Checkbox`, `RadioGroup`, `Slider`, and related primitives in the app, public OpenPost Image Editor, and marketing tools. Native controls belong only inside those shared implementations.
+- **Implementation:** Use the shared Shadcn-svelte `Input`, `Textarea`, `Select`/`AppSelect`, `Checkbox`, `RadioGroup`, `Slider`, and related primitives in the app, public dopost Image Editor, and marketing tools. Native controls belong only inside those shared implementations.
 - **Authored colors:** Use the shared brand-aware `ColorPicker` for hex, RGB, and HSL color values. Keep canvas sampling, grading wheels, CSS color expressions, and provider-defined color categories in their specialized controls.
 - **Embedded editors:** When a parent surface owns the complete boundary, the shared `Textarea` may use `unstyled` so default field chrome does not leak into the editor. The text-and-thread composer and media alt-text overlay are intentional examples; ordinary forms keep the default treatment.
 
@@ -350,4 +350,4 @@ OG cards use 1200 × 630 compositions designed to read at 320px wide. The landin
 
 ## Shared UI ownership
 
-`packages/ui` owns the reusable Svelte primitives, theme catalogue, icons and CSS recipes. OpenPost web and marketing consume its workspace exports. Standalone Svelte apps consume versioned packages or compiled package archives. UI labels use per-tree message context, with English defaults. Docs map Fumadocs roles to the package’s framework-neutral `tokens.css`; mobile generates native manifests from the same built-in theme catalogue and retains its native controls.
+`packages/ui` owns the reusable Svelte primitives, theme catalogue, icons and CSS recipes. dopost web and marketing consume its workspace exports. Standalone Svelte apps consume versioned packages or compiled package archives. UI labels use per-tree message context, with English defaults. Docs map Fumadocs roles to the package’s framework-neutral `tokens.css`; mobile generates native manifests from the same built-in theme catalogue and retains its native controls.

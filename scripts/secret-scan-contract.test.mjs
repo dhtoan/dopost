@@ -94,7 +94,7 @@ esac
       "git",
       [
         "-c",
-        "user.name=OpenPost Test",
+        "user.name=dopost Test",
         "-c",
         "user.email=test@openpost.local",
         "commit",
@@ -132,7 +132,7 @@ esac
           "git",
           [
             "-c",
-            "user.name=OpenPost Test",
+            "user.name=dopost Test",
             "-c",
             "user.email=test@openpost.local",
             "commit",

@@ -1,16 +1,16 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/v1/server-card.schema.json",
-  "name": "getopenpost/openpost",
-  "description": "Create, schedule, publish, and inspect social content through OpenPost.",
-  "title": "OpenPost MCP server",
-  "websiteUrl": "https://openpo.st",
+  "name": "dhtoan/dopost",
+  "description": "Create, schedule, publish, and inspect social content through dopost.",
+  "title": "dopost MCP server",
+  "websiteUrl": "https://github.com/dhtoan/dopost",
   "repository": {
-    "url": "https://github.com/getopenpost/openpost",
+    "url": "https://github.com/dhtoan/dopost",
     "source": "github"
   },
   "icons": [
     {
-      "src": "https://openpo.st/icon.svg",
+      "src": "https://raw.githubusercontent.com/dhtoan/dopost/main/apps/web/static/favicon.svg",
       "mimeType": "image/svg+xml"
     }
   ],

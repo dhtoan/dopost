@@ -1,7 +1,7 @@
 {
   "name": "@getopenpost/cli",
   "version": "0.1.29",
-  "description": "Install and run the OpenPost CLI and MCP proxy from npm. Downloads verified release binaries from GitHub.",
+  "description": "Install and run the dopost CLI and MCP proxy from npm. Downloads verified release binaries from GitHub.",
   "keywords": [
     "cli",
     "mcp",
@@ -12,12 +12,12 @@
   "homepage": "https://openpo.st",
   "license": "MIT",
   "author": {
-    "name": "OpenPost",
+    "name": "dopost",
     "email": "hello@openpo.st"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/getopenpost/openpost.git",
+    "url": "git+https://github.com/dhtoan/dopost.git",
     "directory": "packages/cli"
   },
   "bin": {

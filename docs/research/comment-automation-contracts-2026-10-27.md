@@ -38,7 +38,7 @@ For saved-message/campaign patterns, distinguish the documented products: Chatfu
 
 The parent reports incoming comments, selected/all published/scheduled/imported scopes, include/exclude exact/word/contains matching, daily limits, priority, separate public/private/handoff nodes, and Inbox review/takeover. These were not re-audited here.
 
-- Prioritize connection-path readiness and the dispatch-time seven-day/one-message checks above. Scheduled/imported scopes are OpenPost selection choices; a scheduled item still needs a published provider object and an actual eligible comment.
+- Prioritize connection-path readiness and the dispatch-time seven-day/one-message checks above. Scheduled/imported scopes are dopost selection choices; a scheduled item still needs a published provider object and an actual eligible comment.
 - Keep the current no-continuing-DM-sequences boundary. Show a pending-response state after the single private reply; manual takeover must retain provider eligibility checks.
 - Future options: “next published post,” reusable reply text with a rendered preview, public-response variants, and a sample-comment rule evaluator explaining the winning priority and exclusions. These are product choices, not Meta requirements.
 - Preserve independent public/private outcomes. Only announce that a DM was sent after confirmed success; expose failed or uncertain delivery and review-expired comments in Inbox.

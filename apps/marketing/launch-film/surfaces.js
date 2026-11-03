@@ -192,7 +192,7 @@ export function createSurfaces(engine, canvas) {
 		'wordmark',
 		1100,
 		240,
-		`<div style="font-family:Manrope,sans-serif;font-weight:600;font-size:196px;letter-spacing:-0.035em;line-height:240px;white-space:nowrap;color:var(--ink)"><span>OpenPost</span></div>`
+		`<div style="font-family:Manrope,sans-serif;font-weight:600;font-size:196px;letter-spacing:-0.035em;line-height:240px;white-space:nowrap;color:var(--ink)"><span>dopost</span></div>`
 	);
 	// The promise writes itself beside the mark, is erased, and the name is typed in the same spot.
 	const promise = surface(

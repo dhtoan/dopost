@@ -149,14 +149,14 @@ type Config struct {
 }
 
 type BrowserConfig struct {
-	Enabled      bool   `json:"enabled" doc:"Whether browser telemetry is enabled for this OpenPost instance"`
+	Enabled      bool   `json:"enabled" doc:"Whether browser telemetry is enabled for this dopost instance"`
 	ProjectToken string `json:"project_token,omitempty" doc:"Browser-safe PostHog project token"`
 	APIHost      string `json:"api_host,omitempty" doc:"PostHog browser ingestion endpoint or proxy"`
 	UIHost       string `json:"ui_host,omitempty" doc:"PostHog user interface host used for generated links"`
 	Environment  string `json:"environment" doc:"Deployment environment attached to telemetry"`
-	Edition      string `json:"edition" doc:"Configured OpenPost edition"`
-	Version      string `json:"version" doc:"Running OpenPost version"`
-	Revision     string `json:"revision" doc:"Running OpenPost source revision"`
+	Edition      string `json:"edition" doc:"Configured dopost edition"`
+	Version      string `json:"version" doc:"Running dopost version"`
+	Revision     string `json:"revision" doc:"Running dopost source revision"`
 }
 
 type Event struct {
@@ -325,11 +325,11 @@ func (r *postHogRecorder) CaptureException(ctx context.Context, exception Except
 func newExceptionMessage(exception Exception, config Config, timestamp time.Time) posthog.Exception {
 	title := strings.TrimSpace(exception.Title)
 	if title == "" {
-		title = "OpenPost error"
+		title = "dopost error"
 	}
 	description := strings.TrimSpace(exception.Description)
 	if description == "" {
-		description = "An OpenPost operation failed"
+		description = "A dopost operation failed"
 	}
 	message := posthog.NewDefaultException(
 		timestamp,
@@ -338,7 +338,7 @@ func newExceptionMessage(exception Exception, config Config, timestamp time.Time
 		description,
 	)
 	// posthog-go stores the title, description, stack trace, and debug images
-	// outside Properties. Adding OpenPost context here must not replace those
+	// outside Properties. Adding dopost context here must not replace those
 	// SDK-owned exception fields.
 	properties := copyProperties(exception.Properties)
 	for key, value := range defaultEventProperties(config) {
@@ -371,7 +371,7 @@ func (r *postHogRecorder) WrapHTTP(next http.Handler) http.Handler {
 			return
 		}
 		requestContext := posthog.ExtractRequestContext(request, true)
-		// OpenPost propagates only the browser identity and session. The SDK's
+		// dopost propagates only the browser identity and session. The SDK's
 		// default request metadata includes the concrete path, user agent, and IP;
 		// our privacy contract permits only application-owned route templates.
 		requestContext.Properties = posthog.NewProperties()

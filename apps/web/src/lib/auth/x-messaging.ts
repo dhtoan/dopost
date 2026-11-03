@@ -25,7 +25,7 @@ export function rememberXMessagingAuthorization(
 ) {
 	const state = new URL(url).searchParams.get('state');
 	if (!state) throw new Error('Missing authorization state');
-	// This is a browser-session binding, not an OpenPost credential.
+	// This is a browser-session binding, not a dopost credential.
 	sessionStorage.setItem(
 		pendingKey,
 		JSON.stringify({ state, actorId, workspaceId, accountId, expires: Date.now() + 600_000 })

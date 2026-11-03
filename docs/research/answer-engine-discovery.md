@@ -1,4 +1,4 @@
-# Question pages for OpenPost
+# Question pages for dopost
 
 Research date: 2026-09-05. This is an editorial rationale and measurement method, not an assistant visibility audit or a claim of improved rankings.
 
@@ -14,17 +14,17 @@ OpenAI says public pages can appear in ChatGPT search and identifies OAI-SearchB
 
 ## Five proposed questions
 
-These topics follow OpenPost's documented audience and capabilities. They are editorial hypotheses, not measured search-volume winners. The product sources are [PRODUCT.md](../../PRODUCT.md) and [README.md](../../README.md).
+These topics follow dopost's documented audience and capabilities. They are editorial hypotheses, not measured search-volume winners. The product sources are [PRODUCT.md](../../PRODUCT.md) and [README.md](../../README.md).
 
-| Question                                                        | Reader decision                                                | Useful original material                                                                                        |
-| --------------------------------------------------------------- | -------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| What are the best social media tools for solo founders?         | Choose a workflow for one person, based on actual needs.       | A comparison by writing, adapting, scheduling, editing, and operator effort, with explicit OpenPost authorship. |
-| How do I turn product updates into social media posts?          | Convert real work into useful posts without inventing claims.  | A worked example from one factual update to distinct destination drafts, plus a review checklist.               |
-| How do I schedule social media posts across multiple platforms? | Keep a shared idea while respecting platform differences.      | A concrete workflow covering accounts, media, destination text, timing, readiness, and failure inspection.      |
-| What are the best self-hosted social media schedulers?          | Decide whether operating a scheduler fits the reader.          | Hosting and provider-app responsibilities, deployment requirements, and a sourced OpenPost/Postiz comparison.   |
-| Which social media tools have an API, CLI, or MCP server?       | Pick an automation interface and preserve account permissions. | Explain when each interface fits, review before publication, and compare documented automation options.         |
+| Question                                                        | Reader decision                                                | Useful original material                                                                                      |
+| --------------------------------------------------------------- | -------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| What are the best social media tools for solo founders?         | Choose a workflow for one person, based on actual needs.       | A comparison by writing, adapting, scheduling, editing, and operator effort, with explicit dopost authorship. |
+| How do I turn product updates into social media posts?          | Convert real work into useful posts without inventing claims.  | A worked example from one factual update to distinct destination drafts, plus a review checklist.             |
+| How do I schedule social media posts across multiple platforms? | Keep a shared idea while respecting platform differences.      | A concrete workflow covering accounts, media, destination text, timing, readiness, and failure inspection.    |
+| What are the best self-hosted social media schedulers?          | Decide whether operating a scheduler fits the reader.          | Hosting and provider-app responsibilities, deployment requirements, and a sourced OpenPost/Postiz comparison. |
+| Which social media tools have an API, CLI, or MCP server?       | Pick an automation interface and preserve account permissions. | Explain when each interface fits, review before publication, and compare documented automation options.       |
 
-Do not make every page a listicle or force OpenPost into first place. State who publishes the guide, distinguish product facts from editorial judgments, and link directly to competitor documentation. Avoid invented reviews, ratings, benchmarks, market share, pricing, or assistant citations.
+Do not make every page a listicle or force dopost into first place. State who publishes the guide, distinguish product facts from editorial judgments, and link directly to competitor documentation. Avoid invented reviews, ratings, benchmarks, market share, pricing, or assistant citations.
 
 ## Verified competitor facts available for comparisons
 
@@ -38,7 +38,7 @@ Checked on the research date. These are vendor-documented capabilities, not inde
 | Postiz      | Documents scheduled-post creation and a custom server URL for its CLI.               | [CLI introduction](https://docs.postiz.com/cli/introduction)                              |
 | Post Bridge | Publishes MCP setup documentation.                                                   | [MCP setup](https://www.post-bridge.com/mcp/docs)                                         |
 
-OpenPost's README currently says no posting option has passed its final live check on Hosted. Preserve that limitation near recommendations to try publishing. Do not equate an implemented connector, a displayed platform logo, or self-hosted configuration with verified Hosted readiness. Use the maintained [provider readiness matrix](https://openpo.st/docs/operations/provider-launch-matrix) for current details.
+dopost's README currently says no posting option has passed its final live check on Hosted. Preserve that limitation near recommendations to try publishing. Do not equate an implemented connector, a displayed platform logo, or self-hosted configuration with verified Hosted readiness. Use the maintained [provider readiness matrix](https://openpo.st/docs/operations/provider-launch-matrix) for current details.
 
 ## Delivery requirements
 
@@ -50,9 +50,9 @@ Keep structured data consistent with visible content. Do not claim that special 
 
 Use a small fixed protocol rather than building a monitoring system:
 
-1. Before publication, save the exact five questions and run each in fresh ChatGPT and Claude sessions with web search available. Record the product/model shown, date, locale, search mode, prompt, full answer, cited URLs, and whether OpenPost is mentioned or recommended. If an assistant is unavailable, mark that cell unavailable.
-2. Repeat each question three times per assistant in separate fresh sessions. This makes a baseline of 30 answers when both assistants are available. Use identical prompts and settings after publication. Do not prime answers with OpenPost, the new pages, or this experiment.
-3. Count mentions, recommendations, and citations separately. Report counts with denominators, per assistant and question. A link to an OpenPost page is different from recommending OpenPost, and a competitor citation is different from a competitor recommendation. Do not call a ten-prompt snapshot overall market visibility.
+1. Before publication, save the exact five questions and run each in fresh ChatGPT and Claude sessions with web search available. Record the product/model shown, date, locale, search mode, prompt, full answer, cited URLs, and whether dopost is mentioned or recommended. If an assistant is unavailable, mark that cell unavailable.
+2. Repeat each question three times per assistant in separate fresh sessions. This makes a baseline of 30 answers when both assistants are available. Use identical prompts and settings after publication. Do not prime answers with dopost, the new pages, or this experiment.
+3. Count mentions, recommendations, and citations separately. Report counts with denominators, per assistant and question. A link to a dopost page is different from recommending dopost, and a competitor citation is different from a competitor recommendation. Do not call a ten-prompt snapshot overall market visibility.
 4. After an authorized deployment, verify the five live URLs and indexing eligibility. Repeat the saved protocol after two and four weeks. Preserve all results, including unfavorable ones. Differences are observational and cannot establish that page titles caused the change.
 5. Check existing analytics for visits to those pages from assistant referrals, including ChatGPT's documented UTM parameter. Compare engaged visits and trial starts where existing consented tracking permits. Record missing attribution as unknown, not zero. Citation visibility and useful customer acquisition are different outcomes.
 

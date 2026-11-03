@@ -47,7 +47,7 @@ func TestValidateTokenRejectsUnexpectedAlgorithmAndIssuer(t *testing.T) {
 	}
 	verified, err := service.ValidateToken(validToken)
 	if err != nil {
-		t.Fatalf("expected the same fixture signed with HS256 and the OpenPost issuer to validate: %v", err)
+		t.Fatalf("expected the same fixture signed with HS256 and the dopost issuer to validate: %v", err)
 	}
 	if verified.UserID != "user-123" || verified.Email != "user@example.com" {
 		t.Fatalf("valid token resolved the wrong identity: %#v", verified)

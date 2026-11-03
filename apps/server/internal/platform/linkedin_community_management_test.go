@@ -30,7 +30,7 @@ func TestLinkedInCommunityManagementDiscoversPagesWithoutBatchAccess(t *testing.
 		case "/rest/organizationAcls":
 			return jsonResponse(req, `{"elements":[{"organization":"urn:li:organization:42"},{"organization":"urn:li:organization:99"}],"paging":{"links":[]}}`), nil
 		case "/rest/organizations/42":
-			return jsonResponse(req, `{"localizedName":"OpenPost","vanityName":"openpost"}`), nil
+			return jsonResponse(req, `{"localizedName":"dopost","vanityName":"openpost"}`), nil
 		case "/rest/organizations/99":
 			return jsonResponse(req, `{"localizedName":"Another Page","vanityName":"another"}`), nil
 		default:
@@ -42,7 +42,7 @@ func TestLinkedInCommunityManagementDiscoversPagesWithoutBatchAccess(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(options) != 3 || options[1].ID != "organization:42" || options[1].DisplayName != "OpenPost" || options[2].ID != "organization:99" {
+	if len(options) != 3 || options[1].ID != "organization:42" || options[1].DisplayName != "dopost" || options[2].ID != "organization:99" {
 		t.Fatalf("unexpected account choices %#v", options)
 	}
 	profile, err := adapter.RefreshAccountMetadata(t.Context(), "token", AccountMetadataRequest{AccountID: "urn:li:organization:42"})

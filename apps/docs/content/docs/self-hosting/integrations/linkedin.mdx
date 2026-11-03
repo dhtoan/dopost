@@ -4,13 +4,13 @@ description: Connect LinkedIn member profiles and, with approved access, Organiz
 icon: linkedin
 ---
 
-OpenPost connects a LinkedIn member through OAuth. It can also offer Organization Pages when your LinkedIn app has Community Management access and the member administers those Pages.
+dopost connects a LinkedIn member through OAuth. It can also offer Organization Pages when your LinkedIn app has Community Management access and the member administers those Pages.
 
 ## What you need
 
-- Use a public HTTPS address for OpenPost and set `OPENPOST_APP_URL` to that origin.
+- Use a public HTTPS address for dopost and set `OPENPOST_APP_URL` to that origin.
 - Have a [LinkedIn developer account](https://www.linkedin.com/developers/) and a LinkedIn member account for testing.
-- Decide whether you need member publishing only or Organization Pages. Page access needs LinkedIn approval; turning on an OpenPost setting does not grant it.
+- Decide whether you need member publishing only or Organization Pages. Page access needs LinkedIn approval; turning on a dopost setting does not grant it.
 
 ## Create and configure the LinkedIn app
 
@@ -24,12 +24,12 @@ OpenPost connects a LinkedIn member through OAuth. It can also offer Organizatio
    https://post.example.com/api/v1/accounts/linkedin/callback
    ```
 
-4. For a member-only app using the two self-service products, set `OPENPOST_DISABLE_LINKEDIN_THREAD_REPLIES=true` in your deployment before the first connection. OpenPost otherwise requests `w_member_social_feed`, which needs additional LinkedIn approval and can cause sign-in to fail. Keep replies enabled only when your app has that permission.
+4. For a member-only app using the two self-service products, set `OPENPOST_DISABLE_LINKEDIN_THREAD_REPLIES=true` in your deployment before the first connection. dopost otherwise requests `w_member_social_feed`, which needs additional LinkedIn approval and can cause sign-in to fail. Keep replies enabled only when your app has that permission.
 5. Check the app's approved products and scopes in **Auth**. The member used to connect a Page must have an approved `ADMINISTRATOR` role for that Page.
 
 LinkedIn describes [self-service products and permissions](https://learn.microsoft.com/en-us/linkedin/shared/authentication/getting-access) and [Organization roles](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/organizations/organization-access-control-by-role).
 
-## Save the app in OpenPost
+## Save the app in dopost
 
 [Save these credentials](/self-hosting/integrations#save-your-provider-credentials) with your own domain and app values:
 
@@ -55,19 +55,19 @@ OPENPOST_LINKEDIN_MEMBER_ANALYTICS_ENABLED=true
 OPENPOST_DISABLE_LINKEDIN_THREAD_REPLIES=false
 ```
 
-OpenPost retrieves each Page individually in this mode. LinkedIn's [Development Tier limits](https://learn.microsoft.com/en-us/linkedin/marketing/increasing-access) allow 500 API calls per app and 100 per member per 24 hours, prohibit `BATCH_GET`, and disable social-action webhooks. Use this tier to build and test your integration, then request Standard Tier for production use. Authentication mode does not grant additional permissions or remove these limits.
+dopost retrieves each Page individually in this mode. LinkedIn's [Development Tier limits](https://learn.microsoft.com/en-us/linkedin/marketing/increasing-access) allow 500 API calls per app and 100 per member per 24 hours, prohibit `BATCH_GET`, and disable social-action webhooks. Use this tier to build and test your integration, then request Standard Tier for production use. Authentication mode does not grant additional permissions or remove these limits.
 
 Changing the developer app changes the member identity namespace. Reconnect your accounts using the new app; tokens and member IDs from the previous app cannot be reused. Switching authentication mode on an existing installation also requires reconnecting to grant its requested scopes.
 
 ## Connect and test
 
 1. Open **Settings → Workspace → Social accounts**, select **LinkedIn**, and complete LinkedIn consent.
-2. Select the member profile and, if enabled and offered, any eligible Organization Pages. Each selection becomes a separate OpenPost account.
-3. Publish a short text test to the intended account. Check its result in OpenPost and on LinkedIn before scheduling real content. Enable optional Comments and replies or Analytics per account only after checking your approved access.
+2. Select the member profile and, if enabled and offered, any eligible Organization Pages. Each selection becomes a separate dopost account.
+3. Publish a short text test to the intended account. Check its result in dopost and on LinkedIn before scheduling real content. Enable optional Comments and replies or Analytics per account only after checking your approved access.
 
 ## Enable member post imports
 
-LinkedIn restricts `r_member_social` to approved applications. After LinkedIn grants it to your app, set `OPENPOST_LINKEDIN_MEMBER_READS_ENABLED=true` and restart OpenPost. Reconnect the member account to approve that scope, then turn on **Imported posts** in its account details. Keep this setting off for apps without approval so normal connections do not request an unavailable scope.
+LinkedIn restricts `r_member_social` to approved applications. After LinkedIn grants it to your app, set `OPENPOST_LINKEDIN_MEMBER_READS_ENABLED=true` and restart dopost. Reconnect the member account to approve that scope, then turn on **Imported posts** in its account details. Keep this setting off for apps without approval so normal connections do not request an unavailable scope.
 
 Page imports use `r_organization_social` and the existing `OPENPOST_LINKEDIN_ORGANIZATIONS_ENABLED` setting.
 
@@ -79,7 +79,7 @@ For personal profile analytics, obtain Community Management approval for `r_memb
 OPENPOST_LINKEDIN_MEMBER_ANALYTICS_ENABLED=true
 ```
 
-Restart OpenPost or recreate the container. Reconnect the member account if its existing authorization lacks either scope, then enable **Analytics** in its account details. Member analytics do not require Organization Page support.
+Restart dopost or recreate the container. Reconnect the member account if its existing authorization lacks either scope, then enable **Analytics** in its account details. Member analytics do not require Organization Page support.
 
 For Organization Page analytics, enable Organization Page support and confirm the connected account has `rw_organization_admin`:
 

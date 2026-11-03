@@ -118,13 +118,14 @@ async function init() {
 	// never message text, and only when the instance switch is on and no
 	// browser privacy signal refuses.
 	installMaintainerDiagnosticsCapture();
-	if (import.meta.env.VITE_AUNO_E2E === '1') {
-		const [{ installAunoMotionE2EHooks }, { installAunoDocumentaryE2EHook }] = await Promise.all([
-			import('$lib/auno/motion/e2e-hooks'),
-			import('$lib/auno/documentary/e2e-hooks')
-		]);
-		installAunoMotionE2EHooks();
-		installAunoDocumentaryE2EHook();
+	if (import.meta.env.VITE_DOPOST_E2E === '1') {
+		const [{ installDopostMotionE2EHooks }, { installDopostDocumentaryE2EHook }] =
+			await Promise.all([
+				import('$lib/dopost/motion/e2e-hooks'),
+				import('$lib/dopost/documentary/e2e-hooks')
+			]);
+		installDopostMotionE2EHooks();
+		installDopostDocumentaryE2EHook();
 	}
 	if (import.meta.env.DEV && new URLSearchParams(location.search).get('renderScan') === '1') {
 		void import('$lib/performance/render-scan');

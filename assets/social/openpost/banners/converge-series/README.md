@@ -1,4 +1,4 @@
-# OpenPost Converge header series
+# dopost Converge header series
 
 Ten dark visual directions are supplied as ready-to-upload X and LinkedIn profile headers. Every background was generated as its own concept, then finished with the canonical `assets/brand/lockup-dark.svg` artwork. None of the headers uses a slogan.
 
