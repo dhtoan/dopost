@@ -1,5 +1,6 @@
 <!-- Transport: play/pause, frame stepping, in/out, timecode -->
 <script lang="ts">
+	import type { GuideId } from '$lib/video-editor/preview/guides';
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { resolveAppPath } from '$lib/app-path';
@@ -180,6 +181,13 @@
 		document.addEventListener('fullscreenchange', syncFullscreen);
 		return () => document.removeEventListener('fullscreenchange', syncFullscreen);
 	});
+
+	const PREVIEW_GUIDE_OPTIONS: ReadonlyArray<{ id: GuideId; label: () => string }> = [
+		{ id: 'thirds', label: () => m.video_editor_guides_thirds() },
+		{ id: 'center', label: () => m.video_editor_guides_center() },
+		{ id: 'margins', label: () => m.video_editor_guides_margins() },
+		{ id: 'shortform', label: () => m.video_editor_guides_shortform() }
+	];
 </script>
 
 <div
@@ -397,6 +405,15 @@
 				<DropdownMenu.Item onclick={() => previewPlaybackSettings.setPreviewQuality('full')}>
 					{m.video_editor_preview_quality()}: {m.video_editor_quality_full()}
 				</DropdownMenu.Item>
+				<DropdownMenu.Separator />
+				<DropdownMenu.Label>{m.video_editor_guides()}</DropdownMenu.Label>
+				{#each PREVIEW_GUIDE_OPTIONS as guide (guide.id)}
+					<DropdownMenu.CheckboxItem
+						checked={previewPlaybackSettings.guides.includes(guide.id)}
+						onCheckedChange={(checked) => previewPlaybackSettings.setGuide(guide.id, checked)}
+						>{guide.label()}</DropdownMenu.CheckboxItem
+					>
+				{/each}
 				<DropdownMenu.Separator />
 				<DropdownMenu.Item
 					disabled={savingFrame || totalFrames === 0}

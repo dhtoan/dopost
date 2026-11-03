@@ -136,6 +136,7 @@
 	import { previewDiagnostics } from '$lib/video-editor/preview/diagnostics.svelte';
 	import { spatialEffectEditorStore } from '$lib/video-editor/preview/spatial-effect-editor.svelte';
 	import EditPreviewOverlay from './edit-preview-overlay.svelte';
+	import PreviewGuidesOverlay from './preview-guides-overlay.svelte';
 	import ShuttleIndicator from './shuttle-indicator.svelte';
 	import { getSpatialPointEffectConfig } from '$lib/video-editor/effects/spatial-point-editor';
 	import {
@@ -1555,6 +1556,14 @@
 								}}
 							/>
 						{/each}
+
+						{#if previewPlaybackSettings.guides.length > 0}
+							<PreviewGuidesOverlay
+								guides={previewPlaybackSettings.guides}
+								{canvasWidth}
+								{canvasHeight}
+							/>
+						{/if}
 
 						{#if showTransformControls && selectedResolvedItems.length > 1 && !groupSelectionLocked}
 							<GroupOnCanvasTools
