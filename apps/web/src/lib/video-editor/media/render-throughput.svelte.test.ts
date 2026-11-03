@@ -369,7 +369,7 @@ describe('timeline rendering', () => {
 				const video = (await input.getPrimaryVideoTrack())!;
 				const decoded: number[][] = [];
 				for await (const { canvas } of new CanvasSink(video, { poolSize: 1 }).canvases())
-					decoded.push([getCanvas2DContext(...canvas)!.getImageData(32, 32, 1, 1).data]);
+					decoded.push([...getCanvas2DContext(canvas)!.getImageData(32, 32, 1, 1).data]);
 				expect(decoded).toHaveLength(3);
 				if (!params) baseline = decoded;
 				else if (pixel[0] === 80) expect(decoded).toEqual(baseline);
