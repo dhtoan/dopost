@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
   <g transform="matrix(2 0 0 2 128 128)" fill="#ffffff">
-    <path d="M88 8h24v112H88Z"/><path fill-rule="evenodd" d="M56 40a40 40 0 1 1 0 80a40 40 0 1 1 0-80Zm0 20a20 20 0 1 0 0 40a20 20 0 1 0 0-40Z"/>
+    <path fill-rule="evenodd" d="M72 14h14a6 6 0 0 1 6 6v62a40 40 0 1 1-26-37.47V20a6 6 0 0 1 6-6Z M40 68v28a4 4 0 0 0 6 3.46l24.5-14a4 4 0 0 0 0-6.92L46 64.54a4 4 0 0 0-6 3.46Z"/>
     
     
     

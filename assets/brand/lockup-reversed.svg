@@ -1,6 +1,5 @@
-<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="1280" height="320" viewBox="0 0 1280 320" role="img" aria-label="dopost">
   <rect width="1280" height="320" fill="#B74C05"/>
-  <g transform="matrix(1.640625 0 0 1.640625 72 63.4)" fill="#ffffff"><path d="M88 8h24v112H88Z"/><path fill-rule="evenodd" d="M56 40a40 40 0 1 1 0 80a40 40 0 1 1 0-80Zm0 20a20 20 0 1 0 0 40a20 20 0 1 0 0-40Z"/></g>
-  <text x="300" y="214" fill="#ffffff" font-family="Geist, Inter, system-ui, sans-serif" font-size="176" font-weight="650" letter-spacing="-4">dopost</text>
+  <g transform="matrix(1.85 0 0 1.85 58 34)"><path fill="#ffffff" fill-rule="evenodd" d="M72 14h14a6 6 0 0 1 6 6v62a40 40 0 1 1-26-37.47V20a6 6 0 0 1 6-6Z M40 68v28a4 4 0 0 0 6 3.46l24.5-14a4 4 0 0 0 0-6.92L46 64.54a4 4 0 0 0-6 3.46Z"/></g>
+  <text x="268" y="258" fill="#ffffff" font-family="Geist, Inter, system-ui, sans-serif" font-size="176" font-weight="650" letter-spacing="-4">dopost</text>
 </svg>
