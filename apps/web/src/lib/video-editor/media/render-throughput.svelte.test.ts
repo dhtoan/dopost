@@ -1,3 +1,4 @@
+import { getCanvas2DContext } from '$lib/canvas-context';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
 	ALL_FORMATS,
@@ -311,7 +312,7 @@ describe('timeline rendering', () => {
 			const video = (await input.getPrimaryVideoTrack())!;
 			let count = 0;
 			for await (const { canvas } of new CanvasSink(video, { poolSize: 1 }).canvases()) {
-				const pixel = canvas.getContext('2d')!.getImageData(32, 32, 1, 1).data;
+				const pixel = getCanvas2DContext(canvas)!.getImageData(32, 32, 1, 1).data;
 				expect(pixel[0]).toBeGreaterThan(245);
 				expect(pixel[1]).toBeLessThan(10);
 				expect(pixel[2]).toBeLessThan(10);
@@ -368,7 +369,7 @@ describe('timeline rendering', () => {
 				const video = (await input.getPrimaryVideoTrack())!;
 				const decoded: number[][] = [];
 				for await (const { canvas } of new CanvasSink(video, { poolSize: 1 }).canvases())
-					decoded.push([...canvas.getContext('2d')!.getImageData(32, 32, 1, 1).data]);
+					decoded.push([getCanvas2DContext(...canvas)!.getImageData(32, 32, 1, 1).data]);
 				expect(decoded).toHaveLength(3);
 				if (!params) baseline = decoded;
 				else if (pixel[0] === 80) expect(decoded).toEqual(baseline);
@@ -824,7 +825,7 @@ describe('timeline rendering', () => {
 			expect(Math.abs((await track.computeDuration()) - 2)).toBeLessThan(1 / FPS + 0.001);
 			let count = 0;
 			for await (const frame of new CanvasSink(track, { poolSize: 1 }).canvases()) {
-				const red = frame.canvas.getContext('2d')!.getImageData(32, 32, 1, 1).data[0]!;
+				const red = getCanvas2DContext(frame.canvas)!.getImageData(32, 32, 1, 1).data[0]!;
 				expect(Math.abs(red - count * 4)).toBeLessThan(8);
 				expect(frame.timestamp).toBeCloseTo(count / FPS, 3);
 				count++;

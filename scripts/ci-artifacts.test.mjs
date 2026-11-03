@@ -55,7 +55,7 @@ test("rejects missing, malformed, expired, or ambiguous latest artifacts", () =>
 });
 
 test("image CI resolves the successful frontend artifact across attempts", () => {
-  const workflow = readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
+  const workflow = readFileSync(new URL("../config/upstream-workflows/ci.yml", import.meta.url), "utf8");
   const imageJob = load(workflow).jobs.image;
   const resolver = imageJob.steps.find((step) => step.run?.includes("ci-artifacts.mjs resolve"));
   assert.ok(resolver?.id, "the image job resolves its frontend artifact");

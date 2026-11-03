@@ -1,3 +1,4 @@
+import { getCanvas2DContext } from '$lib/canvas-context';
 import { afterEach, expect, it } from 'vitest';
 import { render } from 'vitest-browser-svelte';
 import { createBlankProject } from '../project/defaults';
@@ -79,7 +80,7 @@ it.each([
 			durationInFrames: 21
 		}));
 		const checkPixels = (canvas: HTMLCanvasElement | OffscreenCanvas) => {
-			const context = canvas.getContext('2d')!;
+			const context = getCanvas2DContext(canvas)!;
 			const left = context.getImageData(canvas.width / 4, canvas.height / 2, 1, 1).data;
 			const right = context.getImageData((canvas.width * 3) / 4, canvas.height / 2, 1, 1).data;
 			for (const [actual, expected] of [

@@ -23,7 +23,7 @@ jobs:
     steps:
       - name: Create openpost-bot token
         id: app-token
-        # Bot writes require the configured dopost GitHub App.
+        # Bot writes require the configured OpenPost GitHub App.
         uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         with:
           app-id: ${{ vars.OPENPOST_BOT_APP_ID }}
@@ -70,7 +70,7 @@ jobs:
           font-family: Geist
           commit: false
 
-      - name: Apply dopost Dither styles
+      - name: Apply OpenPost Dither styles
         if: steps.star-history.outputs.changed == 'true'
         run: |
           # Root postinstall builds UI workspace dependencies, so install their
@@ -88,7 +88,7 @@ jobs:
           if [ "$STARS_CHANGED" = "true" ]; then
             echo "$STAR_COUNT" > assets/star-history/.star-count
           fi
-          [[ "$BOT_SLUG" == "openpost-bot" ]] || { echo "::error::dopost bot credentials are required"; exit 1; }
+          [[ "$BOT_SLUG" == "openpost-bot" ]] || { echo "::error::OpenPost bot credentials are required"; exit 1; }
           bot_id="$(gh api "users/${BOT_SLUG}[bot]" --jq .id)"
           [[ "$bot_id" =~ ^[0-9]+$ ]] || exit 1
           git config user.name "${BOT_SLUG}[bot]"

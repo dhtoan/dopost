@@ -5,7 +5,7 @@ import { load } from "js-yaml";
 // Browser installs follow the launch mode of each suite: channel chromium
 // suites need the full browser build only, while the marketing suite keeps
 // Playwright's bundled headless shell. Server tooling tests also launch Chromium.
-const workflow = readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8");
+const workflow = readFileSync(new URL("../config/upstream-workflows/ci.yml", import.meta.url), "utf8");
 const jobs = load(workflow).jobs;
 
 function browserInstall(job) {

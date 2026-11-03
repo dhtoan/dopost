@@ -21,9 +21,9 @@ import { planCI } from "./ci-plan.mjs";
 import { selectPublishedStableRelease } from "./published-release-tag.mjs";
 import { readReleaseSurfaceManifest } from "./release-surfaces.mjs";
 
-const ci = readFileSync(".github/workflows/ci.yml", "utf8");
-const release = readFileSync(".github/workflows/release.yml", "utf8");
-const screenshotRefresh = readFileSync(".github/workflows/screenshot-refresh.yml", "utf8");
+const ci = readFileSync("config/upstream-workflows/ci.yml", "utf8");
+const release = readFileSync("config/upstream-workflows/release.yml", "utf8");
+const screenshotRefresh = readFileSync("config/upstream-workflows/screenshot-refresh.yml", "utf8");
 const releaseScript = readFileSync("scripts/release.mjs", "utf8");
 const workflows = readdirSync(".github/workflows", { withFileTypes: true })
   .filter((entry) => entry.isFile() && /\.(?:ya?ml)$/u.test(entry.name))

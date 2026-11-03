@@ -6,7 +6,7 @@ import path from "node:path";
 import test from "node:test";
 
 const [workflow, scanner, config, devenv, tasks] = await Promise.all([
-  readFile(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8"),
+  readFile(new URL("../config/upstream-workflows/ci.yml", import.meta.url), "utf8"),
   readFile(new URL("./scan-secrets.sh", import.meta.url), "utf8"),
   readFile(new URL("../.gitleaks.toml", import.meta.url), "utf8"),
   readFile(new URL("../devenv.nix", import.meta.url), "utf8"),

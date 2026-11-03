@@ -1,3 +1,4 @@
+import { getCanvas2DContext } from '$lib/canvas-context';
 import { afterEach, expect, it } from 'vitest';
 import { render } from 'vitest-browser-svelte';
 import '../../../routes/layout.css';
@@ -13,7 +14,7 @@ import { TimelineFrameRenderer, renderMultiTrackVideoArtifact } from '../media/r
 import PreviewLayer from './preview-layer.svelte';
 
 function inkSize(canvas: HTMLCanvasElement | OffscreenCanvas) {
-	const pixels = canvas.getContext('2d')!.getImageData(0, 0, canvas.width, canvas.height).data;
+	const pixels = getCanvas2DContext(canvas)!.getImageData(0, 0, canvas.width, canvas.height).data;
 	let left = canvas.width,
 		top = canvas.height,
 		right = -1,

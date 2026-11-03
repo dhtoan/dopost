@@ -1,3 +1,4 @@
+import { getCanvas2DContext } from '$lib/canvas-context';
 import { afterEach, expect, it } from 'vitest';
 import { render } from 'vitest-browser-svelte';
 import { ALL_FORMATS, BlobSource, CanvasSink, Input } from 'mediabunny';
@@ -105,7 +106,7 @@ it('keeps a converted moving title transparent in live Motion preview and decode
 		const track = (await input.getPrimaryVideoTrack())!;
 		let frameCount = 0;
 		for await (const decoded of new CanvasSink(track, { poolSize: 1 }).canvases()) {
-			const pixels = decoded.canvas.getContext('2d')!.getImageData(0, 0, 64, 64).data;
+			const pixels = getCanvas2DContext(decoded.canvas)!.getImageData(0, 0, 64, 64).data;
 			expect(pixels[1]).toBeGreaterThan(240);
 			expect(pixels[0]).toBeLessThan(15);
 			expect(pixels[2]).toBeLessThan(15);

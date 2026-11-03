@@ -31,6 +31,8 @@ const skipPatterns = [
   /^scripts\/check-third-party-notices\.mjs$/,
   // Generated from the CLI, which keeps its upstream name.
   /^docs\/reference\/cli\.md$/,
+  // Upstream workflows kept verbatim but disabled.
+  /^config\/upstream-workflows\//,
 ];
 const protectedPatterns = [
   // Copyright and licence lines (AGPL §5 appropriate legal notices).

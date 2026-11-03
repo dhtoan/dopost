@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 const workflow = Bun.YAML.parse(
   await readFile(
-    new URL("../../.github/workflows/public-site-delivery.yml", import.meta.url),
+    new URL("../../config/upstream-workflows/public-site-delivery.yml", import.meta.url),
     "utf8",
   ),
 );
@@ -102,7 +102,7 @@ test("delivery rejects a candidate outside main before executing repository help
 test("stable tag qualification retains its public candidate when duplicate main work stops", async () => {
   expect(workflow.on.workflow_run.branches).toBeUndefined();
   const ci = Bun.YAML.parse(
-    await readFile(new URL("../../.github/workflows/ci.yml", import.meta.url), "utf8"),
+    await readFile(new URL("../../config/upstream-workflows/ci.yml", import.meta.url), "utf8"),
   );
   const producer = ci.jobs["public-build"].steps;
   for (const step of [

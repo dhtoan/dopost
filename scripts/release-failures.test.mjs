@@ -18,7 +18,7 @@ const logged = (job, ...lines) =>
   lines.map((line) => `${job}\tUNKNOWN STEP\t2026-10-24T22:59:01.1512063Z ${line}`).join("\n");
 
 test("every CI job maps to a local reproduction or is an artifact-only job", () => {
-  const jobs = load(readFileSync(".github/workflows/ci.yml", "utf8")).jobs;
+  const jobs = load(readFileSync("config/upstream-workflows/ci.yml", "utf8")).jobs;
   const artifactOnly = new Set([
     "Plan affected surfaces",
     "Relay proven candidate artifacts",
