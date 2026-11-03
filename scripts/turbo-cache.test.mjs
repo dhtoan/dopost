@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rm, stat, utimes, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -6,7 +7,6 @@ import test from "node:test";
 
 import * as turboCache from "./turbo-cache.mjs";
 import {
-  formatPruneResult,
   pruneTurboCache,
   removeLegacyTurboCache,
   tryTurboCacheMaintenance,
@@ -137,6 +137,9 @@ test("Turbo cache pruning removes an entry that cannot fit under the hard limit"
 
   assert.equal(result.afterBytes, directoryBytes);
   assert.equal(result.removedEntries, 1);
+  for (const suffix of [".tar.zst", "-manifest.json", "-meta.json"]) {
+    await assert.rejects(stat(path.join(directory, `aaaaaaaaaaaaaaaa${suffix}`)), /ENOENT/u);
+  }
 });
 
 test("Turbo cache pruning preserves unknown files and accounts for their size", async (t) => {
@@ -302,10 +305,70 @@ test("automatic Turbo cache maintenance does not wait for another maintenance lo
   });
   await locked;
 
-  const startedAt = performance.now();
-  assert.equal(await tryTurboCacheMaintenance({ directory: cacheDirectory }, () => {}), false);
-  assert.ok(performance.now() - startedAt < 100);
+  let maintenanceRuns = 0;
+  const attempt = tryTurboCacheMaintenance({ directory: cacheDirectory }, () => {
+    maintenanceRuns += 1;
+  });
+  let timer;
+  try {
+    const deadline = new Promise((_, reject) => {
+      timer = setTimeout(
+        () => reject(new Error("Automatic maintenance waited for the held lock")),
+        2_000,
+      );
+    });
+    assert.equal(await Promise.race([attempt, deadline]), false);
+    assert.equal(maintenanceRuns, 0);
+  } finally {
+    clearTimeout(timer);
+    releaseLock();
+    await maintenance;
+    await attempt;
+  }
+});
 
-  releaseLock();
-  await maintenance;
+test("shell-entry prune exits while a Turbo task holds a cache lease", async (t) => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "openpost-turbo-cache-entry-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const cacheDirectory = path.join(directory, "cache");
+  let releaseTask;
+  const holdTask = new Promise((resolve) => {
+    releaseTask = resolve;
+  });
+  let markStarted;
+  const started = new Promise((resolve) => {
+    markStarted = resolve;
+  });
+  const task = withTurboCacheLease({ directory: cacheDirectory }, async () => {
+    markStarted();
+    await holdTask;
+  });
+  await started;
+
+  const child = spawn(
+    process.execPath,
+    [path.join(import.meta.dir, "turbo-cache.mjs"), "prune-if-idle"],
+    {
+      env: { ...process.env, OPENPOST_TURBO_CACHE_DIR: cacheDirectory },
+    },
+  );
+  let stderr = "";
+  child.stderr.on("data", (chunk) => {
+    stderr += chunk;
+  });
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    child.kill();
+  }, 5_000);
+  const exitCode = await new Promise((resolve, reject) => {
+    child.once("error", reject);
+    child.once("close", resolve);
+  });
+  clearTimeout(timer);
+  releaseTask();
+  await task;
+
+  assert.equal(timedOut, false, "shell entry waited for an active Turbo task");
+  assert.equal(exitCode, 0, stderr);
 });

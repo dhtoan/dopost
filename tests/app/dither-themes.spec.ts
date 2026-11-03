@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { expectBalancedDitherButton } from "../helpers/dither-button";
 import { expect, test } from "@playwright/test";
 import { authenticatePage, createWorkspace, registerUser } from "./helpers";
 
@@ -18,7 +19,7 @@ test("Dither themes render readable controls and charts at desktop and phone wid
   await page.emulateMedia({ colorScheme: "light", reducedMotion: "reduce" });
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto("/settings?tab=appearance");
-  await expect(page.getByRole("heading", { name: "Appearance", exact: true }).first()).toBeVisible({
+  await expect(page.locator("[data-theme-library-card]").first()).toBeVisible({
     timeout: 30_000,
   });
   await page.getByRole("button", { name: "Test Workshop", exact: true }).click();
@@ -36,6 +37,9 @@ test("Dither themes render readable controls and charts at desktop and phone wid
       await page.emulateMedia({ colorScheme });
       for (const id of ["dither", "dither-moss"]) {
         const name = id === "dither" ? "Dither" : "Dither Moss";
+        await expectBalancedDitherButton(
+          page.locator(`[data-theme-library-card="${id}"] [data-dither-button="always"]`),
+        );
         await page.getByRole("button", { name: `Test ${name}`, exact: true }).click();
         await expect(preview).toHaveAttribute("aria-busy", "false", { timeout: 30_000 });
         await expect
@@ -76,6 +80,9 @@ test("Dither themes render readable controls and charts at desktop and phone wid
         expect(state.overflow).toBe(false);
         if (width <= 390) expect(state.buttonHeight).toBeGreaterThanOrEqual(44);
         expect(state.buttonMask).toContain("data:image/svg+xml");
+        await expectBalancedDitherButton(
+          preview.contentFrame().locator('[data-action-intent="focal"]').first(),
+        );
         expect(state.chartMask).toContain("data:image/svg+xml");
         await preview.screenshot({
           path: `.impeccable/review/dither/${width}-${id}-${colorScheme}.png`,
@@ -102,10 +109,10 @@ test("Dither themes apply, survive reload, and restore Workshop", async ({ page,
   await page.emulateMedia({ colorScheme: "light", reducedMotion: "reduce" });
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto("/settings?tab=appearance");
-  await expect(page.getByRole("heading", { name: "Appearance", exact: true }).first()).toBeVisible({
+  await expect(page.locator("[data-theme-library-card]").first()).toBeVisible({
     timeout: 30_000,
   });
-  await expect(page.locator("html")).toHaveAttribute("data-theme-id", "dither");
+  await expect(page.locator("html")).toHaveAttribute("data-theme-id", "calm");
   await page.getByRole("button", { name: "Apply Workshop", exact: true }).click();
   for (const name of ["Dither", "Dither Moss", "Workshop"]) {
     const id = name.toLowerCase().replaceAll(" ", "-");

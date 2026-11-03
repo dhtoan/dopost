@@ -58,7 +58,13 @@
 </script>
 
 <Dialog.Root bind:open>
-	<Dialog.Content aria-busy={pending} showCloseButton={false} class="sm:max-w-md">
+	<Dialog.Content
+		aria-busy={pending}
+		escapeKeydownBehavior={pending ? 'ignore' : 'close'}
+		interactOutsideBehavior={pending ? 'ignore' : 'close'}
+		showCloseButton={false}
+		class="sm:max-w-md"
+	>
 		<Dialog.Header>
 			<Dialog.Title>{title}</Dialog.Title>
 			<Dialog.Description>{description}</Dialog.Description>
@@ -74,7 +80,10 @@
 				{cancelLabel}
 			</Button>
 			<Button variant="destructive" class="w-full sm:w-auto" disabled={pending} onclick={confirm}>
-				{#if pending}<ProtectedIcon icon="loading" class="size-4 animate-spin" />{/if}
+				{#if pending}<ProtectedIcon
+						icon="loading"
+						class="size-4 animate-spin motion-reduce:animate-none"
+					/>{/if}
 				{confirmLabel}
 			</Button>
 		</Dialog.Footer>

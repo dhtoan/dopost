@@ -2,11 +2,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { client, type Workspace } from '$lib/api/client';
 import {
 	billingQueryKeys,
+	workspaceCreationCachePlan,
 	developerQueryKeys,
 	openPostBootstrapQueryKeys,
 	openPostQueryKeys,
 	workspaceSettingsQueryKeys
 } from '@openpost/query-catalog';
+import { executeQueryCachePlan } from '$lib/query/cache-plan';
 import { queryClient } from '$lib/query/client';
 import { createAuthStore } from './auth';
 import { WorkspaceContext } from './workspace.svelte';
@@ -26,6 +28,8 @@ const workspaceA = {
 	organization_name: '',
 	role: 'admin',
 	can_edit: true,
+	can_connect: true,
+	can_approve: true,
 	sso_required: false,
 	sso_authenticated: true,
 	sso_identity_linked: true
@@ -164,6 +168,48 @@ describe('workspace settings state', () => {
 		auth.clearLocal();
 	});
 
+	it('retains a created workspace when an earlier workspace bootstrap is reused', async () => {
+		localStorage.setItem('openpost_current_workspace', JSON.stringify(workspaceA));
+		let inventory = [workspaceA];
+		mocks.get.mockImplementation((path, options) => {
+			if (path !== '/app/bootstrap') return { data: settings('Europe/Lisbon'), error: null };
+			const preferred = options.params.query.preferred_workspace_id;
+			return {
+				data: bootstrap(
+					inventory,
+					preferred,
+					settings(preferred === workspaceB.id ? 'America/New_York' : 'Europe/Lisbon')
+				),
+				error: null
+			};
+		});
+		const auth = createAuthStore({
+			isBrowser: true,
+			getPasskeyAssertion: vi.fn(),
+			notificationInbox: { clear: vi.fn() },
+			identifyTelemetryUser: vi.fn(),
+			resetTelemetryIdentity: vi.fn()
+		});
+		const context = new WorkspaceContext();
+		await auth.initialize({ preferredWorkspaceID: workspaceA.id });
+		await context.initialize();
+		inventory = [workspaceA, workspaceB];
+		await executeQueryCachePlan(queryClient, workspaceCreationCachePlan());
+		const projection = auth.captureUserProjection(bootstrapUser.id);
+		const refreshed = await context.loadWorkspaces(workspaceB.id);
+		expect(auth.projectBootstrap(refreshed, projection)).toBe(true);
+		expect(context.settings.timezone).toBe('America/New_York');
+		await context.setWorkspace(workspaceA);
+		await context.initialize();
+		expect(context.workspaces.map((workspace) => workspace.id)).toEqual([
+			workspaceA.id,
+			workspaceB.id
+		]);
+		expect(context.currentWorkspace?.id).toBe(workspaceA.id);
+		expect(context.settings.timezone).toBe('Europe/Lisbon');
+		auth.clearLocal();
+	});
+
 	it('keeps a manual workspace selection made while bootstrap is refreshing', async () => {
 		const workspaceLoad = deferred<{
 			data: ReturnType<typeof bootstrap>;
@@ -194,6 +240,76 @@ describe('workspace settings state', () => {
 		expect(context.currentWorkspace?.id).toBe(workspaceB.id);
 		expect(context.settingsWorkspaceID).toBe(workspaceB.id);
 		expect(context.settings.timezone).toBe('Europe/Lisbon');
+		expect(JSON.parse(localStorage.getItem('openpost_current_workspace') ?? '{}')).toMatchObject({
+			id: workspaceB.id
+		});
+	});
+
+	it('keeps a newer selection when a stale implicit refresh resolves late', async () => {
+		const staleLoad = deferred<{
+			data: ReturnType<typeof bootstrap>;
+			error: null;
+			response: Response;
+		}>();
+		const allowSelection = deferred<boolean>();
+		const switchGuard = vi.fn(() => allowSelection.promise);
+		mocks.get.mockImplementation(
+			(
+				path: string,
+				options?: {
+					params?: { query?: { preferred_workspace_id?: string }; path?: { id?: string } };
+				}
+			) => {
+				if (path === '/app/bootstrap') {
+					if (options?.params?.query?.preferred_workspace_id === workspaceB.id) {
+						return Promise.resolve({
+							data: bootstrap([workspaceA, workspaceB], workspaceB.id, settings('Europe/Lisbon')),
+							error: null,
+							response: new Response(null, { status: 200 })
+						});
+					}
+					return staleLoad.promise;
+				}
+				if (path === '/workspaces/{id}/settings') {
+					return Promise.resolve({
+						data: settings('Europe/Lisbon'),
+						error: null,
+						response: new Response(null, { status: 200 })
+					});
+				}
+				throw new Error(`Unexpected GET ${path}`);
+			}
+		);
+		queryClient.setQueryData(
+			openPostBootstrapQueryKeys.workspaceSettings(workspaceB.id),
+			settings('Europe/Lisbon')
+		);
+		const context = new WorkspaceContext();
+		context.workspaces = [workspaceA, workspaceB];
+		context.currentWorkspace = workspaceA;
+		localStorage.setItem('openpost_current_workspace', JSON.stringify(workspaceA));
+		context.registerWorkspaceSwitchGuard(switchGuard);
+
+		// The explicit creation-flow selection of B yields inside its switch guard
+		// (guards run between the sequence bump and the persisted selection), so a
+		// stale implicit onboarding refresh with intent A can start mid-flight.
+		const pendingSelection = context.loadWorkspaces(workspaceB.id, {
+			selectionIsCurrent: () => true
+		});
+		await vi.waitFor(() => expect(switchGuard).toHaveBeenCalled());
+		const pendingRefresh = context.initialize();
+		allowSelection.resolve(true);
+		await pendingSelection;
+		expect(context.currentWorkspace?.id).toBe(workspaceB.id);
+		staleLoad.resolve({
+			data: bootstrap([workspaceA, workspaceB], workspaceA.id, settings('Europe/Berlin')),
+			error: null,
+			response: new Response(null, { status: 200 })
+		});
+		await pendingRefresh;
+
+		expect(context.workspaces).toEqual([workspaceA, workspaceB]);
+		expect(context.currentWorkspace?.id).toBe(workspaceB.id);
 		expect(JSON.parse(localStorage.getItem('openpost_current_workspace') ?? '{}')).toMatchObject({
 			id: workspaceB.id
 		});
@@ -434,25 +550,6 @@ describe('workspace settings state', () => {
 		expect(localStorage.getItem('openpost_current_workspace')).toBeNull();
 	});
 
-	it('resets all account-scoped workspace state after account deletion', async () => {
-		mocks.get.mockResolvedValueOnce({
-			data: settings('Europe/Lisbon'),
-			error: null
-		});
-		const context = new WorkspaceContext();
-		context.workspaces = [workspaceA];
-		await context.setWorkspace(workspaceA);
-
-		context.reset();
-
-		expect(context.workspaces).toEqual([]);
-		expect(context.currentWorkspace).toBeNull();
-		expect(context.settings.timezone).toBe('UTC');
-		expect(context.settingsReady).toBe(false);
-		expect(context.loading).toBe(false);
-		expect(localStorage.getItem('openpost_current_workspace')).toBeNull();
-	});
-
 	it('does not project saved settings after account state resets', async () => {
 		const save = deferred<{
 			data: null;
@@ -470,9 +567,16 @@ describe('workspace settings state', () => {
 			timezone: 'Europe/Lisbon'
 		};
 		context.savedSettings = { ...context.settings };
+		localStorage.setItem('openpost_current_workspace', JSON.stringify(workspaceA));
 
 		const pendingSave = context.saveSettings({ name: 'First actor edit' });
 		context.reset();
+		expect(context.workspaces).toEqual([]);
+		expect(context.currentWorkspace).toBeNull();
+		expect(context.settings.timezone).toBe('UTC');
+		expect(context.settingsReady).toBe(false);
+		expect(context.loading).toBe(false);
+		expect(localStorage.getItem('openpost_current_workspace')).toBeNull();
 		queryClient.clear();
 		const nextActorWorkspace = { ...workspaceA, name: 'Next actor workspace' };
 		context.currentWorkspace = nextActorWorkspace;

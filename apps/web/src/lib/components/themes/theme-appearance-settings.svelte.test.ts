@@ -4,7 +4,9 @@ import { render } from 'vitest-browser-svelte';
 import { QueryClientProvider } from '@tanstack/svelte-query';
 import { themeQueryKeys } from '@openpost/query-catalog';
 import { client } from '$lib/api/client';
+import { userProfileDefaults } from '$lib/test-fixtures/user-profile';
 import { queryClient } from '$lib/query/client';
+import { auth } from '$lib/stores/auth';
 import { workspaceCtx } from '$lib/stores/workspace.svelte';
 import { getBuiltInTheme } from '$lib/themes';
 import { builtInManifestReference } from './theme-library-model';
@@ -42,6 +44,8 @@ const workspace = {
 	avatar_url: '',
 	color: '',
 	can_edit: true,
+	can_connect: true,
+	can_approve: true,
 	role: 'admin',
 	created_at: '',
 	organization_id: 'org-a',
@@ -53,6 +57,19 @@ const workspace = {
 
 beforeEach(() => {
 	queryClient.clear();
+	auth.setUser({
+		...userProfileDefaults,
+		id: 'theme-owner',
+		email: 'theme-owner@example.com',
+		username: 'theme-owner',
+		public_profile_enabled: false,
+		is_admin: false,
+		is_managed: false,
+		has_password: true,
+		legal_acceptance_required: false,
+		email_verified: true,
+		created_at: '2026-10-24T12:00:00Z'
+	});
 	getPaths = [];
 	testPage.url = new URL('http://localhost/settings');
 	postMock.mockReset();
@@ -75,16 +92,6 @@ beforeEach(() => {
 	} as never);
 });
 
-it('loads the available catalog once for both selection and previews', async () => {
-	const screen = await render(
-		ThemeAppearanceSettings,
-		{},
-		{ wrapper: QueryClientProvider, wrapperProps: { client: queryClient } }
-	);
-	await expect.element(screen.getByRole('button', { name: 'Test Notebook' })).toBeEnabled();
-	expect(getPaths.filter((path) => path === '/themes/available')).toHaveLength(1);
-});
-
 it('invalidates sibling workspace settings when locking organization theme assignments', async () => {
 	const sibling = themeQueryKeys.settings('workspace-b');
 	queryClient.setQueryData(sibling, settings);
@@ -98,8 +105,20 @@ it('invalidates sibling workspace settings when locking organization theme assig
 		.element(screen.getByRole('switch', { name: 'Lock workspace theme selection' }))
 		.toBeEnabled();
 	await screen.getByRole('switch', { name: 'Lock workspace theme selection' }).click();
+	await expect
+		.element(screen.getByRole('heading', { name: 'Lock theme selection?' }))
+		.toBeVisible();
+	await expect.element(screen.getByText(/clear workspace overrides/i)).toBeVisible();
+	expect(putMock).not.toHaveBeenCalled();
 	await screen.getByRole('button', { name: 'Lock and clear choices' }).click();
 	await vi.waitFor(() => expect(queryClient.getQueryState(sibling)?.isInvalidated).toBe(true));
+	expect(putMock).toHaveBeenCalledExactlyOnceWith('/theme-settings/organization', {
+		body: {
+			organization_id: 'org-a',
+			default_reference: reference,
+			assignments_locked: true
+		}
+	});
 });
 
 it('retries publishing with the saved draft revision after publishing fails', async () => {
@@ -180,12 +199,11 @@ it('keeps theme controls usable during a background catalog refresh', async () =
 		{ wrapper: QueryClientProvider, wrapperProps: { client: queryClient } }
 	);
 	await expect.element(screen.getByRole('button', { name: 'Test Notebook' })).toBeEnabled();
-	let finish: (() => void) | undefined;
-	const held = new Promise<void>((resolve) => {
-		finish = resolve;
-	});
-	getMock.mockImplementation(async () => {
-		await held;
+	expect(getPaths.filter((path) => path === '/themes/available')).toHaveLength(1);
+	const released = Promise.withResolvers<void>();
+	getMock.mockImplementation(async (path) => {
+		getPaths.push(path);
+		await released.promise;
 		// SAFETY: This held catalog response supplies the empty theme page used by the component.
 		return {
 			data: { items: [], next_cursor: null },
@@ -196,55 +214,19 @@ it('keeps theme controls usable during a background catalog refresh', async () =
 		queryKey: themeQueryKeys.available('workspace-a')
 	});
 	try {
+		// The second catalog read has entered the held transport, so the controls
+		// are being asserted while the refresh is genuinely in flight.
+		await expect
+			.poll(() => getPaths.filter((path) => path === '/themes/available'), { timeout: 5_000 })
+			.toHaveLength(2);
 		await expect.element(screen.getByRole('button', { name: 'Test Notebook' })).toBeEnabled();
 		await expect
 			.element(screen.getByRole('button', { name: 'Create theme', exact: true }))
 			.toBeEnabled();
 	} finally {
-		finish?.();
+		released.resolve();
 		await refresh;
 	}
-});
-
-it('shows unpublished organization drafts so they can be reopened', async () => {
-	const summary = {
-		reference: { kind: 'custom', id: 'my-theme', version: 0 },
-		name: 'My theme',
-		draft_revision: 1,
-		published_revision: 0
-	};
-	getMock.mockImplementation(
-		async (path) =>
-			// SAFETY: These fixtures supply only the settings, organization list, and draft detail routes exercised here.
-			({
-				data:
-					path === '/theme-settings'
-						? settings
-						: path === '/themes'
-							? { items: [summary], next_cursor: null }
-							: path === '/themes/{id}'
-								? {
-										summary,
-										draft: {
-											revision: 1,
-											manifest: {
-												...manifest,
-												id: 'my-theme',
-												name: 'My theme'
-											}
-										}
-									}
-								: { items: [], next_cursor: null },
-				response: new Response()
-			}) as never
-	);
-	const screen = await render(
-		ThemeAppearanceSettings,
-		{},
-		{ wrapper: QueryClientProvider, wrapperProps: { client: queryClient } }
-	);
-	await expect.element(screen.getByText('My theme', { exact: true })).toBeVisible();
-	await expect.element(screen.getByRole('button', { name: 'Edit', exact: true })).toBeEnabled();
 });
 
 it('finishes applying a theme even when the subsequent catalog refresh is slow', async () => {
@@ -337,6 +319,8 @@ it('loads later organization draft pages without losing the first page', async (
 		{ wrapper: QueryClientProvider, wrapperProps: { client: queryClient } }
 	);
 	await expect.element(screen.getByText('First draft', { exact: true })).toBeVisible();
+	// An unpublished draft is reopenable from its own organization row.
+	await expect.element(screen.getByRole('button', { name: 'Edit', exact: true })).toBeEnabled();
 	await screen.getByRole('button', { name: 'Load more', exact: true }).click();
 	await expect.element(screen.getByText('Second draft', { exact: true })).toBeVisible();
 	await expect.element(screen.getByText('First draft', { exact: true })).toBeVisible();

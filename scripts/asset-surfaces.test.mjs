@@ -1,11 +1,9 @@
 import assert from "node:assert/strict";
-import { execFile } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { promisify } from "node:util";
 
 import { assetSurfaceManifest } from "./asset-surfaces.ts";
 import {
@@ -17,49 +15,32 @@ import {
 } from "./asset-surfaces.mjs";
 import { moveAssetDirectory } from "./sync-assets.mjs";
 
-const execFileAsync = promisify(execFile);
-
-const trackedTextExtensions = new Set([
-  ".css",
-  ".html",
-  ".js",
-  ".json",
-  ".md",
-  ".mjs",
-  ".svelte",
-  ".svg",
-  ".ts",
-  ".tsx",
-  ".xml",
-  ".yaml",
-  ".yml",
-]);
-
-const legacyPencilLogoFingerprints = [
-  { name: "pencil nib mask", pattern: /id=["']nib-cutout["']/u },
-  {
-    name: "pencil body path",
-    pattern: /M\s*-30\s*-170[\s\S]{0,300}L\s*22\s*-10[\s\S]{0,120}L\s*-22\s*-10/u,
-  },
-];
-
 test("finds deployed asset URLs without treating source imports as copies", () => {
   const source = [
     `const favicon = "/assets/brand/icon.svg";`,
+    `const docsImage = "/docs/assets/screenshots/main-dark.png";`,
     `const sourceImport = "../../../../assets/logos/x.svg?raw";`,
     `const editorModel = "/image-editor-models/resources.json";`,
     "const docsLogo = `${docsBase}assets/brand/logo-docs.svg`;",
   ].join("\n");
 
-  assert.deepEqual(directAssetReferences(source), ["brand/icon.svg", "brand/logo-docs.svg"]);
+  assert.deepEqual(directAssetReferences(source), [
+    "brand/icon.svg",
+    "brand/logo-docs.svg",
+    "screenshots/main-dark.png",
+  ]);
 });
 
-test("a package build validates only its selected asset surface", async () => {
-  assert.deepEqual(
-    await validateAssetSurfaceManifest(assetSurfaceManifest, repositoryRoot, ["frontend"]),
-    [],
-  );
-});
+test(
+  "frontend asset references match their declared deployment surface",
+  { timeout: 30_000 },
+  async () => {
+    assert.deepEqual(
+      await validateAssetSurfaceManifest(assetSurfaceManifest, repositoryRoot, ["frontend"]),
+      [],
+    );
+  },
+);
 
 test("staged outputs reject missing and undeclared files", async () => {
   const target = await mkdtemp(path.join(tmpdir(), "openpost-assets-"));

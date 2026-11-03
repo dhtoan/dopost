@@ -395,12 +395,6 @@ func (s *Service) muteView(ctx context.Context, db bun.IDB, row models.UserNotif
 	return view, err
 }
 
-func (s *Service) create(ctx context.Context, input createInput) error {
-	return s.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-		return s.createWithDB(ctx, tx, input)
-	})
-}
-
 // createWithDB is reachable only after notification-owned outcome
 // materialization has selected policy and presentation.
 func (s *Service) createWithDB(ctx context.Context, db bun.IDB, input createInput) error {
@@ -1059,17 +1053,25 @@ func (s *Service) handleWorkspaceInvitationEmail(ctx context.Context, job emailD
 	return nil
 }
 
-func (s *Service) List(ctx context.Context, userID, workspaceID, cursor string, limit int) (NotificationPage, error) {
+func (s *Service) List(ctx context.Context, userID, workspaceID, credentialWorkspaceID, cursor string, limit int) (NotificationPage, error) {
 	if limit <= 0 || limit > 100 {
 		limit = 30
 	}
+	// A workspace-bound credential must not see account-wide rows. Those rows
+	// carry content from other workspaces, such as pending invitations with
+	// their invitation IDs and workspace names.
+	strictWorkspace := strings.TrimSpace(credentialWorkspaceID) != ""
 	var items []models.UserNotification
 	query := s.db.NewSelect().Model(&items).
 		Where("user_id = ?", userID).
 		Order("created_at DESC", "id DESC").
 		Limit(limit + 1)
 	if workspaceID != "" {
-		query = query.Where(visibleWorkspaceNotifications, workspaceID)
+		if strictWorkspace {
+			query = query.Where("workspace_id = ?", workspaceID)
+		} else {
+			query = query.Where(visibleWorkspaceNotifications, workspaceID)
+		}
 	}
 	if cursor != "" {
 		createdAt, id, err := parseCursor(cursor)
@@ -1093,7 +1095,11 @@ func (s *Service) List(ctx context.Context, userID, workspaceID, cursor string, 
 	unreadQuery := s.db.NewSelect().Model((*models.UserNotification)(nil)).
 		Where("user_id = ? AND read_at IS NULL", userID)
 	if workspaceID != "" {
-		unreadQuery = unreadQuery.Where(visibleWorkspaceNotifications, workspaceID)
+		if strictWorkspace {
+			unreadQuery = unreadQuery.Where("workspace_id = ?", workspaceID)
+		} else {
+			unreadQuery = unreadQuery.Where(visibleWorkspaceNotifications, workspaceID)
+		}
 	}
 	count, err := unreadQuery.Count(ctx)
 	if err != nil {
@@ -1113,6 +1119,36 @@ func parseCursor(cursor string) (time.Time, string, error) {
 		return time.Time{}, "", ErrInvalidCursor
 	}
 	return createdAt, parts[1], nil
+}
+
+// ResolveByDedupKeys retires stored notices for their original recipients.
+// Preserve read timestamps and payload facts, but remove obsolete actions.
+func (s *Service) ResolveByDedupKeys(ctx context.Context, db bun.IDB, userIDs, dedupKeys []string, title, body string) error {
+	if len(userIDs) == 0 || len(dedupKeys) == 0 {
+		return nil
+	}
+	rows := []models.UserNotification{}
+	if err := db.NewSelect().Model(&rows).Column("id", "payload_json").
+		Where("user_id IN (?)", bun.List(userIDs)).Where("dedup_key IN (?)", bun.List(dedupKeys)).Scan(ctx); err != nil {
+		return err
+	}
+	for _, row := range rows {
+		var payload map[string]json.RawMessage
+		if err := json.Unmarshal([]byte(row.PayloadJSON), &payload); err != nil {
+			return err
+		}
+		delete(payload, "actions")
+		encoded, err := json.Marshal(payload)
+		if err != nil {
+			return err
+		}
+		if _, err := db.NewUpdate().Model((*models.UserNotification)(nil)).
+			Set("read_at = COALESCE(read_at, ?), title = ?, body = ?, payload_json = ?", s.now(), strings.TrimSpace(title), strings.TrimSpace(body), string(encoded)).
+			Where("id = ?", row.ID).Exec(ctx); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *Service) MarkRead(ctx context.Context, userID, workspaceID string, ids []string, all bool) error {

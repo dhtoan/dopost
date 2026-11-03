@@ -9,21 +9,28 @@
 import { registerCloudExportProject } from './workspace-fs/export-storage';
 import { createLogger } from './workspace-fs/logger';
 import { getMediaForProject } from './workspace-fs/project-media';
-import { updateProject } from './workspace-fs/projects';
-import { getProject } from './workspace-fs/projects';
+import { getProject, ProjectNotFoundError, updateProject } from './workspace-fs/projects';
 import type { AnimationPreset, Project, ProjectFontAsset } from './project/types';
 import { cloneAnimationPreset, normalizeAnimationPresets } from './project/animation-presets';
 import { timelineStore } from './timeline/stores/timeline-store.svelte';
 import { commandHistory } from './timeline/commands/command-store.svelte';
 import { Clock } from './preview/clock';
+import { resumeAudioMixer } from './audio/audio-mixer';
 import { mediaPool } from './media/pool.svelte';
 import { sceneBrowser } from './media/scene-search/scene-browser.svelte';
 import { sequenceStore } from './sequences/sequence-store.svelte';
+import { readSequenceView, writeSequenceView } from './sequences/sequence-view-storage';
 import { editorSettings } from './settings/editor-settings.svelte';
+import {
+	DEFAULT_MOTION_GENERATOR_SETTINGS,
+	type MotionGeneratorSettings
+} from './timeline/motion-generator';
+import type { MotionPresetApplyMode } from './timeline/actions/motion-presets';
 import { mediaRecovery } from './media/media-recovery.svelte';
 import { PeriodicAutosaveController } from './settings/periodic-autosave';
 import { getNextShuttleRate, type ShuttleDirection } from './preview/shuttle';
 import { unsupportedProjectSchemaVersion } from './project/project-editability';
+import { migrateProjectDocument } from './project/defaults';
 import { loadProjectFontAssets } from './typography/project-font-assets';
 import { m } from '$lib/paraglide/messages';
 import {
@@ -42,6 +49,7 @@ const logger = createLogger('EditorSession');
 
 class EditorSession {
 	private projectState = $state<Project | null>(null);
+	private unsubscribePlayhead: (() => void) | null = null;
 	loading = $state(true);
 	loadError = $state('');
 	saving = $state(false);
@@ -49,6 +57,13 @@ class EditorSession {
 	saveConflict = $state(false);
 	projectDirty = $state(false);
 	missingFontAssetIds = $state<string[]>([]);
+	motionPresetApplication = $state<{
+		mode: MotionPresetApplyMode;
+		settings: MotionGeneratorSettings;
+	}>({
+		mode: 'replace',
+		settings: { ...DEFAULT_MOTION_GENERATOR_SETTINGS }
+	});
 
 	clock = new Clock({ fps: 30, canSeek: () => !timelineStore.seekLocked });
 	private transport = $state<ReactiveTransportState>({
@@ -58,6 +73,7 @@ class EditorSession {
 	});
 
 	private projectId: string | null = null;
+	private cloudWorkspaceId = '';
 	private cloudProject: CloudVideoProject<Project> | null = null;
 	private cloudRepository: CloudVideoProjectRepository<Project> | null = null;
 	private saveTimer: ReturnType<typeof setTimeout> | null = null;
@@ -69,6 +85,7 @@ class EditorSession {
 		(error) => {
 			this.saveError = error instanceof Error ? error.message : String(error);
 			logger.error('periodic save failed', error);
+			if (error instanceof ProjectNotFoundError) return 'stop';
 		}
 	);
 
@@ -78,6 +95,14 @@ class EditorSession {
 	}
 
 	set project(project: Project | null) {
+		if (project && !this.unsubscribePlayhead) {
+			this.unsubscribePlayhead = commandHistory.onPlayheadReconciled((frame) =>
+				this.clock.seek(frame)
+			);
+		} else if (!project) {
+			this.unsubscribePlayhead?.();
+			this.unsubscribePlayhead = null;
+		}
 		this.projectState = project;
 		if (project) sequenceStore._setRootResolution(project.metadata);
 	}
@@ -91,6 +116,10 @@ class EditorSession {
 			this.clock.setRate(1);
 			this.transport.mode = 'normal';
 		});
+	}
+
+	get storageWorkspaceId(): string {
+		return this.projectState ? this.cloudWorkspaceId : '';
 	}
 
 	get isPlaying(): boolean {
@@ -124,8 +153,13 @@ class EditorSession {
 			}
 		}
 		this.stopAutosaveTimers();
+		this.motionPresetApplication = {
+			mode: 'replace',
+			settings: { ...DEFAULT_MOTION_GENERATOR_SETTINGS }
+		};
 		this.project = null;
 		this.projectId = projectId;
+		this.cloudWorkspaceId = cloudWorkspaceId;
 		this.cloudRepository = cloudWorkspaceId
 			? new CloudVideoProjectRepository<Project>(cloudWorkspaceId)
 			: null;
@@ -142,7 +176,7 @@ class EditorSession {
 			mediaPool.clear();
 			mediaRecovery.reset();
 			const cloudProject = this.cloudRepository ? await this.cloudRepository.get(projectId) : null;
-			const project = cloudProject?.document ?? (await getProject(projectId));
+			let project = cloudProject?.document ?? (await getProject(projectId));
 			if (!project) {
 				this.loadError = 'Project not found';
 				return;
@@ -155,6 +189,8 @@ class EditorSession {
 				});
 				return;
 			}
+			const migration = cloudProject ? migrateProjectDocument(project) : null;
+			if (migration) project = migration.project;
 			this.project = {
 				...project,
 				animationPresets: normalizeAnimationPresets(project.animationPresets)
@@ -162,9 +198,21 @@ class EditorSession {
 			this.cloudProject = cloudProject;
 			commandHistory.clearHistory();
 			sequenceStore.load(project.timeline ?? { tracks: [], items: [] }, project.metadata);
+			const savedView = readSequenceView(projectId, cloudWorkspaceId);
+			const editSequence = savedView?.editSequenceId
+				? sequenceStore.compositionById.get(savedView.editSequenceId)
+				: null;
+			this.editSequenceId =
+				editSequence && editSequence.editorKind !== 'composite-2d' ? editSequence.id : null;
+			sequenceStore.switchTo(savedView?.activeSequenceId ?? null);
+			if (savedView?.currentFrame !== undefined)
+				timelineStore._setCurrentFrame(savedView.currentFrame);
+			if (savedView?.zoomLevel !== undefined) timelineStore._setZoomLevel(savedView.zoomLevel);
+			if (savedView?.scrollPosition !== undefined)
+				timelineStore._setScrollPosition(savedView.scrollPosition);
+			this.restoredLeftPanel = savedView?.leftPanel;
 			timelineStore._setSnapEnabled(editorSettings.snapByDefault);
 			timelineStore._setMaxUndoHistory(editorSettings.maxUndoHistory);
-			this.clock.setFps(project.metadata.fps);
 			this.syncTimelineClock();
 			const media =
 				this.cloudProject && this.cloudRepository
@@ -177,11 +225,32 @@ class EditorSession {
 			}
 			await mediaRecovery.scan(media, timelineStore.items);
 			this.configurePeriodicAutosave();
+			if (migration?.migrated) {
+				this.projectDirty = true;
+				this.scheduleAutosave();
+			}
 		} catch (error) {
 			this.loadError = error instanceof Error ? error.message : String(error);
 		} finally {
 			this.loading = false;
 		}
+	}
+
+	editSequenceId: string | null = null;
+	restoredLeftPanel: string | undefined;
+
+	rememberActiveSequence(sequenceId: string | null, leftPanel?: string): void {
+		if (!this.projectId || this.loading || this.loadError || this.isPlaying) return;
+		if (sequenceStore.activeSequence?.editorKind !== 'composite-2d')
+			this.editSequenceId = sequenceId;
+		writeSequenceView(this.projectId, this.cloudWorkspaceId, {
+			activeSequenceId: sequenceId,
+			editSequenceId: this.editSequenceId,
+			currentFrame: timelineStore.currentFrame,
+			zoomLevel: timelineStore.zoomLevel,
+			scrollPosition: timelineStore.scrollPosition,
+			leftPanel
+		});
 	}
 
 	syncTimelineClock(): void {
@@ -190,6 +259,7 @@ class EditorSession {
 	}
 
 	startPlayback(range?: { start: number; end: number; loop?: boolean }): void {
+		resumeAudioMixer();
 		this.transport.mode = 'normal';
 		this.clock.setRate(1);
 		this.clock.play(
@@ -201,6 +271,7 @@ class EditorSession {
 		direction: ShuttleDirection,
 		range: { start: number; end: number; loop?: boolean }
 	): void {
+		resumeAudioMixer();
 		const nextRate = this.clock.isPlaying
 			? getNextShuttleRate(this.clock.playbackRate, direction)
 			: direction;

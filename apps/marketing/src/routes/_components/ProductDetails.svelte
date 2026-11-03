@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { ditherSurface } from '@openpost/dither';
 	import ArrowUpRight from '@lucide/svelte/icons/arrow-up-right';
 	import ThemeImage from './ThemeImage.svelte';
 	const editors = [
@@ -35,15 +36,19 @@
 	];
 </script>
 
-<section id="product" class="product-details marketing-shell" aria-labelledby="studio-title">
-	<div class="section-heading">
-		<h2 id="studio-title">Make the media<br />right here.</h2>
+<section
+	id="product"
+	class="product-details marketing-shell section-pad"
+	aria-labelledby="studio-title"
+>
+	<div class="section-head">
+		<h2 id="studio-title" class="section-heading">Make the media<br />right here.</h2>
 		<p>Free browser editors. No account needed.<br />Export without watermarks.</p>
 	</div>
 	<div class="editors">
 		{#each editors as editor (editor.icon)}
 			<article class="editor">
-				<div class="composition {editor.tone} {editor.icon}">
+				<div data-dither-panel use:ditherSurface class="composition {editor.tone} {editor.icon}">
 					<ThemeImage
 						class="base"
 						lightSrc={editor.baseLight}
@@ -90,21 +95,12 @@
 </section>
 
 <style>
-	.product-details {
-		padding-block: 72px;
-	}
-	.section-heading {
+	.section-head {
 		display: flex;
 		justify-content: space-between;
 		align-items: end;
 		gap: 24px;
 		margin-bottom: 36px;
-	}
-	h2 {
-		font-size: clamp(32px, 3.5vw, 48px);
-		font-weight: 550;
-		line-height: 1.12;
-		letter-spacing: -0.035em;
 	}
 	p {
 		font-size: 16px;
@@ -123,8 +119,6 @@
 		border-radius: 14px;
 		aspect-ratio: 1.45;
 		isolation: isolate;
-		background-image: var(--marketing-dither-pattern);
-		background-size: 32px 32px;
 	}
 	.lilac {
 		background-color: var(--marketing-lilac);
@@ -203,10 +197,7 @@
 		color: var(--muted-foreground);
 	}
 	@media (max-width: 760px) {
-		.product-details {
-			padding-block: 48px;
-		}
-		.section-heading {
+		.section-head {
 			display: grid;
 			gap: 20px;
 		}

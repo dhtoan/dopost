@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { Button } from '$lib/components/ui/button';
+	import { Disclosure as EditorDisclosure, HintButton } from '$lib/components/editor-density';
 	import * as Select from '$lib/components/ui/select';
 	import { m } from '$lib/paraglide/messages';
 	import type { AnimationPreset } from '$lib/video-editor/project/types';
@@ -10,6 +11,7 @@
 		setTransformParent
 	} from '$lib/video-editor/timeline/actions/transform-parenting';
 	import { timelineStore } from '$lib/video-editor/timeline/stores/timeline-store.svelte';
+	import { isTrackEffectivelyLocked } from '../timeline/utils/track-groups';
 	import ClipPropertiesPanel from './clip-properties-panel.svelte';
 	import MotionPresetsPanel from './motion-presets-panel.svelte';
 	import TextMotionPanel from './text-motion-panel.svelte';
@@ -47,6 +49,9 @@
 	} = $props();
 
 	const item = $derived(itemId ? timelineStore.itemById.get(itemId) : undefined);
+	const locked = $derived(
+		item ? isTrackEffectivelyLocked(item.trackId, timelineStore.tracks) : false
+	);
 	const supportsMotion = $derived(
 		item !== undefined &&
 			[
@@ -61,6 +66,9 @@
 			].includes(item.type)
 	);
 	const activeComposite = $derived(sequenceStore.activeSequence?.editorKind === 'composite-2d');
+	const publishedControlCount = $derived(
+		sequenceStore.activeSequence?.compositionControls?.controls.length ?? 0
+	);
 	const parentCandidates = $derived(
 		timelineStore.items.filter(
 			(candidate) =>
@@ -82,7 +90,7 @@
 	}
 
 	function changeParent(value: string): void {
-		if (!itemId) return;
+		if (!itemId || locked) return;
 		parentError = '';
 		const parentItemId = value;
 		if (!parentItemId) {
@@ -95,11 +103,13 @@
 			return;
 		}
 		parentError =
-			result.reason === 'cycle'
-				? m.video_editor_motion_parent_cycle()
-				: result.reason === 'duplicate-transform'
-					? m.video_editor_motion_parent_duplicate()
-					: m.video_editor_motion_parent_failed();
+			result.reason === 'locked-child'
+				? m.video_editor_motion_track_locked()
+				: result.reason === 'cycle'
+					? m.video_editor_motion_parent_cycle()
+					: result.reason === 'duplicate-transform'
+						? m.video_editor_motion_parent_duplicate()
+						: m.video_editor_motion_parent_failed();
 	}
 </script>
 
@@ -110,53 +120,32 @@
 	<h2 class="px-1 text-xs font-medium tracking-wide text-[var(--video-editor-muted)] uppercase">
 		{m.video_editor_workspace_motion()}
 	</h2>
-	{#if !activeComposite}
-		<section
-			class="rounded-md border border-[var(--video-editor-border)] bg-[var(--video-editor-panel)] p-3"
-		>
-			<div class="flex items-start justify-between gap-3">
-				<div class="min-w-0">
-					<h3 class="text-sm font-medium">{m.video_editor_motion_composition_title()}</h3>
-					<p class="mt-1 text-xs leading-5 text-[var(--video-editor-muted)]">
-						{m.video_editor_motion_composition_description()}
-					</p>
-				</div>
-			</div>
-			<div class="mt-3 grid grid-cols-1 gap-2">
-				<Button
-					size="sm"
-					variant="secondary"
-					disabled={!canCreateComposition}
-					onclick={oncreatecomposition}
-				>
-					{m.video_editor_motion_create_composition()}
-				</Button>
-				<Button size="sm" variant="secondary" onclick={createController}>
-					{m.video_editor_motion_add_controller()}
-				</Button>
-			</div>
-		</section>
-	{:else}
-		<ProjectCanvasPanel {onedit} />
-		{#if canreturncomposition}
-			<Button class="w-full" size="sm" variant="ghost" onclick={onreturncomposition}>
-				{m.video_editor_motion_return_composition()}
-			</Button>
-		{/if}
+	{#if activeComposite && canreturncomposition}
+		<Button class="w-full" size="sm" variant="ghost" onclick={onreturncomposition}>
+			{m.video_editor_motion_return_composition()}
+		</Button>
 	{/if}
-	<CompositionControlsAuthoring {onedit} />
+
 	{#if supportsMotion}
+		<ClipPropertiesPanel {itemId} {itemIds} {onedit} />
 		<section
-			class="rounded-md border border-[var(--video-editor-border)] bg-[var(--video-editor-panel)] p-3"
+			class="rounded-md border border-[var(--video-editor-border)] bg-[var(--video-editor-panel)] p-2"
 		>
-			<h3 class="text-sm font-medium">{m.video_editor_motion_parent_title()}</h3>
-			<p class="mt-1 text-xs leading-5 text-[var(--video-editor-muted)]">
-				{m.video_editor_motion_parent_description()}
-			</p>
-			<label class="mt-3 block text-xs font-medium" for="motion-parent-select">
+			<div class="flex items-center gap-1">
+				<h3 class="min-w-0 flex-1 truncate text-sm font-medium">
+					{m.video_editor_motion_parent_title()}
+				</h3>
+				<HintButton
+					label={m.video_editor_motion_parent_title()}
+					hint={m.video_editor_motion_parent_description()}
+					class="text-[var(--video-editor-muted)] hover:text-[var(--video-editor-ink)]"
+				/>
+			</div>
+			<label class="mt-2 block text-xs font-medium" for="motion-parent-select">
 				{m.video_editor_motion_parent_label()}
 			</label>
 			<Select.Root
+				disabled={locked}
 				type="single"
 				value={item?.transformParent?.parentItemId ?? ''}
 				onValueChange={changeParent}
@@ -164,7 +153,7 @@
 				<Select.Trigger
 					id="motion-parent-select"
 					aria-label={m.video_editor_motion_parent_label()}
-					class="mt-1 h-9 w-full justify-between rounded-md border border-[var(--video-editor-border)] bg-[var(--video-editor-panel)] px-2 text-sm shadow-none"
+					class="mt-1 h-[25px] w-full justify-between rounded-md border border-[var(--video-editor-border)] bg-[var(--video-editor-panel)] px-2 text-xs shadow-none"
 				>
 					<span class="truncate"
 						>{parentCandidates.find((c) => c.id === item?.transformParent?.parentItemId)?.label ??
@@ -182,7 +171,9 @@
 				<p class="mt-2 text-xs text-red-300" role="alert">{parentError}</p>
 			{/if}
 		</section>
-		<ClipPropertiesPanel {itemId} {itemIds} {onedit} />
+		{#if item?.type === 'text'}
+			<TextMotionPanel {itemId} {itemIds} {onedit} />
+		{/if}
 		<MotionPresetsPanel
 			{itemId}
 			{itemIds}
@@ -194,12 +185,58 @@
 			{ondeletepreset}
 			{onedit}
 		/>
-		{#if item?.type === 'text'}
-			<TextMotionPanel {itemId} {itemIds} {onedit} />
-		{/if}
-	{:else}
-		<p class="p-3 text-center text-xs text-[var(--video-editor-muted)]">
+	{:else if activeComposite}
+		<p class="px-2 py-1.5 text-center text-[11px] text-[var(--video-editor-muted)]" role="status">
 			{m.video_editor_motion_select_clip()}
 		</p>
+	{:else}
+		<section
+			class="rounded-md border border-[var(--video-editor-border)] bg-[var(--video-editor-panel)] p-2"
+		>
+			<div class="flex items-start justify-between gap-3">
+				<div class="flex min-w-0 items-center gap-1">
+					<h3 class="min-w-0 flex-1 truncate text-sm font-medium">
+						{m.video_editor_motion_composition_title()}
+					</h3>
+					<HintButton
+						label={m.video_editor_motion_composition_title()}
+						hint={m.video_editor_motion_composition_description()}
+						class="text-[var(--video-editor-muted)] hover:text-[var(--video-editor-ink)]"
+					/>
+				</div>
+			</div>
+			<div class="mt-3 grid grid-cols-1 gap-2">
+				<Button
+					size="sm"
+					variant="secondary"
+					disabled={!canCreateComposition}
+					onclick={oncreatecomposition}
+				>
+					{m.video_editor_motion_create_composition()}
+				</Button>
+				<Button size="sm" variant="secondary" onclick={createController}>
+					{m.video_editor_motion_add_controller()}
+				</Button>
+			</div>
+		</section>
+	{/if}
+
+	{#if activeComposite}
+		<EditorDisclosure
+			label={m.video_editor_motion_canvas_settings()}
+			class="overflow-hidden rounded-md border border-[var(--video-editor-border)] bg-[var(--video-editor-panel)]"
+		>
+			<div class="border-t border-[var(--video-editor-border)] p-2">
+				<ProjectCanvasPanel {onedit} />
+			</div>
+		</EditorDisclosure>
+		<EditorDisclosure
+			label={m.video_editor_motion_published_title({ count: publishedControlCount })}
+			class="overflow-hidden rounded-md border border-[var(--video-editor-border)] bg-[var(--video-editor-panel)]"
+		>
+			<div class="border-t border-[var(--video-editor-border)] p-2">
+				<CompositionControlsAuthoring {onedit} />
+			</div>
+		</EditorDisclosure>
 	{/if}
 </aside>

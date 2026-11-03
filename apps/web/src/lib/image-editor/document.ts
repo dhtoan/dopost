@@ -1,4 +1,7 @@
 import { validEditorColorTools } from '$lib/editor-color-grade/model';
+import { validTextRuns } from './text-runs';
+import { validImageEditorLensEffect } from './lens-effects';
+import { validImageEditorAnimation } from './animation';
 import {
 	IMAGE_EDITOR_LIMITS,
 	IMAGE_EDITOR_SCHEMA_VERSION,
@@ -15,6 +18,7 @@ import {
 	IMAGE_COLOR_GRADE_VERSION,
 	defaultEditorColorGradeAdjustments
 } from '$lib/editor-color-grade/model';
+import { imageEditorPageDimensions } from './page-dimensions';
 
 const HEX_COLOR = /^#[0-9a-f]{6}([0-9a-f]{2})?$/i;
 
@@ -103,7 +107,9 @@ export function blankImageEditorDocument(preset: ImageEditorPreset): ImageEditor
 }
 
 export function cloneImageEditorDocument(document: ImageEditorDocument): ImageEditorDocument {
-	const clone = structuredClone(document);
+	// SAFETY: Persisted documents contain JSON data. Serialization also unwraps reactive
+	// template/cache values before they enter the immutable editor history.
+	const clone = JSON.parse(JSON.stringify(document)) as ImageEditorDocument;
 	clone.export_defaults = {
 		...clone.export_defaults,
 		matte_color: clone.export_defaults.matte_color || '#ffffff'
@@ -160,7 +166,8 @@ export function imageEditorPageBackground(
 	page: Pick<ImageEditorPage, 'background' | 'background_color'>
 ): ImageEditorPageBackground {
 	if (!page.background) return defaultImageEditorPageBackground(page.background_color || '#ffffff');
-	const background = structuredClone(page.background);
+	// SAFETY: A typed, persisted background contains only JSON values; serialization unwraps proxies.
+	const background = JSON.parse(JSON.stringify(page.background)) as ImageEditorPageBackground;
 	if (background.type === 'transparent') {
 		return { type: 'transparent', opacity: 0 };
 	}
@@ -241,14 +248,14 @@ export function cloneImageEditorLayer(
 
 export function validateImageEditorDocument(document: ImageEditorDocument): string[] {
 	const errors: string[] = [];
-	if (document.schema_version !== IMAGE_EDITOR_SCHEMA_VERSION) {
+	if (document.schema_version !== 1 && document.schema_version !== IMAGE_EDITOR_SCHEMA_VERSION) {
 		errors.push('This OpenPost Image Editor document version is not supported.');
 	}
 	if (!document.title.trim() || document.title.length > 160) {
 		errors.push('The design title must be between 1 and 160 characters.');
 	}
 	if (
-		!['png', 'jpeg', 'webp'].includes(document.export_defaults.format) ||
+		!['png', 'jpeg', 'webp', 'gif'].includes(document.export_defaults.format) ||
 		!Number.isFinite(document.export_defaults.quality) ||
 		document.export_defaults.quality < 0.1 ||
 		document.export_defaults.quality > 1 ||
@@ -271,6 +278,19 @@ export function validateImageEditorDocument(document: ImageEditorDocument): stri
 	const pageIDs = new Set<string>();
 	const layerIDs = new Set<string>();
 	for (const page of document.pages) {
+		const pageSize = imageEditorPageDimensions(document, page);
+		if (
+			(document.schema_version === 1 && page.width_px !== undefined) ||
+			(page.width_px === undefined) !== (page.height_px === undefined) ||
+			!Number.isInteger(pageSize.width) ||
+			!Number.isInteger(pageSize.height) ||
+			pageSize.width < IMAGE_EDITOR_LIMITS.minDimension ||
+			pageSize.height < IMAGE_EDITOR_LIMITS.minDimension ||
+			pageSize.width > IMAGE_EDITOR_LIMITS.maxDimension ||
+			pageSize.height > IMAGE_EDITOR_LIMITS.maxDimension ||
+			pageSize.width * pageSize.height > IMAGE_EDITOR_LIMITS.maxPixels
+		)
+			errors.push(`${page.name} has invalid dimensions.`);
 		if (!page.id || pageIDs.has(page.id)) errors.push('Every page must have a unique ID.');
 		pageIDs.add(page.id);
 		if (page.color_grade && !validEditorColorTools(page.color_grade))
@@ -294,10 +314,10 @@ export function validateImageEditorDocument(document: ImageEditorDocument): stri
 			(page.guides?.horizontal.length ?? 0) > 100 ||
 			(page.guides?.vertical.length ?? 0) > 100 ||
 			(page.guides?.horizontal ?? []).some(
-				(value) => !Number.isFinite(value) || value < 0 || value > document.height_px
+				(value) => !Number.isFinite(value) || value < 0 || value > pageSize.height
 			) ||
 			(page.guides?.vertical ?? []).some(
-				(value) => !Number.isFinite(value) || value < 0 || value > document.width_px
+				(value) => !Number.isFinite(value) || value < 0 || value > pageSize.width
 			)
 		) {
 			errors.push(`${page.name} has invalid guides.`);
@@ -329,6 +349,9 @@ export function validateImageEditorDocument(document: ImageEditorDocument): stri
 				errors.push(`${layer.name} has invalid opacity.`);
 			}
 			if (layer.type === 'text' && !layer.text) errors.push(`${layer.name} has no text data.`);
+			if (layer.text && !validTextRuns(layer.text)) {
+				errors.push(`${layer.name} has invalid text emphasis ranges.`);
+			}
 			if (
 				layer.text?.curve &&
 				(!['none', 'arc_up', 'arc_down', 'wave', 'circle', 'ellipse'].includes(
@@ -393,6 +416,10 @@ export function validateImageEditorDocument(document: ImageEditorDocument): stri
 				}
 			}
 			if (layer.type === 'shape' && !layer.shape) errors.push(`${layer.name} has no shape data.`);
+			if (layer.image?.lens_effect && !validImageEditorLensEffect(layer.image.lens_effect))
+				errors.push(`${layer.name} has an invalid lens effect.`);
+			if (layer.image?.animation && !validImageEditorAnimation(layer.image.animation))
+				errors.push(`${layer.name} has invalid animation frames or timing.`);
 			if (layer.type === 'paint' && !layer.paint) errors.push(`${layer.name} has no paint data.`);
 			if (
 				layer.paint &&
@@ -496,11 +523,11 @@ export function validateImageEditorDocument(document: ImageEditorDocument): stri
 						shadow.opacity < 0 ||
 						shadow.opacity > 1 ||
 						shadow.blur < 0 ||
-						shadow.blur > 100 ||
+						shadow.blur > IMAGE_EDITOR_LIMITS.maxEffectBlur ||
 						shadow.angle < -360 ||
 						shadow.angle > 360 ||
 						shadow.distance < 0 ||
-						shadow.distance > 500
+						shadow.distance > IMAGE_EDITOR_LIMITS.maxEffectDistance
 					) {
 						errors.push(`${layer.name} has an invalid shadow effect.`);
 						break;
@@ -515,7 +542,7 @@ export function validateImageEditorDocument(document: ImageEditorDocument): stri
 						stroke.opacity > 1 ||
 						!Number.isFinite(stroke.width) ||
 						stroke.width <= 0 ||
-						stroke.width > 500 ||
+						stroke.width > IMAGE_EDITOR_LIMITS.maxEffectStroke ||
 						!['inside', 'center', 'outside'].includes(stroke.position))
 				) {
 					errors.push(`${layer.name} has an invalid stroke effect.`);
@@ -572,14 +599,14 @@ export function migrateImageEditorDocument(
 			};
 		}
 		// SAFETY: Required display members use the compatible document contract checked above.
-		const document = structuredClone(raw) as ImageEditorDocument;
+		const document = JSON.parse(JSON.stringify(raw)) as ImageEditorDocument;
 		return {
 			document,
 			readOnly: true,
 			error: 'This design was created by a newer OpenPost version and is read-only here.'
 		};
 	}
-	if (version !== IMAGE_EDITOR_SCHEMA_VERSION) {
+	if (version !== 1 && version !== IMAGE_EDITOR_SCHEMA_VERSION) {
 		return {
 			readOnly: true,
 			error: 'This OpenPost Image Editor document version cannot be migrated.'
@@ -594,6 +621,7 @@ export function migrateImageEditorDocument(
 	try {
 		// SAFETY: The current schema and required structure are checked before full semantic validation.
 		const document = cloneImageEditorDocument(raw as ImageEditorDocument);
+		document.schema_version = IMAGE_EDITOR_SCHEMA_VERSION;
 		const errors = validateImageEditorDocument(document);
 		return errors.length > 0 ? { readOnly: true, error: errors[0] } : { document, readOnly: false };
 	} catch {
@@ -624,4 +652,27 @@ function isDisplayableImageEditorDocument(document: ImageEditorDocumentInput): b
 		document.export_defaults !== null &&
 		typeof document.export_defaults === 'object'
 	);
+}
+
+export function imageEditorLayerRenderOrder(layers: ImageEditorLayer[]): ImageEditorLayer[] {
+	const layerIDs = new Set(layers.map((layer) => layer.id));
+	const childrenByParent = new Map<string, ImageEditorLayer[]>();
+	for (const layer of layers) {
+		const parentID = layer.parent_id && layerIDs.has(layer.parent_id) ? layer.parent_id : '';
+		const children = childrenByParent.get(parentID) ?? [];
+		children.push(layer);
+		childrenByParent.set(parentID, children);
+	}
+
+	const ordered: ImageEditorLayer[] = [];
+	const visited = new Set<string>();
+	const appendLayer = (layer: ImageEditorLayer): void => {
+		if (visited.has(layer.id)) return;
+		visited.add(layer.id);
+		for (const child of childrenByParent.get(layer.id) ?? []) appendLayer(child);
+		ordered.push(layer);
+	};
+	for (const layer of childrenByParent.get('') ?? []) appendLayer(layer);
+	for (const layer of layers) appendLayer(layer);
+	return ordered;
 }

@@ -9,6 +9,11 @@
 	import { ProtectedIcon, ThemeIcon } from '$lib/themes/icons';
 	import { timelineStore } from '$lib/video-editor/timeline/stores/timeline-store.svelte';
 	import {
+		clearActiveMediaDrag,
+		mediaDragData,
+		writeMediaDragData
+	} from '$lib/video-editor/media/media-drag';
+	import {
 		LOCAL_TTS_ENGINE_OPTIONS,
 		LOCAL_TTS_EXPRESSIVE_TAG_OPTIONS,
 		LOCAL_TTS_LANGUAGE_OPTIONS,
@@ -37,6 +42,7 @@
 	import { mediaTaskId, mediaTasks } from '$lib/video-editor/media/media-tasks.svelte';
 	import LocalMusicPanel from './local-music-panel.svelte';
 	import { transcriptionLanguageUiLabel } from '$lib/video-editor/transcript/engine/model-i18n';
+	import type { ProjectAssetImporter } from '$lib/video-editor/media/types';
 
 	type GenerateSpeech = (options: LocalTtsGenerateOptions) => Promise<GeneratedAudio>;
 	type CommitAudio = typeof commitGeneratedAudio;
@@ -47,7 +53,8 @@
 		generateSpeech = generateLocalSpeech,
 		commitAudio = commitGeneratedAudio,
 		supported,
-		textVoiceRequest = null
+		textVoiceRequest = null,
+		importProjectAsset
 	}: {
 		projectId: string;
 		oninserted: (itemId: string) => void;
@@ -55,6 +62,7 @@
 		commitAudio?: CommitAudio;
 		supported?: boolean;
 		textVoiceRequest?: TextVoiceRequest | null;
+		importProjectAsset?: ProjectAssetImporter;
 	} = $props();
 
 	interface Generation {
@@ -226,6 +234,7 @@
 			const options: CommitGeneratedAudioOptions = {
 				projectId,
 				tags: localTtsTags(generation.engine, generation.voice),
+				importAsset: importProjectAsset,
 				existingMediaId: generation.mediaId,
 				...(insert &&
 					(generation.sourceTextItemId
@@ -245,6 +254,16 @@
 	function remove(generation: Generation): void {
 		URL.revokeObjectURL(generation.url);
 		generations = generations.filter((candidate) => candidate.id !== generation.id);
+	}
+
+	function startPreviewDrag(event: DragEvent, generation: Generation): void {
+		if (!event.dataTransfer || generation.saving || !generation.mediaId) return;
+		// Linked voice previews keep their text-item link through the Add button only.
+		if (generation.sourceTextItemId !== undefined) return;
+		writeMediaDragData(
+			event.dataTransfer,
+			mediaDragData('media', generation.mediaId, generation.voice)
+		);
 	}
 
 	onDestroy(() => {
@@ -300,10 +319,7 @@
 			aria-labelledby="local-ai-voice-tab"
 		>
 			<div class="border-b border-[var(--video-editor-border)] px-2 py-1.5">
-				<h2 class="text-xs font-semibold text-[var(--video-editor-text)]">
-					{m.video_editor_local_ai_voice()}
-				</h2>
-				<p class="mt-0.5 text-[9px] leading-tight text-[var(--video-editor-muted)]">
+				<p class="text-[11px] leading-4 text-[var(--video-editor-muted)]">
 					{m.video_editor_local_ai_voice_description()}
 				</p>
 			</div>
@@ -390,7 +406,7 @@
 					</Select.Root>
 					<span
 						id="local-ai-engine-description"
-						class="mt-0.5 block text-[9px] leading-tight text-[var(--video-editor-muted)]"
+						class="mt-1 block text-[11px] leading-4 text-[var(--video-editor-muted)]"
 						>{engineDescription}</span
 					>
 				</div>
@@ -546,7 +562,12 @@
 				{/if}
 				{#each generations as generation (generation.id)}
 					<article
-						class="rounded border border-[var(--video-editor-border)] bg-[var(--video-editor-panel)] p-1.5"
+						class="cursor-grab rounded border border-[var(--video-editor-border)] bg-[var(--video-editor-panel)] p-1.5 active:cursor-grabbing"
+						draggable={generation.mediaId !== undefined &&
+							!generation.saving &&
+							generation.sourceTextItemId === undefined}
+						ondragstart={(event) => startPreviewDrag(event, generation)}
+						ondragend={clearActiveMediaDrag}
 					>
 						<div class="mb-1 flex items-center justify-between gap-1">
 							<span class="text-[10px] text-[var(--video-editor-muted)]">
@@ -598,7 +619,7 @@
 			role="tabpanel"
 			aria-labelledby="local-ai-music-tab"
 		>
-			<LocalMusicPanel {projectId} {oninserted} />
+			<LocalMusicPanel {projectId} {oninserted} {importProjectAsset} />
 		</div>
 	{/if}
 </div>

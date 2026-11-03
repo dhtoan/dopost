@@ -261,13 +261,24 @@
 	);
 	$effect(() => {
 		if (!host) return;
+		let graphFrame = 0;
 		const observer = new ResizeObserver(([entry]) => {
-			const nextWidth = Math.max(320, Math.round(entry?.contentRect.width ?? 640));
-			width = nextWidth;
-			viewport = { ...viewport, width: nextWidth };
+			if (graphFrame) return;
+			// Rounding can oscillate at clamp boundaries (319.6 <-> 320): only
+			// write when the width actually changed, coalesced into one frame.
+			graphFrame = requestAnimationFrame(() => {
+				graphFrame = 0;
+				const nextWidth = Math.max(320, Math.round(entry?.contentRect.width ?? 640));
+				if (nextWidth === width) return;
+				width = nextWidth;
+				viewport = { ...viewport, width: nextWidth };
+			});
 		});
 		observer.observe(host);
-		return () => observer.disconnect();
+		return () => {
+			cancelAnimationFrame(graphFrame);
+			observer.disconnect();
+		};
 	});
 
 	$effect(() => {
@@ -345,7 +356,7 @@
 			blockedRanges
 		});
 		if (keyframeSelectionStore.isCut && plan.skippedUnsupported + plan.skippedBlocked > 0) return;
-		const refs = insertKeyframes(item.id, plan.inserts);
+		const refs = insertKeyframes(item.id, plan.inserts, { scaleBase: plan.scaleBase });
 		const firstRef = refs[0];
 		if (!firstRef) return;
 		setSelection(refs.map((ref) => ref.id ?? keyframeIdentity(ref)));
@@ -958,6 +969,7 @@
 	}
 	function bezierPresetLocalizedLabel(value: string): string {
 		switch (value) {
+			// fallow-ignore-next-line code-duplication
 			case 'soft':
 				return m.video_editor_keyframe_bezier_soft();
 			case 'overshoot':
@@ -1102,7 +1114,7 @@
 	data-graph-end-frame={viewport.endFrame}
 >
 	<div
-		class="flex min-h-8 flex-wrap items-center gap-1 border-b border-[oklch(0.22_0.01_50)] px-2 py-1"
+		class="flex h-8 flex-nowrap items-center gap-1 overflow-x-auto border-b border-[oklch(0.22_0.01_50)] px-2"
 	>
 		<span
 			class="mr-auto min-w-0 flex-1 truncate text-[10px] font-medium text-[oklch(0.72_0.02_55)] capitalize"
@@ -1124,7 +1136,7 @@
 		<Button
 			variant="ghost"
 			size="icon"
-			class="size-7 min-h-7 min-w-7 shrink-0 rounded sm:size-6"
+			class="size-6 shrink-0 rounded"
 			aria-label={m.video_editor_zoom_out()}
 			title={m.video_editor_zoom_out()}
 			onclick={() => zoom(1.25)}
@@ -1134,7 +1146,7 @@
 		<Button
 			variant="ghost"
 			size="icon"
-			class="size-7 min-h-7 min-w-7 shrink-0 rounded sm:size-6"
+			class="size-6 shrink-0 rounded"
 			aria-label={m.video_editor_zoom_in()}
 			title={m.video_editor_zoom_in()}
 			onclick={() => zoom(0.8)}
@@ -1144,7 +1156,7 @@
 		<Button
 			variant="ghost"
 			size="icon"
-			class="size-7 min-h-7 min-w-7 shrink-0 rounded sm:size-6"
+			class="size-6 shrink-0 rounded"
 			aria-label={m.video_editor_keyframe_graph_fit()}
 			title={m.video_editor_keyframe_graph_fit()}
 			onclick={fitToContent}
@@ -1424,13 +1436,10 @@
 								{@const inY = point.y + bezier.y2 * (next.y - point.y)}
 								<line x1={point.x} y1={point.y} x2={outX} y2={outY} stroke="oklch(0.75 0.02 55)" />
 								<line x1={next.x} y1={next.y} x2={inX} y2={inY} stroke="oklch(0.75 0.02 55)" />
+								<!-- Pointer-only drag handle: easing stays keyboard-adjustable through the segment button and preset menu, so this exposes role="img" instead of the keyboard-operable slider role. -->
 								<circle
-									role="slider"
-									tabindex="-1"
+									role="img"
 									aria-label={m.video_editor_keyframe_graph_outgoing_handle()}
-									aria-valuemin="0"
-									aria-valuemax="1"
-									aria-valuenow={bezier.x1}
 									cx={outX}
 									cy={outY}
 									r={HANDLE_HIT_RADIUS}
@@ -1447,12 +1456,8 @@
 									class="pointer-events-none"
 								/>
 								<circle
-									role="slider"
-									tabindex="-1"
+									role="img"
 									aria-label={m.video_editor_keyframe_graph_incoming_handle()}
-									aria-valuemin="0"
-									aria-valuemax="1"
-									aria-valuenow={bezier.x2}
 									cx={inX}
 									cy={inY}
 									r={HANDLE_HIT_RADIUS}
@@ -1510,13 +1515,10 @@
 							</g>
 						{/each}
 
+						<!-- Pointer-only scrub line: the playhead stays keyboard-adjustable through the timeline ruler and mini-timeline sliders, so this exposes role="img" instead of the keyboard-operable slider role. -->
 						<line
-							role="slider"
-							tabindex="-1"
+							role="img"
 							aria-label={m.video_editor_keyframe_graph_playhead()}
-							aria-valuemin="0"
-							aria-valuemax={item.durationInFrames - 1}
-							aria-valuenow={relativePlayhead}
 							x1={playheadX}
 							x2={playheadX}
 							y1="0"

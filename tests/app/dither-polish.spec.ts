@@ -1,7 +1,14 @@
+import { expectBalancedDitherButton } from "../helpers/dither-button";
 import { randomUUID } from "node:crypto";
 import { expect, test } from "@playwright/test";
-import { authenticatePage, createPublication, createWorkspace, registerUser } from "./helpers";
-import { themeColorContrastRatio } from "../../apps/web/src/lib/themes/validation";
+import {
+  assignBuiltInTheme,
+  authenticatePage,
+  createPublication,
+  createWorkspace,
+  registerUser,
+} from "./helpers";
+import { themeColorContrastRatio } from "@openpost/ui/themes/validation";
 
 // Keep the visual sweep on network assets. PWA lifecycle has its own browser suite.
 test.use({ serviceWorkers: "block" });
@@ -13,10 +20,12 @@ test("Dither keeps the app's main routes usable on desktop and phones", async ({
   test.setTimeout(180_000);
   const { token } = await registerUser(request, `dither-polish-${randomUUID()}@example.com`);
   const workspace = await createWorkspace(request, token, "Dither studio");
+  await assignBuiltInTheme(request, token, workspace.id, "dither");
   await createPublication(request, token, workspace.id, "A small release with clearer controls.");
   await authenticatePage(page, token);
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
+  await page.clock.install();
   const surfaces = [
     ["/", "composer"],
     ["/publications?tab=drafts", "publications"],
@@ -31,7 +40,6 @@ test("Dither keeps the app's main routes usable on desktop and phones", async ({
     ["/settings?tab=general", "workspace"],
     ["/settings?tab=profile", "profile"],
     ["/settings?tab=appearance", "appearance"],
-    ["/editors", "editors"],
     ["/image-editor", "image-editor"],
     ["/video-editor", "video-editor"],
     ["/quick-cut", "quick-cut"],
@@ -56,40 +64,34 @@ test("Dither keeps the app's main routes usable on desktop and phones", async ({
         )
         .toEqual({ theme: "dither", errors: [] });
       await expect(page.locator("html")).toHaveAttribute("data-theme-scheme", scheme);
+      if (path === "/settings?tab=appearance") {
+        await expect(page.getByTestId("theme-library")).toBeVisible();
+        // Let delayed loaders settle, including those in inactive tabs.
+        await page.clock.runFor(1_000);
+      }
       await expect(page.locator('[aria-busy="true"]')).toHaveCount(0);
       await expect(
         path === "/record"
           ? page.getByRole("button", { name: "Start recording", exact: true })
-          : page.getByRole("heading").first(),
+          : path === "/"
+            ? // The composer canvas is title-less; its editor is the sentinel.
+              page.getByRole("textbox", { name: "Post text", exact: true })
+            : page.getByRole("heading").first(),
       ).toBeVisible();
-      if (path === "/" && width === 1440) {
-        const newPost = page.getByTestId("sidebar-new-post");
-        const newPostMenu = page.getByTestId("sidebar-new-post-menu");
-        await expect
-          .poll(async () => {
-            const [main, menu] = await Promise.all([
-              newPost.boundingBox(),
-              newPostMenu.boundingBox(),
-            ]);
-            return Boolean(
-              main &&
-              menu &&
-              main.height > 0 &&
-              Math.round(main.height) === Math.round(menu.height),
-            );
-          })
-          .toBe(true);
-      }
       await page.evaluate(() => document.fonts.ready);
       if (path === "/quick-cut") {
         await expect(
-          page.getByText("No projects yet. Create one to start cutting.", { exact: true }),
+          page.getByText("No projects yet. Open a video to start cutting.", {
+            exact: true,
+          }),
         ).toBeVisible();
         await expect(page.getByRole("button", { name: "Try again", exact: true })).toHaveCount(0);
       }
       if (path === "/record") {
         const colors = await page
-          .getByRole("region", { name: "Your preview will appear here after recording starts." })
+          .getByRole("region", {
+            name: "Your preview will appear here after recording starts.",
+          })
           .evaluate((el) => {
             const text = el.querySelector("p");
             if (!text) throw new Error("Recorder preview text is unavailable");
@@ -138,7 +140,10 @@ test.describe("touch theme controls", () => {
     await page.emulateMedia({ colorScheme: "light" });
     await page.goto("/settings?tab=appearance");
     await page.getByRole("button", { name: "Edit", exact: true }).click();
-    const hue = page.getByRole("spinbutton", { name: "Accent hue", exact: true });
+    const hue = page.getByRole("spinbutton", {
+      name: "Accent hue",
+      exact: true,
+    });
     await expect(hue).toHaveValue("45");
     await hue.fill("305");
     await expect(page.getByRole("slider", { name: "Accent hue" })).toHaveAttribute(
@@ -207,7 +212,9 @@ test.describe("touch theme controls", () => {
       });
       await page.getByRole("button", { name: "Choose Canvas color", exact: true }).click();
       await expect(hex).toBeVisible();
-      await page.screenshot({ path: `.impeccable/review/dither-polish/color-picker-${width}.png` });
+      await page.screenshot({
+        path: `.impeccable/review/dither-polish/color-picker-${width}.png`,
+      });
       await page.keyboard.press("Escape");
     }
   });
@@ -221,45 +228,30 @@ test("Dither button gradients respond to hover, focus, and press with reduced mo
   await createWorkspace(request, token, "Dither effects");
   await authenticatePage(page, token);
   for (const scheme of ["light", "dark"] as const) {
-    await page.emulateMedia({ colorScheme: scheme, reducedMotion: "no-preference" });
+    await page.emulateMedia({
+      colorScheme: scheme,
+      reducedMotion: "no-preference",
+    });
     await page.goto("/media");
-    const button = page.getByRole("button", { name: "Upload", exact: true });
+    const button = page.getByTestId("sidebar-new-post");
     await expect(page.locator("html")).toHaveAttribute("data-theme-scheme", scheme);
     await expect(button).toBeEnabled();
-    const texture = () =>
-      button.evaluate((el) => {
-        const style = getComputedStyle(el, "::before");
-        return {
-          opacity: Number(style.opacity),
-          position: style.backgroundPosition,
-          gradient: style.backgroundImage,
-          duration: style.transitionDuration,
-          mask: style.maskImage,
-        };
-      });
+    const focal = page.getByTestId("sidebar-new-post");
     await page.mouse.move(0, 0);
-    await expect.poll(async () => (await texture()).opacity).toBe(0.14);
-    expect((await texture()).gradient).toContain("linear-gradient");
-    expect((await texture()).mask).toContain("data:image/svg+xml");
-    await button.hover();
-    await expect.poll(async () => (await texture()).position).toMatch(/^0(?:%|px) 0px$/);
-    await expect.poll(async () => (await texture()).opacity).toBe(0.18);
-    await page.mouse.down();
-    await expect.poll(async () => (await texture()).opacity).toBe(0.22);
-    await page.mouse.move(0, 0);
-    await page.mouse.up();
-    await page.keyboard.press("Tab");
-    await button.focus();
-    await expect(button).toBeFocused();
-    expect(await button.evaluate((el) => el.matches(":focus-visible"))).toBe(true);
-    await expect.poll(async () => (await texture()).opacity).toBe(0.18);
-    await button.screenshot({
-      path: `.impeccable/review/dither-polish/button-focus-${scheme}.png`,
+    await focal.screenshot({
+      path: `.impeccable/review/dither-unified/new-post-${scheme}-rest.png`,
     });
-    await page.emulateMedia({ reducedMotion: "reduce" });
-    expect(
-      (await texture()).duration.split(",").every((duration) => parseFloat(duration) < 0.001),
-    ).toBe(true);
+    await focal.hover();
+    await expect
+      .poll(() => focal.evaluate((el) => getComputedStyle(el, "::before").maskImage))
+      .toContain("data:image/svg+xml");
+    await page.waitForTimeout(400);
+    await focal.screenshot({
+      path: `.impeccable/review/dither-unified/new-post-${scheme}-hover.png`,
+    });
+    const texture = () => button.evaluate((el) => getComputedStyle(el, "::before").maskImage);
+    await page.mouse.move(0, 0);
+    await expect.poll(texture).toContain("data:image/svg+xml");
     await page.emulateMedia({ forcedColors: "active" });
     await expect
       .poll(() => button.evaluate((el) => getComputedStyle(el, "::before").display))

@@ -8,7 +8,39 @@ import (
 	"github.com/openpost/backend/internal/services/publicationauth"
 )
 
-const openPostCLIClientID = "openpost-cli"
+const (
+	openPostCLIClientID  = "openpost-cli"
+	openPostSDKUserAgent = "openpost-sdk/"
+)
+
+const (
+	publicationCreationSourceWeb      = "web"
+	publicationCreationSourceAPI      = "api"
+	publicationCreationSourceSDK      = "sdk"
+	publicationCreationSourceMCP      = "mcp"
+	publicationCreationSourceCLI      = "cli"
+	publicationCreationSourceAutopost = "autopost"
+	publicationCreationSourceUnknown  = "unknown"
+)
+
+func publicationCreationSource(ctx context.Context, fallbackUserID string) string {
+	switch publicationAuthorizationActor(ctx, fallbackUserID).Origin {
+	case publicationauth.OriginBrowser:
+		return publicationCreationSourceWeb
+	case publicationauth.OriginAPI:
+		return publicationCreationSourceAPI
+	case publicationauth.OriginSDK:
+		return publicationCreationSourceSDK
+	case publicationauth.OriginMCP:
+		return publicationCreationSourceMCP
+	case publicationauth.OriginCLI:
+		return publicationCreationSourceCLI
+	case publicationauth.OriginWorker:
+		return publicationCreationSourceAutopost
+	default:
+		return publicationCreationSourceUnknown
+	}
+}
 
 func publicationAuthorizationActor(ctx context.Context, fallbackUserID string) publicationauth.Actor {
 	if actor, ok := publicationauth.ActorFromContext(ctx); ok {
@@ -34,7 +66,9 @@ func publicationAuthorizationActor(ctx context.Context, fallbackUserID string) p
 	case tokenID != "":
 		origin := publicationauth.OriginAPI
 		userAgent := strings.ToLower(strings.TrimSpace(middleware.GetUserAgent(ctx)))
-		if clientID == openPostCLIClientID || strings.HasPrefix(userAgent, openPostCLIClientID+"/") {
+		if strings.HasPrefix(userAgent, openPostSDKUserAgent) {
+			origin = publicationauth.OriginSDK
+		} else if clientID == openPostCLIClientID || strings.HasPrefix(userAgent, openPostCLIClientID+"/") {
 			origin = publicationauth.OriginCLI
 		}
 		return publicationauth.Actor{

@@ -13,6 +13,7 @@
 	import type { ProtectedIconRole } from '$lib/themes/icons/protected-icon.js';
 	import type { ImageEditorLayer, ImageEditorPage } from '../types';
 	import { isEmptyImageEditorPaintLayer } from '../document';
+	import { imageEditorLayerDropIndicator } from '../layer-drop';
 	import { m } from '$lib/paraglide/messages';
 	import { treeKeyboardAction } from '../tree-keyboard';
 
@@ -42,6 +43,9 @@
 	let contextRenameTimer: ReturnType<typeof setTimeout> | undefined;
 	const collapsedGroups = new SvelteSet<string>();
 	let items = $derived(flattenLayers(editor.activePage, collapsedGroups));
+	let dropIndicator = $derived(
+		imageEditorLayerDropIndicator(items, pointerTargetID, pointerTargetPosition, pointerDraggingID)
+	);
 
 	$effect(() => {
 		const selectedID = editor.selectedLayerIDs.at(-1);
@@ -182,7 +186,8 @@
 	}
 
 	function startPointerReorder(event: PointerEvent, id: string): void {
-		if (!editor.canEdit || renamingID === id || touchIdentifier >= 0) return;
+		if (!editor.canEdit || editor.isLayerLocked(id) || renamingID === id || touchIdentifier >= 0)
+			return;
 		event.preventDefault();
 		event.stopPropagation();
 		editor.selectLayer(id);
@@ -236,7 +241,7 @@
 
 	function startTouchReorder(event: TouchEvent, id: string): void {
 		const touch = event.changedTouches[0];
-		if (!touch || !editor.canEdit || renamingID === id) return;
+		if (!touch || !editor.canEdit || editor.isLayerLocked(id) || renamingID === id) return;
 		event.stopPropagation();
 		touchIdentifier = touch.identifier;
 		pointerID = -1;
@@ -313,10 +318,10 @@
 	}
 
 	function commitRename(layer: ImageEditorLayer): void {
+		if (renamingID !== layer.id) return;
 		const name = renameDraft.trim();
-		if (name && name !== layer.name) editor.updateLayer(layer.id, { name });
 		renamingID = '';
-		focusLayer(layer.id);
+		if (name && name !== layer.name) editor.updateLayer(layer.id, { name });
 	}
 
 	function startContextRename(layer: ImageEditorLayer): void {
@@ -384,8 +389,8 @@
 	onpointercancelcapture={(event) => finishPointerReorder(event, true)}
 />
 
-<div class="flex h-full min-h-0 flex-col">
-	<div class="flex min-h-10 items-center border-b px-3">
+<div class="flex h-full min-h-0 flex-col" data-testid="image-editor-layers">
+	<div class="flex min-h-8 items-center border-b px-3">
 		<h2 class="text-sm font-medium text-foreground">
 			{m.image_editor_layers()}
 		</h2>
@@ -425,7 +430,7 @@
 			{#each items as item (item.layer.id)}
 				{@const layer = item.layer}
 				{@const layerGlyphRef = layerIcon(layer)}
-				{@const groupDestinations = editor.groupDestinationsForLayer(layer.id)}
+				{@const effectivelyLocked = editor.isLayerLocked(layer.id)}
 				<div
 					animate:flip={{ duration: prefersReducedMotion.current ? 0 : 160 }}
 					transition:slide={{ duration: prefersReducedMotion.current ? 0 : 160 }}
@@ -444,8 +449,8 @@
 									aria-expanded={item.hasChildren ? !collapsedGroups.has(layer.id) : undefined}
 									aria-selected={editor.selectedLayerIDs.includes(layer.id)}
 									data-image-editor-layer-id={layer.id}
-									data-drop-position={pointerTargetID === layer.id && pointerDraggingID !== layer.id
-										? pointerTargetPosition
+									data-drop-position={dropIndicator?.id === layer.id
+										? dropIndicator.position
 										: undefined}
 									aria-label={m.image_editor_layer_accessible({
 										name: layer.name,
@@ -453,14 +458,15 @@
 										state: `${layer.locked ? m.image_editor_locked_state() : ''}${layer.visible ? '' : m.image_editor_hidden_state()}`
 									})}
 									tabindex={focusedLayerID === layer.id && renamingID !== layer.id ? 0 : -1}
-									draggable={editor.canEdit && renamingID !== layer.id}
-									class="image-editor-layer-row group flex min-h-10 items-center gap-1 rounded-md pr-1 text-sm {editor.selectedLayerIDs.includes(
+									draggable={editor.canEdit && !effectivelyLocked && renamingID !== layer.id}
+									class="image-editor-layer-row group flex min-h-8 items-center gap-1 rounded-md pr-1 text-sm {editor.selectedLayerIDs.includes(
 										layer.id
 									)
 										? 'bg-primary/10 text-foreground'
 										: 'hover:bg-muted'} {pointerDraggingID === layer.id && pointerDragActive
 										? 'opacity-60'
 										: ''}"
+									class:layer-row-focused={focusedLayerID === layer.id}
 									style:padding-left={`${item.depth * 14 + 4}px`}
 									onfocus={() => {
 										focusedLayerID = layer.id;
@@ -507,7 +513,7 @@
 											tabindex={-1}
 											variant="ghost"
 											size="icon-xs"
-											class="size-6 shrink-0"
+											class="size-6 shrink-0 [@media(pointer:coarse)]:size-11"
 											onclick={(event) => {
 												event.stopPropagation();
 												toggleGroup(layer.id);
@@ -529,7 +535,7 @@
 										class="image-editor-layer-grip flex size-6 shrink-0 cursor-grab touch-none items-center justify-center rounded-sm text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring active:cursor-grabbing"
 										aria-label={m.image_editor_reorder_layer({ name: layer.name })}
 										title={m.image_editor_reorder_layer({ name: layer.name })}
-										disabled={!editor.canEdit || renamingID === layer.id}
+										disabled={!editor.canEdit || effectivelyLocked || renamingID === layer.id}
 										data-testid="image-editor-layer-drag-handle"
 										onclick={(event) => event.stopPropagation()}
 										oncontextmenu={(event) => event.preventDefault()}
@@ -559,6 +565,7 @@
 												if (event.key === 'Enter') {
 													event.preventDefault();
 													commitRename(layer);
+													focusLayer(layer.id);
 												}
 												if (event.key === 'Escape') {
 													event.preventDefault();
@@ -569,42 +576,14 @@
 											aria-label={m.image_editor_layer_name()}
 										/>
 									{:else}
-										<span class="min-w-0 flex-1 truncate">{layer.name}</span>
-									{/if}
-									{#if editor.selectedLayerIDs.includes(layer.id)}
-										<Button
-											tabindex={-1}
-											variant="ghost"
-											size="icon-xs"
-											class="image-editor-mobile-order-button"
-											aria-label={m.image_editor_move_layer_up({ name: layer.name })}
-											title={m.image_editor_move_layer_up({ name: layer.name })}
-											onclick={(event) => {
-												event.stopPropagation();
-												editor.reorderLayer(layer.id, 'forward');
-											}}
-										>
-											<ThemeIcon role="arrow-up" />
-										</Button>
-										<Button
-											tabindex={-1}
-											variant="ghost"
-											size="icon-xs"
-											class="image-editor-mobile-order-button"
-											aria-label={m.image_editor_move_layer_down({ name: layer.name })}
-											title={m.image_editor_move_layer_down({ name: layer.name })}
-											onclick={(event) => {
-												event.stopPropagation();
-												editor.reorderLayer(layer.id, 'backward');
-											}}
-										>
-											<ThemeIcon role="arrow-down" />
-										</Button>
+										<span class="min-w-0 flex-1 truncate" title={layer.name}>{layer.name}</span>
 									{/if}
 									<Button
 										tabindex={-1}
 										variant="ghost"
 										size="icon-xs"
+										class="image-editor-layer-action [@media(pointer:coarse)]:size-11"
+										data-state-active={!layer.visible || undefined}
 										aria-label={layer.visible
 											? m.image_editor_hide_layer({ name: layer.name })
 											: m.image_editor_show_layer({ name: layer.name })}
@@ -623,6 +602,8 @@
 										tabindex={-1}
 										variant="ghost"
 										size="icon-xs"
+										class="image-editor-layer-action [@media(pointer:coarse)]:size-11"
+										data-state-active={layer.locked || undefined}
 										aria-label={layer.locked
 											? m.image_editor_unlock_layer({ name: layer.name })
 											: m.image_editor_lock_layer({ name: layer.name })}
@@ -661,7 +642,8 @@
 								<ContextMenu.Separator class="my-1 h-px bg-border" />
 								<ContextMenu.Item
 									class="image-editor-context-item"
-									disabled={editor.selectedLayers.length < 2}
+									disabled={editor.selectedLayers.length < 2 ||
+										editor.selectedLayers.some((selected) => editor.isLayerLocked(selected.id))}
 									onclick={() => editor.groupSelected()}
 								>
 									<ProtectedIcon icon="editor-group" class="size-4" />
@@ -669,12 +651,16 @@
 								</ContextMenu.Item>
 								<ContextMenu.Item
 									class="image-editor-context-item"
-									disabled={!editor.selectedLayers.some((selected) => selected.type === 'group')}
+									disabled={!editor.selectedLayers.some((selected) => selected.type === 'group') ||
+										editor.selectedLayers
+											.filter((selected) => selected.type === 'group')
+											.some((selected) => editor.isLayerLocked(selected.id))}
 									onclick={() => editor.ungroupSelected()}
 								>
 									<ProtectedIcon icon="editor-ungroup" class="size-4" />
 									{m.image_editor_ungroup()}
 								</ContextMenu.Item>
+								{@const groupDestinations = editor.groupDestinationsForLayer(layer.id)}
 								{#if groupDestinations.length > 0}
 									<ContextMenu.Sub>
 										<ContextMenu.SubTrigger class="image-editor-context-item">
@@ -699,6 +685,7 @@
 								{#if layer.parent_id}
 									<ContextMenu.Item
 										class="image-editor-context-item"
+										disabled={effectivelyLocked}
 										onclick={() => editor.moveLayerOutOfGroup(layer.id)}
 									>
 										<ProtectedIcon icon="editor-ungroup" class="size-4" />
@@ -708,6 +695,7 @@
 								<ContextMenu.Separator class="my-1 h-px bg-border" />
 								<ContextMenu.Item
 									class="image-editor-context-item"
+									disabled={effectivelyLocked}
 									onclick={() => editor.reorderLayer(layer.id, 'front')}
 								>
 									<ProtectedIcon icon="editor-arrange-front" class="size-4" />
@@ -715,18 +703,21 @@
 								</ContextMenu.Item>
 								<ContextMenu.Item
 									class="image-editor-context-item"
+									disabled={effectivelyLocked}
 									onclick={() => editor.reorderLayer(layer.id, 'forward')}
 								>
 									{m.image_editor_bring_forward()}
 								</ContextMenu.Item>
 								<ContextMenu.Item
 									class="image-editor-context-item"
+									disabled={effectivelyLocked}
 									onclick={() => editor.reorderLayer(layer.id, 'backward')}
 								>
 									{m.image_editor_send_backward()}
 								</ContextMenu.Item>
 								<ContextMenu.Item
 									class="image-editor-context-item"
+									disabled={effectivelyLocked}
 									onclick={() => editor.reorderLayer(layer.id, 'back')}
 								>
 									<ProtectedIcon icon="editor-arrange-back" class="size-4" />
@@ -751,6 +742,7 @@
 								<ContextMenu.Separator class="my-1 h-px bg-border" />
 								<ContextMenu.Item
 									class="image-editor-context-item text-destructive"
+									disabled={effectivelyLocked}
 									onclick={() => editor.deleteSelected()}
 								>
 									<ThemeIcon role="delete" class="size-4" />
@@ -802,8 +794,16 @@
 		box-shadow: inset 0 0 0 2px var(--primary);
 	}
 
-	.image-editor-mobile-order-button {
-		display: none;
+	.image-editor-layer-action {
+		opacity: 0;
+		transition: opacity 120ms ease-out;
+	}
+
+	.image-editor-layer-row:hover .image-editor-layer-action,
+	.image-editor-layer-row:focus-within .image-editor-layer-action,
+	.image-editor-layer-row.layer-row-focused .image-editor-layer-action,
+	.image-editor-layer-action[data-state-active] {
+		opacity: 1;
 	}
 
 	@media (pointer: coarse) {
@@ -812,16 +812,13 @@
 			contain-intrinsic-size: 48px;
 		}
 
+		.image-editor-layer-action {
+			opacity: 1;
+		}
+
 		.image-editor-layer-grip {
 			width: 44px;
 			height: 44px;
-		}
-
-		.image-editor-mobile-order-button {
-			display: inline-flex;
-			width: 36px;
-			height: 36px;
-			flex: none;
 		}
 	}
 
@@ -833,7 +830,10 @@
 
 	:global(.image-editor-context-item) {
 		display: flex;
-		min-height: 2.25rem;
+		min-height: 1.75rem;
+		@media (pointer: coarse) {
+			min-height: 44px;
+		}
 		cursor: default;
 		align-items: center;
 		gap: 0.5rem;

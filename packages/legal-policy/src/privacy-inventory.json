@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "reviewed_on": "2026-09-06",
+  "reviewed_on": "2026-11-02",
   "next_review_on": "2026-12-01",
   "summary_notice": "This plain-language summary is a guide, not a replacement for the Privacy Policy. If it differs from the full policy, the full policy controls.",
   "summary_points": [
@@ -147,12 +147,14 @@
       "owner": "Managed OpenPost service",
       "purpose": "Connect the selected social account, show its supported capabilities, and perform only the publishing or reading actions authorized for it.",
       "includes": "Network, account and profile identifiers, capabilities, granted scopes, encrypted access and refresh tokens, token expiry, connection selections, and connection health.",
-      "duration": "Connection metadata has no general age-based purge and can remain after a destination is disconnected or its grant is revoked. Active credentials remain until the grant is revoked, its workspace is deleted, or the owning personal account is deleted. Refresh-token jobs are replaced as token schedules change.",
+      "duration": "YouTube profiles are refreshed after 21 days; unrefreshed names and photos are cleared after 22 days. Disconnected or revoked YouTube destinations lose fetched data and retain an opaque reconnection identity. Other connection metadata has no general age-based purge and can remain after disconnect or revocation. Active credentials remain until the grant is revoked, its workspace is deleted, or the owning personal account is deleted. Refresh-token jobs are replaced as token schedules change.",
       "deletion_trigger": "Disconnecting one destination disables it while retaining a shared provider grant. Revoking the grant clears its managed credentials and disables every destination that uses it. Workspace or account deletion removes the stored connection rows.",
       "exceptions": "The social network controls its own records, published content, logs, and revocation behavior. Disconnecting OpenPost does not delete provider-side content.",
       "evidence": [
         "apps/server/internal/models/models.go",
         "apps/server/internal/services/tokenmanager/manager.go",
+        "apps/server/internal/services/youtubeprofile/service.go",
+        "apps/server/internal/services/dataretention/youtube.go",
         "apps/server/internal/api/handlers/account_lifecycle.go"
       ]
     },
@@ -238,14 +240,12 @@
       "category": "Social analytics, usage, limits, and provider cost records",
       "owner": "Managed OpenPost service",
       "purpose": "Show normalized whole-account performance results, explain measured evidence, prepare user-reviewed repurpose sources, schedule safe refreshes, enforce plan limits, and reconcile confirmed provider usage.",
-      "includes": "Normalized account, Publication, Rendition, and discovered account-content metric snapshots; bounded titles and text for eligible provider content published outside OpenPost; safe provider-content references and external URLs; discovery coverage and checkpoints; sync status; usage counters; immutable confirmed provider-usage events; reservations; and monthly projections.",
-      "duration": "Analytics snapshots, discovered account content, discovery state, general usage counters, and period counters have no general age-based purge. Confirmed provider-cost events and unresolved reservations become eligible after the configured 180-day managed-service window; each service start prunes up to 1,000 eligible rows of each type and never prunes current-month rows. Confirmed or released reservations are removed when settled.",
-      "deletion_trigger": "Social-account or workspace deletion removes discovered content, snapshots, observations, and discovery state owned by that account or workspace. Completed deletion of the owning personal workspace removes its scoped records. Reservation settlement removes the in-flight row; bounded startup pruning removes eligible provider-cost events and unresolved reservations.",
+      "includes": "Normalized account, Publication, and Rendition metric snapshots; safe provider-content references and external URLs for content published through OpenPost; sync status; usage counters; immutable confirmed provider-usage events; reservations; and monthly projections.",
+      "duration": "YouTube analytics snapshots and imported metadata expire after 22 days and are cleared on disconnect or revocation. Other analytics snapshots, general usage counters, and period counters have no general age-based purge. Confirmed provider-cost events and unresolved reservations become eligible after the configured 180-day managed-service window; each service start prunes up to 1,000 eligible rows of each type and never prunes current-month rows. Confirmed or released reservations are removed when settled.",
+      "deletion_trigger": "Social-account or workspace deletion removes snapshots owned by that account or workspace. Completed deletion of the owning personal workspace removes its scoped records. Reservation settlement removes the in-flight row; bounded startup pruning removes eligible provider-cost events and unresolved reservations.",
       "exceptions": "Because startup pruning is bounded, eligible rows can remain until a later start or operator run. Analytics tables do not retain raw provider responses, remote media bytes, access tokens, bot tokens, or webhook secrets. Provider-side content and analytics remain controlled by each social network.",
       "evidence": [
         "apps/server/internal/services/analytics/service.go",
-        "apps/server/internal/services/analytics/account_content.go",
-        "apps/server/internal/services/analytics/discovery.go",
         "apps/server/internal/services/usage/provider_costs.go",
         "apps/server/cmd/openpost/main.go",
         "apps/server/internal/config/config.go",
@@ -259,7 +259,7 @@
       "owner": "Managed OpenPost service",
       "purpose": "Provide opted-in engagement and inbox views, send authorized replies, and notify users about relevant workspace activity.",
       "includes": "Normalized engagement items, attachments, opted-in conversations and direct messages, sync state, in-app notifications, actions, and delivery preferences.",
-      "duration": "There is no general age-based purge. User notifications remain until the user deletes them or the account is deleted. Normalized engagement, conversation, message, and sync records remain until the related social account, workspace, or account is deleted; provider-deleted engagement remains as a deletion-marked record.",
+      "duration": "Fetched YouTube comment data, including copied author names in notifications, expires after 22 days and is cleared on disconnect or revocation. Other communication data has no general age-based purge. User notifications remain until the user deletes them or the account is deleted. Normalized engagement, conversation, message, and sync records remain until the related social account, workspace, or account is deleted; provider-deleted engagement remains as a deletion-marked record.",
       "deletion_trigger": "Notification deletion removes selected notifications. Social-account, workspace, or completed account deletion removes related communication records. Provider synchronization can mark an engagement item deleted without removing its stored row.",
       "exceptions": "Disabling inbox collection stops future reads but does not by itself delete records already stored. Page requests read stored data and do not call provider APIs. Provider copies of comments and messages remain under the provider's controls.",
       "evidence": [
@@ -350,14 +350,15 @@
       "category": "Product, marketing, documentation, and service telemetry",
       "owner": "Managed OpenPost service and PostHog",
       "purpose": "Measure public-site use, understand product workflows, diagnose failures, and improve the managed service without advertising profiles, cross-site tracking, or session replay.",
-      "includes": "For visitors who allow analytics cookies: first-party identifiers and sessions shared across OpenPost sibling subdomains, country derived before raw IP discard, referrer and approved campaign facts, page views, Web Vitals, selected interactions, and sanitized browser failures. For visitors who continue without analytics cookies: limited personless events with daily server-hashed identity and no geography. Managed product and service telemetry can include opaque user, workspace, publication, rendition, and job identifiers plus release, route-template, status, error type, and sanitized exception context. OpenPost does not send email addresses, names, usernames, post text, media, request bodies, credentials, query strings, raw URLs, or raw IP addresses as telemetry properties.",
+      "includes": "For visitors who allow analytics cookies: first-party identifiers and sessions shared across OpenPost sibling subdomains, country derived before raw IP discard, referrer and approved campaign facts, page views, Web Vitals, selected interactions, and sanitized browser failures. For visitors who continue without analytics cookies: limited personless events with daily server-hashed identity and no geography. Managed product and service telemetry can include opaque user, workspace, publication, rendition, and job identifiers plus release, route-template, status, error type, and sanitized exception context. OpenPost does not send email addresses, names, usernames, post text, media, request bodies, credentials, query strings, raw URLs, or raw IP addresses as telemetry properties. Native app analytics after separate per-server permission includes opaque signed-in identity, known screen templates, selected actions, device and app versions, and sanitized JavaScript stack locations.",
       "duration": "Managed PostHog event data is configured for a maximum 12-month retention window. OpenPost does not keep a separate telemetry copy after PostHog deletes or expires the event data.",
       "deletion_trigger": "Expiry under the managed PostHog retention window, operator deletion of an event or person, a supported account-deletion request for linked identified data, or retirement of the analytics project.",
-      "exceptions": "No optional browser telemetry is sent before a choice or after full opt-out. Do Not Track or Global Privacy Control forces full browser opt-out. Persistent analytics is limited to visitors who allow first-party analytics cookies; cookieless mode remains personless and cannot provide reliable multi-day identity, country, or server-side IP bot enrichment. Backend service telemetry is separately disclosed and is not controlled by the browser choice. Autocapture, session replay, heatmaps, surveys, console capture, network timing and bodies, advertising profiles, and cross-site tracking are disabled.",
+      "exceptions": "No optional browser telemetry is sent before a choice or after full opt-out. Do Not Track or Global Privacy Control forces full browser opt-out. Persistent analytics is limited to visitors who allow first-party analytics cookies; cookieless mode remains personless and cannot provide reliable multi-day identity, country, or server-side IP bot enrichment. Backend service telemetry is separately disclosed and is not controlled by the browser choice. Autocapture, session replay, heatmaps, surveys, console capture, network timing and bodies, advertising profiles, and cross-site tracking are disabled. Native analytics stays off until allowed on that device and server. It uses a bounded memory queue and clears identity and pending events when consent, server, or actor changes. It excludes location, touch histories, recordings, authored content, and native crash dumps.",
       "evidence": [
         "packages/telemetry/src/index.ts",
         "apps/server/internal/telemetry/telemetry.go",
-        "docs/reference/configuration/telemetry.md"
+        "docs/reference/configuration/telemetry.md",
+        "apps/mobile/src/lib/telemetry/index.ts"
       ]
     },
     {
@@ -379,10 +380,10 @@
       "category": "Database and media recovery copies",
       "owner": "Managed OpenPost service operator",
       "purpose": "Restore customer data after service failure, operator error, or a validated recovery need.",
-      "includes": "Daily PostgreSQL dumps, the current media mirror, changed or deleted media versions, and separately reviewed repair or incident snapshots.",
-      "duration": "Routine database dumps and changed or deleted media versions are pruned by the first daily run after they are more than 14 days old. The current mirror follows live media. Exceptional snapshots remain only while their stated recovery, security, legal, fraud, or claims purpose continues.",
-      "deletion_trigger": "Daily age-based pruning for routine copies; purpose review and operator deletion for exceptional snapshots.",
-      "exceptions": "Deletion from the live service can remain in a routine recovery copy through this window. OpenPost does not add a separate application-level encryption layer to each backup artifact.",
+      "includes": "Daily PostgreSQL dumps, media archives, and separately reviewed repair or incident snapshots.",
+      "duration": "At most seven successful database and media snapshots are retained on a private NAS. An independent hourly job removes OpenPost snapshots older than six days, including when new backups fail. Exceptional snapshots remain only while their stated recovery, security, legal, fraud, or claims purpose continues.",
+      "deletion_trigger": "Hourly age-based pruning for routine copies; purpose review and operator deletion for exceptional snapshots.",
+      "exceptions": "Deletion from the live service can remain in a routine recovery copy through this window. YouTube API data in any recovery copy, including exceptional snapshots, remains subject to YouTube deletion and refresh deadlines. OpenPost does not add a separate application-level encryption layer to each backup artifact.",
       "evidence": [
         "docs/reference/operations/backups.md",
         "packages/legal-policy/src/managed-service.json"
@@ -517,7 +518,7 @@
       "owner": "OpenPost telemetry preference control",
       "identifier_kind": "exact",
       "identifier": "openpost_analytics",
-      "purpose": "Keeps the visitor’s persistent, cookieless, or fully off browser-analytics choice and prevents repeated prompts.",
+      "purpose": "Keeps the visitor\u2019s persistent, cookieless, or fully off browser-analytics choice and prevents repeated prompts.",
       "scope": "Hosted OpenPost sibling subdomains through Domain=.openpo.st; host-only on self-hosted domains; Path=/; SameSite=Lax; Secure on HTTPS.",
       "duration": "One year after the latest choice, or until the visitor changes the choice or clears site data.",
       "necessity": "functional",
@@ -550,6 +551,42 @@
         "apps/marketing/src/routes/+layout.svelte",
         "apps/marketing/src/app.html"
       ]
+    },
+    {
+      "id": "local-sidebar-calendar",
+      "technology": "localStorage",
+      "owner": "OpenPost sidebar preferences",
+      "identifier_kind": "exact",
+      "identifier": "openpost-sidebar-calendar",
+      "purpose": "Keeps the user's choice to show or hide the sidebar calendar.",
+      "scope": "Application origin and current browser profile.",
+      "duration": "Until the preference is changed or site data is cleared.",
+      "necessity": "functional",
+      "source_refs": ["apps/web/src/lib/stores/sidebar-preferences.svelte.ts"]
+    },
+    {
+      "id": "local-composer-side-preview",
+      "technology": "localStorage",
+      "owner": "OpenPost composer",
+      "identifier_kind": "exact",
+      "identifier": "openpost-composer-side-preview",
+      "purpose": "Keeps the user's choice to show or hide the wide-screen post preview. It stores only an on/off preference.",
+      "scope": "Application origin and current browser profile.",
+      "duration": "Until the preference is changed or site data is cleared.",
+      "necessity": "functional",
+      "source_refs": ["apps/web/src/lib/components/compose-text-post.svelte"]
+    },
+    {
+      "id": "session-composer-open",
+      "technology": "sessionStorage",
+      "owner": "OpenPost sidebar preferences",
+      "identifier_kind": "exact",
+      "identifier": "openpost-composer-open",
+      "purpose": "Keeps an explicitly opened composer available in the current tab instead of redirecting to the user's default start page. It does not store post content.",
+      "scope": "Application origin in the current browser tab.",
+      "duration": "Until the user leaves the composer, clears site data, or the browser ends the tab session.",
+      "necessity": "functional",
+      "source_refs": ["apps/web/src/lib/stores/sidebar-preferences.svelte.ts"]
     },
     {
       "id": "local-theme-name",
@@ -744,6 +781,30 @@
       "purpose": "Keeps Image Editor asset, inspector, and layer panel sizes.",
       "scope": "Application origin and public Image Editor on that origin.",
       "duration": "Until layout values are replaced or site data is cleared.",
+      "necessity": "functional",
+      "source_refs": ["apps/web/src/lib/image-editor/components/image-editor-shell.svelte"]
+    },
+    {
+      "id": "local-image-edit-layers-user-sized",
+      "technology": "localStorage",
+      "owner": "OpenPost Image Editor",
+      "identifier_kind": "exact",
+      "identifier": "openpost-image-editor-edit-layers-user-sized-v2",
+      "purpose": "Records whether the Image Editor Edit workspace layer pane has a user-chosen height.",
+      "scope": "Application origin and public Image Editor on that origin.",
+      "duration": "Until the Edit workspace layout is reset or site data is cleared.",
+      "necessity": "functional",
+      "source_refs": ["apps/web/src/lib/image-editor/components/image-editor-shell.svelte"]
+    },
+    {
+      "id": "local-image-color-layers-height",
+      "technology": "localStorage",
+      "owner": "OpenPost Image Editor",
+      "identifier_kind": "exact",
+      "identifier": "openpost-image-editor-color-layers-height-v1",
+      "purpose": "Keeps the user-chosen Image Editor Color workspace layer pane height.",
+      "scope": "Application origin and public Image Editor on that origin.",
+      "duration": "Until the Color workspace layout is reset or site data is cleared.",
       "necessity": "functional",
       "source_refs": ["apps/web/src/lib/image-editor/components/image-editor-shell.svelte"]
     },
@@ -1003,6 +1064,30 @@
       "source_refs": ["apps/web/src/lib/image-editor/local-persistence.ts"]
     },
     {
+      "id": "idb-video-library",
+      "technology": "IndexedDB",
+      "owner": "OpenPost Video Editor",
+      "identifier_kind": "exact",
+      "identifier": "openpost-video-library",
+      "purpose": "Stores saved elements, reusable blocks, copied source files, favorites, collections, and recent use on this device.",
+      "scope": "Application origin and browser profile; records are separated by Workspace or local-only use.",
+      "duration": "Until the user removes a library item, the browser evicts the database, or site data is cleared.",
+      "necessity": "functional",
+      "source_refs": ["apps/web/src/lib/video-editor/library/repository.ts"]
+    },
+    {
+      "id": "idb-video-library-entries",
+      "technology": "IndexedDB",
+      "owner": "OpenPost Video Editor",
+      "identifier_kind": "exact",
+      "identifier": "entries",
+      "purpose": "Stores reusable library records and their copied source files inside the openpost-video-library database.",
+      "scope": "Application origin; openpost-video-library database, separated by Workspace or local-only use.",
+      "duration": "Until the user removes the library item, the browser evicts the database, or site data is cleared.",
+      "necessity": "functional",
+      "source_refs": ["apps/web/src/lib/video-editor/library/repository.ts"]
+    },
+    {
       "id": "idb-video-editor-handles",
       "technology": "IndexedDB",
       "owner": "OpenPost Video Editor",
@@ -1085,6 +1170,30 @@
       "duration": "Until the export is deleted, the browser evicts it, or site data is cleared.",
       "necessity": "functional",
       "source_refs": ["apps/web/src/lib/video-editor/workspace-fs/export-storage.ts"]
+    },
+    {
+      "id": "opfs-source-transcripts",
+      "technology": "OPFS",
+      "owner": "OpenPost Video Editor and Quick Cut",
+      "identifier_kind": "exact",
+      "identifier": "openpost-source-transcripts",
+      "purpose": "Stores source words, timing, transcription settings, and media identity so Cloud projects can reuse speech analysis in this browser.",
+      "scope": "Application origin and browser profile, separated by user and Workspace.",
+      "duration": "Until the transcript is deleted, the browser evicts it, or site data is cleared.",
+      "necessity": "functional",
+      "source_refs": ["apps/web/src/lib/video-editor/workspace-fs/source-transcripts.ts"]
+    },
+    {
+      "id": "opfs-capability-probe",
+      "technology": "OPFS",
+      "owner": "OpenPost Video Editor capability gate",
+      "identifier_kind": "exact",
+      "identifier": "openpost-capability-probe",
+      "purpose": "Probes OPFS subdirectory create-and-delete support before the video editor loads; removed immediately after the round-trip succeeds.",
+      "scope": "Application origin and browser profile.",
+      "duration": "Removed right after the capability check; a leftover probe from an interrupted check is removed on the next check, and site-data clearing also removes it.",
+      "necessity": "functional",
+      "source_refs": ["apps/web/src/lib/video-editor/gate/browser-capabilities.ts"]
     },
     {
       "id": "opfs-video-streams",
@@ -1311,6 +1420,57 @@
       "duration": "Until the tab changes or site data is cleared.",
       "necessity": "functional",
       "source_refs": ["apps/web/src/lib/stores/publication-view.svelte.ts"]
+    },
+    {
+      "id": "session-ideate-recovery",
+      "technology": "sessionStorage",
+      "owner": "OpenPost Ideate",
+      "identifier_kind": "prefix",
+      "identifier": "openpost:ideate:",
+      "purpose": "Retains the current idea, source context, build identity, pending edits and open state so a dismissed or reloaded Ideate dialog can resume without repeating generation.",
+      "scope": "Application origin and browser tab, separated by signed-in actor, Workspace and entry context.",
+      "duration": "Until the tab closes, the stored session is replaced, or site data is cleared.",
+      "necessity": "functional",
+      "source_refs": [
+        "apps/web/src/lib/components/post-builder/ideate-host.svelte",
+        "apps/web/src/lib/post-builder/ideate-storage.ts"
+      ]
+    },
+    {
+      "id": "session-batch-schedule-recovery",
+      "technology": "sessionStorage",
+      "owner": "OpenPost draft scheduling",
+      "identifier_kind": "prefix",
+      "identifier": "openpost:batch-schedule:",
+      "purpose": "Retains reviewed post dates, deselection and confirmation outcomes so partial scheduling can retry the same plan.",
+      "scope": "Application origin and browser tab, separated by signed-in actor, Workspace and selected post IDs.",
+      "duration": "Until the tab closes, the plan is replaced, or site data is cleared.",
+      "necessity": "functional",
+      "source_refs": ["apps/web/src/lib/components/batch-schedule-dialog.svelte"]
+    },
+    {
+      "id": "session-x-messaging-authorization",
+      "technology": "sessionStorage",
+      "owner": "OpenPost X messaging authorization",
+      "identifier_kind": "exact",
+      "identifier": "openpost:x-messaging-authorization",
+      "purpose": "Binds a returned X messaging authorization state to the signed-in actor, workspace and social account. Contains no access token.",
+      "scope": "Application origin and current browser tab session.",
+      "duration": "Consumed on authorization return; expires after ten minutes, or ends with the tab session or site-data clearing.",
+      "necessity": "strictly_necessary",
+      "source_refs": ["apps/web/src/lib/auth/x-messaging.ts"]
+    },
+    {
+      "id": "session-inbox-send-operation",
+      "technology": "sessionStorage",
+      "owner": "OpenPost Inbox send recovery",
+      "identifier_kind": "prefix",
+      "identifier": "openpost:inbox-send:",
+      "purpose": "Keeps an operation identifier and message digest for retries, without storing message text.",
+      "scope": "Signed-in actor, workspace and conversation in the current browser tab session.",
+      "duration": "Removed after confirmed completion, when the tab session ends, or when site data is cleared.",
+      "necessity": "strictly_necessary",
+      "source_refs": ["apps/web/src/lib/inbox-send-operation.ts"]
     }
   ]
 }

@@ -1,3 +1,6 @@
+import { PLATFORM_LIMITS } from '@openpost/platform-text';
+import { TELEGRAM_CAPTION_LIMIT } from '../_marketing';
+
 export type ChannelStory = {
 	title: string;
 	intro: string;
@@ -308,7 +311,7 @@ const channelStories = {
 		sections: [
 			{
 				title: 'Write for one community at a time.',
-				text: 'Each rendition targets one community with its own title, body, and validation. Adapting a post for another community means reviewing it again.'
+				text: 'Each variant targets one community with its own title, body, and validation. Adapting a post for another community means reviewing it again.'
 			},
 			{
 				title: 'Keep the rules next to the editor.',
@@ -338,7 +341,7 @@ const channelStories = {
 		visual: 'main',
 		sections: [
 			{
-				title: 'One community, one rendition.',
+				title: 'One community, one variant.',
 				text: 'Each post targets one community with its own title, body, and validation. Nothing is shared implicitly across communities.'
 			},
 			{
@@ -452,6 +455,68 @@ const channelStories = {
 		question: 'Does OpenPost read my Discord conversations?',
 		answer:
 			'No. The Discord connection sends messages through a channel webhook. It does not read the channel inbox. You need permission to create that connection in your Discord server.'
+	},
+	telegram: {
+		title: 'Bring your Telegram channel into the plan.',
+		intro:
+			'Share updates with your channel or group without leaving your workflow. Prepare the message here, then send it through your connected chat.',
+		angle: 'Your channel, on the calendar.',
+		example:
+			'The new collection is here. See the details and find your favourite in the shop from Friday.',
+		visual: 'calendar',
+		sections: [
+			{
+				title: 'Connect the chat you run.',
+				text: 'Add the OpenPost bot as an administrator of your channel or group, then post a one-time command inside that chat. Refresh your accounts to confirm the chat appears.'
+			},
+			{
+				title: 'Write the message once.',
+				text: `Prepare text up to ${PLATFORM_LIMITS.telegram.charLimit.toLocaleString('en-US')} characters, or add media with a caption up to ${TELEGRAM_CAPTION_LIMIT.toLocaleString('en-US')} characters. Check the preview before scheduling.`
+			},
+			{
+				title: 'Keep channel history in view.',
+				text: 'OpenPost observes channel posts from installation onward and records reaction counts. Earlier messages are never backfilled.'
+			}
+		],
+		ideas: [
+			'A product update with a photo of what changed',
+			'An event reminder with the date and time',
+			'A short note pointing members to something new'
+		],
+		question: 'Which chats can I connect?',
+		answer:
+			'Channels and groups where the bot is an administrator with permission to post. Post the command inside that chat. A command sent anywhere else does nothing.'
+	},
+	devnull: {
+		title: 'Commit to dev/null from your content plan.',
+		intro:
+			'Turn a short update, a lesson, or a link into a dev/null commit. Write it here, sign it with your key, and choose when it lands.',
+		angle: 'Ship the note, not the terminal.',
+		example:
+			'Shipped a smaller onboarding flow today. One screen fewer, and the first post takes half the time.',
+		visual: 'calendar',
+		sections: [
+			{
+				title: 'Keep the terminal out of the routine.',
+				text: 'Connect your dev/null username and a dedicated SSH key once. OpenPost signs each commit the same way the official commit script does, so you can schedule from the composer instead.'
+			},
+			{
+				title: 'Write for the commit, not the feed.',
+				text: `Prepare ${PLATFORM_LIMITS.devnull.charLimit.toLocaleString('en-US')} characters and attach up to three images. The first link unfurls on its own, and replies publish through the normal reply flow.`
+			},
+			{
+				title: 'Plan around approval.',
+				text: 'New dev/null accounts need approval before commits go public. Schedule a test commit first, then keep the rest of the week on the same calendar as your other channels.'
+			}
+		],
+		ideas: [
+			'A release note with the link to try it',
+			'A short lesson from building this week',
+			'An image of the change you just shipped'
+		],
+		question: 'Does OpenPost store my SSH private key?',
+		answer:
+			'Yes, encrypted. OpenPost uses the key only to sign commit payloads, exactly like the official dev/null commit script. Use a dedicated key without a passphrase and keep its public half on your GitHub account.'
 	}
 } satisfies Record<string, ChannelStory>;
 

@@ -20,10 +20,10 @@ import { getWebGL2Context } from '$lib/canvas-context';
 import { BLEND_MODE_INDEX, type BlendMode } from './blend-modes';
 import { BLEND_MODES_GLSL, EFFECT_COMMON_GLSL, FULLSCREEN_VERTEX_GLSL } from './shader-source';
 import { getGpuEffect } from './registry';
-import type { GpuParamValues, GpuProgramDefinition } from './types';
+import type { GpuDataTextureKey, GpuParamValues, GpuProgramDefinition } from './types';
 import { PaperShaderRenderer } from '../paper/renderer';
 import { gpuResourcePool } from './gpu-resource-pool';
-import { COLOR_BATCH_FRAGMENT_SOURCE, packColorBatch, planEffectPasses } from './color-batch';
+import { COLOR_BATCH_FRAGMENT_SOURCE, ColorBatchUniforms, planEffectPasses } from './color-batch';
 
 /** One resolved effect instance handed to `render`. */
 export interface GpuRenderEffect extends EditorColorRenderEffect {
@@ -31,6 +31,8 @@ export interface GpuRenderEffect extends EditorColorRenderEffect {
 }
 
 export interface GpuRenderOptions {
+	/** Source/authored pixel dimensions, independent of the current raster quality. */
+	referenceSize?: { width: number; height: number };
 	/** Seconds on the session clock; drives time-based effects (grain, glitch…). */
 	time?: number;
 	/** Final composite mode against the backdrop (default 'normal'). */
@@ -47,7 +49,45 @@ interface ProgramBundle {
 	samplerUnits: Map<string, number>;
 }
 
+const MAX_DATA_TEXTURES = 8;
+const MAX_DATA_TEXTURE_BYTES = 16 * 1024 * 1024;
+
+interface DataTextureEntry {
+	effectId: string;
+	key: GpuDataTextureKey;
+	texture: WebGLTexture;
+	target: number;
+	bytes: number;
+}
+
+function sameDataTextureKey(left: GpuDataTextureKey, right: GpuDataTextureKey): boolean {
+	if (left === right) return true;
+	return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
 const VERTEX_SHADER = FULLSCREEN_VERTEX_GLSL;
+
+const PREMULTIPLY_FRAGMENT_SOURCE = `#version 300 es
+precision highp float;
+uniform sampler2D uInputTex;
+in vec2 vUv;
+out vec4 fragColor;
+vec4 premultipliedTexel(ivec2 coordinate, ivec2 size) {
+  vec4 color = texelFetch(uInputTex, clamp(coordinate, ivec2(0), size - 1), 0);
+  return vec4(color.rgb * color.a, color.a);
+}
+void main() {
+  ivec2 size = textureSize(uInputTex, 0);
+  vec2 position = vUv * vec2(size) - 0.5;
+  ivec2 origin = ivec2(floor(position));
+  vec2 weight = fract(position);
+  fragColor = mix(
+    mix(premultipliedTexel(origin, size), premultipliedTexel(origin + ivec2(1, 0), size), weight.x),
+    mix(premultipliedTexel(origin + ivec2(0, 1), size), premultipliedTexel(origin + ivec2(1, 1), size), weight.x),
+    weight.y
+  );
+}
+`;
 
 function fragmentShaderSource(definition: GpuProgramDefinition): string {
 	return `#version 300 es
@@ -55,12 +95,14 @@ precision highp float;
 precision highp sampler2D;
 precision highp sampler3D;
 uniform sampler2D uInputTex;
+${definition.premultipliedInput ? 'uniform bool uPremultipliedInput;' : ''}
 in vec2 vUv;
 out vec4 fragColor;
 ${EFFECT_COMMON_GLSL}
 ${definition.fragmentSource}
 void main() {
   fragColor = ${definition.entryPoint}(vUv);
+  ${definition.premultipliedInput ? 'if (uPremultipliedInput) fragColor.rgb = fragColor.a > 0.0 ? fragColor.rgb / fragColor.a : vec3(0.0);' : ''}
 }
 `;
 }
@@ -157,17 +199,17 @@ export class GpuCompositor implements EditorColorCompositor {
 	private readonly vertexShader: WebGLShader;
 	private readonly programs = new Map<string, ProgramBundle>();
 	private blendProgram: ProgramBundle | null = null;
+	private premultiplyProgram: ProgramBundle | null = null;
 	private colorBatchProgram: ProgramBundle | null = null;
 	private colorBatchUnavailable = false;
+	private readonly colorBatchUniforms = new ColorBatchUniforms();
 	private sourceTexture: WebGLTexture | null = null;
 	private backdropTexture: WebGLTexture | null = null;
 	private pingTextures: [WebGLTexture | null, WebGLTexture | null] = [null, null];
 	private framebuffers: [WebGLFramebuffer | null, WebGLFramebuffer | null] = [null, null];
 	private pingSize: [number, number] = [0, 0];
-	private dataTextureCache = new Map<
-		string,
-		{ texture: WebGLTexture; key: string; dimension: '2d' | '3d'; target: number }
-	>();
+	private readonly dataTextures: DataTextureEntry[] = [];
+	private dataTextureBytes = 0;
 	private paperRenderer: PaperShaderRenderer | undefined;
 	private disposed = false;
 	private lastFailure: string | null = null;
@@ -186,6 +228,8 @@ export class GpuCompositor implements EditorColorCompositor {
 			this.pingTextures = [null, null];
 			this.framebuffers = [null, null];
 			this.pingSize = [0, 0];
+			this.dataTextures.length = 0;
+			this.dataTextureBytes = 0;
 		};
 		this.contextLostListener = listener;
 		canvas.addEventListener('webglcontextlost', listener);
@@ -266,6 +310,16 @@ export class GpuCompositor implements EditorColorCompositor {
 		gl.deleteShader(fragment);
 		this.blendProgram = { program, uniformLocations: new Map(), samplerUnits: new Map() };
 		return this.blendProgram;
+	}
+
+	private getPremultiplyProgram(): ProgramBundle {
+		if (this.premultiplyProgram) return this.premultiplyProgram;
+		const gl = this.gl;
+		const fragment = compileShader(gl, gl.FRAGMENT_SHADER, PREMULTIPLY_FRAGMENT_SOURCE);
+		const program = linkProgram(gl, this.vertexShader, fragment);
+		gl.deleteShader(fragment);
+		this.premultiplyProgram = { program, uniformLocations: new Map(), samplerUnits: new Map() };
+		return this.premultiplyProgram;
 	}
 
 	private getColorBatchProgram(): ProgramBundle | null {
@@ -384,17 +438,21 @@ export class GpuCompositor implements EditorColorCompositor {
 		// source with the auxiliary LUT or glyph atlas for the current pass.
 		gl.activeTexture(gl.TEXTURE1);
 		const key = spec.key(params);
-		const cached = this.dataTextureCache.get(definition.id);
-		if (
-			cached &&
-			cached.key === key &&
-			cached.dimension === dimension &&
-			cached.target === target
-		) {
+		const cachedIndex = this.dataTextures.findIndex(
+			(entry) =>
+				entry.effectId === definition.id &&
+				sameDataTextureKey(entry.key, key) &&
+				entry.target === target
+		);
+		if (cachedIndex >= 0) {
+			const cached = this.dataTextures[cachedIndex]!;
+			if (cachedIndex !== this.dataTextures.length - 1) {
+				this.dataTextures.splice(cachedIndex, 1);
+				this.dataTextures.push(cached);
+			}
 			gl.bindTexture(target, cached.texture);
 			return;
 		}
-		if (cached) gl.deleteTexture(cached.texture);
 		const payload = spec.build(params);
 		const depth = payload.depth ?? 1;
 		const is3d = dimension === '3d';
@@ -469,7 +527,20 @@ export class GpuCompositor implements EditorColorCompositor {
 					);
 				}
 			}
-			this.dataTextureCache.set(definition.id, { texture, key, dimension, target });
+			const bytes = payload.width * payload.height * depth * 4;
+			// Retain several authored variants so stacked effects and adjacent clips
+			// do not rebuild each other's LUTs. Animated values evict the least recent.
+			while (
+				this.dataTextures.length > 0 &&
+				(this.dataTextures.length >= MAX_DATA_TEXTURES ||
+					this.dataTextureBytes + bytes > MAX_DATA_TEXTURE_BYTES)
+			) {
+				const oldest = this.dataTextures.shift()!;
+				gl.deleteTexture(oldest.texture);
+				this.dataTextureBytes -= oldest.bytes;
+			}
+			this.dataTextures.push({ effectId: definition.id, texture, key, target, bytes });
+			this.dataTextureBytes += bytes;
 			gl.bindTexture(target, texture);
 		} catch (error) {
 			if (texture) gl.deleteTexture(texture);
@@ -512,8 +583,84 @@ export class GpuCompositor implements EditorColorCompositor {
 			const needsColorBatch = passes.some((pass) => pass.kind === 'color-batch');
 			const colorBatchProgram = needsColorBatch ? this.getColorBatchProgram() : null;
 			if (needsColorBatch && !colorBatchProgram) passes = planEffectPasses(effects, false);
+			const firstPass = passes[0];
+			const firstDefinition =
+				firstPass?.kind === 'single' ? getGpuEffect(firstPass.effect.effectId) : undefined;
+			if (firstDefinition?.paperShader === undefined && firstDefinition?.scatterVertexSource) {
+				const sourceWidth =
+					'videoWidth' in source
+						? source.videoWidth
+						: 'naturalWidth' in source
+							? source.naturalWidth
+							: 'displayWidth' in source
+								? source.displayWidth
+								: source.width;
+				const sourceHeight =
+					'videoHeight' in source
+						? source.videoHeight
+						: 'naturalHeight' in source
+							? source.naturalHeight
+							: 'displayHeight' in source
+								? source.displayHeight
+								: source.height;
+				if (sourceWidth !== width || sourceHeight !== height) {
+					// Exact scatter addresses texels rather than normalized UVs. Normalize
+					// its first input to the output raster, reusing the existing ping targets.
+					gl.bindFramebuffer(gl.READ_FRAMEBUFFER, this.framebuffers[0]);
+					gl.framebufferTexture2D(
+						gl.READ_FRAMEBUFFER,
+						gl.COLOR_ATTACHMENT0,
+						gl.TEXTURE_2D,
+						this.sourceTexture,
+						0
+					);
+					gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, this.framebuffers[1]);
+					try {
+						gl.blitFramebuffer(
+							0,
+							0,
+							sourceWidth,
+							sourceHeight,
+							0,
+							0,
+							width,
+							height,
+							gl.COLOR_BUFFER_BIT,
+							gl.LINEAR
+						);
+					} finally {
+						gl.framebufferTexture2D(
+							gl.READ_FRAMEBUFFER,
+							gl.COLOR_ATTACHMENT0,
+							gl.TEXTURE_2D,
+							this.pingTextures[0],
+							0
+						);
+					}
+					currentTexture = this.pingTextures[1];
+				}
+			}
 
 			for (const pass of passes) {
+				const definition = pass.kind === 'single' ? getGpuEffect(pass.effect.effectId) : undefined;
+				const premultipliedInput =
+					pass.kind === 'single' &&
+					definition?.paperShader === undefined &&
+					definition?.premultipliedInput?.(pass.effect.params) === true;
+				if (premultipliedInput) {
+					// Premultiply once before the kernel, not four times per sampling tap.
+					// Incrementing the pass keeps preparation and effect in separate targets.
+					const preparation = this.getPremultiplyProgram();
+					gl.bindFramebuffer(gl.FRAMEBUFFER, this.framebuffers[passIndex % 2]);
+					gl.viewport(0, 0, width, height);
+					gl.activeTexture(gl.TEXTURE0);
+					gl.bindTexture(gl.TEXTURE_2D, currentTexture);
+					gl.useProgram(preparation.program);
+					gl.uniform1i(this.location(preparation, 'uInputTex'), 0);
+					gl.drawArrays(gl.TRIANGLES, 0, 6);
+					currentTexture = this.pingTextures[passIndex % 2];
+					passIndex++;
+				}
 				const target = this.framebuffers[passIndex % 2];
 				const targetTexture = this.pingTextures[passIndex % 2];
 				if (!target || !targetTexture) return false;
@@ -524,7 +671,8 @@ export class GpuCompositor implements EditorColorCompositor {
 
 				if (pass.kind === 'color-batch') {
 					if (!colorBatchProgram) return false;
-					const packed = packColorBatch(pass.effects, width, height, options.time ?? 0);
+					const packed = this.colorBatchUniforms;
+					packed.pack(pass.effects, width, height, options.time ?? 0);
 					gl.useProgram(colorBatchProgram.program);
 					gl.uniform1i(this.location(colorBatchProgram, 'uInputTex'), 0);
 					gl.uniform1i(this.location(colorBatchProgram, 'uOpCount'), packed.count);
@@ -538,7 +686,6 @@ export class GpuCompositor implements EditorColorCompositor {
 				}
 
 				const entry = pass.effect;
-				const definition = getGpuEffect(entry.effectId);
 				if (!definition) {
 					throw new Error(`GPU effect renderer unavailable: ${entry.effectId}`);
 				}
@@ -567,6 +714,8 @@ export class GpuCompositor implements EditorColorCompositor {
 				}
 				const bundle = this.getProgram(definition);
 				gl.useProgram(bundle.program);
+				if (definition.premultipliedInput)
+					gl.uniform1i(this.location(bundle, 'uPremultipliedInput'), Number(premultipliedInput));
 
 				for (const [name, unit] of bundle.samplerUnits) {
 					if (name === 'uInputTex') continue;
@@ -574,7 +723,15 @@ export class GpuCompositor implements EditorColorCompositor {
 				}
 				this.ensureDataTexture(definition, entry.params);
 
-				const values = definition.uniformValues(entry.params, width, height, options.time ?? 0);
+				// Scatter passes address actual texels. Fragment effects use the authored
+				// pixel grid so preview quality and export size do not change their look.
+				const referenceSize = definition.scatterVertexSource ? undefined : options.referenceSize;
+				const values = definition.uniformValues(
+					entry.params,
+					referenceSize?.width ?? width,
+					referenceSize?.height ?? height,
+					options.time ?? 0
+				);
 				for (const [name, value] of Object.entries(values)) {
 					const loc = this.location(bundle, name);
 					if (loc) gl.uniform1f(loc, value);
@@ -662,6 +819,7 @@ export class GpuCompositor implements EditorColorCompositor {
 		if (!lost) {
 			for (const bundle of this.programs.values()) gl.deleteProgram(bundle.program);
 			if (this.blendProgram) gl.deleteProgram(this.blendProgram.program);
+			if (this.premultiplyProgram) gl.deleteProgram(this.premultiplyProgram.program);
 			if (this.colorBatchProgram) gl.deleteProgram(this.colorBatchProgram.program);
 			gpuResourcePool.clearForContext(gl);
 			for (const texture of this.pingTextures) if (texture) gl.deleteTexture(texture);
@@ -670,15 +828,19 @@ export class GpuCompositor implements EditorColorCompositor {
 			if (this.sourceTexture) gl.deleteTexture(this.sourceTexture);
 			if (this.backdropTexture) gl.deleteTexture(this.backdropTexture);
 			if (this.neutralBase) gl.deleteTexture(this.neutralBase);
-			for (const cached of this.dataTextureCache.values()) gl.deleteTexture(cached.texture);
+			for (const cached of this.dataTextures) gl.deleteTexture(cached.texture);
 			gl.deleteShader(this.vertexShader);
 		} else {
 			gpuResourcePool.clearForContext(gl);
 		}
-		this.dataTextureCache.clear();
+		this.dataTextures.length = 0;
+		this.dataTextureBytes = 0;
 		this.pingTextures = [null, null];
 		this.framebuffers = [null, null];
 		this.programs.clear();
+		// Deleting resources alone retains the browser's limited native context slot.
+		// This compositor is terminally disposed and its canvas is no longer rendered.
+		if (!lost) gl.getExtension('WEBGL_lose_context')?.loseContext();
 	}
 }
 

@@ -29,7 +29,9 @@ function runtime() {
 	const removedSources: Array<{ mediaId: string; fileName: string }> = [];
 	const invalidated: string[] = [];
 	const published: MediaMetadata[] = [];
+	const events: string[] = [];
 	const calls = {
+		events,
 		writtenSources,
 		writtenThumbnails,
 		updates,
@@ -84,9 +86,13 @@ function runtime() {
 			calls.removedSources.push({ mediaId, fileName });
 		},
 		invalidate: async (mediaId) => {
+			calls.events.push('invalidate');
 			calls.invalidated.push(mediaId);
 		},
-		publish: (restored) => calls.published.push(restored)
+		publish: (restored) => {
+			calls.events.push('publish');
+			calls.published.push(restored);
+		}
 	};
 	return {
 		calls,
@@ -104,6 +110,16 @@ function runtime() {
 }
 
 describe('media source recovery', () => {
+	it('does not ask to relink cloud originals that have no local workspace copy', async () => {
+		const testRuntime = runtime();
+		testRuntime.setWorkspaceSource(null);
+		await expect(
+			testRuntime.recovery.scanMediaSourceIssues([
+				{ ...media(), storageType: 'cloud', remoteUrl: '/api/v1/video-projects/p/assets/a/content' }
+			])
+		).resolves.toEqual([]);
+	});
+
 	it('distinguishes expired handle access from a missing workspace copy', async () => {
 		const testRuntime = runtime();
 		testRuntime.setHandleValidation({ kind: 'permission' });
@@ -176,6 +192,7 @@ describe('media source recovery', () => {
 		expect(testRuntime.calls.writtenThumbnails).toHaveLength(1);
 		expect(testRuntime.calls.invalidated).toEqual(['media']);
 		expect(testRuntime.calls.published).toEqual([restored]);
+		expect(testRuntime.calls.events).toEqual(['invalidate', 'publish']);
 	});
 
 	it('rejects a replacement with a different media kind before persistence', async () => {

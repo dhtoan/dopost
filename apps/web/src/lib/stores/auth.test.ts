@@ -2,7 +2,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { QueryClient } from '@tanstack/query-core';
 import { client, type User } from '$lib/api/client';
 import { userProfileDefaults } from '$lib/test-fixtures/user-profile';
-import { authQueryKeys, type AppBootstrap } from '@openpost/query-catalog';
+import {
+	authQueryKeys,
+	openPostBootstrapQueryKeys,
+	type AppBootstrap
+} from '@openpost/query-catalog';
 import {
 	captureQueryAuthorizationIdentity,
 	settleQueryUnauthorized
@@ -40,6 +44,8 @@ function workspace(id: string): AppBootstrap['workspaces'][number] {
 		organization_name: '',
 		role: 'admin',
 		can_edit: true,
+		can_connect: true,
+		can_approve: true,
 		sso_authenticated: false,
 		sso_identity_linked: false,
 		sso_required: false
@@ -89,6 +95,7 @@ describe('auth recovery-code verification', () => {
 	});
 
 	it('keeps the pending login unauthenticated when the code is rejected', async () => {
+		auth.clearLocal();
 		apiMocks.post.mockResolvedValue({
 			error: { detail: 'invalid recovery code' }
 		});
@@ -96,6 +103,12 @@ describe('auth recovery-code verification', () => {
 		const result = await auth.verifyRecoveryCode('mfa-challenge', 'USED-CODE');
 
 		expect(result).toEqual({ success: false, error: 'invalid recovery code' });
+		let current: { isAuthenticated: boolean; user: User | null } | undefined;
+		const unsubscribe = auth.subscribe((state) => {
+			current = state;
+		});
+		unsubscribe();
+		expect(current).toMatchObject({ isAuthenticated: false, user: null });
 	});
 
 	it('clears authentication when the projected user becomes null', () => {
@@ -131,6 +144,9 @@ describe('auth recovery-code verification', () => {
 			identifyTelemetryUser: vi.fn(),
 			resetTelemetryIdentity: vi.fn(),
 			queryClient: {
+				getQueriesData: vi.fn().mockReturnValue([]),
+				getQueryState: vi.fn(),
+				invalidateQueries: vi.fn(),
 				clear: vi.fn(),
 				fetchQuery: vi.fn(),
 				setQueryData: vi.fn(),
@@ -307,6 +323,9 @@ describe('auth recovery-code verification', () => {
 			identifyTelemetryUser: vi.fn(),
 			resetTelemetryIdentity: vi.fn(),
 			queryClient: {
+				getQueriesData: vi.fn().mockReturnValue([]),
+				getQueryState: vi.fn(),
+				invalidateQueries: vi.fn(),
 				clear,
 				fetchQuery: vi.fn(),
 				setQueryData: vi.fn(),
@@ -344,10 +363,10 @@ describe('auth recovery-code verification', () => {
 	});
 
 	it('clears anonymous query data before accepting a new account', async () => {
-		const clear = vi.fn();
+		const cache = new QueryClient();
+		const clear = vi.fn(() => cache.clear());
 		const resetWorkspaceState = vi.fn();
 		const setQueriesData = vi.fn();
-		const setQueryData = vi.fn();
 		const user = {
 			...userProfileDefaults,
 			id: 'user-2',
@@ -371,44 +390,56 @@ describe('auth recovery-code verification', () => {
 			identifyTelemetryUser: vi.fn(),
 			resetTelemetryIdentity: vi.fn(),
 			queryClient: {
+				getQueriesData: cache.getQueriesData.bind(cache),
+				getQueryState: cache.getQueryState.bind(cache),
+				invalidateQueries: cache.invalidateQueries.bind(cache),
 				clear,
 				fetchQuery: vi.fn(),
-				setQueryData,
+				setQueryData: cache.setQueryData.bind(cache),
 				setQueriesData
 			},
 			resetWorkspaceState
 		});
 		isolatedAuth.clearLocal();
+		const anonymousKey = ['openpost', 'v1', 'public-profile', 'anonymous'];
+		cache.setQueryData(anonymousKey, { username: 'anonymous' });
+		expect(cache.getQueryData(anonymousKey)).toBeDefined();
+		const authenticatedSnapshots: unknown[] = [];
+		const stopObserving = isolatedAuth.subscribe((state) => {
+			if (state.isAuthenticated) authenticatedSnapshots.push(cache.getQueryData(anonymousKey));
+		});
 
 		await expect(isolatedAuth.login('next@example.com', 'password')).resolves.toEqual({
 			success: true
 		});
 
+		stopObserving();
+		expect(authenticatedSnapshots).toEqual([undefined]);
+		expect(cache.getQueryData(anonymousKey)).toBeUndefined();
 		expect(clear).toHaveBeenCalledTimes(1);
 		expect(resetWorkspaceState).toHaveBeenCalledTimes(1);
 
+		const bootstrapKey = openPostBootstrapQueryKeys.app();
+		cache.setQueryData(bootstrapKey, {
+			authenticated: true,
+			user,
+			workspaces: [],
+			selected_workspace_id: null,
+			selected_workspace_settings: null
+		});
+		cache.setQueryData(authQueryKeys.security(), {
+			user,
+			passkeys: [],
+			totp: { enabled: false },
+			recovery_codes: { remaining: 0 }
+		});
 		isolatedAuth.setUser({ ...user, email: 'updated@example.com' });
-		const updateBootstrap = setQueriesData.mock.lastCall?.[1];
-		expect(
-			updateBootstrap?.({
-				authenticated: true,
-				user,
-				workspaces: [],
-				selected_workspace_id: null,
-				selected_workspace_settings: null
-			})
-		).toMatchObject({ user: { email: 'updated@example.com' } });
-		const updateSecurity = setQueryData.mock.calls
-			.filter(([queryKey]) => JSON.stringify(queryKey) === JSON.stringify(authQueryKeys.security()))
-			.at(-1)?.[1];
-		expect(
-			updateSecurity?.({
-				user,
-				passkeys: [],
-				totp: { enabled: false },
-				recovery_codes: { remaining: 0 }
-			})
-		).toMatchObject({ user: { email: 'updated@example.com' } });
+		expect(cache.getQueryData(bootstrapKey)).toMatchObject({
+			user: { email: 'updated@example.com' }
+		});
+		expect(cache.getQueryData(authQueryKeys.security())).toMatchObject({
+			user: { email: 'updated@example.com' }
+		});
 	});
 
 	it('tears down the captured account after an authenticated query reports 401', () => {
@@ -421,6 +452,9 @@ describe('auth recovery-code verification', () => {
 			identifyTelemetryUser: vi.fn(),
 			resetTelemetryIdentity: vi.fn(),
 			queryClient: {
+				getQueriesData: vi.fn().mockReturnValue([]),
+				getQueryState: vi.fn(),
+				invalidateQueries: vi.fn(),
 				clear,
 				fetchQuery: vi.fn(),
 				setQueryData: vi.fn(),
@@ -495,6 +529,9 @@ describe('auth recovery-code verification', () => {
 			identifyTelemetryUser: vi.fn(),
 			resetTelemetryIdentity: vi.fn(),
 			queryClient: {
+				getQueriesData: vi.fn().mockReturnValue([]),
+				getQueryState: vi.fn(),
+				invalidateQueries: vi.fn(),
 				clear: vi.fn(),
 				fetchQuery: vi.fn(),
 				setQueryData: vi.fn(),
@@ -505,6 +542,7 @@ describe('auth recovery-code verification', () => {
 		isolatedAuth.setUser(firstUser);
 		const firstIdentity = isolatedAuth.captureIdentity();
 		const logout = isolatedAuth.logout();
+		await vi.waitFor(() => expect(post).toHaveBeenCalledWith('/auth/logout'));
 		isolatedAuth.setUser(secondUser);
 
 		resolveLogout();
@@ -546,6 +584,9 @@ describe('auth recovery-code verification', () => {
 			identifyTelemetryUser: vi.fn(),
 			resetTelemetryIdentity: vi.fn(),
 			queryClient: {
+				getQueriesData: vi.fn().mockReturnValue([]),
+				getQueryState: vi.fn(),
+				invalidateQueries: vi.fn(),
 				clear: vi.fn(),
 				fetchQuery: vi.fn(),
 				setQueryData: vi.fn(),
@@ -602,6 +643,9 @@ describe('auth recovery-code verification', () => {
 			identifyTelemetryUser: vi.fn(),
 			resetTelemetryIdentity: vi.fn(),
 			queryClient: {
+				getQueriesData: vi.fn().mockReturnValue([]),
+				getQueryState: vi.fn(),
+				invalidateQueries: vi.fn(),
 				clear: vi.fn(),
 				fetchQuery: vi.fn(),
 				setQueryData: vi.fn(),
@@ -664,6 +708,9 @@ describe('auth recovery-code verification', () => {
 			identifyTelemetryUser: vi.fn(),
 			resetTelemetryIdentity: vi.fn(),
 			queryClient: {
+				getQueriesData: vi.fn().mockReturnValue([]),
+				getQueryState: vi.fn(),
+				invalidateQueries: vi.fn(),
 				clear: vi.fn(),
 				fetchQuery: vi.fn(),
 				setQueryData: vi.fn(),
@@ -725,6 +772,9 @@ describe('auth recovery-code verification', () => {
 			identifyTelemetryUser: vi.fn(),
 			resetTelemetryIdentity: vi.fn(),
 			queryClient: {
+				getQueriesData: vi.fn().mockReturnValue([]),
+				getQueryState: vi.fn(),
+				invalidateQueries: vi.fn(),
 				clear: vi.fn(),
 				fetchQuery: vi.fn(),
 				setQueryData: vi.fn(),
@@ -793,6 +843,9 @@ describe('auth recovery-code verification', () => {
 			identifyTelemetryUser: vi.fn(),
 			resetTelemetryIdentity: vi.fn(),
 			queryClient: {
+				getQueriesData: vi.fn().mockReturnValue([]),
+				getQueryState: vi.fn(),
+				invalidateQueries: vi.fn(),
 				clear: vi.fn(),
 				fetchQuery: vi.fn(),
 				setQueryData: vi.fn(),
@@ -869,6 +922,9 @@ describe('auth recovery-code verification', () => {
 			identifyTelemetryUser: vi.fn(),
 			resetTelemetryIdentity: vi.fn(),
 			queryClient: {
+				getQueriesData: vi.fn().mockReturnValue([]),
+				getQueryState: vi.fn(),
+				invalidateQueries: vi.fn(),
 				clear,
 				fetchQuery,
 				setQueryData,
@@ -900,6 +956,9 @@ describe('auth recovery-code verification', () => {
 			identifyTelemetryUser: vi.fn(),
 			resetTelemetryIdentity: vi.fn(),
 			queryClient: {
+				getQueriesData: vi.fn().mockReturnValue([]),
+				getQueryState: vi.fn(),
+				invalidateQueries: vi.fn(),
 				clear: vi.fn(),
 				fetchQuery: vi.fn().mockRejectedValue(new Error('bootstrap unavailable')),
 				setQueryData: vi.fn(),
@@ -956,6 +1015,9 @@ describe('auth recovery-code verification', () => {
 			identifyTelemetryUser: vi.fn(),
 			resetTelemetryIdentity: vi.fn(),
 			queryClient: {
+				getQueriesData: vi.fn().mockReturnValue([]),
+				getQueryState: vi.fn(),
+				invalidateQueries: vi.fn(),
 				clear,
 				fetchQuery: vi.fn().mockRejectedValue(new Error('bootstrap unavailable')),
 				setQueryData,
@@ -996,6 +1058,9 @@ describe('auth recovery-code verification', () => {
 			identifyTelemetryUser: vi.fn(),
 			resetTelemetryIdentity: vi.fn(),
 			queryClient: {
+				getQueriesData: vi.fn().mockReturnValue([]),
+				getQueryState: vi.fn(),
+				invalidateQueries: vi.fn(),
 				clear: vi.fn(),
 				fetchQuery,
 				setQueryData: vi.fn(),
@@ -1042,6 +1107,9 @@ describe('auth recovery-code verification', () => {
 			identifyTelemetryUser: vi.fn(),
 			resetTelemetryIdentity: vi.fn(),
 			queryClient: {
+				getQueriesData: vi.fn().mockReturnValue([]),
+				getQueryState: vi.fn(),
+				invalidateQueries: vi.fn(),
 				clear: vi.fn(),
 				fetchQuery,
 				setQueryData: vi.fn(),

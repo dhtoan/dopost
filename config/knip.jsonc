@@ -25,6 +25,10 @@
         "src/routes/**/+*.{js,ts,svelte}!",
         "src/hooks.{js,ts}!",
         "src/lib/pwa/manifest.ts!",
+        // Embedded by scripts/sync-static-ui.mjs into the self-contained offline page.
+        "src/lib/offline-translations.ts!",
+        // Imported by Vite, whose plugin is disabled below to avoid running config during analysis.
+        "src/lib/build/phonemizer-runtime.ts!",
         "src/lib/themes/icons/packs/{lucide,heroicons-outline,heroicons-solid,phosphor,tabler}.ts!",
       ],
       "project": [
@@ -74,7 +78,10 @@
       "fumadocs": { "entry": [] },
     },
     "packages/*": {
-      "entry": ["src/index.{js,mjs,ts}!"],
+      // Optional subpath roots (for example the SDK mock under
+      // `@getopenpost/sdk/testing`) are production entries even though the
+      // package root never imports them; that keeps the root import small.
+      "entry": ["src/index.{js,mjs,ts}!", "src/testing/index.{js,mjs,ts}!"],
       "project": ["src/**/*.{js,mjs,ts}!", "!src/**/*.{test,spec}.{js,mjs,ts}!"],
     },
   },

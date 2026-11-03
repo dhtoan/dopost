@@ -1,21 +1,24 @@
 <script lang="ts">
+  import { previewEditing } from "./editing";
+  import type { PreviewSegment } from "./model";
   import type { PreviewPlatformKey, PreviewPoll } from "./model";
+
+  const editing = previewEditing();
 
   interface Props {
     poll: PreviewPoll;
     platform: PreviewPlatformKey;
+    segment?: PreviewSegment;
   }
 
-  let { poll, platform }: Props = $props();
+  let { poll, platform, segment }: Props = $props();
 </script>
 
-<div class={["preview-poll", `platform-${platform}`]} aria-label="Poll preview">
+{#snippet display()}
+  {#if poll.question}<p class="poll-question">{poll.question}</p>{/if}
   {#each poll.options as option, index (`${option}-${index}`)}
     <div class="poll-option">
       <span>{option || `Option ${index + 1}`}</span>
-      {#if platform === "mastodon"}<i
-          style:--poll-width={`${Math.max(12, 42 - index * 8)}%`}
-        ></i>{/if}
     </div>
   {/each}
   <small>
@@ -23,9 +26,21 @@
     {#if poll.durationLabel}
       · {poll.durationLabel}{/if}
   </small>
+{/snippet}
+
+<div class={["preview-poll", `platform-${platform}`]} aria-label="Poll preview">
+  {#if editing()?.poll && segment}{@render editing()!.poll!(poll, segment, display)}{:else}
+  {@render display()}
+  {/if}
 </div>
 
 <style>
+  .poll-question {
+    margin: 0 0 0.5rem;
+    font-weight: 600;
+    overflow-wrap: anywhere;
+  }
+
   .preview-poll {
     display: grid;
     gap: 0.5rem;
@@ -44,6 +59,7 @@
     color: var(--native-fg, #0f1419);
     font-size: 0.82rem;
     font-weight: 650;
+    overflow-wrap: anywhere;
   }
 
   .poll-option span {
@@ -61,17 +77,10 @@
   }
 
   .platform-mastodon .poll-option {
-    border-color: #6d7180;
+    border-color: var(--native-border, #6d7180);
     border-radius: 0.3rem;
-    background: #2f3441;
-    color: #fff;
-  }
-
-  .platform-mastodon .poll-option i {
-    position: absolute;
-    inset: 0 auto 0 0;
-    width: var(--poll-width);
-    background: rgb(99 100 255 / 32%);
+    background: var(--native-surface, #2f3441);
+    color: var(--native-fg, #fff);
   }
 
   .platform-linkedin {
@@ -80,7 +89,7 @@
 
   .platform-linkedin .poll-option {
     border-width: 2px;
-    color: #0a66c2;
+    color: light-dark(#0a66c2, #70b5f9);
   }
 
   .platform-threads {

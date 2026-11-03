@@ -159,17 +159,41 @@ func TestWorkspaceInvitationEmailReportsProviderUnavailableWithoutQueueing(t *te
 	require.Zero(t, count)
 }
 
-func TestNotificationDedupKeyIsIdempotent(t *testing.T) {
+func TestListHidesAccountWideRowsForWorkspaceBoundCredentials(t *testing.T) {
 	db := notificationsTestDB(t)
 	service := NewService(db)
 	ctx := context.Background()
-	input := createInput{
-		UserID: "user-1", Type: TypePostPublished, Title: "Published",
-		DedupKey: "publication:one:published",
+	seed := []models.UserNotification{
+		{ID: "notif-workspace", UserID: "user-1", WorkspaceID: "workspace-1", Type: TypePostPublished, Title: "Published"},
+		{ID: "notif-account", UserID: "user-1", WorkspaceID: "", Type: TypeWorkspaceInvite, Title: "Invited to Other organization"},
 	}
-	require.NoError(t, service.create(ctx, input))
-	require.NoError(t, service.create(ctx, input))
-	count, err := db.NewSelect().Model((*models.UserNotification)(nil)).Count(ctx)
+	_, err := db.NewInsert().Model(&seed).Exec(ctx)
 	require.NoError(t, err)
-	require.Equal(t, 1, count)
+
+	unbound, err := service.List(ctx, "user-1", "workspace-1", "", "", 30)
+	require.NoError(t, err)
+	require.Len(t, unbound.Items, 2)
+	require.Equal(t, 2, unbound.UnreadCount)
+
+	bound, err := service.List(ctx, "user-1", "workspace-1", "workspace-1", "", 30)
+	require.NoError(t, err)
+	require.Len(t, bound.Items, 1)
+	require.Equal(t, "workspace-1", bound.Items[0].WorkspaceID)
+	require.Equal(t, 1, bound.UnreadCount)
+}
+
+func TestEngagementOutcomesRetainMissingOptionalContext(t *testing.T) {
+	db := notificationsTestDB(t)
+	service := NewService(db)
+	for _, kind := range []string{"", "mention", "review"} {
+		outcome, err := NewEngagementReceivedOutcome(EngagementReceivedFacts{RecipientUserID: "user-1", WorkspaceID: "workspace-1", EngagementID: "item-" + kind, Provider: "bluesky", Kind: kind})
+		require.NoError(t, err, "anonymous/native activity and legacy comments need no fabricated context")
+		require.NoError(t, service.Record(t.Context(), outcome))
+	}
+	var rows []models.UserNotification
+	require.NoError(t, db.NewSelect().Model(&rows).Order("title ASC").Scan(t.Context()))
+	require.Len(t, rows, 3)
+	titles := []string{rows[0].Title, rows[1].Title, rows[2].Title}
+	require.Contains(t, titles, "New mention")
+	require.Contains(t, titles, "New review")
 }

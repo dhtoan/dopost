@@ -186,7 +186,7 @@
 			{#if currentPlan}
 				<div class="flex items-center gap-2">
 					<span class="text-sm text-muted-foreground">{m.settings_instance_current_plan()}:</span>
-					<Badge class="border-primary/15 bg-primary/10 text-primary">
+					<Badge tone="info">
 						{planOptions.find((p) => p.value === currentPlan)?.label || currentPlan}
 					</Badge>
 				</div>
@@ -236,7 +236,7 @@
 					class="mr-auto"
 				>
 					{#if saving}
-						<ProtectedIcon icon="loading" class="size-4 animate-spin" />
+						<ProtectedIcon icon="loading" class="size-4 animate-spin motion-reduce:animate-none" />
 					{/if}
 					{m.settings_instance_remove_plan()}
 				</Button>
@@ -246,7 +246,7 @@
 			</Button>
 			<Button onclick={savePlan} disabled={!selectedPlan || saving || success}>
 				{#if saving}
-					<ProtectedIcon icon="loading" class="size-4 animate-spin" />
+					<ProtectedIcon icon="loading" class="size-4 animate-spin motion-reduce:animate-none" />
 				{/if}
 				{m.settings_instance_apply_plan()}
 			</Button>

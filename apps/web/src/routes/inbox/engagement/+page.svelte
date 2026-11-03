@@ -7,6 +7,11 @@
 	Responsive: One column at every width, with controls wrapping into touch-safe rows on phones.
 -->
 <script lang="ts">
+	import { countUTF8Bytes } from '@openpost/platform-text';
+	import { page } from '$app/state';
+	import EngagementReview from '$lib/components/engagement-review.svelte';
+	import EngagementAutomation from '$lib/components/engagement-automation.svelte';
+	import { appBranding } from '$lib/app-branding.svelte';
 	import { ThemeIcon, ProtectedIcon } from '$lib/themes/icons';
 	import {
 		accountFeaturesQueryOptions,
@@ -19,6 +24,9 @@
 	import { createInfiniteQuery, createQuery, type InfiniteData } from '@tanstack/svelte-query';
 	import { onDestroy, onMount, tick } from 'svelte';
 	import { SvelteMap, SvelteSet } from 'svelte/reactivity';
+	import { accountFilterLabel, accountName } from '$lib/account-filter-label';
+	import { auth } from '$lib/stores/auth';
+	import { inboxSendOperation } from '$lib/inbox-send-operation';
 	import { client } from '$lib/api/client';
 	import type { components } from '$lib/api/types';
 	import { queryAPI } from '$lib/query/api';
@@ -36,6 +44,7 @@
 	import { m } from '$lib/paraglide/messages';
 	import { getLocaleTag } from '$lib/i18n';
 	import { formatSocialAccountName, getPlatformName } from '$lib/utils';
+	import InboxUpdates from '$lib/components/inbox-updates.svelte';
 	import PageContainer from '$lib/components/page-container.svelte';
 	import CommunicationsNavigation from '$lib/components/communications-navigation.svelte';
 	import EmptyState from '$lib/components/empty-state.svelte';
@@ -46,6 +55,7 @@
 	import type { DestructiveActionOutcome } from '$lib/destructive-action-outcome';
 	import { Button } from '$lib/components/ui/button';
 	import { Checkbox } from '$lib/components/ui/checkbox';
+	import { Input } from '$lib/components/ui/input';
 	import * as Popover from '$lib/components/ui/popover';
 	import * as Select from '$lib/components/ui/select';
 	import { Textarea } from '$lib/components/ui/textarea';
@@ -68,9 +78,13 @@
 
 	let refreshing = $state(false);
 	let refreshSequence = 0;
-	let unreadOnly = $state(false);
+	let unreadOnly = $state(true);
 	let archived = $state(false);
 	let platformFilter = $state('');
+	let kindFilter = $state<'' | 'comment' | 'mention' | 'review'>('');
+	let searchInput = $state('');
+	let searchQuery = $state('');
+	let searchTimer: ReturnType<typeof setTimeout> | undefined;
 	let selectedPublication = $state.raw<Publication | null>(null);
 	let publicationSearch = $state('');
 	let publicationQuerySearch = $state('');
@@ -85,7 +99,7 @@
 	let appliedActionViewKey = '';
 	let confirmItem = $state.raw<EngagementItem | null>(null);
 	let confirmScope = $state.raw<EngagementMutationScope | null>(null);
-	let confirmAction = $state<'hide' | 'delete'>('delete');
+	let confirmAction = $state<'hide' | 'delete' | 'delete_reply'>('delete');
 	let confirmDialogOpen = $state(false);
 	let toast = $state('');
 	let toastTone = $state<'neutral' | 'success' | 'error'>('neutral');
@@ -99,9 +113,11 @@
 		publicationWorkspaceId === workspaceId ? publicationQuerySearch : ''
 	);
 	const engagementFilters = $derived({
+		kind: kindFilter || undefined,
 		platform: platformFilter,
 		accountId: queryAccountFilter,
 		publicationId: queryPublicationFilter,
+		search: searchQuery || undefined,
 		unreadOnly,
 		archived,
 		limit: 100
@@ -205,6 +221,14 @@
 		syncStates.filter(
 			(state) =>
 				!['ok', 'pending', 'unsupported'].includes(state.status) &&
+				(!kindFilter ||
+					!state.feed ||
+					state.feed ===
+						(kindFilter === 'comment'
+							? 'comments'
+							: kindFilter === 'mention'
+								? 'mentions'
+								: 'reviews')) &&
 				(!platformFilter || state.platform === platformFilter) &&
 				(!accountFilter || state.social_account_id === accountFilter)
 		)
@@ -214,7 +238,7 @@
 			string,
 			{
 				key: string;
-				kind: 'reconnect' | 'retry' | 'unavailable' | 'investigate';
+				kind: 'disabled' | 'reconnect' | 'retry' | 'unavailable' | 'investigate';
 				account?: SocialAccount;
 				platform: string;
 				states: EngagementSyncState[];
@@ -222,7 +246,7 @@
 		>();
 		for (const state of filteredSyncStates) {
 			const kind = recoveryKind(state);
-			const key = `${state.social_account_id}:${kind}:${state.error_code || state.status}`;
+			const key = `${state.social_account_id}:${state.feed ?? 'comments'}:${kind}:${state.error_code || state.status}`;
 			const group = groups.get(key) ?? {
 				key,
 				kind,
@@ -233,7 +257,13 @@
 			group.states.push(state);
 			groups.set(key, group);
 		}
-		const priority = { reconnect: 0, investigate: 1, retry: 2, unavailable: 3 } as const;
+		const priority = {
+			disabled: 0,
+			reconnect: 1,
+			investigate: 2,
+			retry: 3,
+			unavailable: 4
+		} as const;
 		return [...groups.values()].toSorted(
 			(left, right) => priority[left.kind] - priority[right.kind]
 		);
@@ -244,8 +274,11 @@
 			{ key: string; items: EngagementItem[]; newest: number }
 		>();
 		for (const item of items) {
-			const group = groups.get(item.rendition_id) ?? {
-				key: item.rendition_id,
+			const key =
+				item.rendition_id ||
+				`${item.social_account_id}:${item.kind || 'comment'}:${item.conversation_remote_id || item.subject?.remote_id || item.id}`;
+			const group = groups.get(key) ?? {
+				key,
 				items: [],
 				newest: 0
 			};
@@ -254,7 +287,7 @@
 				group.newest,
 				new Date(item.remote_created_at || item.created_at).getTime() || 0
 			);
-			groups.set(item.rendition_id, group);
+			groups.set(key, group);
 		}
 		return [...groups.values()]
 			.map((group) => ({ ...group, items: orderThread(group.items) }))
@@ -280,10 +313,15 @@
 	onMount(() => void workspaceCtx.initialize());
 	onDestroy(() => {
 		if (publicationSearchTimer) clearTimeout(publicationSearchTimer);
+		if (searchTimer) clearTimeout(searchTimer);
 	});
 
 	$effect(() => {
 		if (workspaceId && workspaceId !== publicationWorkspaceId) {
+			if (publicationSearchTimer) clearTimeout(publicationSearchTimer);
+			publicationSearchTimer = undefined;
+			if (searchTimer) clearTimeout(searchTimer);
+			searchTimer = undefined;
 			refreshSequence++;
 			refreshing = false;
 			actionInFlight = '';
@@ -298,7 +336,15 @@
 			accountFilter = '';
 			publicationSearch = '';
 			publicationQuerySearch = '';
+			searchInput = '';
+			searchQuery = '';
 		}
+	});
+
+	$effect(() => {
+		const kind = page.url.searchParams.get('kind');
+		const nextKind = kind === 'comment' || kind === 'review' ? kind : '';
+		if (kindFilter !== nextKind) kindFilter = nextKind;
 	});
 
 	$effect(() => {
@@ -312,7 +358,21 @@
 	function searchPublications(search: string) {
 		publicationSearch = search;
 		if (publicationSearchTimer) clearTimeout(publicationSearchTimer);
-		publicationSearchTimer = setTimeout(() => (publicationQuerySearch = search), 250);
+		const requestedWorkspaceId = workspaceId;
+		publicationSearchTimer = setTimeout(() => {
+			if (workspaceId === requestedWorkspaceId) publicationQuerySearch = search;
+			publicationSearchTimer = undefined;
+		}, 250);
+	}
+
+	function searchInbox(value: string) {
+		searchInput = value;
+		if (searchTimer) clearTimeout(searchTimer);
+		const requestedWorkspaceId = workspaceId;
+		searchTimer = setTimeout(() => {
+			if (workspaceId === requestedWorkspaceId) searchQuery = value.trim();
+			searchTimer = undefined;
+		}, 250);
 	}
 
 	function selectPublication(value: string) {
@@ -389,6 +449,40 @@
 		}
 	}
 
+	async function markAllMatchingRead() {
+		if (!workspaceId || !workspaceCtx.currentWorkspace?.can_edit || actionInFlight) return;
+		const view = captureEngagementMutationView('', unreadOnly);
+		const filters = {
+			workspace_id: view.workspaceID,
+			platform: platformFilter,
+			account_id: queryAccountFilter,
+			publication_id: queryPublicationFilter,
+			kind: kindFilter || undefined,
+			archived
+		};
+		const sequence = ++actionRequestSequence;
+		actionInFlight = 'bulk-read';
+		try {
+			const {
+				data,
+				error: apiError,
+				response
+			} = await client.POST('/engagement/read', { body: filters });
+			if (!settleQueryMutationSession(view.session, response)) return;
+			if (apiError || !data) throw new Error('bulk read failed');
+			await reconcileQueryMutation(queryClient, view.session, {
+				cancel: [{ queryKey: inboxQueryKeys.engagementRoot(view.workspaceID) }],
+				invalidate: [{ queryKey: inboxQueryKeys.engagementRoot(view.workspaceID) }]
+			});
+			if (engagementMutationViewIsCurrent(view))
+				showToast(m.engagement_mark_all_read_success({ count: data.updated_count }), 'success');
+		} catch {
+			if (engagementMutationViewIsCurrent(view)) showToast(m.engagement_action_failed(), 'error');
+		} finally {
+			if (sequence === actionRequestSequence) actionInFlight = '';
+		}
+	}
+
 	async function setState(
 		item: EngagementItem,
 		state: { read?: boolean; archived?: boolean },
@@ -413,7 +507,8 @@
 			const reconciled = await reconcileQueryMutation(queryClient, view.session, {
 				cancel: [{ queryKey: inboxQueryKeys.engagementRoot(view.workspaceID) }],
 				reconcile: () => {
-					if (state.archived !== undefined || (state.read && view.unreadOnly)) {
+					// Replying or liking marks an item read without pulling it out from under the person.
+					if (state.archived !== undefined || (state.read && view.unreadOnly && announce)) {
 						updateEngagementData(view.queryKey, (page) => ({
 							...page,
 							items: (page.items ?? []).filter((candidate) => candidate.id !== item.id),
@@ -459,20 +554,41 @@
 
 	async function queueAction(
 		item: EngagementItem,
-		action: 'reply' | 'hide' | 'delete' | 'like' | 'unlike',
+		action: 'reply' | 'delete_reply' | 'hide' | 'delete' | 'like' | 'unlike',
 		announce = true
 	) {
-		if (!workspaceId || engagementAllDisabled) return false;
+		if (!workspaceId || engagementAllDisabled || actionInFlight) return false;
+		if (
+			item.kind === 'review' &&
+			(item.reply_operation_state === 'active' ||
+				(action === 'reply' && countUTF8Bytes(replyBody.trim()) > 4096))
+		)
+			return false;
+		const identity = auth.captureIdentity();
+		if (!identity) return false;
 		const scope = captureEngagementMutationView(item.id, unreadOnly);
 		const requestSequence = ++actionRequestSequence;
+		const submittedReply = action === 'reply' ? replyBody : '';
 		actionInFlight = item.id;
 		try {
-			const { error: apiError, response } = await client.POST('/engagement/{item_id}/actions', {
+			const operation = await inboxSendOperation(
+				identity.userID,
+				scope.workspaceID,
+				`engagement:${item.id}:${action}`,
+				submittedReply.trim()
+			);
+			if (!engagementMutationViewIsCurrent(scope)) return false;
+			const {
+				data,
+				error: apiError,
+				response
+			} = await client.POST('/engagement/{item_id}/actions', {
 				params: { path: { item_id: item.id } },
 				body: {
 					workspace_id: scope.workspaceID,
 					action,
-					message: action === 'reply' ? replyBody.trim() : undefined
+					client_operation_id: operation.id,
+					message: action === 'reply' ? submittedReply.trim() : undefined
 				}
 			});
 			if (!settleQueryMutationSession(scope.session, response)) return false;
@@ -482,7 +598,23 @@
 				}
 				return false;
 			}
-			if (action === 'reply' && engagementMutationViewIsCurrent(scope) && replyItemId === item.id) {
+			operation.complete();
+			if (item.kind === 'review' && data?.job_id) {
+				updateEngagementData(scope.queryKey, (page) => ({
+					...page,
+					items: (page.items ?? []).map((candidate) =>
+						candidate.id === item.id
+							? { ...candidate, reply_job_id: data.job_id, reply_operation_state: 'active' }
+							: candidate
+					)
+				}));
+			}
+			if (
+				action === 'reply' &&
+				engagementMutationViewIsCurrent(scope) &&
+				replyItemId === item.id &&
+				replyBody === submittedReply
+			) {
 				replyItemId = '';
 				replyBody = '';
 			}
@@ -522,6 +654,7 @@
 		return JSON.stringify([
 			workspaceId,
 			platformFilter,
+			kindFilter,
 			accountFilter,
 			publicationFilter,
 			unreadOnly,
@@ -575,7 +708,7 @@
 		toastTone = tone;
 	}
 
-	function requestProviderAction(item: EngagementItem, action: 'hide' | 'delete') {
+	function requestProviderAction(item: EngagementItem, action: 'hide' | 'delete' | 'delete_reply') {
 		confirmItem = item;
 		confirmScope = captureEngagementMutationView(item.id, unreadOnly);
 		confirmAction = action;
@@ -609,21 +742,9 @@
 	}
 
 	function authorLabel(item: EngagementItem) {
-		return item.author_name || item.author_handle || m.common_untitled_user();
-	}
-
-	function accountName(account: SocialAccount): string {
-		return (
-			formatSocialAccountName(account.account_username, account.platform) ||
-			account.slug ||
-			account.account_id ||
-			account.platform
-		);
-	}
-
-	function accountFilterLabel(account: SocialAccount | undefined): string {
-		if (!account) return m.engagement_all_accounts();
-		return `${m.engagement_all_accounts()}: ${accountName(account)}, ${getPlatformName(account.platform)}`;
+		return item.subject?.review?.anonymous
+			? m.engagement_anonymous_review()
+			: item.author_name || item.author_handle || m.common_untitled_user();
 	}
 
 	function hasTimestamp(value: string | undefined) {
@@ -662,6 +783,7 @@
 
 	function recoveryKind(state: EngagementSyncState) {
 		const code = state.error_code.toLocaleLowerCase();
+		if (state.status === 'disabled' || code === 'feature_disabled') return 'disabled' as const;
 		if (
 			state.status === 'permission_required' ||
 			code.includes('permission') ||
@@ -681,13 +803,25 @@
 	}
 
 	function recoveryRecommendation(
-		kind: 'reconnect' | 'retry' | 'unavailable' | 'investigate',
+		kind: 'disabled' | 'reconnect' | 'retry' | 'unavailable' | 'investigate',
 		count: number
 	) {
-		if (kind === 'reconnect') return m.engagement_recovery_reconnect({ count });
-		if (kind === 'retry') return m.engagement_recovery_retry({ count });
-		if (kind === 'unavailable') return m.engagement_recovery_unavailable({ count });
-		return m.engagement_recovery_investigate({ count });
+		if (kind === 'disabled') return m.engagement_feature_disabled_title();
+		if (kind === 'reconnect')
+			return count === 1
+				? m.engagement_recovery_reconnect_one({ count })
+				: m.engagement_recovery_reconnect({ count });
+		if (kind === 'retry')
+			return count === 1
+				? m.engagement_recovery_retry_one({ count })
+				: m.engagement_recovery_retry({ count });
+		if (kind === 'unavailable')
+			return count === 1
+				? m.engagement_recovery_unavailable_one({ count })
+				: m.engagement_recovery_unavailable({ count });
+		return count === 1
+			? m.engagement_recovery_investigate_one({ count })
+			: m.engagement_recovery_investigate({ count });
 	}
 
 	function orderThread(source: EngagementItem[]) {
@@ -720,7 +854,7 @@
 </script>
 
 <svelte:head>
-	<title>{m.engagement_heading()} · OpenPost</title>
+	<title>{m.communications_navigation()} · {appBranding.profile.display_name}</title>
 </svelte:head>
 
 {#if toast}
@@ -733,8 +867,7 @@
 {/if}
 
 <PageContainer
-	title={m.engagement_heading()}
-	description={m.engagement_description()}
+	title={m.communications_navigation()}
 	themeIconRole="communications"
 	loading={initialLoading}
 	loadingLayout="list"
@@ -776,7 +909,16 @@
 									<p class="mt-1 text-xs leading-5 text-muted-foreground">
 										{syncStateMessage(state)}
 									</p>
-									{#if group.kind === 'reconnect'}
+									{#if group.kind === 'disabled'}
+										<Button
+											href="/settings?tab=accounts"
+											variant="link"
+											size="sm"
+											class="mt-1 h-auto min-h-8 px-0"
+										>
+											{m.feature_disabled_open_details()}
+										</Button>
+									{:else if group.kind === 'reconnect'}
 										<Button
 											href="/settings?tab=accounts"
 											variant="link"
@@ -804,118 +946,191 @@
 			</Popover.Root>
 		{/if}
 		<Button
+			variant="ghost"
+			size="sm"
+			onclick={() => void markAllMatchingRead()}
+			disabled={!workspaceId || !workspaceCtx.currentWorkspace?.can_edit || Boolean(actionInFlight)}
+		>
+			<ThemeIcon role="check" class="size-4" />
+			{m.engagement_mark_all_read()}
+		</Button>
+		<Button
 			variant="outline"
+			size="icon-sm"
+			aria-label={m.engagement_refresh()}
+			title={m.engagement_refresh()}
 			onclick={refresh}
 			disabled={refreshing || !workspaceId || engagementAllDisabled}
 			data-testid="engagement-refresh"
 		>
-			<ThemeIcon role="refresh" class={refreshing ? 'size-4 animate-spin' : 'size-4'} />
-			{m.engagement_refresh()}
+			<ThemeIcon
+				role="refresh"
+				class={refreshing ? 'size-4 animate-spin motion-reduce:animate-none' : 'size-4'}
+			/>
 		</Button>
 	{/snippet}
 
 	{#snippet navigation()}
-		<div class="space-y-5">
-			<CommunicationsNavigation active="engagement" />
-			<div class="flex flex-wrap items-center gap-3">
-				<Select.Root
-					type="single"
-					value={platformFilter || 'all'}
-					onValueChange={(value) => {
-						platformFilter = value === 'all' ? '' : value;
-						const selectedAccount = accounts.find((account) => account.id === accountFilter);
-						if (selectedAccount && platformFilter && selectedAccount.platform !== platformFilter) {
-							accountFilter = '';
-						}
-					}}
+		<div class="space-y-3">
+			<CommunicationsNavigation
+				active={kindFilter === 'comment' ? 'comments' : kindFilter === 'review' ? 'reviews' : 'all'}
+			/>
+			<div class="flex min-w-0 flex-wrap items-center gap-2">
+				<div class="min-w-0 flex-1 sm:max-w-72">
+					<Input
+						type="search"
+						value={searchInput}
+						oninput={(event) => searchInbox(event.currentTarget.value)}
+						placeholder={m.engagement_search_placeholder()}
+						aria-label={m.engagement_search_placeholder()}
+						class="h-11 sm:h-9"
+						data-testid="engagement-search"
+					/>
+				</div>
+				<Popover.Root>
+					<Popover.Trigger>
+						{#snippet child({ props })}
+							<Button {...props} variant="outline" class="h-11 sm:h-9">
+								{m.engagement_filter_button()}
+								{#if platformFilter || accountFilter || publicationFilter || archived || !unreadOnly}
+									<span class="size-1.5 rounded-full bg-primary" aria-hidden="true"></span>
+								{/if}
+							</Button>
+						{/snippet}
+					</Popover.Trigger>
+					<Popover.Content align="end" class="w-80 max-w-[calc(100vw-1rem)]">
+						<div class="grid gap-4">
+							<Select.Root
+								type="single"
+								value={platformFilter || 'all'}
+								onValueChange={(value) => {
+									platformFilter = value === 'all' ? '' : value;
+									const selectedAccount = accounts.find((account) => account.id === accountFilter);
+									if (
+										selectedAccount &&
+										platformFilter &&
+										selectedAccount.platform !== platformFilter
+									) {
+										accountFilter = '';
+									}
+								}}
+							>
+								<Select.Trigger class="h-11 w-full sm:h-9">
+									{platformFilter ? getPlatformName(platformFilter) : m.engagement_all_platforms()}
+								</Select.Trigger>
+								<Select.Content>
+									<Select.Item value="all">{m.engagement_all_platforms()}</Select.Item>
+									{#each knownPlatforms as provider (provider)}
+										<Select.Item value={provider}>{getPlatformName(provider)}</Select.Item>
+									{/each}
+								</Select.Content>
+							</Select.Root>
+							<Select.Root
+								type="single"
+								value={accountFilter || 'all'}
+								onValueChange={(value) => (accountFilter = value === 'all' ? '' : value)}
+							>
+								<Select.Trigger
+									class="h-11 w-full sm:h-9"
+									aria-label={accountFilterLabel(
+										accounts.find((account) => account.id === accountFilter)
+									)}
+								>
+									{#if accountFilter}
+										{@const selectedAccount = accounts.find(
+											(account) => account.id === accountFilter
+										)}
+										{#if selectedAccount}
+											<SocialAccountIdentity
+												name={accountName(selectedAccount)}
+												platform={selectedAccount.platform}
+												avatarUrl={selectedAccount.account_avatar_url}
+												size="sm"
+											/>
+										{:else}
+											{m.engagement_all_accounts()}
+										{/if}
+									{:else}
+										{m.engagement_all_accounts()}
+									{/if}
+								</Select.Trigger>
+								<Select.Content class="w-72 max-w-[calc(100vw-1rem)]">
+									<Select.Item value="all" class="min-h-11">
+										{m.engagement_all_accounts()}
+									</Select.Item>
+									{#each accounts.filter((account) => !platformFilter || account.platform === platformFilter) as account (account.id)}
+										<Select.Item value={account.id} class="min-h-12 py-2">
+											<SocialAccountIdentity
+												name={accountName(account)}
+												platform={account.platform}
+												avatarUrl={account.account_avatar_url}
+											/>
+										</Select.Item>
+									{/each}
+								</Select.Content>
+							</Select.Root>
+							<DestinationOptionCombobox
+								id="engagement-publication-filter"
+								value={publicationFilter}
+								label={m.engagement_all_posts()}
+								placeholder={m.engagement_all_posts()}
+								searchPlaceholder={m.engagement_search_posts()}
+								emptyLabel={m.engagement_no_posts_found()}
+								loadingLabel={m.common_loading()}
+								options={publicationOptions}
+								loading={publicationLoading}
+								hasMore={Boolean(publicationCursor)}
+								loadMoreLabel={m.engagement_load_older_posts()}
+								error={publicationError}
+								retryLabel={m.common_retry()}
+								class="max-w-80 min-w-52 sm:h-9"
+								onValueChange={selectPublication}
+								onSearch={searchPublications}
+								onLoadMore={() => void publicationQuery.fetchNextPage()}
+								onRetry={() => void publicationQuery.refetch()}
+							/>
+							<label class="flex min-h-11 items-center gap-2 text-sm">
+								<Checkbox bind:checked={unreadOnly} />
+								{m.engagement_unread_only()}
+							</label>
+							<label
+								class="flex min-h-11 items-center gap-2 text-sm"
+								title={m.engagement_archive_help()}
+							>
+								<Checkbox bind:checked={archived} />
+								{m.engagement_archived()}
+							</label>
+						</div>
+					</Popover.Content>
+				</Popover.Root>
+				<Button
+					href="/grow"
+					variant="ghost"
+					size="sm"
+					class="ms-auto"
+					data-testid="inbox-find-people"
 				>
-					<Select.Trigger class="h-11 w-44 sm:h-9" aria-label={m.engagement_all_platforms()}>
-						{platformFilter ? getPlatformName(platformFilter) : m.engagement_all_platforms()}
-					</Select.Trigger>
-					<Select.Content>
-						<Select.Item value="all">{m.engagement_all_platforms()}</Select.Item>
-						{#each knownPlatforms as provider (provider)}
-							<Select.Item value={provider}>{getPlatformName(provider)}</Select.Item>
-						{/each}
-					</Select.Content>
-				</Select.Root>
-				<Select.Root
-					type="single"
-					value={accountFilter || 'all'}
-					onValueChange={(value) => (accountFilter = value === 'all' ? '' : value)}
-				>
-					<Select.Trigger
-						class="h-11 w-60 sm:h-9"
-						aria-label={accountFilterLabel(
-							accounts.find((account) => account.id === accountFilter)
-						)}
-					>
-						{#if accountFilter}
-							{@const selectedAccount = accounts.find((account) => account.id === accountFilter)}
-							{#if selectedAccount}
-								<SocialAccountIdentity
-									name={accountName(selectedAccount)}
-									platform={selectedAccount.platform}
-									avatarUrl={selectedAccount.account_avatar_url}
-									size="sm"
-								/>
-							{:else}
-								{m.engagement_all_accounts()}
-							{/if}
-						{:else}
-							{m.engagement_all_accounts()}
-						{/if}
-					</Select.Trigger>
-					<Select.Content class="w-72 max-w-[calc(100vw-1rem)]">
-						<Select.Item value="all" class="min-h-11">{m.engagement_all_accounts()}</Select.Item>
-						{#each accounts.filter((account) => !platformFilter || account.platform === platformFilter) as account (account.id)}
-							<Select.Item value={account.id} class="min-h-12 py-2">
-								<SocialAccountIdentity
-									name={accountName(account)}
-									platform={account.platform}
-									avatarUrl={account.account_avatar_url}
-								/>
-							</Select.Item>
-						{/each}
-					</Select.Content>
-				</Select.Root>
-				<DestinationOptionCombobox
-					id="engagement-publication-filter"
-					value={publicationFilter}
-					label={m.engagement_all_posts()}
-					placeholder={m.engagement_all_posts()}
-					searchPlaceholder={m.engagement_search_posts()}
-					emptyLabel={m.engagement_no_posts_found()}
-					loadingLabel={m.common_loading()}
-					options={publicationOptions}
-					loading={publicationLoading}
-					hasMore={Boolean(publicationCursor)}
-					loadMoreLabel={m.engagement_load_older_posts()}
-					error={publicationError}
-					retryLabel={m.common_retry()}
-					class="max-w-80 min-w-52 sm:h-9"
-					onValueChange={selectPublication}
-					onSearch={searchPublications}
-					onLoadMore={() => void publicationQuery.fetchNextPage()}
-					onRetry={() => void publicationQuery.refetch()}
-				/>
-				<label class="flex min-h-11 items-center gap-2 text-sm">
-					<Checkbox bind:checked={unreadOnly} />
-					{m.engagement_unread_only()}
-				</label>
-				<label class="flex min-h-11 items-center gap-2 text-sm">
-					<Checkbox bind:checked={archived} />
-					{m.engagement_archived()}
-				</label>
-				<span class="ms-auto text-sm text-muted-foreground">{total}</span>
+					{m.grow_find_people()}
+				</Button>
+				{#if total}
+					<span class="ms-auto text-sm text-muted-foreground">{total}</span>
+				{/if}
 			</div>
-			<p class="-mt-2 max-w-3xl text-xs leading-5 text-muted-foreground">
-				{m.engagement_archive_help()}
-			</p>
 		</div>
 	{/snippet}
 
 	<div class="space-y-5">
+		<InboxUpdates
+			{workspaceId}
+			view="comments"
+			viewKey={JSON.stringify([
+				platformFilter,
+				accountFilter,
+				publicationFilter,
+				unreadOnly,
+				archived
+			])}
+		/>
 		{#if backgroundError}
 			<InlineNotice tone="error" message={backgroundError}>
 				{#snippet actions()}
@@ -926,7 +1141,11 @@
 
 		{#if showEngagementDisabledNotice}
 			<div data-testid="engagement-disabled-notice">
-				<InlineNotice tone="warning" message={m.engagement_feature_disabled_notice()}>
+				<InlineNotice
+					tone="warning"
+					message={m.engagement_feature_disabled_notice()}
+					class="flex-col items-stretch sm:flex-row sm:items-center"
+				>
 					{#snippet actions()}
 						<Button
 							href="/settings?tab=accounts"
@@ -969,12 +1188,32 @@
 				</p>
 			{/if}
 		{:else if engagementQuery.data && items.length === 0 && !error}
-			<EmptyState
-				themeIconRole="communications"
-				title={m.engagement_empty_title()}
-				description={m.engagement_empty_description()}
-				variant="muted"
-			/>
+			{#if accounts.length === 0}
+				<EmptyState
+					themeIconRole="communications"
+					title={m.engagement_empty_title()}
+					description={m.engagement_empty_description()}
+					actionLabel={m.analytics_no_accounts_action()}
+					actionHref="/settings?tab=accounts"
+					variant="muted"
+				/>
+			{:else if unreadOnly}
+				<EmptyState
+					themeIconRole="communications"
+					title={m.engagement_empty_title()}
+					description={m.engagement_empty_description()}
+					actionLabel={m.engagement_empty_show_all()}
+					onAction={() => (unreadOnly = false)}
+					variant="muted"
+				/>
+			{:else}
+				<EmptyState
+					themeIconRole="communications"
+					title={m.engagement_empty_title()}
+					description={m.engagement_empty_description()}
+					variant="muted"
+				/>
+			{/if}
 		{:else if items.length > 0}
 			<div
 				class="space-y-4 transition-opacity"
@@ -995,14 +1234,22 @@
 										getPlatformName(firstItem.platform)}
 								platform={firstItem.platform}
 								avatarUrl={account?.account_avatar_url}
-								detail={m.engagement_reply_count({ count: group.items.length })}
+								detail={firstItem.kind === 'review'
+									? m.engagement_activity_reviews()
+									: firstItem.kind === 'mention'
+										? m.engagement_activity_mentions()
+										: m.engagement_reply_count({ count: group.items.length })}
 								class="max-w-full sm:max-w-52"
 							/>
 							<div class="min-w-0 flex-1">
 								<h2 class="truncate text-sm font-semibold">
 									{firstItem.publication_title ||
 										firstItem.publication_excerpt ||
-										m.engagement_untitled_publication()}
+										(firstItem.kind === 'review'
+											? m.engagement_review_context()
+											: firstItem.kind === 'mention'
+												? m.engagement_mention_context()
+												: m.engagement_untitled_publication())}
 								</h2>
 							</div>
 							{#if firstItem.provider_post_url}
@@ -1061,9 +1308,17 @@
 													{m.engagement_deleted_item()}
 												</p>
 											{:else}
-												<p class="mt-2 max-w-3xl text-sm leading-6 whitespace-pre-wrap">
-													{item.body}
-												</p>
+												{#if item.body.trim()}
+													<p class="mt-2 max-w-3xl text-sm leading-6 whitespace-pre-wrap">
+														{item.body}
+													</p>
+												{:else if attachments.length === 0}
+													<p class="mt-2 text-sm text-muted-foreground">
+														{item.kind === 'review'
+															? m.engagement_rating_only()
+															: m.engagement_empty_reply_content()}
+													</p>
+												{/if}
 												{#if attachments.length}
 													<div class="mt-3 flex flex-wrap gap-2">
 														{#each attachments as attachment, index (`${attachment.url}:${index}`)}
@@ -1082,6 +1337,16 @@
 												{/if}
 											{/if}
 
+											{#if item.kind === 'comment'}<EngagementAutomation {item} />{/if}
+											{#if item.kind === 'review'}
+												<EngagementReview {item} />
+												{#if item.reply_operation_state === 'active'}<p
+														class="mt-2 text-sm text-muted-foreground"
+													>
+														{m.engagement_review_reply_busy()}
+													</p>{/if}
+											{/if}
+
 											<div class="mt-3 flex flex-wrap gap-1">
 												{#if item.can_reply && !isDeleted}
 													<Button
@@ -1089,7 +1354,7 @@
 														size="sm"
 														onclick={() => {
 															replyItemId = replyItemId === item.id ? '' : item.id;
-															replyBody = '';
+															replyBody = item.subject?.review?.owner_reply?.text ?? '';
 														}}
 													>
 														<ThemeIcon role="reply" class="size-4" />{m.engagement_reply()}
@@ -1117,6 +1382,18 @@
 														onclick={() => void setState(item, { read: true })}
 													>
 														{m.engagement_mark_read()}
+													</Button>
+												{/if}
+												{#if item.can_delete_reply && !isDeleted}
+													<Button
+														variant="ghost"
+														size="sm"
+														class="text-destructive"
+														disabled={item.reply_operation_state === 'active' ||
+															actionInFlight === item.id}
+														onclick={() => requestProviderAction(item, 'delete_reply')}
+													>
+														{m.engagement_remove_owner_reply()}
 													</Button>
 												{/if}
 												{#if item.can_hide && !item.hidden && !isDeleted}
@@ -1167,14 +1444,24 @@
 													<Textarea
 														bind:value={replyBody}
 														placeholder={m.engagement_reply_placeholder()}
+														aria-label={m.engagement_reply_placeholder()}
 														rows={3}
 														required
 													/>
+													{#if item.kind === 'review'}<p class="text-xs text-muted-foreground">
+															{m.engagement_review_reply_bytes({
+																count: countUTF8Bytes(replyBody.trim())
+															})}
+														</p>{/if}
 													<div class="flex justify-end">
 														<Button
 															type="submit"
 															size="sm"
-															disabled={!replyBody.trim() || actionInFlight === item.id}
+															disabled={!replyBody.trim() ||
+																actionInFlight === item.id ||
+																(item.kind === 'review' &&
+																	(item.reply_operation_state === 'active' ||
+																		countUTF8Bytes(replyBody.trim()) > 4096))}
 														>
 															{m.engagement_send_reply()}
 														</Button>
@@ -1214,14 +1501,20 @@
 
 <DestructiveConfirmDialog
 	bind:open={confirmDialogOpen}
-	title={confirmAction === 'delete'
-		? m.engagement_delete({ platform: confirmPlatformName })
-		: m.engagement_hide()}
-	description={confirmAction === 'delete'
-		? m.engagement_delete_confirm_description({ platform: confirmPlatformName })
-		: m.engagement_hide_confirm_description()}
-	confirmLabel={confirmAction === 'delete'
-		? m.engagement_delete({ platform: confirmPlatformName })
-		: m.engagement_hide()}
+	title={confirmAction === 'delete_reply'
+		? m.engagement_remove_owner_reply()
+		: confirmAction === 'delete'
+			? m.engagement_delete({ platform: confirmPlatformName })
+			: m.engagement_hide()}
+	description={confirmAction === 'delete_reply'
+		? m.engagement_remove_owner_reply_description()
+		: confirmAction === 'delete'
+			? m.engagement_delete_confirm_description({ platform: confirmPlatformName })
+			: m.engagement_hide_confirm_description()}
+	confirmLabel={confirmAction === 'delete_reply'
+		? m.engagement_remove_owner_reply()
+		: confirmAction === 'delete'
+			? m.engagement_delete({ platform: confirmPlatformName })
+			: m.engagement_hide()}
 	onConfirm={confirmProviderAction}
 />

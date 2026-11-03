@@ -6,6 +6,8 @@ This page is for contributors changing the web app or its shared marketing contr
 
 ## Expectations
 
+- Refresh canonical product screenshots when a change alters a captured surface; see [Product screenshots](screenshots.md).
+
 - Use standard Svelte 5 runes
 - Keep API calls typed
 - Preserve adapter-static output because the backend embeds the built assets
@@ -49,3 +51,36 @@ trees from `apps/web/static` with hard links when possible, refreshes both
 generated web trees, validates the complete artifact, then replaces
 `apps/server/cmd/openpost/public` atomically. Missing or partial sources fail before
 an existing artifact changes.
+
+## Translation generation
+
+`apps/web` owns `src/lib/paraglide`. Marketing reads shared web components but
+does not run another generator against that directory. The web CLI and Vite
+plugin share the locale strategy, locale-module layout, and server detection.
+`scripts/check-i18n.mjs` checks those options for drift.
+
+`generate:i18n` compiles runtime JavaScript with the maintained Paraglide
+compiler, then runs `scripts/paraglide-declarations.mjs`. The latter preserves
+the compiler's explicit message input and locale types without type-checking
+every generated message during declaration emit. Runtime, server, and registry
+declarations still use the upstream emitter. Unrecognized message shapes fail
+instead of producing permissive declarations.
+
+The companion Vite plugin serializes its hooks after Paraglide writes output,
+including after watched catalogue changes. Keep it paired with the upstream
+plugin and keep `OPENPOST_PARAGLIDE_PRECOMPILED` for checks and browser suites
+that already prepared declarations. Changes to the emitter must invalidate
+the web Turbo tasks. Production builds retain their separate compilation
+command; validate both check and build paths after changing this boundary.
+
+Run the declaration and offline compiler regressions with:
+
+```bash
+devenv shell -- bun test scripts/paraglide-declarations.test.mjs scripts/paraglide-offline.test.mjs
+```
+
+These cover real TypeScript consumers, runtime translations and plurals,
+unsupported generated syntax, and dev-hook ordering. For performance comparisons,
+time `bun run --filter @openpost/web generate:i18n` before and after on the same
+catalogue, then run `bun run check -- frontend-marketing` and the production
+build. A faster generation step does not by itself measure total hosted CI time.

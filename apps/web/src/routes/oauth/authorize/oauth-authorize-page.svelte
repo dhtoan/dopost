@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { appBranding } from '$lib/app-branding.svelte';
 	import { goto } from '$app/navigation';
 	import { ThemeIcon, ProtectedIcon } from '$lib/themes/icons';
 	import { resolve } from '$app/paths';
@@ -16,6 +17,7 @@
 	import { Label } from '$lib/components/ui/label';
 	import * as Select from '$lib/components/ui/select';
 	import InlineNotice from '$lib/components/inline-notice.svelte';
+	import SocialAccountAvatar from '$lib/components/social-account-avatar.svelte';
 	import StandaloneShell from '$lib/components/standalone-shell.svelte';
 	import { client } from '$lib/api/client';
 	import { queryClient } from '$lib/query/client';
@@ -63,6 +65,7 @@
 	let authState = $derived($authStore);
 	let error = $state('');
 	let submitting = $state(false);
+	let redirecting = $state(false);
 	let pendingDecision = $state<boolean | null>(null);
 	let oauthWorkspaceScope = $state('current');
 	let externalApplicationName = $state('');
@@ -87,16 +90,26 @@
 		resource: $pageStore.url.searchParams.get('resource') ?? ''
 	});
 
-	let scopes = $derived(
+	let requestedScopes = $derived(
 		(params.scope || 'mcp:full')
 			.split(/[,\s]+/)
 			.map((scope) => scope.trim())
 			.filter(Boolean)
 	);
+	let isExternalApplication = $derived(
+		params.client_id.startsWith('op_app_') ||
+			!requestedScopes.some((scope) => scope.startsWith('mcp:'))
+	);
+	// MCP clients can request every scope in shared server discovery. Consent and
+	// the token exchange must agree on the subset supported by the MCP resource.
+	let scopes = $derived(
+		isExternalApplication
+			? requestedScopes
+			: requestedScopes.filter((scope) => scope.startsWith('mcp:'))
+	);
 	let requestedReadOnlyAccess = $derived(
 		scopes.includes('mcp:read') && !scopes.includes('mcp:full')
 	);
-	let isExternalApplication = $derived(scopes.some((scope) => !scope.startsWith('mcp:')));
 	let eligibleWorkspaces = $derived(
 		dependencies.workspace.workspaces.filter((workspace) => workspace.role === 'admin')
 	);
@@ -164,6 +177,7 @@
 	}
 
 	async function submit(approved: boolean) {
+		if (submitting) return;
 		if (approved && requestError) {
 			error = '';
 			return;
@@ -174,6 +188,7 @@
 		}
 
 		submitting = true;
+		redirecting = false;
 		pendingDecision = approved;
 		error = '';
 		const workspaceID =
@@ -212,11 +227,13 @@
 				if (apiError || !data?.redirect_url) {
 					throw new Error(apiError?.detail ?? m.oauth_authorize_failed());
 				}
+				redirecting = true;
 				window.location.href = data.redirect_url;
 				return;
 			}
 			const body: components['schemas']['CreateMCPOAuthAuthorizationInputBody'] = {
 				...params,
+				scope: scopes.join(' '),
 				approved
 			};
 			if (workspaceID) body.workspace_id = workspaceID;
@@ -226,12 +243,15 @@
 			if (apiError || !data?.redirect_url) {
 				throw new Error(apiError?.detail ?? m.oauth_authorize_failed());
 			}
+			redirecting = true;
 			window.location.href = data.redirect_url;
 		} catch (cause) {
 			error = cause instanceof Error ? cause.message : m.oauth_authorize_failed();
 		} finally {
-			submitting = false;
-			pendingDecision = null;
+			if (!redirecting) {
+				submitting = false;
+				pendingDecision = null;
+			}
 		}
 	}
 
@@ -339,7 +359,11 @@
 </script>
 
 <svelte:head>
-	<title>{isExternalApplication ? m.oauth_authorize_app_title() : m.oauth_authorize_title()}</title>
+	<title
+		>{isExternalApplication
+			? m.oauth_authorize_app_title()
+			: appBranding.title(m.oauth_authorize_title())}</title
+	>
 </svelte:head>
 
 {#snippet botIcon()}
@@ -413,7 +437,10 @@
 						{#if selectedWorkspaceIDs.includes(workspace.id)}
 							<div class="mt-3 space-y-2 border-t pt-3 pl-7">
 								{#if accountLoadingByWorkspace[workspace.id]}
-									<ProtectedIcon icon="loading" class="size-4 animate-spin" />
+									<ProtectedIcon
+										icon="loading"
+										class="size-4 animate-spin motion-reduce:animate-none"
+									/>
 								{:else if accountErrorByWorkspace[workspace.id]}
 									<InlineNotice tone="error" message={accountErrorByWorkspace[workspace.id]} />
 								{/if}
@@ -427,10 +454,16 @@
 								</Label>
 								{#if !allCurrentAccounts[workspace.id]}
 									{#each accountsByWorkspace[workspace.id] ?? [] as account (account.id)}
-										<Label class="flex items-center gap-2 text-sm font-normal">
+										<Label class="flex min-h-11 items-center gap-2 text-sm font-normal">
 											<Checkbox
 												checked={(selectedAccountIDs[workspace.id] ?? []).includes(account.id)}
 												onCheckedChange={() => toggleAccount(workspace.id, account.id)}
+											/>
+											<SocialAccountAvatar
+												name={account.account_username || account.platform}
+												platform={account.platform}
+												avatarUrl={account.account_avatar_url}
+												size="sm"
 											/>
 											<span>{account.account_username || account.platform}</span>
 											<span class="text-muted-foreground">{account.platform}</span>
@@ -481,7 +514,7 @@
 						!dependencies.workspace.currentWorkspace)}
 			>
 				{#if pendingDecision === true}
-					<ProtectedIcon icon="loading" class="size-4 animate-spin" />
+					<ProtectedIcon icon="loading" class="size-4 animate-spin motion-reduce:animate-none" />
 				{:else}
 					<ThemeIcon role="security" class="h-4 w-4" />
 				{/if}
@@ -494,7 +527,7 @@
 				disabled={submitting || !params.redirect_uri || !params.client_id}
 			>
 				{#if pendingDecision === false}
-					<ProtectedIcon icon="loading" class="size-4 animate-spin" />
+					<ProtectedIcon icon="loading" class="size-4 animate-spin motion-reduce:animate-none" />
 				{:else}
 					<ThemeIcon role="close" class="h-4 w-4" />
 				{/if}

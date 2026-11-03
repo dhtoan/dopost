@@ -2,7 +2,8 @@
 	import { untrack } from 'svelte';
 	import * as Dialog from '$lib/components/ui/dialog';
 	import { Button } from '$lib/components/ui/button';
-	import MediaAcquisitionPanel from '$lib/components/media-acquisition-panel.svelte';
+	import * as Tabs from '$lib/components/ui/tabs';
+	import InlineNotice from '$lib/components/inline-notice.svelte';
 	import type { MediaUploadResult } from '$lib/media-upload-client';
 	import { ThemeIcon } from '$lib/themes/icons';
 	import type { VideoConstraint } from '$lib/video/types';
@@ -86,41 +87,31 @@
 			<Dialog.Description>{m.media_upload_description_custom()}</Dialog.Description>
 		</Dialog.Header>
 
-		<div
-			class="flex shrink-0 gap-1 overflow-x-auto border-b px-4 py-2"
-			aria-label={m.media_source()}
-		>
-			<Button
-				variant={source === 'device' ? 'secondary' : 'ghost'}
-				size="sm"
-				class="min-h-11 shrink-0 sm:min-h-9"
-				onclick={() => (source = 'device')}
+		<div class="flex shrink-0 items-center gap-2 border-b px-4 py-2">
+			<Tabs.Root
+				value={source}
+				onValueChange={(next) => (source = next as SourceMode)}
+				class="min-w-0 flex-1 overflow-x-auto"
 			>
-				<ThemeIcon role="upload" />
-				{m.media_upload_device()}
-			</Button>
-			{#if accept.some((item) => item === 'image/*' || item.startsWith('image/'))}
-				<Button
-					variant={source === 'camera' ? 'secondary' : 'ghost'}
-					size="sm"
-					class="min-h-11 shrink-0 sm:min-h-9"
-					onclick={() => (source = 'camera')}
-				>
-					<ThemeIcon role="camera" />
-					{m.media_camera()}
-				</Button>
-			{/if}
-			{#if canUseStock}
-				<Button
-					variant={source === 'stock' ? 'secondary' : 'ghost'}
-					size="sm"
-					class="min-h-11 shrink-0 sm:min-h-9"
-					onclick={() => (source = 'stock')}
-				>
-					<ThemeIcon role="image" />
-					{m.stock_media()}
-				</Button>
-			{/if}
+				<Tabs.List class="max-w-full" aria-label={m.media_source()}>
+					<Tabs.Trigger value="device">
+						<ThemeIcon role="upload" />
+						{m.media_upload_device()}
+					</Tabs.Trigger>
+					{#if accept.some((item) => item === 'image/*' || item.startsWith('image/'))}
+						<Tabs.Trigger value="camera">
+							<ThemeIcon role="camera" />
+							{m.media_camera()}
+						</Tabs.Trigger>
+					{/if}
+					{#if canUseStock}
+						<Tabs.Trigger value="stock">
+							<ThemeIcon role="image" />
+							{m.stock_media()}
+						</Tabs.Trigger>
+					{/if}
+				</Tabs.List>
+			</Tabs.Root>
 			{#if showLibrary}
 				<Button
 					variant="ghost"
@@ -136,18 +127,30 @@
 
 		<div class="min-h-0 flex-1 overflow-y-auto p-4 sm:p-5">
 			{#key source}
-				<MediaAcquisitionPanel
-					mode={source}
-					{workspaceId}
-					{accept}
-					{maxFiles}
-					{retentionClass}
-					{tagId}
-					{videoConstraints}
-					{initialFiles}
-					{onInitialFilesConsumed}
-					onUploaded={completeUpload}
-				/>
+				{#await import('$lib/components/media-acquisition-panel.svelte')}
+					<p class="text-sm text-muted-foreground" role="status">{m.common_loading()}</p>
+				{:then module}
+					<module.default
+						mode={source}
+						{workspaceId}
+						{accept}
+						{maxFiles}
+						{retentionClass}
+						{tagId}
+						{videoConstraints}
+						{initialFiles}
+						{onInitialFilesConsumed}
+						onUploaded={completeUpload}
+					/>
+				{:catch}
+					<InlineNotice tone="error" message={m.media_picker_load_failed()}>
+						{#snippet actions()}
+							<Button variant="outline" onclick={() => window.location.reload()}
+								>{m.common_refresh()}</Button
+							>
+						{/snippet}
+					</InlineNotice>
+				{/await}
 			{/key}
 		</div>
 	</Dialog.Content>

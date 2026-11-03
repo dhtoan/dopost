@@ -81,6 +81,12 @@
 	}
 
 	function reorderByKeyboard(event: KeyboardEvent, id: string): void {
+		if (event.key === 'F2') {
+			event.preventDefault();
+			const sequence = sequenceStore.compositionById.get(id);
+			if (sequence) void beginRename(id, sequence.name);
+			return;
+		}
 		if (!event.altKey || (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight')) return;
 		event.preventDefault();
 		move(id, event.key === 'ArrowLeft' ? -1 : 1);
@@ -88,14 +94,14 @@
 </script>
 
 <nav
-	class="flex min-w-0 items-center gap-1 overflow-x-auto border-b border-border bg-card px-2 py-1 text-xs"
+	class="flex h-8 min-w-0 items-center gap-1 overflow-x-auto border-b border-border bg-card px-1 text-xs"
 	aria-label={m.video_editor_sequences()}
 >
 	<button
 		type="button"
 		class="flex shrink-0 items-center gap-1.5 rounded px-2.5 py-1 focus-visible:outline-2 focus-visible:outline-ring {sequenceStore.activeSequenceId ===
 		null
-			? 'bg-selection text-selection-foreground'
+			? 'bg-navigation-active text-navigation-active-foreground'
 			: 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'}"
 		onclick={() => activate(null)}
 	>
@@ -110,7 +116,7 @@
 					role="group"
 					aria-label={tab.name}
 					class="group flex shrink-0 items-center rounded {sequenceStore.activeSequenceId === tab.id
-						? 'bg-selection text-selection-foreground'
+						? 'bg-navigation-active text-navigation-active-foreground'
 						: 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'}"
 					draggable="true"
 					ondragstart={() => (draggedId = tab.id)}
@@ -131,7 +137,11 @@
 					{:else}
 						<button
 							type="button"
-							class="max-w-40 truncate py-1 pl-2.5 text-left focus-visible:outline-2 focus-visible:outline-ring"
+							class="py-1 pl-2.5 text-left whitespace-nowrap focus-visible:outline-2 focus-visible:outline-ring {sequenceStore.activeSequenceId ===
+							tab.id
+								? ''
+								: 'max-w-40 truncate'}"
+							aria-current={sequenceStore.activeSequenceId === tab.id ? 'page' : undefined}
 							title={tab.name}
 							onclick={() => activate(tab.id)}
 							ondblclick={() => beginRename(tab.id, tab.name)}

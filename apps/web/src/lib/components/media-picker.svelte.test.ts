@@ -178,6 +178,52 @@ describe('MediaPicker meme source', () => {
 		expect(onConfirm).toHaveBeenCalledTimes(2);
 	});
 
+	it('opens upload-first pickers on the device source', async () => {
+		const screen = await render(MediaPicker, {
+			props: {
+				open: true,
+				workspaceId: 'workspace-1',
+				accept: ['image/*'],
+				maxSelection: 1,
+				multiple: false,
+				showCreate: false,
+				initialMode: 'upload',
+				services,
+				onConfirm: vi.fn()
+			}
+		});
+
+		await expect
+			.element(screen.getByRole('tab', { name: 'Device' }))
+			.toHaveAttribute('aria-selected', 'true');
+		await expect
+			.element(screen.getByText('Drop files here or choose from your device'))
+			.toBeVisible();
+		// An image-only picker states the image limit and never advertises a video limit.
+		await expect.element(screen.getByText('Maximum: 1 · Images up to 50 MB')).toBeVisible();
+		await expect.element(screen.getByText(/Videos up to 16 GiB/)).not.toBeInTheDocument();
+	});
+
+	it('opens camera-first pickers directly on the camera source', async () => {
+		const screen = await render(MediaPicker, {
+			props: {
+				open: true,
+				workspaceId: 'workspace-1',
+				accept: ['image/*'],
+				maxSelection: 1,
+				multiple: false,
+				showCreate: false,
+				initialMode: 'camera',
+				services,
+				onConfirm: vi.fn()
+			}
+		});
+
+		await expect
+			.element(screen.getByRole('tab', { name: m.media_camera() }))
+			.toHaveAttribute('aria-selected', 'true');
+	});
+
 	it('keeps Meme hidden when the renderer is not configured', async () => {
 		mocks.listTemplates.mockResolvedValue(templateResult(false));
 		const screen = await renderPicker(true);
@@ -191,29 +237,33 @@ describe('MediaPicker meme source', () => {
 		await screen.getByRole('button', { name: 'Close' }).click();
 		await expect.element(screen.getByRole('dialog')).not.toBeInTheDocument();
 	});
+});
 
-	it('opens a seeded meme recommendation after the availability check', async () => {
-		const initialCandidate = {
-			template_id: template.id,
-			caption_lines: ['The plan', 'What production did'],
-			rationale: 'The contrast carries the joke.',
-			alt_text: 'Futurama Fry meme. Text: The plan; What production did.',
-			template
-		};
-		const screen = await renderPicker(true, false, {
-			initialMode: 'meme',
-			memeInitialIdea: 'A release that ignored the plan',
-			memeInitialCandidate: initialCandidate,
-			memeInitialPreview: `data:image/svg+xml;base64,${svgBase64('The plan / What production did')}`
-		});
+describe('MediaPicker library loading', () => {
+	beforeEach(() => {
+		mocks.listMedia.mockReset();
+		mocks.listTags.mockReset().mockResolvedValue({ tags: [], canEdit: true });
+		mocks.listTemplates.mockReset().mockResolvedValue(templateResult());
+	});
 
+	it('renders a content-shaped placeholder while library results load', async () => {
+		const loaded = Promise.withResolvers<ImageEditorMediaItem[]>();
+		mocks.listMedia.mockReturnValue(loaded.promise);
+		const screen = await renderPicker(false);
+
+		const placeholder = screen.getByTestId('page-loading');
+		await expect.element(placeholder).toBeVisible();
+		await expect.element(placeholder).toHaveAttribute('data-layout', 'gallery');
+		expect(placeholder.element().querySelectorAll('[data-slot="skeleton"]').length).toBeGreaterThan(
+			0
+		);
+		loaded.resolve([]);
+		await expect.element(placeholder).not.toBeInTheDocument();
+		await expect.element(screen.getByText(m.media_empty_title(), { exact: true })).toBeVisible();
+		mocks.listMedia.mockResolvedValue([overlayMedia]);
+		await screen.getByRole('button', { name: m.media_picker_search_action() }).click();
 		await expect
-			.element(screen.getByRole('tab', { name: m.media_picker_meme() }))
-			.toHaveAttribute('aria-selected', 'true');
-		await expect
-			.element(screen.getByLabelText(m.meme_generator_caption_label({ number: 1 })))
-			.toHaveValue('The plan');
-		expect(mocks.suggest).not.toHaveBeenCalled();
-		expect(mocks.preview).not.toHaveBeenCalled();
+			.element(screen.getByRole('button', { name: 'Select Team photo.png' }))
+			.toBeVisible();
 	});
 });

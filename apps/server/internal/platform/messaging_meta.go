@@ -21,8 +21,8 @@ type metaMessagingAdapter struct {
 func (f *FacebookAdapter) MessagingSupport() MessagingSupport {
 	return MessagingSupport{
 		Enabled: true, CanSend: true, RequiresOptIn: true, ReplyWindow: 24 * time.Hour,
-		RequiredScopes: []string{"pages_messaging"}, ConversationModel: "page_message",
-		Unavailable: "Facebook Page messages require pages_messaging advanced access and a Page token.",
+		RequiredScopes: []string{"pages_messaging", "pages_manage_metadata"}, ConversationModel: "page_message",
+		Unavailable: "Facebook Page messages require pages_messaging and pages_manage_metadata advanced access and a Page token.",
 	}
 }
 
@@ -37,33 +37,56 @@ func (f *FacebookAdapter) SendMessage(ctx context.Context, token string, input S
 }
 
 func (i *InstagramAdapter) MessagingSupport() MessagingSupport {
+	if i.instagramLogin {
+		return MessagingSupport{
+			Enabled: true, CanSend: true, RequiresOptIn: true, ReplyWindow: 24 * time.Hour,
+			RequiredScopes: []string{"instagram_business_basic", "instagram_business_manage_messages"}, ConversationModel: "professional_message",
+			Unavailable: "Instagram messages require approved Instagram Login permissions. A person must message the professional account first.",
+		}
+	}
 	return MessagingSupport{
 		Enabled: true, CanSend: true, RequiresOptIn: true, ReplyWindow: 24 * time.Hour,
-		RequiredScopes: []string{"instagram_manage_messages"}, ConversationModel: "professional_message",
-		Unavailable: "Instagram messages require advanced messaging access. A person must message the professional account first.",
+		RequiredScopes: []string{"instagram_basic", "instagram_manage_messages", "pages_manage_metadata"}, ConversationModel: "professional_message",
+		Unavailable: "Instagram messages require instagram_basic, instagram_manage_messages, and pages_manage_metadata, and a Meta app owned by a verified business. A person must message the professional account first.",
 	}
 }
 
 func (i *InstagramAdapter) FetchMessages(ctx context.Context, token string, input FetchMessagesRequest) (FetchMessagesResult, error) {
-	return metaMessagingAdapter{graphURL: i.graphURL, platformParam: "instagram", requiredScope: "instagram_manage_messages", instagram: true}.
+	return i.messagingAdapter().
 		fetch(ctx, token, input)
 }
 
 func (i *InstagramAdapter) SendMessage(ctx context.Context, token string, input SendMessageRequest) (SendMessageResult, error) {
-	return metaMessagingAdapter{graphURL: i.graphURL, platformParam: "instagram", requiredScope: "instagram_manage_messages", instagram: true}.
+	return i.messagingAdapter().
 		send(ctx, token, input)
 }
 
-func (m metaMessagingAdapter) fetch(ctx context.Context, token string, input FetchMessagesRequest) (FetchMessagesResult, error) {
+func (i *InstagramAdapter) messagingAdapter() metaMessagingAdapter {
+	param := "instagram"
+	if i.instagramLogin {
+		param = ""
+	}
+	return metaMessagingAdapter{graphURL: i.graphURL, platformParam: param, requiredScope: i.instagramScope("instagram_manage_messages"), instagram: true}
+}
+
+func (m metaMessagingAdapter) conversationsQuery(token, cursor string) url.Values {
 	query := url.Values{
 		"platform":     {m.platformParam},
-		"fields":       {"participants,updated_time,messages.limit(100){id,from,message,created_time,attachments}"},
+		"fields":       {"participants,updated_time,messages.limit(100){" + metaMessageFields + "}"},
 		"limit":        {"50"},
 		"access_token": {token},
 	}
-	if input.Cursor != "" {
-		query.Set("after", input.Cursor)
+	if m.platformParam == "" {
+		query.Del("platform")
 	}
+	if cursor != "" {
+		query.Set("after", cursor)
+	}
+	return query
+}
+
+func (m metaMessagingAdapter) fetch(ctx context.Context, token string, input FetchMessagesRequest) (FetchMessagesResult, error) {
+	query := m.conversationsQuery(token, input.Cursor)
 	body, err := DoRequest(ctx, http.MethodGet, m.graphURL(input.AccountID+"/conversations")+"?"+query.Encode(), nil, nil)
 	if err != nil {
 		return FetchMessagesResult{}, fmt.Errorf("fetching Meta conversations: %w", err)
@@ -80,32 +103,11 @@ func (m metaMessagingAdapter) fetch(ctx context.Context, token string, input Fet
 				} `json:"data"`
 			} `json:"participants"`
 			Messages struct {
-				Data []struct {
-					ID          string `json:"id"`
-					Message     string `json:"message"`
-					CreatedTime string `json:"created_time"`
-					From        struct {
-						ID       string `json:"id"`
-						Name     string `json:"name"`
-						Username string `json:"username"`
-					} `json:"from"`
-					Attachments struct {
-						Data []struct {
-							MimeType string `json:"mime_type"`
-							Name     string `json:"name"`
-							Image    struct {
-								Src string `json:"src"`
-							} `json:"image_data"`
-							Video struct {
-								URL string `json:"url"`
-							} `json:"video_data"`
-							FileURL string `json:"file_url"`
-						} `json:"data"`
-					} `json:"attachments"`
-				} `json:"data"`
+				Data []metaMessageView `json:"data"`
 			} `json:"messages"`
 		} `json:"data"`
 		Paging struct {
+			Next    string `json:"next"`
 			Cursors struct {
 				After string `json:"after"`
 			} `json:"cursors"`
@@ -120,7 +122,10 @@ func (m metaMessagingAdapter) fetch(ctx context.Context, token string, input Fet
 	if response.Error.Message != "" {
 		return FetchMessagesResult{}, fmt.Errorf("meta messages: %s", response.Error.Message)
 	}
-	result := FetchMessagesResult{NextCursor: response.Paging.Cursors.After}
+	result := FetchMessagesResult{}
+	if response.Paging.Next != "" {
+		result.NextCursor = response.Paging.Cursors.After
+	}
 	for _, remote := range response.Data {
 		var counterpart struct{ ID, Name, Username string }
 		for _, participant := range remote.Participants.Data {
@@ -132,30 +137,14 @@ func (m metaMessagingAdapter) fetch(ctx context.Context, token string, input Fet
 		messages := make([]ProviderMessage, 0, len(remote.Messages.Data))
 		var latestInbound time.Time
 		for _, item := range remote.Messages.Data {
-			createdAt, _ := time.Parse(time.RFC3339, item.CreatedTime)
-			direction := "inbound"
-			if item.From.ID == input.AccountID {
-				direction = "outbound"
-			} else if createdAt.After(latestInbound) {
+			createdAt := ProviderTime(item.CreatedTime)
+			if item.From.ID != input.AccountID && createdAt.After(latestInbound) {
 				latestInbound = createdAt
 			}
-			attachments := make([]MessageAttachment, 0, len(item.Attachments.Data))
-			for _, attachment := range item.Attachments.Data {
-				attachmentURL := firstNonEmptyString(attachment.Image.Src, attachment.Video.URL, attachment.FileURL)
-				if attachmentURL != "" {
-					attachments = append(attachments, MessageAttachment{
-						Type: metaAttachmentType(attachment.MimeType), URL: attachmentURL,
-						Name: attachment.Name, MimeType: attachment.MimeType,
-					})
-				}
-			}
-			messages = append(messages, ProviderMessage{
-				ID: item.ID, Direction: direction, AuthorRemoteID: item.From.ID,
-				Body: item.Message, Attachments: attachments, RemoteCreatedAt: createdAt,
-			})
+			messages = append(messages, item.provider(input.AccountID))
 		}
 		sort.Slice(messages, func(a, b int) bool { return messages[a].RemoteCreatedAt.Before(messages[b].RemoteCreatedAt) })
-		updatedAt, _ := time.Parse(time.RFC3339, remote.UpdatedTime)
+		updatedAt := ProviderTime(remote.UpdatedTime)
 		preview := ""
 		lastID := ""
 		if len(messages) > 0 {

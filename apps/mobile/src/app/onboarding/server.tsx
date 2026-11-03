@@ -1,11 +1,12 @@
+import { NativeText as Text } from "@/components/native-text";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { useState } from "react";
-import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text } from "react-native";
+import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet } from "react-native";
 
 import {
   BodyText,
   Button,
-  Card,
+  ContentSection,
   Screen,
   SectionHeader,
   TextField,
@@ -62,7 +63,7 @@ export default function ServerScreen() {
           <Text style={[styles.title, { color: colors.onSurface }]}>Sign in to OpenPost</Text>
           <BodyText style={styles.subtitle}>Choose where to sign in.</BodyText>
 
-          <Card style={styles.hostedCard}>
+          <ContentSection style={styles.hostedCard}>
             <Text style={[styles.hostedTitle, { color: colors.onSurface }]}>OpenPost Hosted</Text>
             <BodyText>Managed at {HOSTED_URL.replace("https://", "")}</BodyText>
             <Button
@@ -73,7 +74,7 @@ export default function ServerScreen() {
               onPress={() => void choose(HOSTED_URL, "hosted")}
               style={styles.hostedButton}
             />
-          </Card>
+          </ContentSection>
 
           {error ? (
             <BodyText accessibilityRole="alert" style={{ color: colors.error }}>

@@ -1,3 +1,4 @@
+import { captureTelemetryEvent } from '@openpost/telemetry';
 /**
  * Projects store backed by the workspace folder.
  *
@@ -51,6 +52,13 @@ const logger = createLogger('WorkspaceFS:Projects');
 /** Shape stored in project.json — no FileSystem*Handle fields. */
 type SerializedProject = Omit<Project, 'rootFolderHandle'>;
 type ProjectLoadIntent = 'list' | 'open';
+
+export class ProjectNotFoundError extends Error {
+	constructor(id: string) {
+		super(`Project not found: ${id}`);
+		this.name = 'ProjectNotFoundError';
+	}
+}
 
 async function stashRootFolderHandle(project: Project): Promise<SerializedProject> {
 	const { rootFolderHandle, ...rest } = project;
@@ -282,6 +290,10 @@ export async function createProject(project: Project): Promise<Project> {
 			name: project.name,
 			updatedAt: project.updatedAt
 		});
+		captureTelemetryEvent('video project created', {
+			source: 'unknown',
+			storage: 'local'
+		});
 		return project;
 	} catch (error) {
 		logger.error('createProject failed', error);
@@ -294,7 +306,7 @@ export async function updateProject(id: string, updates: Partial<Project>): Prom
 	try {
 		const existingSerialized = await readJson<SerializedProject>(root, projectJsonPath(id));
 		if (!existingSerialized) {
-			throw new Error(`Project not found: ${id}`);
+			throw new ProjectNotFoundError(id);
 		}
 
 		// Merge at the serialized layer — `rootFolderHandle` never lives in

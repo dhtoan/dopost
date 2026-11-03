@@ -10,31 +10,36 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/openpost/backend/internal/models"
 	"github.com/openpost/backend/internal/providerlimits"
+	"github.com/openpost/backend/internal/settingx"
+	"github.com/openpost/backend/internal/textcards"
 )
 
 const (
-	ProviderBluesky   = "bluesky"
-	ProviderDiscord   = "discord"
-	ProviderFacebook  = "facebook"
-	ProviderInstagram = "instagram"
-	ProviderLinkedIn  = "linkedin"
-	ProviderMastodon  = "mastodon"
-	ProviderPixelfed  = "pixelfed"
-	ProviderPeerTube  = "peertube"
-	ProviderLemmy     = "lemmy"
-	ProviderPieFed    = "piefed"
-	ProviderPinterest = "pinterest"
-	ProviderTelegram  = "telegram"
-	ProviderThreads   = "threads"
-	ProviderTikTok    = "tiktok"
-	ProviderX         = "x"
-	ProviderYouTube   = "youtube"
+	ProviderBluesky        = "bluesky"
+	ProviderDevNull        = "devnull"
+	ProviderDiscord        = "discord"
+	ProviderFacebook       = "facebook"
+	ProviderGoogleBusiness = "googlebusiness"
+	ProviderInstagram      = "instagram"
+	ProviderLinkedIn       = "linkedin"
+	ProviderMastodon       = "mastodon"
+	ProviderPixelfed       = "pixelfed"
+	ProviderPeerTube       = "peertube"
+	ProviderLemmy          = "lemmy"
+	ProviderPieFed         = "piefed"
+	ProviderPinterest      = "pinterest"
+	ProviderTelegram       = "telegram"
+	ProviderThreads        = "threads"
+	ProviderTikTok         = "tiktok"
+	ProviderX              = "x"
+	ProviderYouTube        = "youtube"
 
-	capabilityRevision   = "2026-09-12.1"
+	capabilityRevision   = "2026-09-26.1"
 	xMinVideoAspectRatio = "1:3"
 	xMaxVideoAspectRatio = "3:1"
 	blueskyImageMaxBytes = 2_000_000
@@ -77,6 +82,7 @@ type SettingConstraint struct {
 	Accept        []string `json:"accept,omitempty"`
 	UniqueItems   bool     `json:"unique_items,omitempty"`
 	LocalDateTime bool     `json:"local_date_time,omitempty"`
+	DateTime      bool     `json:"date_time,omitempty" doc:"Value must be an RFC 3339 timestamp with a timezone"`
 }
 
 type TextConstraint struct {
@@ -114,6 +120,7 @@ type SettingDefinition struct {
 	OutputProfiles     []string           `json:"output_profiles,omitempty"`
 	MediaShapes        []string           `json:"media_shapes,omitempty"`
 	Required           bool               `json:"required"`
+	PostOnly           bool               `json:"post_only,omitempty" doc:"Choose this setting on each post, never in reusable Social Set defaults"`
 	RequiredPolicy     string             `json:"required_policy,omitempty" enum:"never,always,when_available"`
 	Default            any                `json:"default,omitempty"`
 	Constraints        SettingConstraint  `json:"constraints,omitempty"`
@@ -132,6 +139,7 @@ type SettingDefinition struct {
 type SettingField = SettingDefinition
 
 type MediaConstraint struct {
+	MaxPixels              int64    `json:"max_pixels,omitempty" doc:"Maximum total decoded image pixels, width times height"`
 	VideoExclusive         bool     `json:"video_exclusive,omitempty" doc:"A video must be the only attachment in a segment"`
 	MinCount               int      `json:"min_count"`
 	MaxCount               int      `json:"max_count"`
@@ -146,6 +154,7 @@ type MediaConstraint struct {
 	MaxWidth               int      `json:"max_width,omitempty"`
 	MinHeight              int      `json:"min_height,omitempty"`
 	MaxHeight              int      `json:"max_height,omitempty"`
+	MaxShortSide           int      `json:"max_short_side,omitempty" doc:"Maximum image dimension on its shorter side"`
 	AllowedVideoCodecs     []string `json:"allowed_video_codecs,omitempty"`
 	AllowedAudioCodecs     []string `json:"allowed_audio_codecs,omitempty"`
 	MaxFrameRate           float64  `json:"max_frame_rate,omitempty"`
@@ -230,11 +239,13 @@ type ResolveContext string
 const ResolveContextSocialSetDefaults ResolveContext = "social_set_defaults"
 
 type ResolveSegment struct {
-	ID    string
-	Body  string
-	Title string
-	URL   string
-	Media []MediaItem
+	ID          string
+	Body        string
+	Title       string
+	URL         string
+	Media       []MediaItem
+	Settings    map[string]any
+	Description string
 }
 
 type ResolvedCapability struct {
@@ -280,7 +291,17 @@ func Profiles() []Profile {
 	}
 }
 
+// All returns the process-wide publishing capability catalog. The catalog is
+// built once and must be treated as immutable: do not assign to a returned
+// Capability's fields and do not mutate its nested slices or metadata. Resolve
+// and FindOutput copy the fields that callers modify.
 func All() []Capability {
+	return buildCatalogOnce()
+}
+
+var buildCatalogOnce = sync.OnceValue(buildCatalog)
+
+func buildCatalog() []Capability {
 	text := MediaConstraint{MinCount: 0, MaxCount: 0}
 	linkedinImage := MediaConstraint{MinCount: 1, MaxCount: 1, AllowedMIMEs: []string{"image/jpeg", "image/png", "image/gif"}}
 	feedImages := MediaConstraint{MinCount: 1, MaxCount: 10, AllowedMIMEs: []string{"image/jpeg", "image/png", "image/webp"}}
@@ -318,6 +339,7 @@ func All() []Capability {
 	}
 	publicStory := publicMedia
 	publicStory.MaxCount = 1
+	devnullImages := MediaConstraint{MinCount: 1, MaxCount: providerlimits.DevNullMaxImages, AllowedMIMEs: []string{"image/jpeg", "image/png", "image/webp"}, MaxSizeBytes: providerlimits.DevNullMaxImageBytes, MaxWidth: providerlimits.DevNullMaxImageDimension, MaxHeight: providerlimits.DevNullMaxImageDimension}
 	video := MediaConstraint{MinCount: 1, MaxCount: 1, AllowedMIMEs: []string{"video/mp4", "video/quicktime"}, MaxSizeBytes: 2 * 1024 * 1024 * 1024}
 	shortVideo := video
 	shortVideo.MaxDurationSeconds = 180
@@ -326,7 +348,7 @@ func All() []Capability {
 	xVideo := MediaConstraint{
 		MinCount: 1, MaxCount: 1, AllowedMIMEs: []string{"video/mp4"},
 		MinVideoAspectRatio: xMinVideoAspectRatio, MaxVideoAspectRatio: xMaxVideoAspectRatio,
-		MaxSizeBytes: 512 * 1024 * 1024, MaxDurationSeconds: 140,
+		MaxSizeBytes: providerlimits.XPostVideoMaxBytes, MaxDurationSeconds: providerlimits.XPostVideoMaxDurationSeconds,
 	}
 	mastodonVideo := MediaConstraint{MinCount: 1, MaxCount: 1, AllowedMIMEs: []string{"video/mp4", "video/quicktime", "video/webm"}, MaxSizeBytes: 99 * 1024 * 1024}
 	linkedinVideo := MediaConstraint{MinCount: 1, MaxCount: 1, AllowedMIMEs: []string{"video/mp4"}, MaxSizeBytes: 500 * 1024 * 1024, MaxDurationSeconds: 30 * 60}
@@ -342,6 +364,10 @@ func All() []Capability {
 	pinterestCarousel.MinCount = 2
 	pinterestCarousel.MaxCount = 5
 	pinterestVideo := MediaConstraint{MinCount: 1, MaxCount: 1, AllowedMIMEs: []string{"video/mp4"}, MaxSizeBytes: 2 * 1024 * 1024 * 1024, MaxDurationSeconds: 15 * 60}
+	googlebusinessPhoto := MediaConstraint{
+		MinCount: 1, MaxCount: 1, AllowedMIMEs: []string{"image/jpeg", "image/png"},
+		RequiresPublicURL: true, RequiresHTTPSFetchable: true,
+	}
 	telegramMedia := MediaConstraint{MinCount: 1, MaxCount: 10, AllowedMIMEs: []string{"image/jpeg", "image/png", "image/webp", "image/gif", "video/mp4", "video/quicktime", "application/pdf"}}
 	publicShortVideo := shortVideo
 	publicShortVideo.RequiresPublicURL = true
@@ -351,6 +377,7 @@ func All() []Capability {
 		MaxCount:               35,
 		AllowedMIMEs:           []string{"image/jpeg", "image/webp"},
 		MaxSizeBytes:           20 * 1024 * 1024,
+		MaxShortSide:           providerlimits.TikTokPhotoMaxShortSidePixels,
 		RequiresPublicURL:      true,
 		RequiresHTTPSFetchable: true,
 	}
@@ -363,8 +390,8 @@ func All() []Capability {
 		AllowedMIMEs:        []string{"image/jpeg", "image/png", "image/webp", "image/gif", "video/mp4", "video/quicktime"},
 		MinVideoAspectRatio: xMinVideoAspectRatio,
 		MaxVideoAspectRatio: xMaxVideoAspectRatio,
-		MaxSizeBytes:        512 * 1024 * 1024,
-		MaxDurationSeconds:  140,
+		MaxSizeBytes:        providerlimits.XPostVideoMaxBytes,
+		MaxDurationSeconds:  providerlimits.XPostVideoMaxDurationSeconds,
 	}
 
 	defaultQueued := func(c Capability) Capability {
@@ -373,7 +400,12 @@ func All() []Capability {
 			c.OutputProfile = outputProfileFor(c.Provider, c.Profile, c.Media)
 		}
 		c.Intents = intentsFor(c.Profile)
-		c.MediaShapes = mediaShapesFor(c.Profile, c.Media)
+		if len(c.MediaShapes) == 0 {
+			c.MediaShapes = mediaShapesFor(c.Profile, c.Media)
+		}
+		if textcards.Supported(c.Provider, "") {
+			c.Settings = append(c.Settings, TextCardSettings()...)
+		}
 		c.Settings = normalizeSettingDefinitions(c)
 		c.ValidationCategories = validationCategories(c)
 		c.CapabilityRevision = capabilityRevision
@@ -382,7 +414,7 @@ func All() []Capability {
 
 	return []Capability{
 		defaultQueued(Capability{Provider: ProviderX, Profile: models.ContentProfileShortText, Label: "X post", TextLimit: 25_000, Media: text, Settings: xSettings(), Caveats: []string{"Text limits are reduced unless the connected account reports an active X subscription."}}),
-		defaultQueued(Capability{Provider: ProviderX, Profile: models.ContentProfileThread, Label: "X thread", TextLimit: 25_000, Media: xThreadMedia, Settings: xSettings(), Caveats: []string{"Text and video limits are reduced unless the connected account reports an active X subscription."}}),
+		defaultQueued(Capability{Provider: ProviderX, Profile: models.ContentProfileThread, Label: "X thread", TextLimit: 25_000, Media: xThreadMedia, Settings: optionalLinkSettings(xSettings()), Caveats: []string{"Text and video limits are reduced unless the connected account reports an active X subscription."}}),
 		defaultQueued(Capability{Provider: ProviderX, Profile: models.ContentProfileLinkShare, Label: "X link", TextLimit: 25_000, Media: text, Settings: append(linkSettings(), xSettings()...), Caveats: []string{"Text limits are reduced unless the connected account reports an active X subscription."}}),
 		defaultQueued(Capability{Provider: ProviderX, Profile: models.ContentProfileImagePost, Label: "X image post", TextLimit: 25_000, Media: MediaConstraint{MinCount: 1, MaxCount: 4, AllowedMIMEs: []string{"image/jpeg", "image/png", "image/webp", "image/gif"}}, Settings: xSettings(), Caveats: []string{"Text limits are reduced unless the connected account reports an active X subscription."}}),
 		defaultQueued(Capability{Provider: ProviderX, Profile: models.ContentProfileShortVideo, Label: "X video", TextLimit: 25_000, Media: xVideo, Settings: xSettings(), Caveats: []string{"Text and video limits are reduced unless the connected account reports an active X subscription."}}),
@@ -394,15 +426,20 @@ func All() []Capability {
 		defaultQueued(Capability{Provider: ProviderBluesky, Profile: models.ContentProfileImagePost, Label: "Bluesky images", TextLimit: 300, Media: MediaConstraint{MinCount: 1, MaxCount: 4, AllowedMIMEs: []string{"image/jpeg", "image/png", "image/webp"}, MaxImageSizeBytes: blueskyImageMaxBytes}, Settings: blueskySettings()}),
 		defaultQueued(Capability{Provider: ProviderBluesky, Profile: models.ContentProfileShortVideo, Label: "Bluesky video", TextLimit: 300, Media: blueskyVideo, Settings: blueskySettings()}),
 
+		defaultQueued(Capability{Provider: ProviderDevNull, Profile: models.ContentProfileShortText, Label: "dev/null commit", TextLimit: providerlimits.DevNullMaxBodyBytes, Media: text, Settings: devnullSettings()}),
+		defaultQueued(Capability{Provider: ProviderDevNull, Profile: models.ContentProfileThread, Label: "dev/null thread", TextLimit: providerlimits.DevNullMaxBodyBytes, Media: text, Settings: devnullSettings()}),
+		defaultQueued(Capability{Provider: ProviderDevNull, Profile: models.ContentProfileLinkShare, Label: "dev/null link", TextLimit: providerlimits.DevNullMaxBodyBytes, Media: text, Settings: devnullSettings()}),
+		defaultQueued(Capability{Provider: ProviderDevNull, Profile: models.ContentProfileImagePost, Label: "dev/null images", TextLimit: providerlimits.DevNullMaxBodyBytes, Media: devnullImages, Settings: devnullSettings()}),
+
 		defaultQueued(Capability{Provider: ProviderMastodon, Profile: models.ContentProfileShortText, Label: "Mastodon post", TextLimit: 500, Media: text, Settings: mastodonSettings()}),
-		defaultQueued(Capability{Provider: ProviderMastodon, Profile: models.ContentProfileThread, Label: "Mastodon thread", TextLimit: 500, Media: MediaConstraint{MinCount: 0, MaxCount: 4, AllowedMIMEs: []string{"image/jpeg", "image/png", "image/webp", "image/gif", "video/mp4"}}, Settings: mastodonSettings()}),
+		defaultQueued(Capability{Provider: ProviderMastodon, Profile: models.ContentProfileThread, Label: "Mastodon thread", TextLimit: 500, Media: MediaConstraint{MinCount: 0, MaxCount: 4, AllowedMIMEs: []string{"image/jpeg", "image/png", "image/webp", "image/gif", "video/mp4"}}, Settings: optionalLinkSettings(mastodonSettings())}),
 		defaultQueued(Capability{Provider: ProviderMastodon, Profile: models.ContentProfileLinkShare, Label: "Mastodon link", TextLimit: 500, Media: text, Settings: append(linkSettings(), mastodonSettings()...)}),
 		defaultQueued(Capability{Provider: ProviderMastodon, Profile: models.ContentProfileImagePost, Label: "Mastodon media", TextLimit: 500, Media: MediaConstraint{MinCount: 1, MaxCount: 4, AllowedMIMEs: []string{"image/jpeg", "image/png", "image/webp", "image/gif", "video/mp4"}}, Settings: mastodonSettings()}),
 		defaultQueued(Capability{Provider: ProviderMastodon, Profile: models.ContentProfileShortVideo, Label: "Mastodon video", TextLimit: 500, Media: mastodonVideo, Settings: mastodonSettings()}),
 		defaultQueued(Capability{Provider: ProviderMastodon, Profile: models.ContentProfileLongVideo, Label: "Mastodon video", TextLimit: 500, Media: mastodonVideo, Settings: mastodonSettings()}),
 
 		defaultQueued(Capability{Provider: ProviderPixelfed, Profile: models.ContentProfileShortText, Label: "Pixelfed post", TextLimit: 500, Media: text, Settings: pixelfedSettings()}),
-		defaultQueued(Capability{Provider: ProviderPixelfed, Profile: models.ContentProfileThread, Label: "Pixelfed thread", TextLimit: 500, Media: MediaConstraint{MinCount: 0, MaxCount: 4, AllowedMIMEs: []string{"image/jpeg", "image/png", "image/webp", "image/gif"}}, Settings: pixelfedSettings()}),
+		defaultQueued(Capability{Provider: ProviderPixelfed, Profile: models.ContentProfileThread, Label: "Pixelfed thread", TextLimit: 500, Media: MediaConstraint{MinCount: 0, MaxCount: 4, AllowedMIMEs: []string{"image/jpeg", "image/png", "image/webp", "image/gif"}}, Settings: optionalLinkSettings(pixelfedSettings())}),
 		defaultQueued(Capability{Provider: ProviderPixelfed, Profile: models.ContentProfileLinkShare, Label: "Pixelfed link", TextLimit: 500, Media: text, Settings: append(linkSettings(), pixelfedSettings()...)}),
 		defaultQueued(Capability{Provider: ProviderPixelfed, Profile: models.ContentProfileImagePost, Label: "Pixelfed photo", TextLimit: 500, Media: MediaConstraint{MinCount: 1, MaxCount: 4, AllowedMIMEs: []string{"image/jpeg", "image/png", "image/webp"}}, Settings: pixelfedSettings()}),
 		defaultQueued(Capability{Provider: ProviderPixelfed, Profile: models.ContentProfileCarousel, Label: "Pixelfed album", TextLimit: 500, Media: MediaConstraint{MinCount: 2, MaxCount: 4, AllowedMIMEs: []string{"image/jpeg", "image/png", "image/webp"}}, Settings: pixelfedSettings()}),
@@ -418,14 +455,14 @@ func All() []Capability {
 		defaultQueued(Capability{Provider: ProviderPieFed, Profile: models.ContentProfileImagePost, Label: "PieFed image", TextLimit: 50000, TitleRequired: true, Media: MediaConstraint{MinCount: 1, MaxCount: 1, AllowedMIMEs: []string{"image/jpeg", "image/png", "image/webp", "image/gif"}}, Settings: piefedSettings()}),
 
 		defaultQueued(Capability{Provider: ProviderThreads, Profile: models.ContentProfileShortText, Label: "Threads post", TextLimit: 500, Media: text, Settings: threadsSettings()}),
-		defaultQueued(Capability{Provider: ProviderThreads, Profile: models.ContentProfileThread, Label: "Threads thread", TextLimit: 500, Media: threadsThreadMedia, RequiresPublicMedia: true, Settings: threadsSettings()}),
+		defaultQueued(Capability{Provider: ProviderThreads, Profile: models.ContentProfileThread, Label: "Threads thread", TextLimit: 500, Media: threadsThreadMedia, RequiresPublicMedia: true, Settings: optionalLinkSettings(threadsSettings())}),
 		defaultQueued(Capability{Provider: ProviderThreads, Profile: models.ContentProfileLinkShare, Label: "Threads link", TextLimit: 500, Media: text, Settings: append(linkSettings(), threadsSettings()...)}),
 		defaultQueued(Capability{Provider: ProviderThreads, Profile: models.ContentProfileImagePost, Label: "Threads media", TextLimit: 500, Media: publicImage, RequiresPublicMedia: true, Settings: threadsSettings()}),
 		defaultQueued(Capability{Provider: ProviderThreads, Profile: models.ContentProfileCarousel, Label: "Threads carousel", TextLimit: 500, Media: threadsCarousel, RequiresPublicMedia: true, Settings: threadsSettings()}),
 		defaultQueued(Capability{Provider: ProviderThreads, Profile: models.ContentProfileShortVideo, Label: "Threads video", TextLimit: 500, Media: publicShortVideo, RequiresPublicMedia: true, Settings: threadsSettings()}),
 
-		defaultQueued(Capability{Provider: ProviderLinkedIn, Profile: models.ContentProfileShortText, Label: "LinkedIn post", TextLimit: 3000, Media: text, Settings: linkedinSettings()}),
-		defaultQueued(Capability{Provider: ProviderLinkedIn, Profile: models.ContentProfileThread, Label: "LinkedIn root plus comments", TextLimit: 1250, Media: text, Settings: linkedinSettings()}),
+		defaultQueued(Capability{Provider: ProviderLinkedIn, Profile: models.ContentProfileShortText, Label: "LinkedIn post", TextLimit: 3000, Media: text, MediaShapes: []string{MediaShapeText, MediaShapeLink}, Settings: optionalLinkSettings(linkedinSettings())}),
+		defaultQueued(Capability{Provider: ProviderLinkedIn, Profile: models.ContentProfileThread, Label: "LinkedIn root plus comments", TextLimit: 1250, Media: text, MediaShapes: []string{MediaShapeText, MediaShapeLink}, Settings: optionalLinkSettings(linkedinSettings())}),
 		defaultQueued(Capability{Provider: ProviderLinkedIn, Profile: models.ContentProfileLinkShare, Label: "LinkedIn article", TextLimit: 3000, Media: text, Settings: append(linkSettings(), linkedinSettings()...)}),
 		defaultQueued(Capability{Provider: ProviderLinkedIn, Profile: models.ContentProfileImagePost, Label: "LinkedIn image", TextLimit: 3000, Media: linkedinImage, Settings: linkedinSettings()}),
 		defaultQueued(Capability{Provider: ProviderLinkedIn, Profile: models.ContentProfileCarousel, Label: "LinkedIn document", TextLimit: 3000, Media: document, Settings: append([]SettingField{{Key: "document_title", Label: "Document title", Type: "text", Required: true}}, linkedinSettings()...)}),
@@ -441,13 +478,13 @@ func All() []Capability {
 		defaultQueued(Capability{Provider: ProviderFacebook, Profile: models.ContentProfileShortVideo, Label: "Facebook Reel/video", TextLimit: 63206, Media: publicShortVideo, RequiresPublicMedia: true, Settings: facebookSettings()}),
 		defaultQueued(Capability{Provider: ProviderFacebook, Profile: models.ContentProfileLongVideo, Label: "Facebook video", TextLimit: 63206, Media: longVideo, RequiresPublicMedia: true, Settings: facebookSettings()}),
 
-		defaultQueued(Capability{Provider: ProviderInstagram, Profile: models.ContentProfileImagePost, Label: "Instagram feed", TextLimit: 2200, Media: publicImage, RequiresPublicMedia: true, Settings: instagramSettings()}),
-		defaultQueued(Capability{Provider: ProviderInstagram, Profile: models.ContentProfileCarousel, Label: "Instagram carousel", TextLimit: 2200, Media: publicMediaCarousel, RequiresPublicMedia: true, Settings: instagramSettings()}),
-		defaultQueued(Capability{Provider: ProviderInstagram, Profile: models.ContentProfileStory, Label: "Instagram Story", Media: publicStory, RequiresPublicMedia: true, RequiresAppReview: true, Settings: instagramSettings()}),
-		defaultQueued(Capability{Provider: ProviderInstagram, Profile: models.ContentProfileShortVideo, Label: "Instagram Reel", TextLimit: 2200, Media: publicShortVideo, RequiresPublicMedia: true, Settings: instagramSettings()}),
+		defaultQueued(Capability{Provider: ProviderInstagram, Profile: models.ContentProfileImagePost, Label: "Instagram feed", TextLimit: 2200, Media: publicImage, RequiresPublicMedia: true, Settings: instagramSettings(models.ContentProfileImagePost), Content: instagramAltTextConstraint()}),
+		defaultQueued(Capability{Provider: ProviderInstagram, Profile: models.ContentProfileCarousel, Label: "Instagram carousel", TextLimit: 2200, Media: publicMediaCarousel, RequiresPublicMedia: true, Settings: instagramSettings(models.ContentProfileCarousel), Content: instagramAltTextConstraint()}),
+		defaultQueued(Capability{Provider: ProviderInstagram, Profile: models.ContentProfileStory, Label: "Instagram Story", Media: publicStory, RequiresPublicMedia: true, RequiresAppReview: true, Settings: instagramSettings(models.ContentProfileStory)}),
+		defaultQueued(Capability{Provider: ProviderInstagram, Profile: models.ContentProfileShortVideo, Label: "Instagram Reel", TextLimit: 2200, Media: publicShortVideo, RequiresPublicMedia: true, Settings: instagramSettings(models.ContentProfileShortVideo)}),
 
-		defaultQueued(Capability{Provider: ProviderYouTube, Profile: models.ContentProfileShortVideo, Label: "YouTube Short", TextLimit: 5000, TitleRequired: true, DescriptionRequired: false, Media: shortVideo, Settings: youtubeSettings(), Caveats: []string{"Unaudited Google projects can force uploads private."}}),
-		defaultQueued(Capability{Provider: ProviderYouTube, Profile: models.ContentProfileLongVideo, Label: "YouTube video", TextLimit: 5000, TitleRequired: true, DescriptionRequired: false, Media: longVideo, Settings: youtubeSettings(), Caveats: []string{"Unaudited Google projects can force uploads private."}}),
+		defaultQueued(Capability{Provider: ProviderYouTube, Profile: models.ContentProfileShortVideo, Label: "YouTube Short", TextLimit: providerlimits.YouTubeDescriptionMaxBytes, TitleRequired: true, DescriptionRequired: false, Media: shortVideo, Settings: youtubeSettings(), Caveats: []string{"Unaudited Google projects can force uploads private."}}),
+		defaultQueued(Capability{Provider: ProviderYouTube, Profile: models.ContentProfileLongVideo, Label: "YouTube video", TextLimit: providerlimits.YouTubeDescriptionMaxBytes, TitleRequired: true, DescriptionRequired: false, Media: longVideo, Settings: youtubeSettings(), Caveats: []string{"Unaudited Google projects can force uploads private."}}),
 
 		defaultQueued(Capability{Provider: ProviderTikTok, Profile: models.ContentProfileShortVideo, Label: "TikTok video", TextLimit: 2200, Media: tiktokVideo, RequiresPublicMedia: true, RequiresAppReview: true, Settings: tiktokSettings()}),
 		defaultQueued(Capability{Provider: ProviderTikTok, Profile: models.ContentProfileCarousel, Label: "TikTok photo post", TextLimit: 4000, Media: tiktokPhotos, RequiresPublicMedia: true, RequiresAppReview: true, Settings: tiktokSettings()}),
@@ -455,6 +492,9 @@ func All() []Capability {
 		defaultQueued(Capability{Provider: ProviderPinterest, Profile: models.ContentProfileImagePost, Label: "Pinterest Pin", TextLimit: 800, Media: pinterestImage, RequiresPublicMedia: true, Settings: pinterestSettings(), RequiresAppReview: true, UnavailableReason: "Pinterest delivery is not enabled until provider access and certification are complete."}),
 		defaultQueued(Capability{Provider: ProviderPinterest, Profile: models.ContentProfileCarousel, Label: "Pinterest multi-image Pin", TextLimit: 800, Media: pinterestCarousel, RequiresPublicMedia: true, Settings: pinterestSettings(), RequiresAppReview: true, UnavailableReason: "Pinterest delivery is not enabled until provider access and certification are complete."}),
 		defaultQueued(Capability{Provider: ProviderPinterest, Profile: models.ContentProfileShortVideo, Label: "Pinterest video Pin", TextLimit: 800, Media: pinterestVideo, Settings: pinterestSettings(), RequiresAppReview: true, UnavailableReason: "Pinterest delivery is not enabled until provider access and certification are complete."}),
+
+		defaultQueued(Capability{Provider: ProviderGoogleBusiness, Profile: models.ContentProfileShortText, Label: "Google Business update", TextLimit: 1500, Media: text, Settings: googlebusinessSettings(), RequiresAppReview: true, UnavailableReason: "Google Business delivery is not enabled until Google API access and live certification are complete."}),
+		defaultQueued(Capability{Provider: ProviderGoogleBusiness, Profile: models.ContentProfileImagePost, Label: "Google Business photo update", TextLimit: 1500, Media: googlebusinessPhoto, RequiresPublicMedia: true, Settings: googlebusinessSettings(), RequiresAppReview: true, UnavailableReason: "Google Business delivery is not enabled until Google API access and live certification are complete."}),
 
 		defaultQueued(Capability{Provider: ProviderTelegram, Profile: models.ContentProfileShortText, Label: "Telegram message", TextLimit: 4096, Media: text, Settings: telegramSettings()}),
 		defaultQueued(Capability{Provider: ProviderTelegram, Profile: models.ContentProfileImagePost, Label: "Telegram media", TextLimit: 1024, Media: telegramMedia, Settings: telegramSettings()}),
@@ -599,7 +639,7 @@ func normalizeSettingDefinitions(capability Capability) []SettingDefinition {
 		out = append(out, definition)
 	}
 	if altShapes := altTextMediaShapes(capability); len(altShapes) > 0 {
-		out = append(out, SettingDefinition{
+		definition := SettingDefinition{
 			Key:            "alt_text",
 			MessageKey:     "publishing.setting.alt.text",
 			Label:          "Alt text",
@@ -611,9 +651,24 @@ func normalizeSettingDefinitions(capability Capability) []SettingDefinition {
 			OutputProfiles: []string{capability.OutputProfile},
 			MediaShapes:    altShapes,
 			RequiredPolicy: "never",
-		})
+		}
+		if capability.Provider == ProviderInstagram {
+			// Meta accepts alt_text on image containers only, up to
+			// InstagramAltTextMaxCharacters; Reels and Stories are not
+			// supported.
+			definition.Constraints = SettingConstraint{MaxLength: providerlimits.InstagramAltTextMaxCharacters}
+			definition.Help = fmt.Sprintf("Instagram accepts alt text up to %d characters.", providerlimits.InstagramAltTextMaxCharacters)
+		}
+		out = append(out, definition)
 	}
 	return out
+}
+
+// instagramAltTextConstraint declares the alt_text maximum Meta documents for
+// image containers on the feed and carousel profiles. Reels and Stories never
+// receive alt text, and validateMediaItem skips non-image items there.
+func instagramAltTextConstraint() ContentConstraint {
+	return ContentConstraint{AltText: TextConstraint{MaxLength: providerlimits.InstagramAltTextMaxCharacters}}
 }
 
 func altTextMediaShapes(capability Capability) []string {
@@ -663,7 +718,7 @@ func settingGroup(key string) string {
 	case "thumbnail_media_id", "cover_media_id", "thumbnail_timestamp_ms", "cover_timestamp_ms",
 		"caption_media_id", "collaborators", "user_tags", "product_tags", "location_id":
 		return "media_accessibility"
-	case "privacy", "privacy_level", "playlist_id", "category_id", "notify_subscribers",
+	case "privacy", "privacy_level", "playlist_id", "category_id", "notify_subscribers", "publish_at",
 		"content_posting_method", "community_id", "topic_tag", "text_format_preset_id":
 		return "distribution"
 	default:
@@ -701,6 +756,9 @@ func Resolve(provider string, input ResolveInput) ResolvedCapability {
 func ResolveCatalog(provider string, catalog []Capability, input ResolveInput) ResolvedCapability {
 	provider = strings.ToLower(strings.TrimSpace(provider))
 	preset := normalizeIntent(firstNonEmptyCapability(input.CreationPreset, input.Intent))
+	var textCardApplied bool
+	var textCardIssues []ValidationIssue
+	input.Segments, textCardApplied, textCardIssues = resolveInputTextCards(provider, preset, input)
 	inputShape := resolveMediaShape(input.Segments, input.SourceURL)
 	shape := intendedMediaShape(preset, inputShape)
 	if input.Context == ResolveContextSocialSetDefaults && input.RequestedOutputProfile != "" {
@@ -714,10 +772,13 @@ func ResolveCatalog(provider string, catalog []Capability, input ResolveInput) R
 			inputShape = shape
 		}
 	}
-	issues := []ValidationIssue{}
+	issues := append([]ValidationIssue{}, textCardIssues...)
 	selected := selectDestinationCapability(catalog, provider, input, shape, preset)
 	availableFormats := destinationFormats(catalog, provider, input, shape, preset)
 	formatSelectionRequired := destinationFormatSelectionRequired(catalog, provider, input, shape)
+	if textCardApplied {
+		formatSelectionRequired = false
+	}
 	if selected == nil {
 		message := fmt.Sprintf("%s does not expose a publishing format", provider)
 		issues = append(issues, validationIssue("unsupported_destination", message, provider, "", "output_profile"))
@@ -745,9 +806,14 @@ func ResolveCatalog(provider string, catalog []Capability, input ResolveInput) R
 		message := fmt.Sprintf("Choose how this content should be published on %s", providerDisplayName(provider))
 		issues = append(issues, validationIssue("format_selection_required", message, provider, selected.Profile, "output_profile"))
 	}
+	segmentStrategy := destinationSegmentStrategy(*selected, len(input.Segments))
+	if textCardApplied {
+		segmentStrategy = "join"
+	}
+	effectiveSegments := destinationSegments(input.Segments, segmentStrategy)
 	activeSettings := make([]SettingDefinition, 0, len(selected.Settings))
 	for _, setting := range selected.Settings {
-		if settingApplies(setting, intent, selected.OutputProfile, shape) {
+		if resolvedSettingApplies(setting, intent, selected.OutputProfile, shape, input, effectiveSegments) {
 			activeSettings = append(activeSettings, setting)
 		}
 	}
@@ -755,16 +821,15 @@ func ResolveCatalog(provider string, catalog []Capability, input ResolveInput) R
 		activeSettings = commonDefaultSettings(catalog, provider, selected.OutputProfile, activeSettings)
 	}
 	selected.Settings = activeSettings
-	segmentStrategy := destinationSegmentStrategy(*selected, len(input.Segments))
-	effectiveSegments := destinationSegments(input.Segments, segmentStrategy)
+	effectiveSettings := NormalizeResolvedSettings(provider, selected.Profile, input.Settings)
 	for _, segment := range effectiveSegments {
 		segmentIssues := validateCapability(
 			*selected,
 			segment.Body,
 			segment.Title,
-			"",
+			segment.Description,
 			segment.Media,
-			input.Settings,
+			mergeSegmentSettings(effectiveSettings, segment.Settings),
 		)
 		for index := range segmentIssues {
 			segmentIssues[index].SegmentID = segment.ID
@@ -794,8 +859,28 @@ func ResolveCatalog(provider string, catalog []Capability, input ResolveInput) R
 	}
 }
 
+func resolvedSettingApplies(setting SettingDefinition, intent, outputProfile, shape string, input ResolveInput, segments []ResolveSegment) bool {
+	if setting.Scope != SettingScopeSegment || input.Context == ResolveContextSocialSetDefaults || len(segments) == 0 {
+		return settingApplies(setting, intent, outputProfile, shape)
+	}
+	// Preserved posts own their media independently. Joined destinations have
+	// one effective segment, so its combined media still determines eligibility.
+	preset := normalizeIntent(firstNonEmptyCapability(input.CreationPreset, input.Intent))
+	for _, segment := range segments {
+		if settingApplies(setting, intent, outputProfile, intendedMediaShape(preset, resolveMediaShape([]ResolveSegment{segment}, input.SourceURL))) {
+			return true
+		}
+	}
+	return false
+}
+
 func commonDefaultSettings(catalog []Capability, provider, outputProfile string, selected []SettingDefinition) []SettingDefinition {
-	common := append([]SettingDefinition(nil), selected...)
+	common := make([]SettingDefinition, 0, len(selected))
+	for _, field := range selected {
+		if !field.PostOnly {
+			common = append(common, field)
+		}
+	}
 	for _, candidate := range catalog {
 		if candidate.Provider != provider || candidate.OutputProfile != outputProfile {
 			continue
@@ -858,22 +943,24 @@ func sameDefaultSetting(left, right SettingDefinition) bool {
 }
 
 var providerDisplayNames = map[string]string{
-	ProviderX:         "X",
-	ProviderLinkedIn:  "LinkedIn",
-	ProviderTikTok:    "TikTok",
-	ProviderYouTube:   "YouTube",
-	ProviderFacebook:  "Facebook",
-	ProviderInstagram: "Instagram",
-	ProviderMastodon:  "Mastodon",
-	ProviderPixelfed:  "Pixelfed",
-	ProviderPeerTube:  "PeerTube",
-	ProviderLemmy:     "Lemmy",
-	ProviderPieFed:    "PieFed",
-	ProviderPinterest: "Pinterest",
-	ProviderTelegram:  "Telegram",
-	ProviderBluesky:   "Bluesky",
-	ProviderThreads:   "Threads",
-	ProviderDiscord:   "Discord",
+	ProviderX:              "X",
+	ProviderLinkedIn:       "LinkedIn",
+	ProviderTikTok:         "TikTok",
+	ProviderYouTube:        "YouTube",
+	ProviderFacebook:       "Facebook",
+	ProviderGoogleBusiness: "Google Business",
+	ProviderInstagram:      "Instagram",
+	ProviderMastodon:       "Mastodon",
+	ProviderPixelfed:       "Pixelfed",
+	ProviderPeerTube:       "PeerTube",
+	ProviderLemmy:          "Lemmy",
+	ProviderPieFed:         "PieFed",
+	ProviderPinterest:      "Pinterest",
+	ProviderTelegram:       "Telegram",
+	ProviderBluesky:        "Bluesky",
+	ProviderDevNull:        "dev/null",
+	ProviderThreads:        "Threads",
+	ProviderDiscord:        "Discord",
 }
 
 func providerDisplayName(provider string) string {
@@ -1107,7 +1194,7 @@ func destinationSegments(segments []ResolveSegment, strategy string) []ResolveSe
 	if strategy != "join" || len(segments) < 2 {
 		return segments
 	}
-	joined := ResolveSegment{ID: segments[0].ID, Title: segments[0].Title, URL: segments[0].URL}
+	joined := ResolveSegment{ID: segments[0].ID, Title: segments[0].Title, URL: segments[0].URL, Description: segments[0].Description, Settings: segments[0].Settings}
 	bodies := make([]string, 0, len(segments))
 	for _, segment := range segments {
 		if body := strings.TrimSpace(segment.Body); body != "" {
@@ -1139,6 +1226,9 @@ func ApplyAccountConstraints(resolved *ResolvedCapability, input AccountConstrai
 		return
 	}
 	applyResolvedConstraintValues(resolved, input.Constraints)
+	if projected, applied, _ := projectTextCards(resolved.Provider, resolved.OutputProfile, input.Segments, input.Settings); applied {
+		input.Segments = projected
+	}
 
 	issues := make([]ValidationIssue, 0, len(resolved.Issues))
 	for _, issue := range resolved.Issues {
@@ -1154,6 +1244,12 @@ func ApplyAccountConstraints(resolved *ResolvedCapability, input AccountConstrai
 }
 
 func applyResolvedConstraintValues(resolved *ResolvedCapability, constraints map[string]any) {
+	if value, ok := constraintInt64(constraints["max_image_size_bytes"]); ok && value > 0 {
+		resolved.Media.MaxImageSizeBytes = value
+	}
+	if value, ok := constraintInt64(constraints["max_image_pixels"]); ok && value > 0 {
+		resolved.Media.MaxPixels = value
+	}
 	if value, ok := constraintInt(constraints["text_limit"]); ok && value > 0 {
 		resolved.TextLimit = value
 	}
@@ -1194,9 +1290,9 @@ func validateAccountConstraintSegment(resolved ResolvedCapability, segment Resol
 		resolved.Capability,
 		segment.Body,
 		segment.Title,
-		"",
+		segment.Description,
 		segment.Media,
-		settings,
+		mergeSegmentSettings(settings, segment.Settings),
 	)
 	for index := range segmentIssues {
 		segmentIssues[index].SegmentID = segment.ID
@@ -1430,8 +1526,74 @@ func Validate(provider, profile, body, title, description string, media []MediaI
 	return validateCapability(capability, body, title, description, media, settings)
 }
 
+// NormalizeMediaTextLinkSettings removes native link fields that cannot be
+// combined with media on providers that accept a URL in post text instead.
+// It also keeps existing publications with stale settings publishable.
+func NormalizeMediaTextLinkSettings(provider string, mediaCount int, settings map[string]any) map[string]any {
+	if mediaCount == 0 || len(settings) == 0 {
+		return settings
+	}
+	switch strings.ToLower(strings.TrimSpace(provider)) {
+	case ProviderX, ProviderThreads, ProviderMastodon, ProviderPixelfed, ProviderLinkedIn, ProviderFacebook, ProviderInstagram:
+		if _, hasURL := settings["url"]; !hasURL {
+			if _, hasLinkURL := settings["link_url"]; !hasLinkURL {
+				return settings
+			}
+		}
+		normalized := make(map[string]any, len(settings))
+		for key, value := range settings {
+			normalized[key] = value
+		}
+		delete(normalized, "url")
+		delete(normalized, "link_url")
+		return normalized
+	default:
+		return settings
+	}
+}
+
+// NormalizeResolvedSettings keeps stale native link fields from a previous
+// destination format from failing capability resolution. Native link fields
+// are valid for the explicit link-share format only on providers that expose
+// them there.
+func NormalizeResolvedSettings(provider, profile string, settings map[string]any) map[string]any {
+	if len(settings) == 0 || profile == models.ContentProfileLinkShare {
+		return settings
+	}
+	switch strings.ToLower(strings.TrimSpace(provider)) {
+	case ProviderX, ProviderThreads, ProviderMastodon, ProviderPixelfed, ProviderLinkedIn, ProviderFacebook, ProviderInstagram:
+		var normalized map[string]any
+		for _, key := range []string{"url", "link_url", "link_title", "link_description"} {
+			if _, ok := settings[key]; !ok {
+				continue
+			}
+			if normalized == nil {
+				normalized = make(map[string]any, len(settings))
+				for existingKey, value := range settings {
+					normalized[existingKey] = value
+				}
+			}
+			delete(normalized, key)
+		}
+		if normalized != nil {
+			return normalized
+		}
+	}
+	return settings
+}
+
 func ValidateOutput(provider, outputProfile, fallbackProfile, body, title, description string, media []MediaItem, settings map[string]any) []ValidationIssue {
-	shape := resolveMediaShape([]ResolveSegment{{Media: media}}, "")
+	if textcards.Supported(provider, outputProfile) {
+		style, err := textcards.Parse(settings)
+		if err == nil && style.Applies(provider, outputProfile, body, len(media)) {
+			err = textcards.ValidateText(body)
+		}
+		if err != nil {
+			return []ValidationIssue{validationIssue("text_card_invalid", err.Error(), provider, fallbackProfile, "text_card")}
+		}
+	}
+	shape := resolveMediaShape([]ResolveSegment{{Media: media}}, settingsValue(settings, "url"))
+	settings = NormalizeMediaTextLinkSettings(provider, len(media), settings)
 	if capability, ok := findOutputForValidation(provider, outputProfile, fallbackProfile, shape); ok {
 		intent := ""
 		if len(capability.Intents) > 0 {
@@ -1524,12 +1686,30 @@ func findOutputForValidation(provider, outputProfile, fallbackProfile, shape str
 	return Capability{}, false
 }
 
-//nolint:gocyclo
-func validateCapability(capability Capability, body, title, description string, media []MediaItem, settings map[string]any) []ValidationIssue {
+// ValidateTextContent applies native content limits without requiring media or
+// provider settings that the author will choose when completing the draft.
+func ValidateTextContent(capability Capability, body, title, description string, settings map[string]any) []ValidationIssue {
 	provider := capability.Provider
 	profile := capability.Profile
+	authoredDescription := description
+	title = firstNonEmptyCapability(settingsValue(settings, "title"), title)
+	description = firstNonEmptyCapability(description, settingsValue(settings, "description"))
 	issues := []ValidationIssue{}
-	if capability.TextLimit > 0 && TextLength(provider, body) > capability.TextLimit {
+	if provider == ProviderYouTube {
+		if err := providerlimits.ValidateYouTubeTitleCharacters(title); err != nil {
+			issues = append(issues, ValidationIssue{Severity: "error", Code: "title_invalid", Message: err.Error(), Provider: provider, Profile: profile, Field: "title"})
+		}
+		value, field := body, "body"
+		if setting := settingsValue(settings, "description"); setting != "" {
+			value, field = setting, "settings.description"
+		}
+		if strings.TrimSpace(authoredDescription) != "" {
+			value, field = authoredDescription, "description"
+		}
+		if err := providerlimits.ValidateYouTubeDescription(value); err != nil {
+			issues = append(issues, ValidationIssue{Severity: "error", Code: "description_invalid", Message: err.Error(), Provider: provider, Profile: profile, Field: field})
+		}
+	} else if capability.TextLimit > 0 && TextLength(provider, body) > capability.TextLimit {
 		issues = append(issues, ValidationIssue{Severity: "error", Code: "text_too_long", Message: fmt.Sprintf("Text is over the %d character limit", capability.TextLimit), Provider: provider, Profile: profile, Field: "body"})
 	}
 	if capability.TitleRequired && strings.TrimSpace(title) == "" {
@@ -1541,6 +1721,44 @@ func validateCapability(capability Capability, body, title, description string, 
 	issues = append(issues, validateTextConstraint(capability, "body", body, capability.Content.Body)...)
 	issues = append(issues, validateTextConstraint(capability, "title", title, capability.Content.Title)...)
 	issues = append(issues, validateTextConstraint(capability, "description", description, capability.Content.Description)...)
+	return append(issues, validateTitleDescriptionSettings(capability, title, description)...)
+}
+
+func validateTitleDescriptionSettings(capability Capability, title, description string) []ValidationIssue {
+	issues := []ValidationIssue{}
+	for _, field := range capability.Settings {
+		var value string
+		var requiredByContent bool
+		switch field.Key {
+		case "title":
+			value = title
+			requiredByContent = capability.TitleRequired
+		case "description":
+			value = description
+			requiredByContent = capability.DescriptionRequired
+		default:
+			continue
+		}
+		if value == "" {
+			if field.Required && !requiredByContent {
+				issues = append(issues, settingValidationIssue(capability, field, "setting_required", fmt.Sprintf("%s is required", field.Label)))
+			}
+			continue
+		}
+		// Validate the effective authored text, rather than rereading a missing
+		// setting when the value came from a canonical title or description.
+		field.Dependencies, field.Conflicts = nil, nil
+		issues = append(issues, validateSettingDefinition(capability, field, map[string]any{field.Key: value}, 0)...)
+	}
+	return issues
+}
+
+//nolint:gocyclo
+func validateCapability(capability Capability, body, title, description string, media []MediaItem, settings map[string]any) []ValidationIssue {
+	provider := capability.Provider
+	profile := capability.Profile
+	issues := ValidateAttachmentRequirement(provider, profile, media, settings)
+	issues = append(issues, ValidateTextContent(capability, body, title, description, settings)...)
 	if len(media) < capability.Media.MinCount {
 		issues = append(issues, ValidationIssue{
 			Severity: "error",
@@ -1573,13 +1791,10 @@ func validateCapability(capability Capability, body, title, description string, 
 	}
 	issues = append(issues, validateUnsupportedSettings(capability, settings)...)
 	for _, field := range capability.Settings {
-		value := settingsValue(settings, field.Key)
-		switch field.Key {
-		case "title":
-			value = firstNonEmptyCapability(value, title)
-		case "description":
-			value = firstNonEmptyCapability(value, description)
+		if field.Key == "title" || field.Key == "description" {
+			continue
 		}
+		value := settingsValue(settings, field.Key)
 		if field.Required && settingDependenciesMet(field, settings, len(media)) && (value == "" || (field.Type == "boolean" && !settingBooleanValue(settings, field.Key))) {
 			issues = append(issues, settingValidationIssue(capability, field, "setting_required", fmt.Sprintf("%s is required", field.Label)))
 			continue
@@ -1645,6 +1860,12 @@ func validateSettingDefinition(capability Capability, field SettingDefinition, s
 	}
 	if field.Control == "poll" || field.Type == "tags" {
 		items := splitSettingItems(value)
+		if field.Control == "poll" {
+			items = strings.Split(value, "\n")
+			for i := range items {
+				items[i] = strings.TrimSpace(items[i])
+			}
+		}
 		if field.Constraints.MinItems > 0 && len(items) < field.Constraints.MinItems {
 			issues = append(issues, settingValidationIssue(capability, field, "setting_min_items", fmt.Sprintf("%s requires at least %d values", field.Label, field.Constraints.MinItems)))
 		}
@@ -1704,11 +1925,17 @@ func validateSettingDefinition(capability Capability, field SettingDefinition, s
 			issues = append(issues, settingValidationIssue(capability, field, "setting_local_datetime_invalid", fmt.Sprintf("%s must use YYYY-MM-DDTHH:MM", field.Label)))
 		}
 	}
+	if field.Constraints.DateTime {
+		if _, err := time.Parse(time.RFC3339, value); err != nil {
+			issues = append(issues, settingValidationIssue(capability, field, "setting_datetime_invalid", fmt.Sprintf("%s must be an RFC 3339 time with a timezone", field.Label)))
+		}
+	}
 	return issues
 }
 
 // ValidateDefaultSettings checks only values supplied for a reusable preset.
 // Missing required fields remain a decision for the publication that uses it.
+// Null values clear stored settings and do not request a provider feature.
 func ValidateDefaultSettings(capability Capability, scope string, values, context map[string]any) []ValidationIssue {
 	fields := make(map[string]SettingDefinition, len(capability.Settings))
 	for _, field := range capability.Settings {
@@ -1722,16 +1949,20 @@ func ValidateDefaultSettings(capability Capability, scope string, values, contex
 	sort.Strings(keys)
 	for _, key := range keys {
 		value := values[key]
+		if value == nil {
+			continue
+		}
 		field, ok := fields[key]
 		if !ok || field.Scope != scope {
 			issues = append(issues, ValidationIssue{Severity: "error", Code: "unsupported_setting", Field: key, Message: key + " is not supported by this account or scope"})
 			continue
 		}
-		if attachmentDependentDefault(field) {
-			issues = append(issues, settingValidationIssue(capability, field, "setting_requires_post_media", "Choose media-specific settings on the post."))
+		if field.PostOnly {
+			issues = append(issues, settingValidationIssue(capability, field, "setting_requires_post", "Choose this setting on the post."))
 			continue
 		}
-		if value == nil {
+		if attachmentDependentDefault(field) {
+			issues = append(issues, settingValidationIssue(capability, field, "setting_requires_post_media", "Choose media-specific settings on the post."))
 			continue
 		}
 		if text, ok := value.(string); ok && text == "" {
@@ -1742,21 +1973,21 @@ func ValidateDefaultSettings(capability Capability, scope string, values, contex
 			continue
 		}
 		validated := field
-		validated.Dependencies = nil
-		for _, condition := range field.Dependencies {
-			if _, known := fields[condition.Key]; known {
-				validated.Dependencies = append(validated.Dependencies, condition)
-			}
-		}
-		validated.Conflicts = nil
-		for _, condition := range field.Conflicts {
-			if _, known := fields[condition.Key]; known {
-				validated.Conflicts = append(validated.Conflicts, condition)
-			}
-		}
+		validated.Dependencies = knownSettingConditions(field.Dependencies, fields)
+		validated.Conflicts = knownSettingConditions(field.Conflicts, fields)
 		issues = append(issues, validateSettingDefinition(capability, validated, context, 0)...)
 	}
 	return issues
+}
+
+func knownSettingConditions(conditions []SettingCondition, fields map[string]SettingDefinition) []SettingCondition {
+	var known []SettingCondition
+	for _, condition := range conditions {
+		if _, exists := fields[condition.Key]; exists {
+			known = append(known, condition)
+		}
+	}
+	return known
 }
 
 func attachmentDependentDefault(field SettingDefinition) bool {
@@ -1809,6 +2040,9 @@ func validDefaultSettingType(field SettingDefinition, value any) bool {
 
 func validateTextConstraint(capability Capability, field, value string, constraint TextConstraint) []ValidationIssue {
 	length := TextLength(capability.Provider, value)
+	if capability.Provider == ProviderYouTube && (field == "title" || field == "alt_text") {
+		length = len([]rune(value))
+	}
 	if constraint.Required && strings.TrimSpace(value) == "" {
 		return []ValidationIssue{{Severity: "error", Code: field + "_required", Message: capabilityFieldLabel(field) + " is required", Provider: capability.Provider, Profile: capability.Profile, Field: field}}
 	}
@@ -1919,19 +2153,13 @@ func settingDependenciesMet(field SettingDefinition, settings map[string]any, me
 }
 
 func settingBooleanValue(settings map[string]any, key string) bool {
-	value, exists := settings[key]
-	if !exists {
-		return false
-	}
-	switch typed := value.(type) {
-	case bool:
-		return typed
-	case string:
-		parsed, _ := strconv.ParseBool(strings.TrimSpace(typed))
-		return parsed
-	default:
-		return false
-	}
+	// Issue #414: delegate to the shared settingx.Bool owner so the
+	// capability preview agrees with what the provider adapters already
+	// send for the same stored value. This deliberately changes two edge
+	// cases versus the previous strconv.ParseBool rule: "yes"/"on" now
+	// read true (adapters already sent them as enabled) and "t" now reads
+	// false (adapters already sent it as disabled).
+	return settingx.Bool(settings, key)
 }
 
 func splitSettingItems(value string) []string {
@@ -1954,6 +2182,10 @@ func firstNonEmptyCapability(values ...string) string {
 	return ""
 }
 
+// validateUnsupportedSettings flags provider settings that are not in the
+// capability catalog. Mention metadata is validated by the publication text
+// owners, not the provider settings catalog. Null values clear stored settings
+// and do not request a provider feature.
 func validateUnsupportedSettings(capability Capability, settings map[string]any) []ValidationIssue {
 	if len(settings) == 0 {
 		return nil
@@ -1965,13 +2197,13 @@ func validateUnsupportedSettings(capability Capability, settings map[string]any)
 	issues := []ValidationIssue{}
 	for key, value := range settings {
 		key = strings.TrimSpace(key)
-		if key == "" {
+		if value == nil || key == "" || key == "attachment_requirement" || key == "mentions" || key == "caption_mentions" {
 			continue
 		}
 		if _, ok := known[key]; ok {
 			continue
 		}
-		if legacySettingSupported(capability.Provider, key) {
+		if legacySettingSupported(capability.Provider, capability.Profile, key) {
 			continue
 		}
 		if strings.TrimSpace(fmt.Sprint(value)) == "" {
@@ -1989,12 +2221,17 @@ func validateUnsupportedSettings(capability Capability, settings map[string]any)
 	return issues
 }
 
-func legacySettingSupported(provider, key string) bool {
+// legacySettingSupported reports whether a retained historical setting key is
+// still accepted for the provider profile even when it is absent from the
+// current capability catalog.
+func legacySettingSupported(provider, profile, key string) bool {
 	switch provider {
 	case ProviderX:
 		return key == "quote_tweet_id"
 	case ProviderBluesky:
 		return key == "quote_uri" || key == "quote_cid" || key == "mention_dids"
+	case ProviderInstagram:
+		return providerlimits.InstagramOmitsCollaborators(profile) && key == "collaborators"
 	default:
 		return false
 	}
@@ -2008,9 +2245,34 @@ func validateProviderSettings(provider, profile string, mediaCount int, settings
 		return validateMastodonSettings(profile, mediaCount, settings)
 	case ProviderTikTok:
 		return validateTikTokSettings(profile, mediaCount, settings)
+	case ProviderInstagram:
+		return validateInstagramSettings(profile, settings)
 	default:
 		return nil
 	}
+}
+
+func validateInstagramSettings(profile string, settings map[string]any) []ValidationIssue {
+	issues := []ValidationIssue{}
+	collaborators := providerlimits.InstagramCollaborators(settingsValue(settings, "collaborators"))
+	if providerlimits.InstagramOmitsCollaborators(profile) && len(collaborators) > 0 {
+		issues = append(issues, ValidationIssue{
+			Severity: "warning", Code: "instagram_story_collaborators_omitted",
+			Message:  "Instagram Stories do not support collaborators. OpenPost will publish the Story without them.",
+			Provider: ProviderInstagram, Profile: profile, Field: "collaborators",
+		})
+	}
+	for _, violation := range providerlimits.ValidateInstagramSettings(profile, settingBooleanValue(settings, "is_trial_reel"), collaborators) {
+		if violation.Code == providerlimits.InstagramCollaboratorLimitExceeded {
+			// The setting constraint exposes and validates this shared limit.
+			continue
+		}
+		issues = append(issues, ValidationIssue{
+			Severity: "error", Code: violation.Code, Message: violation.Message,
+			Provider: ProviderInstagram, Profile: profile, Field: violation.Field,
+		})
+	}
+	return issues
 }
 
 func validateXSettings(profile string, mediaCount int, settings map[string]any) []ValidationIssue {
@@ -2079,7 +2341,15 @@ func validateMediaItem(capability Capability, item MediaItem) []ValidationIssue 
 		issues = append(issues, ValidationIssue{Severity: "error", Code: "media_size", Message: "Media file is too large", Provider: capability.Provider, Profile: capability.Profile, MediaID: item.ID})
 	}
 	if strings.HasPrefix(item.MimeType, "image/") && capability.Media.MaxImageSizeBytes > 0 && item.Size > capability.Media.MaxImageSizeBytes {
-		issues = append(issues, ValidationIssue{Severity: "error", Code: "media_size", Message: fmt.Sprintf("Image is %d bytes; the maximum is %d bytes", item.Size, capability.Media.MaxImageSizeBytes), Provider: capability.Provider, Profile: capability.Profile, MediaID: item.ID})
+		issues = append(issues, ValidationIssue{
+			Severity: "error", Code: "media_size",
+			Message:    fmt.Sprintf("Image is %.2f MB; the maximum is %.2f MB. Resize or replace this image.", float64(item.Size)/1_000_000, float64(capability.Media.MaxImageSizeBytes)/1_000_000),
+			Parameters: map[string]any{"size_bytes": item.Size, "max_size_bytes": capability.Media.MaxImageSizeBytes},
+			Provider:   capability.Provider, Profile: capability.Profile, MediaID: item.ID,
+		})
+	}
+	if strings.HasPrefix(item.MimeType, "image/") && capability.Media.MaxPixels > 0 && item.Width > 0 && item.Height > 0 && int64(item.Width) > capability.Media.MaxPixels/int64(item.Height) {
+		issues = append(issues, ValidationIssue{Severity: "error", Code: "media_pixels_max", Message: fmt.Sprintf("Image exceeds the destination limit of %d pixels", capability.Media.MaxPixels), Parameters: map[string]any{"max_pixels": capability.Media.MaxPixels}, Provider: capability.Provider, Profile: capability.Profile, MediaID: item.ID})
 	}
 	for _, boundary := range []struct {
 		invalid bool
@@ -2090,6 +2360,7 @@ func validateMediaItem(capability Capability, item MediaItem) []ValidationIssue 
 		{capability.Media.MaxWidth > 0 && item.Width > capability.Media.MaxWidth, "media_width_max", fmt.Sprintf("Media width must be at most %d pixels", capability.Media.MaxWidth)},
 		{capability.Media.MinHeight > 0 && item.Height < capability.Media.MinHeight, "media_height_min", fmt.Sprintf("Media height must be at least %d pixels", capability.Media.MinHeight)},
 		{capability.Media.MaxHeight > 0 && item.Height > capability.Media.MaxHeight, "media_height_max", fmt.Sprintf("Media height must be at most %d pixels", capability.Media.MaxHeight)},
+		{capability.Media.MaxShortSide > 0 && item.Width > 0 && item.Height > 0 && min(item.Width, item.Height) > capability.Media.MaxShortSide, "media_short_side_max", fmt.Sprintf("Media is %dx%d; images support at most %d pixels on the shorter side", item.Width, item.Height, capability.Media.MaxShortSide)},
 	} {
 		if boundary.invalid {
 			issues = append(issues, ValidationIssue{Severity: "error", Code: boundary.code, Message: boundary.message, Provider: capability.Provider, Profile: capability.Profile, MediaID: item.ID})
@@ -2110,7 +2381,15 @@ func validateMediaItem(capability Capability, item MediaItem) []ValidationIssue 
 	if capability.Media.AudioPolicy == "forbidden" && item.AudioChannels > 0 {
 		issues = append(issues, ValidationIssue{Severity: "error", Code: "media_audio_forbidden", Message: "Video must not include audio", Provider: capability.Provider, Profile: capability.Profile, MediaID: item.ID})
 	}
-	issues = append(issues, validateTextConstraint(capability, "alt_text", item.AltText, capability.Content.AltText)...)
+	// Meta accepts alt_text on image containers only, so alt text on a
+	// video carousel child is never projected to Instagram and stays
+	// unvalidated there.
+	if capability.Provider != ProviderInstagram || strings.HasPrefix(item.MimeType, "image/") {
+		for _, issue := range validateTextConstraint(capability, "alt_text", item.AltText, capability.Content.AltText) {
+			issue.MediaID = item.ID
+			issues = append(issues, issue)
+		}
+	}
 	if strings.HasPrefix(item.MimeType, "video/") && item.AnalysisStatus != "" && item.AnalysisStatus != "ready" && item.AnalysisStatus != "failed" {
 		issues = append(issues, ValidationIssue{Severity: "error", Code: "media_analysis_pending", Message: "Video analysis must finish before scheduling or publishing", Provider: capability.Provider, Profile: capability.Profile, MediaID: item.ID})
 	}
@@ -2304,9 +2583,14 @@ func linkSettings() []SettingField {
 	return []SettingField{{Key: "url", Label: "URL", Type: "url", Control: "url", Required: true}}
 }
 
+func optionalLinkSettings(settings []SettingField) []SettingField {
+	// Text posts may carry a link without requiring one or changing their format.
+	return append([]SettingField{{Key: "url", Label: "URL", Type: "url", Control: "url", MediaShapes: []string{MediaShapeText, MediaShapeLink}}}, settings...)
+}
+
 func xSettings() []SettingField {
 	return []SettingField{
-		{Key: "quote_url", Label: "Quote post", Type: "url", Control: "quote_url", MediaShapes: []string{MediaShapeText}, Conflicts: []SettingCondition{{Key: "poll_options", Operator: "present"}}, Capability: "enterprise_quote", UnavailableReason: "Quote publishing requires X Enterprise API access."},
+		{Key: "quote_url", Label: "Quote post", Type: "url", Control: "quote_url", MediaShapes: []string{MediaShapeText, MediaShapeLink}, Conflicts: []SettingCondition{{Key: "poll_options", Operator: "present"}}, Capability: "enterprise_quote", UnavailableReason: "Quote publishing requires X Enterprise API access."},
 		{Key: "poll_options", Label: "Poll", Type: "textarea", Control: "poll", Scope: SettingScopeSegment, MediaShapes: []string{MediaShapeText}, Constraints: SettingConstraint{MinItems: 2, MaxItems: 4, MinLength: 1, MaxLength: 25}, Conflicts: []SettingCondition{{Key: "media", Operator: "present"}, {Key: "quote_url", Operator: "present"}}, Help: "Add 2–4 options. Polls cannot include media or a quote."},
 		{Key: "poll_duration_minutes", Label: "Poll duration", Type: "number", Scope: SettingScopeSegment, Constraints: SettingConstraint{Minimum: float64Pointer(5), Maximum: float64Pointer(10080)}, Dependencies: []SettingCondition{{Key: "poll_options", Operator: "present"}}},
 		{Key: "reply_settings", Label: "Who can reply", Type: "select", Options: []string{"following", "mentionedUsers", "subscribers", "verified"}},
@@ -2314,7 +2598,7 @@ func xSettings() []SettingField {
 		{Key: "location_id", Label: "Location", Type: "select", Control: "remote_picker", OptionsSource: "x_locations", Capability: "geo", UnavailableReason: "X has not granted this account access to location publishing options."},
 		{Key: "paid_partnership", Label: "Paid partnership", Type: "boolean"},
 		{Key: "made_with_ai", Label: "Made with AI", Type: "boolean"},
-		{Key: "tagged_users", Label: "Tag people", Type: "tags", Control: "user_picker", Scope: SettingScopeMediaItem, MediaShapes: []string{MediaShapeSingleImage, MediaShapeMultipleImage}},
+		{Key: "tagged_users", Label: "Tag people", Type: "tags", Control: "user_picker", Scope: SettingScopeMediaItem, MediaShapes: []string{MediaShapeSingleImage, MediaShapeMultipleImage}, Constraints: SettingConstraint{MaxItems: providerlimits.XPostMaxTaggedUsers}, Help: "Tag up to 10 people per post. Enter X handles or numeric X user IDs, separated by commas; handles are resolved when publishing."},
 	}
 }
 
@@ -2340,7 +2624,7 @@ func pixelfedSettings() []SettingField {
 		{Key: "spoiler_text", Label: "Content warning", Type: "text"},
 		{Key: "sensitive", Label: "Sensitive media", Type: "boolean"},
 		{Key: "language", Label: "Language", Type: "tags", Control: "language", Help: "BCP 47 language tag."},
-		{Key: "poll_options", Label: "Poll", Type: "textarea", Control: "poll", Scope: SettingScopeSegment, MediaShapes: []string{MediaShapeText}, Constraints: SettingConstraint{MinItems: 2, MaxItems: 4}, Conflicts: []SettingCondition{{Key: "media", Operator: "present"}}, Help: "Poll limits come from the connected Pixelfed server."},
+		{Key: "poll_options", Label: "Poll", Type: "textarea", Control: "poll", Scope: SettingScopeSegment, MediaShapes: []string{MediaShapeText}, Constraints: SettingConstraint{MinItems: 2, MaxItems: 4}, Conflicts: []SettingCondition{{Key: "media", Operator: "present"}}, UnavailableReason: "Poll publishing is not verified for Pixelfed.", Help: "Choose a text version or post without the poll."},
 		{Key: "poll_expires_in_seconds", Label: "Poll duration", Type: "number", Scope: SettingScopeSegment, Dependencies: []SettingCondition{{Key: "poll_options", Operator: "present"}}},
 		{Key: "poll_multiple", Label: "Allow multiple choices", Type: "boolean", Scope: SettingScopeSegment, Dependencies: []SettingCondition{{Key: "poll_options", Operator: "present"}}},
 		{Key: "poll_hide_totals", Label: "Hide totals until the poll ends", Type: "boolean", Scope: SettingScopeSegment, Dependencies: []SettingCondition{{Key: "poll_options", Operator: "present"}}},
@@ -2385,6 +2669,16 @@ func piefedSettings() []SettingField {
 	return communitySettings("piefed_communities")
 }
 
+// devnullSettings returns the composer settings for dev/null. The CLI commit
+// contract takes only body text, an optional reply reference, and images:
+// link cards unfurl server-side from the first URL. A first comment uses the
+// same signed reply contract after the parent commit has been published.
+func devnullSettings() []SettingField {
+	return []SettingField{
+		{Key: "first_comment", Label: "First comment", Type: "textarea", Control: "follow_up", Scope: SettingScopeSegment},
+	}
+}
+
 func blueskySettings() []SettingField {
 	return []SettingField{
 		{Key: "link_url", Label: "Link card URL", Type: "url"},
@@ -2402,8 +2696,9 @@ func linkedinSettings() []SettingField {
 	return []SettingField{
 		{Key: "visibility", Label: "Visibility", Type: "select", Options: []string{"PUBLIC", "CONNECTIONS"}},
 		{Key: "reshare_disabled", Label: "Disable reshares", Type: "boolean"},
-		{Key: "poll_options", Label: "Poll", Type: "textarea", Control: "poll", Scope: SettingScopeSegment, MediaShapes: []string{MediaShapeText}, Constraints: SettingConstraint{MinItems: 2, MaxItems: 4, MaxLength: 30}, Capability: "polls"},
-		{Key: "poll_duration", Label: "Poll duration", Type: "select", Scope: SettingScopeSegment, Options: []string{"ONE_DAY", "THREE_DAYS", "ONE_WEEK", "TWO_WEEKS"}, Dependencies: []SettingCondition{{Key: "poll_options", Operator: "present"}}},
+		{Key: "poll_options", Label: "Poll", Type: "textarea", Control: "poll", Scope: SettingScopeSegment, MediaShapes: []string{MediaShapeText}, Constraints: SettingConstraint{MinItems: 2, MaxItems: 4, MaxLength: 30}, Conflicts: []SettingCondition{{Key: "media", Operator: "present"}}, Capability: "polls"},
+		{Key: "poll_question", Label: "Poll question", Type: "text", Scope: SettingScopeSegment, Constraints: SettingConstraint{MaxLength: 140}, Dependencies: []SettingCondition{{Key: "poll_options", Operator: "present"}}},
+		{Key: "poll_duration", Label: "Poll duration", Type: "select", Scope: SettingScopeSegment, Options: []string{"ONE_DAY", "THREE_DAYS", "SEVEN_DAYS", "FOURTEEN_DAYS", "ONE_WEEK", "TWO_WEEKS"}, Dependencies: []SettingCondition{{Key: "poll_options", Operator: "present"}}},
 		{Key: "article_title", Label: "Article title", Type: "text"},
 		{Key: "article_description", Label: "Article description", Type: "textarea"},
 		{Key: "thumbnail_media_id", Label: "Video thumbnail", Type: "media", Control: "media_picker", MediaShapes: []string{MediaShapeVideo}, UnavailableReason: "LinkedIn does not expose thumbnail upload for this publishing flow."},
@@ -2424,18 +2719,27 @@ func facebookSettings() []SettingField {
 	}
 }
 
-func instagramSettings() []SettingField {
-	return []SettingField{
+func instagramSettings(profile string) []SettingField {
+	settings := []SettingField{
 		{Key: "is_trial_reel", Label: "Trial Reel", Type: "boolean", Intents: []string{IntentShortVideo}},
 		{Key: "graduation_strategy", Label: "Trial graduation", Type: "select", Required: true, Intents: []string{IntentShortVideo}, Options: []string{"MANUAL", "SS_PERFORMANCE"}, Dependencies: []SettingCondition{{Key: "is_trial_reel", Operator: "equals", Value: true}}},
-		{Key: "collaborators", Label: "Collaborators", Type: "tags", Control: "user_picker"},
-		{Key: "location_id", Label: "Location", Type: "select", Control: "remote_picker", OptionsSource: "instagram_locations"},
-		{Key: "user_tags", Label: "Tag people", Type: "json", Control: "media_tags", Scope: SettingScopeMediaItem, MediaShapes: []string{MediaShapeSingleImage, MediaShapeMultipleImage}, Constraints: SettingConstraint{MaxItems: 20}},
-		{Key: "product_tags", Label: "Tag products", Type: "json", Control: "media_tags", Scope: SettingScopeMediaItem, MediaShapes: []string{MediaShapeSingleImage, MediaShapeMultipleImage}, Constraints: SettingConstraint{MaxItems: 5}, Capability: "product_tags", UnavailableReason: "Product tags require an eligible Instagram Shopping account."},
-		{Key: "cover_media_id", Label: "Cover image", Type: "media", Control: "media_picker", Intents: []string{IntentShortVideo}},
-		{Key: "thumbnail_timestamp_ms", Label: "Cover frame", Type: "number", Control: "cover_frame", Intents: []string{IntentShortVideo}},
-		{Key: "share_to_feed", Label: "Share Reel to feed", Type: "boolean", Intents: []string{IntentShortVideo}},
 	}
+	if !providerlimits.InstagramOmitsCollaborators(profile) {
+		settings = append(settings, SettingField{
+			Key: "collaborators", Label: "Collaborators", Type: "tags", Control: "user_picker",
+			Constraints: SettingConstraint{MaxItems: providerlimits.InstagramMaxCollaborators},
+		})
+	}
+	settings = append(settings,
+		SettingField{Key: "location_id", Label: "Location", Type: "select", Control: "remote_picker", OptionsSource: "instagram_locations"},
+		SettingField{Key: "user_tags", Label: "Tag people", Type: "json", Control: "media_tags", Scope: SettingScopeMediaItem, MediaShapes: []string{MediaShapeSingleImage, MediaShapeMultipleImage}, Constraints: SettingConstraint{MaxItems: 20}},
+		SettingField{Key: "product_tags", Label: "Tag products", Type: "json", Control: "media_tags", Scope: SettingScopeMediaItem, MediaShapes: []string{MediaShapeSingleImage, MediaShapeMultipleImage}, Constraints: SettingConstraint{MaxItems: 5}, Capability: "product_tags", UnavailableReason: "Product tags require an eligible Instagram Shopping account."},
+		SettingField{Key: "cover_media_id", Label: "Cover image", Type: "media", Control: "media_picker", Intents: []string{IntentShortVideo}},
+		SettingField{Key: "thumbnail_timestamp_ms", Label: "Cover frame", Type: "number", Control: "cover_frame", Intents: []string{IntentShortVideo}},
+		SettingField{Key: "share_to_feed", Label: "Share Reel to feed", Type: "boolean", Intents: []string{IntentShortVideo}},
+		SettingField{Key: "first_comment", Label: "First comment", Type: "textarea", Control: "follow_up", Scope: SettingScopeSegment},
+	)
+	return settings
 }
 
 func threadsSettings() []SettingField {
@@ -2465,6 +2769,25 @@ func pinterestSettings() []SettingField {
 	}
 }
 
+func googlebusinessSettings() []SettingField {
+	eventOrOffer := []SettingCondition{{Key: "topic_type", Operator: "in", Value: []string{"event", "offer"}}}
+	return []SettingField{
+		{Key: "location_id", Label: "Location", Type: "select", Control: "remote_picker", Required: true, OptionsSource: "googlebusiness_locations"},
+		{Key: "topic_type", Label: "Post type", Type: "select", Default: "standard", Options: []string{"standard", "event", "offer"}, Help: "Google accepts What's New, Event, and Offer local posts."},
+		{Key: "language_code", Label: "Language", Type: "text", Control: "language", Default: "en-US"},
+		{Key: "call_to_action", Label: "Button", Type: "select", Default: "none", Options: []string{"none", "book", "order", "shop", "learn_more", "sign_up", "call"}, Help: "Offer posts carry no button because Google ignores it on that type."},
+		{Key: "action_url", Label: "Button link", Type: "url", Dependencies: []SettingCondition{{Key: "call_to_action", Operator: "not_equals", Value: "none"}}},
+		{Key: "event_title", Label: "Event name", Type: "text", Constraints: SettingConstraint{MaxLength: 58}, Dependencies: eventOrOffer},
+		{Key: "event_start_date", Label: "Start date", Type: "date", Dependencies: eventOrOffer},
+		{Key: "event_start_time", Label: "Start time", Type: "time", Dependencies: eventOrOffer},
+		{Key: "event_end_date", Label: "End date", Type: "date", Dependencies: eventOrOffer},
+		{Key: "event_end_time", Label: "End time", Type: "time", Dependencies: eventOrOffer},
+		{Key: "offer_coupon_code", Label: "Coupon code", Type: "text", Dependencies: []SettingCondition{{Key: "topic_type", Operator: "equals", Value: "offer"}}},
+		{Key: "offer_redeem_url", Label: "Redemption link", Type: "url", Dependencies: []SettingCondition{{Key: "topic_type", Operator: "equals", Value: "offer"}}},
+		{Key: "offer_terms", Label: "Offer terms", Type: "textarea", Dependencies: []SettingCondition{{Key: "topic_type", Operator: "equals", Value: "offer"}}},
+	}
+}
+
 func telegramSettings() []SettingField {
 	return []SettingField{
 		{Key: "chat_id", Label: "Chat", Type: "select", Control: "remote_picker", Required: true, OptionsSource: "telegram_chats"},
@@ -2487,19 +2810,21 @@ func youtubeSettings() []SettingField {
 	return []SettingField{
 		{Key: "privacy", Label: "Privacy", Type: "select", Required: true, Options: []string{"public", "unlisted", "private"}},
 		{Key: "title", Label: "Title", Type: "text", Required: true, Constraints: SettingConstraint{MaxLength: 100}},
-		{Key: "description", Label: "Description", Type: "textarea"},
+		{Key: "description", Label: "Description", Type: "textarea", Help: "Up to 5,000 UTF-8 bytes. Cannot contain < or >."},
 		{Key: "tags", Label: "Tags", Type: "tags", Help: "Add terms that help people find the video."},
 		{Key: "category_id", Label: "Category", Type: "select", Control: "remote_picker", Required: true, OptionsSource: "youtube_categories"},
 		{Key: "playlist_id", Label: "Playlist", Type: "select", Control: "remote_picker", OptionsSource: "youtube_playlists"},
 		{Key: "thumbnail_media_id", Label: "Thumbnail", Type: "media", Control: "media_picker"},
 		{Key: "caption_media_id", Label: "Caption file", Type: "media", Control: "captions_file"},
 		{Key: "caption_language", Label: "Caption language", Type: "text", Control: "language", Dependencies: []SettingCondition{{Key: "caption_media_id", Operator: "present"}}},
+		{Key: "publish_at", Label: "YouTube publish time", Type: "text", PostOnly: true, Constraints: SettingConstraint{DateTime: true}, Dependencies: []SettingCondition{{Key: "privacy", Operator: "equals", Value: "private"}}, Help: "RFC 3339 time with a timezone, for example 2030-10-12T12:00:00Z. YouTube makes the video public at this time. A past time publishes immediately. OpenPost's schedule controls when the upload starts."},
 		{Key: "license", Label: "License", Type: "select", Default: "youtube", Options: []string{"youtube", "creativeCommon"}},
 		{Key: "embeddable", Label: "Allow embedding", Type: "boolean", Default: true},
-		{Key: "self_declared_made_for_kids", Label: "Made for kids", Type: "boolean"},
-		{Key: "contains_synthetic_media", Label: "Synthetic media", Type: "boolean"},
+		{Key: "self_declared_made_for_kids", Label: "Made for kids", Type: "boolean", Control: "optional_boolean"},
+		{Key: "contains_synthetic_media", Label: "Synthetic media", Type: "boolean", Control: "optional_boolean"},
 		{Key: "paid_placement", Label: "Contains paid promotion", Type: "boolean"},
 		{Key: "notify_subscribers", Label: "Notify subscribers", Type: "boolean"},
+		{Key: "first_comment", Label: "First comment", Type: "textarea", Control: "follow_up", Scope: SettingScopeSegment},
 	}
 }
 
@@ -2524,4 +2849,15 @@ func tiktokSettings() []SettingField {
 
 func float64Pointer(value float64) *float64 {
 	return &value
+}
+
+func mergeSegmentSettings(destination, segment map[string]any) map[string]any {
+	merged := make(map[string]any, len(destination)+len(segment))
+	for key, value := range destination {
+		merged[key] = value
+	}
+	for key, value := range segment {
+		merged[key] = value
+	}
+	return merged
 }

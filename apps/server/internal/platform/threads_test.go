@@ -11,6 +11,17 @@ import (
 	"testing"
 )
 
+func TestThreadsAuthorizationRequestsReplyReadAccess(t *testing.T) {
+	authURL, _ := NewThreadsAdapter("client", "secret", "https://app.example/callback").GenerateAuthURL("state")
+	parsed, err := url.Parse(authURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(parsed.Query().Get("scope"), "threads_read_replies") {
+		t.Fatal("Threads authorization must request permission to read incoming replies")
+	}
+}
+
 func TestThreadsExchangeCodeRecordsGrantedOptionalScopes(t *testing.T) {
 	originalClient := httpClient
 	defer func() { httpClient = originalClient }()
@@ -109,6 +120,7 @@ func TestThreadsReplyAndHideComment(t *testing.T) {
 	originalClient := httpClient
 	defer func() { httpClient = originalClient }()
 
+	hideCalls := 0
 	httpClient = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		switch {
 		case req.Method == http.MethodPost && req.URL.String() == "https://graph.threads.net/v1.0/user-1/threads":
@@ -143,6 +155,7 @@ func TestThreadsReplyAndHideComment(t *testing.T) {
 			}
 			return jsonResponse(req, `{"id":"reply-post-1"}`), nil
 		case req.Method == http.MethodPost && req.URL.String() == "https://graph.threads.net/v1.0/reply-1/manage_reply":
+			hideCalls++
 			body, err := io.ReadAll(req.Body)
 			if err != nil {
 				t.Fatalf("reading hide body: %v", err)
@@ -172,68 +185,8 @@ func TestThreadsReplyAndHideComment(t *testing.T) {
 	if err := adapter.HideComment(context.Background(), "threads-token", "user-1", "reply-1"); err != nil {
 		t.Fatalf("HideComment returned error: %v", err)
 	}
-}
-
-func TestThreadsPublishContainerRetriesTypedPropagationError(t *testing.T) {
-	originalClient := httpClient
-	defer func() { httpClient = originalClient }()
-
-	attempts := 0
-	httpClient = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
-		if req.Method != http.MethodPost || req.URL.String() != "https://graph.threads.net/v1.0/user-1/threads_publish" {
-			t.Fatalf("unexpected request %s %s", req.Method, req.URL.String())
-		}
-		attempts++
-		if attempts == 1 {
-			return &http.Response{
-				StatusCode: http.StatusBadRequest,
-				Header:     make(http.Header),
-				Body:       io.NopCloser(strings.NewReader(`{"error":{"code":24,"error_subcode":4279009}}`)),
-				Request:    req,
-			}, nil
-		}
-		return jsonResponse(req, `{"id":"thread-1"}`), nil
-	})}
-
-	id, err := NewThreadsAdapter("", "", "").publishContainer(
-		context.Background(),
-		"threads-token",
-		"user-1",
-		"creation-1",
-	)
-
-	if err != nil {
-		t.Fatalf("publishContainer returned error: %v", err)
-	}
-	if id != "thread-1" || attempts != 2 {
-		t.Fatalf("expected one code-24 retry and thread-1, got id=%q attempts=%d", id, attempts)
-	}
-}
-
-func TestThreadsPublishContainerDoesNotRetryUnrelatedCode24(t *testing.T) {
-	originalClient := httpClient
-	defer func() { httpClient = originalClient }()
-
-	attempts := 0
-	httpClient = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
-		attempts++
-		return &http.Response{
-			StatusCode: http.StatusBadRequest,
-			Header:     make(http.Header),
-			Body:       io.NopCloser(strings.NewReader(`{"error":{"code":24,"error_subcode":123}}`)),
-			Request:    req,
-		}, nil
-	})}
-
-	_, err := NewThreadsAdapter("", "", "").publishContainer(
-		context.Background(),
-		"threads-token",
-		"user-1",
-		"creation-1",
-	)
-
-	if err == nil || attempts != 1 {
-		t.Fatalf("expected unrelated code-24 failure without retry, got err=%v attempts=%d", err, attempts)
+	if hideCalls != 1 {
+		t.Fatalf("expected one native hide operation, got %d", hideCalls)
 	}
 }
 

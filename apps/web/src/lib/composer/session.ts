@@ -8,10 +8,12 @@ type DeliveryOutcome = components['schemas']['RenditionActionOutcome'];
 export type PublicationDraft = Omit<CreatePublication, 'workspace_id'>;
 
 export interface ComposerPublication {
+	review_state?: string;
 	id: string;
 	workspace_id: string;
 	revision: number;
 	status: string;
+	renditions?: components['schemas']['PublicationResponse']['renditions'];
 	/** The server-normalized draft returned when a new Publication is created. */
 	draft?: PublicationDraft;
 }
@@ -128,35 +130,50 @@ function mergeServerAssignedDraftIdentity(
 ): PublicationDraft {
 	const merged = structuredClone(current);
 	const serverSegments = created.segments ?? [];
+	const canonicalIDs = new Map<string, string>();
+	for (const [index, segment] of (current.segments ?? []).entries()) {
+		const serverID = serverSegments[index]?.id;
+		if (segment.id && serverID) canonicalIDs.set(segment.id, serverID);
+	}
 	merged.segments = (merged.segments ?? []).map((segment, index) => {
 		const serverSegment = serverSegments[index];
 		return serverSegment?.id ? { ...segment, id: serverSegment.id } : segment;
 	});
 
 	const serverRenditions = created.renditions ?? [];
-	merged.renditions = (merged.renditions ?? []).map((rendition, index) => {
-		const serverRendition =
-			serverRenditions.find(
-				(candidate) =>
-					candidate.social_account_id === rendition.social_account_id &&
-					candidate.target_key === rendition.target_key
-			) ?? serverRenditions[index];
-		if (!serverRendition) return rendition;
+	merged.renditions = (merged.renditions ?? []).map((rendition) => {
+		const serverRendition = serverRenditions.find(
+			(candidate) =>
+				candidate.social_account_id === rendition.social_account_id &&
+				(candidate.target_key || 'default') === (rendition.target_key || 'default')
+		);
 
-		const serverRenditionSegments = serverRendition.segments ?? [];
+		const serverRenditionSegments = serverRendition?.segments ?? [];
 		return {
 			...rendition,
-			id: serverRendition.id ?? rendition.id,
+			id: serverRendition?.id ?? rendition.id,
 			segments: (rendition.segments ?? []).map((segment, segmentIndex) => {
 				const serverSegment = serverRenditionSegments[segmentIndex];
+				const sourceOverrides = segment.source_overrides?.map((source) => ({
+					...source,
+					publication_segment_id:
+						canonicalIDs.get(source.publication_segment_id) ?? source.publication_segment_id
+				}));
 				return serverSegment?.id
 					? {
 							...segment,
+							source_overrides: sourceOverrides,
 							id: serverSegment.id,
 							publication_segment_id:
 								serverSegment.publication_segment_id ?? segment.publication_segment_id
 						}
-					: segment;
+					: {
+							...segment,
+							source_overrides: sourceOverrides,
+							publication_segment_id:
+								canonicalIDs.get(segment.publication_segment_id ?? '') ??
+								segment.publication_segment_id
+						};
 			})
 		};
 	});
@@ -234,6 +251,25 @@ export class ComposerSession {
 		return () => this.#listeners.delete(listener);
 	}
 
+	hydrate(loaded: Awaited<ReturnType<ComposerPublicationClient['load']>>): void {
+		this.#requireActive();
+		if (loaded.publication.workspace_id !== this.workspaceId) {
+			throw new ComposerSessionError('publication_workspace_mismatch');
+		}
+		this.#draft = structuredClone(loaded.draft);
+		this.#draftVersion += 1;
+		this.#patch({
+			publicationId: loaded.publication.id,
+			revision: loaded.publication.revision,
+			status: loaded.publication.status,
+			dirty: false,
+			conflict: null,
+			validationIssues: [],
+			delivery: [],
+			error: null
+		});
+	}
+
 	async load(publicationId: string): Promise<void> {
 		this.#requireActive();
 		const generation = this.#generation;
@@ -241,21 +277,7 @@ export class ComposerSession {
 		try {
 			const loaded = await this.#client.load(publicationId);
 			if (generation !== this.#generation) return;
-			if (loaded.publication.workspace_id !== this.workspaceId) {
-				throw new ComposerSessionError('publication_workspace_mismatch');
-			}
-			this.#draft = structuredClone(loaded.draft);
-			this.#draftVersion += 1;
-			this.#patch({
-				publicationId: loaded.publication.id,
-				revision: loaded.publication.revision,
-				status: loaded.publication.status,
-				dirty: false,
-				conflict: null,
-				validationIssues: [],
-				delivery: [],
-				error: null
-			});
+			this.hydrate(loaded);
 		} catch (cause) {
 			if (generation === this.#generation) this.#patch({ error: errorMessage(cause) });
 			throw cause;
@@ -272,7 +294,7 @@ export class ComposerSession {
 				: draft
 		);
 		this.#draftVersion += 1;
-		this.#patch({ dirty: true, error: null });
+		this.#patch({ dirty: true, validationIssues: [], error: null });
 	}
 
 	async save(): Promise<ComposerPublication> {
@@ -362,7 +384,9 @@ export class ComposerSession {
 			}
 			this.#allowWorkspaceSwitch(pending);
 		} catch (cause) {
-			this.#patch({ workspaceSwitch: { ...state, intent: null, error: errorMessage(cause) } });
+			this.#patch({
+				workspaceSwitch: { ...state, intent: null, error: errorMessage(cause) }
+			});
 		}
 	}
 
@@ -415,13 +439,22 @@ export class ComposerSession {
 	async validate(): Promise<ValidationIssue[]> {
 		this.#requireActive();
 		const generation = this.#generation;
-		const publication = await this.#ensureSaved();
+		let publication = await this.#ensureSaved();
 		this.#requireGeneration(generation);
 		this.#patch({ phase: 'validating', error: null });
 		try {
-			const result = await this.#client.validate(publication.id);
-			if (generation === this.#generation) this.#patch({ validationIssues: result.issues });
-			return result.issues;
+			while (true) {
+				const draftVersion = this.#draftVersion;
+				const result = await this.#client.validate(publication.id);
+				if (generation !== this.#generation) return result.issues;
+				if (draftVersion !== this.#draftVersion) {
+					publication = await this.#ensureSaved();
+					this.#requireGeneration(generation);
+					continue;
+				}
+				this.#patch({ validationIssues: result.issues });
+				return result.issues;
+			}
 		} catch (cause) {
 			if (generation === this.#generation) this.#patch({ error: errorMessage(cause) });
 			throw cause;

@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -15,6 +17,7 @@ import (
 	"github.com/openpost/backend/internal/jobregistry"
 	"github.com/openpost/backend/internal/models"
 	"github.com/openpost/backend/internal/services/publisher"
+	"github.com/openpost/backend/internal/telemetry"
 	"github.com/stretchr/testify/require"
 )
 
@@ -77,6 +80,8 @@ func TestWorkerDiagnosticsReportedWhenPersistenceFails(t *testing.T) {
 	reporter := sink.reporter(t)
 	worker := NewWorker(db, "worker-diag", time.Second, nil, nil, stubStorage{})
 	worker.SetDiagnosticsReporter(reporter)
+	recorder := &telemetry.MemoryRecorder{}
+	worker.SetTelemetry(recorder)
 
 	// Break persistence: the job row is deleted before finalization, so the
 	// terminal-state update affects zero rows and returns early.
@@ -84,6 +89,7 @@ func TestWorkerDiagnosticsReportedWhenPersistenceFails(t *testing.T) {
 	require.NoError(t, err)
 	worker.finishFailedJob(t.Context(), job, errors.New("nil pointer dereference in publish renderer"))
 
+	require.Len(t, recorder.Exceptions, 1, "terminal processing failure remains observable when its job row vanished")
 	reporter.Flush()
 	reports := sink.all()
 	require.Len(t, reports, 1)
@@ -92,6 +98,20 @@ func TestWorkerDiagnosticsReportedWhenPersistenceFails(t *testing.T) {
 	require.Equal(t, jobregistry.TypePublishPost, reports[0].Operation)
 	require.NotEmpty(t, reports[0].InstallationID)
 	require.NotContains(t, reports[0].Operation, "exploded")
+}
+
+func TestWorkerNotificationFailureDoesNotReportPublishingFailure(t *testing.T) {
+	db := createTestDB(t)
+	sink := newDiagnosticsSink(t)
+	reporter := sink.reporter(t)
+	worker := NewWorker(db, "worker-diag-notification", time.Second, nil, nil, stubStorage{})
+	worker.SetDiagnosticsReporter(reporter)
+	worker.reportWorkerDiagnostic(&models.Job{ID: "notification", Type: jobregistry.TypeNotificationEmail}, errors.New("email delivery refused"))
+	reporter.Flush()
+	reports := sink.all()
+	require.Len(t, reports, 1)
+	require.Equal(t, diagnostics.CodeWorkerFailed, reports[0].ErrorCode)
+	require.Equal(t, jobregistry.TypeNotificationEmail, reports[0].Operation)
 }
 
 func TestWorkerDiagnosticsExpectedFailuresUseStructuredCodes(t *testing.T) {
@@ -158,7 +178,11 @@ func TestWorkerPanicGuardReportsOriginalStack(t *testing.T) {
 	reporter := sink.reporter(t)
 	worker := NewWorker(db, "worker-diag-panic", time.Hour, nil, nil, stubStorage{})
 	worker.SetDiagnosticsReporter(reporter)
+	// The fake executor records the call site of its own panic statement. The
+	// worker calls it synchronously, so the capture is local and race-free.
+	panicFile, panicLine := "", 0
 	worker.executors[jobregistry.ExecuteRefreshToken] = func(context.Context, *models.Job) error {
+		_, panicFile, panicLine, _ = runtime.Caller(0)
 		panic("simulated executor panic")
 	}
 
@@ -175,4 +199,18 @@ func TestWorkerPanicGuardReportsOriginalStack(t *testing.T) {
 	require.Equal(t, diagnostics.CodeWorkerPanic, reports[0].ErrorCode)
 	require.NotEmpty(t, reports[0].Frames, "panics must preserve the original failure location")
 	require.NotContains(t, reports[0].Frames[0].Module, "simulated")
+
+	// The reported stack must locate the panicking executor itself, not a stack
+	// taken later at the failure handler, which also contains this test.
+	require.NotZero(t, panicLine, "the fake executor must capture its panic call site")
+	require.NotEmpty(t, panicFile)
+	panickingFrame := false
+	for _, frame := range reports[0].Frames {
+		if frame.Line == panicLine+1 && strings.HasSuffix(frame.Module, filepath.Base(panicFile)) &&
+			strings.Contains(frame.Function, "TestWorkerPanicGuardReportsOriginalStack") {
+			panickingFrame = true
+			break
+		}
+	}
+	require.True(t, panickingFrame, "expected a frame at the panicking executor's source line %d in %s, got %+v", panicLine+1, filepath.Base(panicFile), reports[0].Frames)
 }

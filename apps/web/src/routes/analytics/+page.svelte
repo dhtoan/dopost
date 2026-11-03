@@ -1,21 +1,27 @@
 <!--
-THESIS: Analytics explains stored account and content measurements without hiding provider limits.
+THESIS: Analytics leads with measured outcomes, then audience and account performance.
 OWN-WORLD: It uses OpenPost's flat borders, compact controls, and provider marks.
-STORY: Read exact totals, verify evidence, then inspect managed and external content in one list.
-FIRST VIEWPORT: The reporting window, refresh action, metric ledger, and unified follower trend are visible without scrolling.
+STORY: Choose accounts and dates, compare outcomes, then inspect the source post.
+FIRST VIEWPORT: Compact reporting controls lead directly into the outcome summary and chart.
 FORM: Server-owned insights and content rows preserve source, period, sample, and provider context.
 -->
 <script lang="ts">
+	import { appBranding } from '$lib/app-branding.svelte';
+	import AnalyticsDateRange from '$lib/components/analytics-date-range.svelte';
+	import type { AnalyticsRangeDays } from '@openpost/query-catalog';
+	import { page } from '$app/state';
+	import { untrack } from 'svelte';
 	import AnalyticsNumber from '$lib/components/analytics-number.svelte';
-	import AsyncActionButton from '$lib/components/async-action-button.svelte';
-	import { ThemeIcon } from '$lib/themes/icons';
+	import AnalyticsExportDialog from '$lib/components/analytics-export-dialog.svelte';
+	import { ProtectedIcon, ThemeIcon } from '$lib/themes/icons';
+	import Disclosure from '$lib/components/disclosure.svelte';
 	import {
 		accountFeaturesQueryOptions,
 		analyticsOverviewQueryOptions,
 		analyticsQueryKeys
 	} from '@openpost/query-catalog';
 	import { createInfiniteQuery, createQuery } from '@tanstack/svelte-query';
-	import { goto } from '$app/navigation';
+	import { goto, replaceState } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { client } from '$lib/api/client';
 	import type { components } from '$lib/api/types';
@@ -30,28 +36,31 @@ FORM: Server-owned insights and content rows preserve source, period, sample, an
 	import { reconcileQueryMutation } from '$lib/query/mutation-reconciliation';
 	import { featureQueryAPI } from '$lib/query/features';
 	import { ui } from '$lib/stores/ui.svelte';
+	import { auth } from '$lib/stores/auth';
 	import { workspaceCtx } from '$lib/stores/workspace.svelte';
 	import { Button } from '$lib/components/ui/button';
 	import * as Select from '$lib/components/ui/select';
+	import * as Popover from '$lib/components/ui/popover';
 	import PageContainer from '$lib/components/page-container.svelte';
 	import EmptyState from '$lib/components/empty-state.svelte';
 	import InlineNotice from '$lib/components/inline-notice.svelte';
 	import AppToast from '$lib/components/app-toast.svelte';
 	import AnalyticsPerformanceChart from '$lib/components/analytics-performance-chart.svelte';
+	import SocialSetControl from '$lib/components/social-set-control.svelte';
+	import AnalyticsAccountPerformance from '$lib/components/analytics-account-performance.svelte';
+	import AnalyticsPostHighlights from '$lib/components/analytics-post-highlights.svelte';
 	import AnalyticsAccountComposition from '$lib/components/analytics-account-composition.svelte';
 	import SocialAccountIdentity from '$lib/components/social-account-identity.svelte';
+	import SectionHeading from '$lib/components/section-heading.svelte';
 	import PlatformIcon from '$lib/components/platform-icon.svelte';
 	import { m } from '$lib/paraglide/messages';
 	import { getLocaleTag } from '$lib/i18n';
 	import { analyticsMetricLabel } from '$lib/analytics-metric-label';
 	import { formatSocialAccountLabel, formatSocialAccountName, getPlatformName } from '$lib/utils';
 	import {
-		analyticsSourceLabelKey,
 		appendAnalyticsContentPage,
 		hasEngagementMeasurement,
-		hasLimitedAccountHistory,
 		insightHasRanking,
-		isBuildingAccountHistory,
 		type AnalyticsSortMode
 	} from '$lib/analytics-overview';
 	import { allFeatureEffectiveDisabled, collectiveDisabledReason } from '$lib/feature-disabled';
@@ -60,41 +69,124 @@ FORM: Server-owned insights and content rows preserve source, period, sample, an
 	type AnalyticsAccount = components['schemas']['AccountOverview'];
 	type AnalyticsContent = components['schemas']['ContentOverview'];
 	type AnalyticsInsight = components['schemas']['Insight'];
-	type AccountDiscoveryCoverage = components['schemas']['AccountDiscoveryCoverage'];
 	type AnalyticsMetricMetadata = components['schemas']['AnalyticsMetricMetadata'];
 	type MetricSummary = components['schemas']['MetricSummary'];
-	type RangeDays = 7 | 30 | 90;
-	type ContentSource = 'all' | 'openpost' | 'external';
-	type ChartMetric = 'followers' | 'engagement' | 'views';
+	type RangeDays = AnalyticsRangeDays;
+	type ChartMetric = 'followers' | 'engagement' | 'visibility';
 
-	let rangeDays = $state<RangeDays>(30);
-	let selectedAccountID = $state('all');
+	const rangePresets: RangeDays[] = [0, 7, 30, 90, 365];
+	let rangeDays = $state<RangeDays>(
+		rangePresets.find((days) => String(days) === page.url.searchParams.get('days')) ?? 30
+	);
+	let rangeFrom = $state(page.url.searchParams.get('from') ?? '');
+	let rangeTo = $state(page.url.searchParams.get('to') ?? '');
+	const rangeLabel = $derived(
+		rangeFrom && rangeTo
+			? m.analytics_range_dates({ from: rangeFrom, to: rangeTo })
+			: rangeDays === 0
+				? m.analytics_range_all()
+				: rangeDays === 365
+					? m.analytics_range_year()
+					: m.analytics_range_days({ days: rangeDays })
+	);
+	let selectedAccountIDs = $state<string[]>([]);
+	let selectedSetID = $state('');
 	let selectedAccountWorkspaceID = $state('');
-	let chartMetric = $state<ChartMetric>('views');
-	let sortMode = $state<AnalyticsSortMode>('engagement');
-	let sourceFilter = $state<ContentSource>('all');
+	let chartMetric = $state<ChartMetric>('visibility');
+	let sortMode = $state<AnalyticsSortMode>('visibility');
 	let expandedContentID = $state('');
 	let refreshing = $state(false);
+	let warningsOpen = $state(false);
+	let exportOpen = $state(false);
 	let refreshSequence = 0;
 	let repurposingReferenceKey = $state('');
+	let handledRepurposeURL = $state('');
 	let toastMessage = $state('');
 	let toastTone = $state<'success' | 'error'>('success');
 
 	const currentWorkspaceID = $derived(workspaceCtx.currentWorkspace?.id ?? '');
-	const queryAccountID = $derived(
-		selectedAccountWorkspaceID === currentWorkspaceID ? selectedAccountID : 'all'
+	const canEdit = $derived(workspaceCtx.currentWorkspace?.can_edit ?? false);
+	const queryAccountIDs = $derived(
+		selectedAccountWorkspaceID === currentWorkspaceID ? selectedAccountIDs : []
 	);
+
 	const analyticsQuery = createInfiniteQuery(() =>
 		analyticsOverviewQueryOptions(analyticsQueryAPI, currentWorkspaceID, {
 			days: rangeDays,
-			accountId: queryAccountID === 'all' ? undefined : queryAccountID,
-			source: sourceFilter,
+			from: rangeFrom,
+			to: rangeTo,
+			accountIds: queryAccountIDs,
 			sort: sortMode,
 			limit: 50
 		})
 	);
 	const overview = $derived(combineAnalyticsPages(analyticsQuery.data?.pages ?? []));
 	const accounts = $derived(overview?.accounts ?? []);
+	const scopedAccounts = $derived(
+		accounts.filter(
+			(account) => queryAccountIDs.length === 0 || queryAccountIDs.includes(account.id)
+		)
+	);
+	type FilterAccount = {
+		id: string;
+		platform: string;
+		username: string;
+		avatar_url?: string;
+		inactive: boolean;
+	};
+	let historicalAccounts = $state<FilterAccount[]>([]);
+	let catalogWorkspaceID = $state('');
+	$effect(() => {
+		if (!overview || analyticsQuery.isPlaceholderData) return;
+		const workspaceID = currentWorkspaceID;
+		const history = (overview.performance ?? [])
+			.filter((item) => !accounts.some((account) => account.id === item.account_id))
+			.map((item) => ({
+				id: item.account_id,
+				platform: item.platform,
+				username: item.username,
+				avatar_url: item.avatar_url,
+				inactive: true
+			}));
+		untrack(() => {
+			const known = catalogWorkspaceID === workspaceID ? historicalAccounts : [];
+			const merged = [
+				...new Map([...known, ...history].map((account) => [account.id, account])).values()
+			];
+			catalogWorkspaceID = workspaceID;
+			if (JSON.stringify(merged) !== JSON.stringify(historicalAccounts))
+				historicalAccounts = merged;
+		});
+	});
+	const filterAccounts = $derived([
+		...accounts.map(({ id, platform, username, avatar_url }) => ({
+			id,
+			platform,
+			username,
+			avatar_url,
+			inactive: false
+		})),
+		...(catalogWorkspaceID === currentWorkspaceID ? historicalAccounts : []).filter(
+			(item) => !accounts.some((account) => account.id === item.id)
+		)
+	]);
+	const pickerAccounts = $derived(
+		filterAccounts.map((account) => ({
+			id: account.id,
+			platform: account.platform,
+			account_id: account.id,
+			account_username: account.username,
+			account_avatar_url: account.avatar_url ?? '',
+			slug: '',
+			alias: account.inactive
+				? `${accountName(account)} · ${m.settings_member_status_inactive()}`
+				: undefined
+		}))
+	);
+	function selectAccounts(ids: string[]) {
+		selectedAccountIDs = [...new Set(ids)].sort();
+		selectedSetID = '';
+	}
 	const featuresQuery = createQuery(() =>
 		accountFeaturesQueryOptions(
 			featureQueryAPI,
@@ -123,14 +215,12 @@ FORM: Server-owned insights and content rows preserve source, period, sample, an
 				: ''
 	);
 	const contentItems = $derived(overview?.content ?? []);
+	const exportMetrics = $derived(overview?.content_metric_keys ?? []);
 	const analyticsInsights = $derived(overview?.insights ?? []);
-	const accountCoverage = $derived(overview?.coverage ?? []);
-	const buildingCoverage = $derived(accountCoverage.filter(isBuildingAccountHistory));
-	const hasLimitedCoverage = $derived(accountCoverage.some(hasLimitedAccountHistory));
 	const selectedAccount = $derived(
-		queryAccountID === 'all'
-			? undefined
-			: (accounts.find((account) => account.id === queryAccountID) ?? accounts[0])
+		queryAccountIDs.length === 1
+			? accounts.find((account) => account.id === queryAccountIDs[0])
+			: undefined
 	);
 	const chartPoints = $derived(overview?.trends?.[chartMetric] ?? []);
 	const chartTitle = $derived(
@@ -138,19 +228,12 @@ FORM: Server-owned insights and content rows preserve source, period, sample, an
 			? m.analytics_daily_followers()
 			: chartMetric === 'engagement'
 				? m.analytics_daily_engagement()
-				: m.analytics_daily_views()
-	);
-	const chartDescription = $derived(
-		chartMetric === 'followers'
-			? m.analytics_daily_followers_description()
-			: chartMetric === 'engagement'
-				? m.analytics_daily_engagement_description()
-				: m.analytics_daily_views_description()
+				: m.analytics_visibility()
 	);
 	const accountsNeedingReconnect = $derived(
 		accounts.filter(
 			(account) =>
-				(selectedAccountID === 'all' || account.id === selectedAccountID) &&
+				(queryAccountIDs.length === 0 || queryAccountIDs.includes(account.id)) &&
 				(account.status === 'permission_required' ||
 					(account.missing_account_scopes?.length ?? 0) > 0 ||
 					(account.missing_content_scopes?.length ?? 0) > 0)
@@ -159,9 +242,7 @@ FORM: Server-owned insights and content rows preserve source, period, sample, an
 	const displayedSummary = $derived(overview?.summary ?? null);
 	const destinationCount = $derived(overview?.content_total ?? 0);
 	const hasMeasurements = $derived(
-		(selectedAccount
-			? Boolean(selectedAccount.last_synced_at)
-			: accounts.some((account) => Boolean(account.last_synced_at))) ||
+		scopedAccounts.some((account) => Boolean(account.last_synced_at)) ||
 			contentItems.some((item) => Boolean(item.collected_at || item.last_synced_at))
 	);
 	const initialLoading = $derived(
@@ -178,6 +259,12 @@ FORM: Server-owned insights and content rows preserve source, period, sample, an
 		analyticsAllDisabled && !hasMeasurements && !initialLoading && !error
 	);
 	const showAnalyticsDisabledNotice = $derived(analyticsAllDisabled && hasMeasurements);
+	const warningCount = $derived(
+		accountsNeedingReconnect.length +
+			Number(showAnalyticsDisabledNotice) +
+			Number(Boolean(selectedAccount?.stale)) +
+			Number(!hasMeasurements)
+	);
 	const summaryMetrics = $derived.by(() => {
 		const summary = displayedSummary;
 		if (!summary) return [];
@@ -186,7 +273,7 @@ FORM: Server-owned insights and content rows preserve source, period, sample, an
 				key: 'followers',
 				label: m.analytics_summary_followers(),
 				metric: summary.followers,
-				denominator: selectedAccount ? 1 : accounts.length,
+				denominator: scopedAccounts.length,
 				unit: 'account' as const
 			},
 			{
@@ -197,16 +284,9 @@ FORM: Server-owned insights and content rows preserve source, period, sample, an
 				unit: 'destination' as const
 			},
 			{
-				key: 'views',
-				label: m.analytics_views(),
-				metric: summary.views,
-				denominator: destinationCount,
-				unit: 'destination' as const
-			},
-			{
-				key: 'impressions',
-				label: m.analytics_impressions(),
-				metric: summary.impressions,
+				key: 'visibility',
+				label: m.analytics_visibility(),
+				metric: summary.visibility ?? { value: 0, measured: 0 },
 				denominator: destinationCount,
 				unit: 'destination' as const
 			},
@@ -220,12 +300,12 @@ FORM: Server-owned insights and content rows preserve source, period, sample, an
 		];
 	});
 	const featuredSummaryMetrics = $derived(
-		summaryMetrics.filter((item) => ['followers', 'engagement', 'views'].includes(item.key))
+		['visibility', 'engagement', 'followers'].flatMap((key) =>
+			summaryMetrics.filter((item) => item.key === key)
+		)
 	);
 	const secondarySummaryMetrics = $derived(
-		summaryMetrics.filter(
-			(item) => ['impressions', 'reach'].includes(item.key) && item.metric.measured > 0
-		)
+		summaryMetrics.filter((item) => item.key === 'reach' && item.metric.measured > 0)
 	);
 	const unavailableSummaryMetrics = $derived(
 		summaryMetrics.filter((item) => item.metric.measured === 0)
@@ -235,16 +315,12 @@ FORM: Server-owned insights and content rows preserve source, period, sample, an
 			refreshSequence++;
 			refreshing = false;
 			selectedAccountWorkspaceID = currentWorkspaceID;
-			selectedAccountID = 'all';
+			selectedAccountIDs = [];
+			selectedSetID = '';
 			expandedContentID = '';
+			warningsOpen = false;
 		}
-		if (
-			selectedAccountID !== 'all' &&
-			analyticsQuery.data &&
-			!accounts.some((account) => account.id === selectedAccountID)
-		) {
-			selectedAccountID = 'all';
-		}
+
 		if (
 			expandedContentID &&
 			analyticsQuery.data &&
@@ -252,6 +328,63 @@ FORM: Server-owned insights and content rows preserve source, period, sample, an
 		) {
 			expandedContentID = '';
 		}
+	});
+
+	$effect(() => {
+		const requestURL = page.url.href;
+		const actorID = $auth.user?.id;
+		const params = new URL(requestURL).searchParams;
+		const workspaceID = params.get('workspace');
+		if (params.get('repurpose_type') !== 'openpost' || !workspaceID || !actorID) return;
+		let active = true;
+		const isCurrent = () => active && $auth.user?.id === actorID && page.url.href === requestURL;
+		untrack(() => {
+			if (currentWorkspaceID === workspaceID) return;
+			void workspaceCtx
+				.initialize(workspaceID, { selectionIsCurrent: isCurrent })
+				.then(() => {
+					if (!isCurrent() || currentWorkspaceID === workspaceID) return;
+					toastTone = 'error';
+					toastMessage = m.analytics_repurpose_failed();
+				})
+				.catch(() => {
+					if (!isCurrent()) return;
+					toastTone = 'error';
+					toastMessage = m.analytics_repurpose_failed();
+				});
+		});
+		return () => {
+			active = false;
+		};
+	});
+
+	$effect(() => {
+		const params = page.url.searchParams;
+		if (
+			params.get('repurpose_type') !== 'openpost' ||
+			!canEdit ||
+			!analyticsQuery.isSuccess ||
+			analyticsQuery.isPlaceholderData ||
+			analyticsQuery.isFetching ||
+			!overview ||
+			!currentWorkspaceID ||
+			params.get('workspace') !== currentWorkspaceID ||
+			handledRepurposeURL === page.url.href
+		)
+			return;
+		const publicationID = params.get('repurpose_publication_id') || '';
+		const renditionID = params.get('repurpose_rendition_id') || '';
+		if (!publicationID || !renditionID) return;
+		handledRepurposeURL = page.url.href;
+		const url = new URL(page.url);
+		for (const name of ['repurpose_type', 'repurpose_publication_id', 'repurpose_rendition_id'])
+			url.searchParams.delete(name);
+		replaceState(url, page.state);
+		void repurposeReference({
+			type: 'openpost',
+			publication_id: publicationID,
+			rendition_id: renditionID
+		});
 	});
 
 	async function loadMoreContent() {
@@ -311,6 +444,22 @@ FORM: Server-owned insights and content rows preserve source, period, sample, an
 		);
 	}
 
+	function setDateRange(days: RangeDays, from: string, to: string) {
+		rangeDays = days;
+		rangeFrom = from;
+		rangeTo = to;
+		const url = new URL(page.url);
+		url.searchParams.set('days', String(days));
+		if (from && to) {
+			url.searchParams.set('from', from);
+			url.searchParams.set('to', to);
+		} else {
+			url.searchParams.delete('from');
+			url.searchParams.delete('to');
+		}
+		replaceState(url, page.state);
+	}
+
 	function combineAnalyticsPages(pages: AnalyticsOverview[]): AnalyticsOverview | null {
 		return pages.reduce<AnalyticsOverview | null>(
 			(combined, page) => (combined ? appendAnalyticsContentPage(combined, page) : page),
@@ -328,16 +477,22 @@ FORM: Server-owned insights and content rows preserve source, period, sample, an
 	}
 
 	async function repurposeContent(item: AnalyticsContent) {
-		const key = contentIdentity(item);
-		if (!currentWorkspaceID || repurposingReferenceKey) return;
+		return repurposeReference(item.reference, contentIdentity(item));
+	}
+
+	async function repurposeReference(
+		reference: components['schemas']['ContentReference'],
+		key = JSON.stringify(reference)
+	) {
+		if (!canEdit || !currentWorkspaceID || repurposingReferenceKey) return;
 		const requestedWorkspaceID = currentWorkspaceID;
 		repurposingReferenceKey = key;
 		try {
 			const response = await client.POST('/analytics/repurpose', {
 				body: {
 					workspace_id: requestedWorkspaceID,
-					reference: item.reference,
-					range: { days: rangeDays }
+					reference,
+					range: { days: rangeDays, from: rangeFrom || undefined, to: rangeTo || undefined }
 				}
 			});
 			if (response.error || !response.data) {
@@ -389,17 +544,12 @@ FORM: Server-owned insights and content rows preserve source, period, sample, an
 		}).format(new Date(value));
 	}
 
-	function accountName(account: AnalyticsAccount): string {
+	function accountName(account: Pick<AnalyticsAccount, 'username' | 'platform'>): string {
 		return formatSocialAccountName(account.username, account.platform) || account.platform;
 	}
 
-	function accountLabel(account: AnalyticsAccount): string {
+	function accountLabel(account: Pick<AnalyticsAccount, 'username' | 'platform'>): string {
 		return formatSocialAccountLabel(account.username, account.platform);
-	}
-
-	function accountFilterLabel(account: AnalyticsAccount | undefined): string {
-		if (!account) return m.analytics_account_filter();
-		return `${m.analytics_account_filter()}: ${accountLabel(account)}`;
 	}
 
 	function renditionName(rendition: AnalyticsContent): string {
@@ -410,13 +560,7 @@ FORM: Server-owned insights and content rows preserve source, period, sample, an
 	}
 
 	function metricValue(metric: MetricSummary) {
-		return metric.measured > 0 ? formatNumber(metric.value) : '—';
-	}
-
-	function coverageLabel(measured: number, denominator: number, unit: 'account' | 'destination') {
-		return unit === 'account'
-			? m.analytics_account_coverage({ measured, total: denominator })
-			: m.analytics_destination_coverage({ measured, total: denominator });
+		return metric.measured > 0 ? formatNumber(metric.value) : '-';
 	}
 
 	function contentStatus(item: AnalyticsContent) {
@@ -521,45 +665,12 @@ FORM: Server-owned insights and content rows preserve source, period, sample, an
 		return '';
 	}
 
-	function coverageStatusLabel(coverage: AccountDiscoveryCoverage) {
-		if (isBuildingAccountHistory(coverage)) return m.analytics_history_building();
-		switch (coverage.status) {
-			case 'complete':
-				return m.analytics_history_complete();
-			case 'partial':
-				return m.analytics_history_partial();
-			case 'permission_required':
-				return m.analytics_history_permission_required();
-			case 'rate_limited':
-				return m.analytics_history_rate_limited();
-			case 'cost_limited':
-				return m.analytics_history_cost_limited();
-			case 'unsupported':
-				return m.analytics_history_unsupported();
-			default:
-				return m.analytics_history_failed();
-		}
-	}
-
-	function coverageAccount(coverage: AccountDiscoveryCoverage) {
-		const account = accounts.find((candidate) => candidate.id === coverage.account_id);
-		return account ? accountLabel(account) : getPlatformName(coverage.platform);
-	}
-
 	function contentIdentity(item: AnalyticsContent) {
-		return item.reference.type === 'external'
-			? `external:${item.reference.account_content_id ?? ''}`
-			: `openpost:${item.reference.rendition_id ?? ''}`;
+		return `openpost:${item.reference.rendition_id ?? ''}`;
 	}
 
-	function contentLabel(item: AnalyticsContent) {
+	function contentLabel(item: Pick<AnalyticsContent, 'title' | 'excerpt'>) {
 		return item.title || item.excerpt || m.analytics_untitled_publication();
-	}
-
-	function sourceLabel(source: AnalyticsContent['source']) {
-		return analyticsSourceLabelKey(source) === 'published_elsewhere'
-			? m.analytics_source_published_elsewhere()
-			: m.analytics_source_published_with_openpost();
 	}
 
 	function insightTitle(insight: AnalyticsInsight) {
@@ -668,43 +779,215 @@ FORM: Server-owned insights and content rows preserve source, period, sample, an
 </script>
 
 <svelte:head>
-	<title>{m.analytics_title()} · OpenPost</title>
+	<title>{m.analytics_title()} · {appBranding.profile.display_name}</title>
 </svelte:head>
+
+<AnalyticsExportDialog
+	bind:open={exportOpen}
+	workspaceId={currentWorkspaceID}
+	days={rangeDays}
+	from={rangeFrom}
+	to={rangeTo}
+	{rangeLabel}
+	accountIds={queryAccountIDs}
+	accounts={filterAccounts}
+	metrics={exportMetrics}
+/>
 
 {#snippet actions()}
 	<div class="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-2">
-		<div
-			class="flex min-h-11 items-center rounded-md border border-border p-1 md:min-h-9"
-			role="group"
-			aria-label={m.analytics_range_label()}
-		>
-			{#each [7, 30, 90] as days (days)}
-				<button
-					type="button"
-					class={[
-						'min-h-9 rounded-sm px-2.5 text-sm font-medium transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none md:min-h-7',
-						rangeDays === days
-							? 'bg-secondary text-secondary-foreground'
-							: 'text-muted-foreground hover:text-foreground'
-					]}
-					aria-pressed={rangeDays === days}
-					onclick={() => (rangeDays = days as RangeDays)}
-				>
-					{m.analytics_range_days({ days })}
-				</button>
-			{/each}
-		</div>
-		<AsyncActionButton
+		<SocialSetControl
+			mode="filter"
+			workspaceId={currentWorkspaceID}
+			accounts={pickerAccounts}
+			selectedAccountIds={queryAccountIDs}
+			bind:selectedSetId={selectedSetID}
+			onApply={(set) => {
+				selectedAccountIDs = (set?.accounts ?? []).map((item) => item.social_account_id);
+			}}
+			onToggle={(account) =>
+				selectAccounts(
+					queryAccountIDs.includes(account.id)
+						? queryAccountIDs.filter((id) => id !== account.id)
+						: [...queryAccountIDs, account.id]
+				)}
+			onClearAll={() => selectAccounts([])}
+		/>
+		<AnalyticsDateRange days={rangeDays} from={rangeFrom} to={rangeTo} onchange={setDateRange} />
+		<Button
 			variant="outline"
-			size="sm"
+			size="icon-sm"
+			title={m.analytics_export()}
+			aria-label={m.analytics_export()}
+			disabled={!overview || filterAccounts.length === 0}
+			onclick={() => (exportOpen = true)}
+			data-testid="analytics-export"
+		>
+			<ThemeIcon role="download" class="size-4" />
+		</Button>
+		<Popover.Root bind:open={warningsOpen}>
+			<Popover.Trigger>
+				{#snippet child({ props })}
+					<Button
+						{...props}
+						variant="outline"
+						size="icon-sm"
+						title={warningCount ? m.analytics_warnings() : m.analytics_data_notes()}
+						aria-label={warningCount
+							? `${m.analytics_warnings()}: ${warningCount}`
+							: m.analytics_data_notes()}
+						disabled={!overview || filterAccounts.length === 0}
+						data-testid="analytics-warnings"
+					>
+						<ProtectedIcon icon={warningCount ? 'warning' : 'info'} class="size-4" />
+					</Button>
+				{/snippet}
+			</Popover.Trigger>
+			<Popover.Content
+				align="end"
+				collisionPadding={8}
+				class="max-h-[min(32rem,var(--bits-popover-content-available-height))] w-[min(28rem,calc(100vw-1rem))] overflow-y-auto overscroll-contain"
+				aria-label={m.analytics_data_notes()}
+			>
+				<div class="mb-3 flex items-center justify-between gap-2">
+					<h2 class="text-sm font-semibold">{m.analytics_data_notes()}</h2>
+					<Button
+						variant="ghost"
+						size="icon-sm"
+						aria-label={m.common_close()}
+						onclick={() => (warningsOpen = false)}><ThemeIcon role="close" class="size-4" /></Button
+					>
+				</div>
+				<div class="space-y-3">
+					{#if showAnalyticsDisabledNotice}
+						<div data-testid="analytics-disabled-notice">
+							<InlineNotice
+								tone="warning"
+								class="flex-col items-start"
+								message={m.analytics_feature_disabled_notice()}
+							>
+								{#snippet actions()}
+									<Button
+										href="/settings?tab=accounts"
+										variant="outline"
+										size="sm"
+										data-testid="analytics-disabled-recovery"
+										>{m.feature_disabled_open_details()}</Button
+									>
+								{/snippet}
+								{#if analyticsReason}
+									<p class="mt-1 text-xs leading-5" data-testid="analytics-disabled-reason">
+										{analyticsReason}
+									</p>
+								{/if}
+							</InlineNotice>
+						</div>
+					{/if}
+					{#each accountsNeedingReconnect as account (account.id)}
+						<InlineNotice
+							tone="warning"
+							class="flex-col items-start"
+							message={`${accountLabel(account)}: ${account.error_message || m.analytics_permission_required()}`}
+						>
+							{#snippet actions()}
+								<Button href="/settings?tab=accounts" variant="outline" size="sm"
+									>{m.analytics_reconnect()}</Button
+								>
+							{/snippet}
+						</InlineNotice>
+					{/each}
+					{#if selectedAccount?.stale}
+						<InlineNotice
+							tone="info"
+							message={selectedAccount.next_sync_at
+								? m.analytics_stale_retry({ date: formatDateTime(selectedAccount.next_sync_at) })
+								: m.analytics_stale()}
+						/>
+					{/if}
+
+					{#if !hasMeasurements}<InlineNotice
+							tone="info"
+							message={m.analytics_waiting_description()}
+						/>{/if}
+				</div>
+				<div
+					class="mt-3 space-y-3 border-t border-border pt-3 text-xs leading-5 text-muted-foreground"
+				>
+					{#if unavailableSummaryMetrics.length}
+						<p>
+							{m.analytics_unavailable_metrics({
+								metrics: unavailableSummaryMetrics.map((item) => item.label).join(', ')
+							})}
+						</p>
+					{/if}
+					<p>{m.analytics_visibility_definition()}</p>
+					<p class="mt-2">
+						{m.analytics_visibility_missing({
+							count: Math.max(0, destinationCount - (displayedSummary?.visibility?.measured ?? 0))
+						})}
+					</p>
+					<ul class="mt-2 space-y-1">
+						{#each overview?.visibility_breakdown ?? [] as source (`${source.platform}:${source.metric}:${source.basis}`)}
+							<li>
+								{getPlatformName(source.platform)} · {source.basis === 'post_displays'
+									? m.analytics_visibility_post_displays()
+									: source.basis === 'video_views'
+										? m.analytics_visibility_video_views()
+										: m.analytics_visibility_content_views()}: {formatNumber(source.value)} · {m.analytics_destination_coverage(
+									{ measured: source.measured, total: destinationCount }
+								)}
+							</li>
+						{/each}
+						{#each overview?.performance?.filter((item) => item.visibility.measured < item.published) ?? [] as account (account.account_id)}
+							<li>
+								{formatSocialAccountLabel(account.username, account.platform)}: {m.analytics_destination_coverage(
+									{ measured: account.visibility.measured, total: account.published }
+								)} · {account.status === 'unsupported'
+									? m.analytics_unsupported()
+									: account.status === 'permission_required'
+										? m.analytics_permission_required()
+										: account.status === 'rate_limited'
+											? m.analytics_rate_limited()
+											: account.status === 'failed'
+												? m.analytics_collection_failed()
+												: m.analytics_evidence_unavailable()}
+							</li>
+						{/each}
+					</ul>
+					<p>{m.analytics_metric_definitions()}</p>
+					<p>
+						{chartMetric === 'followers'
+							? m.analytics_daily_followers_description()
+							: chartMetric === 'engagement'
+								? m.analytics_daily_engagement_description()
+								: m.analytics_outcome_period()}
+					</p>
+					<p>
+						{chartMetric === 'followers'
+							? m.analytics_follower_chart_legend()
+							: m.analytics_content_chart_legend()}
+					</p>
+					<p>{m.analytics_insights_description()}</p>
+				</div>
+			</Popover.Content>
+		</Popover.Root>
+
+		<Button
+			variant="outline"
+			size="icon-sm"
 			onclick={refreshAnalytics}
 			disabled={!overview || accounts.length === 0 || analyticsAllDisabled}
-			state={refreshing ? 'pending' : 'idle'}
-			label={m.analytics_refresh()}
-			pendingLabel={m.analytics_refreshing()}
-			icon="refresh"
+			aria-busy={refreshing}
+			aria-disabled={refreshing || undefined}
+			aria-label={refreshing ? m.analytics_refreshing() : m.analytics_refresh()}
+			title={refreshing ? m.analytics_refreshing() : m.analytics_refresh()}
 			data-testid="analytics-refresh"
-		/>
+		>
+			<ThemeIcon
+				role="refresh"
+				class={refreshing ? 'size-4 animate-spin motion-reduce:animate-none' : 'size-4'}
+			/>
+		</Button>
 	</div>
 {/snippet}
 
@@ -720,7 +1003,6 @@ FORM: Server-owned insights and content rows preserve source, period, sample, an
 <PageContainer
 	title={m.analytics_title()}
 	themeIconRole="analytics"
-	description={m.analytics_description()}
 	{actions}
 	loading={initialLoading}
 	loadingMessage={m.common_loading()}
@@ -762,7 +1044,7 @@ FORM: Server-owned insights and content rows preserve source, period, sample, an
 			size="lg"
 		/>
 	{:else}
-		<div class="space-y-8 transition-opacity" class:opacity-70={loading} aria-busy={loading}>
+		<div class="space-y-6 transition-opacity" class:opacity-70={loading} aria-busy={loading}>
 			{#if backgroundError}
 				<InlineNotice tone="error" message={backgroundError}>
 					{#snippet actions()}
@@ -770,51 +1052,45 @@ FORM: Server-owned insights and content rows preserve source, period, sample, an
 					{/snippet}
 				</InlineNotice>
 			{/if}
-			{#if showAnalyticsDisabledNotice}
-				<div data-testid="analytics-disabled-notice">
-					<InlineNotice tone="warning" message={m.analytics_feature_disabled_notice()}>
-						{#snippet actions()}
-							<Button
-								href="/settings?tab=accounts"
-								variant="outline"
-								size="sm"
-								data-testid="analytics-disabled-recovery"
-								>{m.feature_disabled_open_details()}</Button
-							>
-						{/snippet}
-						{#if analyticsReason}
-							<p class="mt-1 text-xs leading-5" data-testid="analytics-disabled-reason">
-								{analyticsReason}
-							</p>
-						{/if}
-					</InlineNotice>
-				</div>
-			{/if}
-			{#each accountsNeedingReconnect as account (account.id)}
-				<InlineNotice
-					tone="warning"
-					message={`${accountLabel(account)}: ${account.error_message || m.analytics_permission_required()}`}
-				>
-					{#snippet actions()}
-						<Button href="/settings?tab=accounts" variant="outline" size="sm"
-							>{m.analytics_reconnect()}</Button
-						>
-					{/snippet}
-				</InlineNotice>
-			{/each}
-			{#if selectedAccount?.stale}
-				<InlineNotice
-					tone="info"
-					message={selectedAccount.next_sync_at
-						? m.analytics_stale_retry({ date: formatDateTime(selectedAccount.next_sync_at) })
-						: m.analytics_stale()}
-				/>
-			{/if}
+
+			<div class="space-y-1">
+				<p class="text-sm text-foreground">
+					{m.analytics_period_lead({
+						range: rangeLabel,
+						accounts: scopedAccounts.length,
+						destinations: destinationCount
+					})}
+				</p>
+				{#if displayedSummary}
+					<p class="text-xs text-muted-foreground">
+						{m.analytics_destination_coverage({
+							measured: displayedSummary.engagement?.measured ?? 0,
+							total: destinationCount
+						})}
+						·
+						{m.analytics_account_coverage({
+							measured: displayedSummary.followers?.measured ?? 0,
+							total: scopedAccounts.length
+						})}
+					</p>
+				{/if}
+			</div>
 
 			<section aria-label={m.analytics_title()}>
-				<div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+				<div
+					class="grid grid-cols-2 gap-3 sm:grid-cols-4"
+					role="group"
+					aria-label={m.analytics_chart_metric_label()}
+				>
 					{#each featuredSummaryMetrics as item (item.key)}
-						<div class="min-w-0 rounded-xl border border-border bg-card p-4 text-card-foreground">
+						<button
+							type="button"
+							class="min-w-0 rounded-xl border border-border bg-card p-4 text-left text-card-foreground transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+							class:border-primary={chartMetric === item.key}
+							aria-pressed={chartMetric === item.key}
+							onclick={() => (chartMetric = item.key as ChartMetric)}
+							data-testid="analytics-tile-{item.key}"
+						>
 							<div class="flex items-start justify-between gap-3">
 								<div class="flex items-center gap-2 text-sm text-muted-foreground">
 									{#if item.key === 'followers'}
@@ -830,9 +1106,7 @@ FORM: Server-owned insights and content rows preserve source, period, sample, an
 									<span
 										class={[
 											'text-xs font-medium tabular-nums',
-											item.metric.delta >= 0
-												? 'text-emerald-700 dark:text-emerald-300'
-												: 'text-destructive'
+											item.metric.delta >= 0 ? 'text-success-foreground' : 'text-destructive'
 										]}
 									>
 										{item.metric.delta >= 0 ? '+' : ''}{formatNumber(item.metric.delta)}
@@ -842,215 +1116,36 @@ FORM: Server-owned insights and content rows preserve source, period, sample, an
 							<p class="mt-5 text-3xl font-semibold tracking-[-0.03em] tabular-nums">
 								<AnalyticsNumber value={item.metric.measured > 0 ? item.metric.value : null} />
 							</p>
-							<p class="mt-1 text-xs text-muted-foreground">
-								{coverageLabel(item.metric.measured, item.denominator, item.unit)}
-							</p>
-						</div>
+						</button>
 					{/each}
 					<div class="min-w-0 rounded-xl border border-border bg-card p-4 text-card-foreground">
 						<div class="flex items-center gap-2 text-sm text-muted-foreground">
 							<ThemeIcon role="send" class="size-4" />
-							<span>{m.analytics_published()}</span>
+							<span>{m.analytics_distinct_posts()}</span>
 						</div>
 						<p class="mt-5 text-3xl font-semibold tracking-[-0.03em] tabular-nums">
-							<AnalyticsNumber value={displayedSummary?.published ?? 0} />
-						</p>
-						<p class="mt-1 text-xs text-muted-foreground">
-							{m.analytics_range_days({ days: rangeDays })}
+							<AnalyticsNumber value={overview?.publication_total ?? 0} />
 						</p>
 					</div>
 				</div>
-				<div
-					class="mt-3 rounded-lg border border-border bg-muted/20 px-3 py-2.5 text-xs leading-5 text-muted-foreground"
-				>
-					{#if secondarySummaryMetrics.length}
-						<span class="me-3">
-							{#each secondarySummaryMetrics as item, index (item.key)}
-								{#if index > 0}<span aria-hidden="true"> · </span>{/if}
-								<span
-									>{item.label}
-									<strong class="font-medium text-foreground">{metricValue(item.metric)}</strong
-									></span
-								>
-							{/each}
-						</span>
-					{/if}
-					{#if unavailableSummaryMetrics.length}
-						<span>
-							{m.analytics_unavailable_metrics({
-								metrics: unavailableSummaryMetrics.map((item) => item.label).join(', ')
-							})}
-						</span>
-					{/if}
-					<span class="block sm:inline sm:before:mx-2 sm:before:content-['·']">
-						{m.analytics_metric_definitions()}
-					</span>
-				</div>
-			</section>
-
-			{#if accountCoverage.length}
-				<section
-					class="overflow-hidden rounded-xl border border-border bg-card text-card-foreground"
-					aria-labelledby="analytics-history-heading"
-					data-testid="analytics-history-coverage"
-				>
-					<div class="border-b border-border px-4 py-3">
-						<h2 id="analytics-history-heading" class="text-sm font-semibold">
-							{buildingCoverage.length
-								? m.analytics_history_building()
-								: m.analytics_history_title()}
-						</h2>
-						<p class="mt-1 text-xs leading-5 text-muted-foreground">
-							{m.analytics_history_description()}
-						</p>
-					</div>
-					<div class="grid gap-px bg-border sm:grid-cols-2 md:grid-cols-3">
-						{#each accountCoverage as coverage (coverage.account_id)}
-							<article
-								class="min-w-0 bg-card px-4 py-3"
-								data-testid={`analytics-coverage-${coverage.account_id}`}
+				{#if secondarySummaryMetrics.length}
+					<p class="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+						{#each secondarySummaryMetrics as item (item.key)}
+							<span
+								>{item.label}
+								<strong class="font-medium text-foreground tabular-nums"
+									>{metricValue(item.metric)}</strong
+								></span
 							>
-								<div class="flex min-w-0 items-center gap-2">
-									<PlatformIcon platform={coverage.platform} class="size-4 shrink-0" />
-									<p class="min-w-0 truncate text-sm font-medium">
-										{coverageAccount(coverage)}
-									</p>
-								</div>
-								<p class="mt-2 text-xs font-medium">{coverageStatusLabel(coverage)}</p>
-								{#if coverage.description}
-									<p class="mt-1 text-xs leading-5 text-muted-foreground">
-										{coverage.description}
-									</p>
-								{/if}
-								<div class="mt-2 space-y-0.5 text-xs leading-5 text-muted-foreground">
-									{#if coverage.initial_items_discovered > 0 || isBuildingAccountHistory(coverage)}
-										<p>
-											{m.analytics_history_items({ count: coverage.initial_items_discovered })}
-										</p>
-									{/if}
-									{#if coverage.backfill_watermark}
-										<p>
-											{m.analytics_history_since({
-												date: formatDate(coverage.backfill_watermark)
-											})}
-										</p>
-									{/if}
-									{#if coverage.last_success_at}
-										<p>
-											{m.analytics_history_last_success({
-												date: formatDateTime(coverage.last_success_at)
-											})}
-										</p>
-									{/if}
-									{#if hasLimitedAccountHistory(coverage)}
-										<p class="font-medium text-foreground">
-											{m.analytics_history_limited_note()}
-										</p>
-									{/if}
-								</div>
-							</article>
 						{/each}
-					</div>
-				</section>
-			{/if}
-
-			{#if !hasMeasurements}
-				<InlineNotice tone="info" message={m.analytics_waiting_description()} />
-			{/if}
+					</p>
+				{/if}
+			</section>
 
 			<section
 				class="min-w-0 rounded-xl border border-border bg-card text-card-foreground"
-				aria-labelledby="analytics-trend-heading"
+				aria-label={chartTitle}
 			>
-				<div
-					class="flex flex-col gap-4 border-b border-border p-4 lg:flex-row lg:items-end lg:justify-between"
-				>
-					<div class="min-w-0">
-						<h2 id="analytics-trend-heading" class="text-base font-semibold">{chartTitle}</h2>
-						<p class="mt-1 max-w-2xl text-sm text-muted-foreground">
-							{chartDescription}
-							{#if selectedAccount}
-								<span>
-									{m.analytics_filtered_to_account({
-										account: accountLabel(selectedAccount)
-									})}</span
-								>
-							{/if}
-						</p>
-					</div>
-					<div class="flex flex-col gap-2 sm:flex-row">
-						<div
-							class="flex min-h-11 items-center rounded-md border border-border p-1 sm:min-h-9"
-							role="group"
-							aria-label={m.analytics_chart_metric_label()}
-						>
-							{#each ['views', 'engagement', 'followers'] as metric (metric)}
-								<button
-									type="button"
-									class={[
-										'min-h-9 flex-1 rounded-sm px-2.5 text-sm font-medium transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none sm:min-h-7',
-										chartMetric === metric
-											? 'bg-secondary text-secondary-foreground'
-											: 'text-muted-foreground hover:text-foreground'
-									]}
-									aria-pressed={chartMetric === metric}
-									onclick={() => (chartMetric = metric as ChartMetric)}
-								>
-									{metric === 'views'
-										? m.analytics_views()
-										: metric === 'engagement'
-											? m.analytics_summary_engagement()
-											: m.analytics_summary_followers()}
-								</button>
-							{/each}
-						</div>
-						<Select.Root
-							type="single"
-							value={selectedAccountID}
-							onValueChange={(value) => (selectedAccountID = value)}
-						>
-							<Select.Trigger
-								class="h-11 w-full sm:h-9 sm:w-60"
-								aria-label={accountFilterLabel(selectedAccount)}
-							>
-								{#if selectedAccount}
-									<SocialAccountIdentity
-										name={accountName(selectedAccount)}
-										platform={selectedAccount.platform}
-										avatarUrl={selectedAccount.avatar_url}
-										size="sm"
-									/>
-								{:else}
-									<span class="flex items-center gap-2">
-										<ThemeIcon role="users" class="size-4 text-muted-foreground" />
-										{m.analytics_all_accounts()}
-									</span>
-								{/if}
-							</Select.Trigger>
-							<Select.Content class="w-72 max-w-[calc(100vw-1rem)]">
-								<Select.Item value="all" class="min-h-11">
-									<span class="flex items-center gap-2.5">
-										<span
-											class="flex size-8 items-center justify-center rounded-full bg-muted text-muted-foreground"
-										>
-											<ThemeIcon role="users" class="size-4" />
-										</span>
-										<span class="font-medium">{m.analytics_all_accounts()}</span>
-									</span>
-								</Select.Item>
-								{#each accounts as account (account.id)}
-									<Select.Item value={account.id} class="min-h-12 py-2">
-										<SocialAccountIdentity
-											name={accountName(account)}
-											platform={account.platform}
-											avatarUrl={account.avatar_url}
-										/>
-									</Select.Item>
-								{/each}
-							</Select.Content>
-						</Select.Root>
-					</div>
-				</div>
 				<div class="p-2 pt-3 sm:p-4">
 					<AnalyticsPerformanceChart
 						points={chartPoints}
@@ -1064,42 +1159,47 @@ FORM: Server-owned insights and content rows preserve source, period, sample, an
 						formatDate={formatShortDate}
 					/>
 				</div>
-				<p class="border-t border-border px-4 py-2.5 text-xs text-muted-foreground">
-					{chartMetric === 'followers'
-						? m.analytics_follower_chart_legend()
-						: m.analytics_content_chart_legend()}
-				</p>
 			</section>
 
 			<section
 				class="rounded-xl border bg-card p-4 sm:p-5"
 				aria-labelledby="analytics-composition-heading"
 			>
-				<div class="mb-5">
-					<h2 id="analytics-composition-heading" class="text-base font-semibold">
+				<div class="mb-3">
+					<SectionHeading level={2} size="section" id="analytics-composition-heading">
 						{m.analytics_audience_title()}
-					</h2>
-					<p class="mt-1 max-w-2xl text-sm text-muted-foreground">
-						{m.analytics_audience_description()}
-					</p>
+					</SectionHeading>
 				</div>
-				<AnalyticsAccountComposition {accounts} formatValue={formatNumber} {accountLabel} />
+				<AnalyticsAccountComposition
+					accounts={scopedAccounts}
+					formatValue={formatNumber}
+					{accountLabel}
+				/>
 			</section>
 
+			<AnalyticsAccountPerformance
+				items={overview?.performance ?? []}
+				onselect={(id) => selectAccounts([id])}
+				formatValue={formatNumber}
+			/>
+			<AnalyticsPostHighlights
+				{canEdit}
+				items={overview?.highlights ?? []}
+				busy={Boolean(repurposingReferenceKey)}
+				onrepurpose={repurposeContent}
+				formatValue={formatNumber}
+			/>
 			{#if analyticsInsights.length}
 				<section
 					class="rounded-xl border border-border"
 					aria-labelledby="analytics-insights-heading"
 				>
 					<div class="border-b border-border px-4 py-3">
-						<h2 id="analytics-insights-heading" class="text-sm font-semibold">
+						<SectionHeading level={2} size="section" id="analytics-insights-heading">
 							{m.analytics_insights_title()}
-						</h2>
-						<p class="mt-1 text-xs leading-5 text-muted-foreground">
-							{m.analytics_insights_description()}
-						</p>
+						</SectionHeading>
 					</div>
-					<div class="grid gap-px bg-border sm:grid-cols-2 md:grid-cols-4">
+					<div class="analytics-insights-grid grid gap-px overflow-hidden rounded-b-xl bg-border">
 						{#each analyticsInsights as insight (insight.kind)}
 							{@const identity = insightIdentity(insight)}
 							<article
@@ -1115,19 +1215,32 @@ FORM: Server-owned insights and content rows preserve source, period, sample, an
 										avatarUrl={identity.avatarUrl}
 										detail={insightBody(insight)}
 									/>
+								{:else if insightHasRanking(insight) && insight.content}
+									<p class="mt-2 text-xl font-semibold tabular-nums">
+										{formatNumber(insight.value)}
+									</p>
+									{#if insight.content.reference.publication_id}
+										<a
+											href={resolve('/publications/[id]', {
+												id: insight.content.reference.publication_id
+											})}
+											class="mt-1 line-clamp-2 text-sm leading-5 text-muted-foreground hover:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+											>{contentLabel(insight.content)}</a
+										>
+									{:else}<p class="mt-1 line-clamp-2 text-sm leading-5 text-muted-foreground">
+											{contentLabel(insight.content)}
+										</p>{/if}
 								{:else}
-									<p class="mt-1 text-sm leading-5 text-muted-foreground">{insightBody(insight)}</p>
+									<p class="mt-2 line-clamp-3 text-sm leading-5 text-muted-foreground">
+										{insightBody(insight)}
+									</p>
 								{/if}
-								<details class="group mt-2 border-t border-border pt-1">
-									<summary
-										class="flex min-h-11 cursor-pointer list-none items-center justify-between gap-2 rounded-md text-xs font-medium text-muted-foreground hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-									>
-										{m.analytics_evidence_details()}
-										<ThemeIcon
-											role="chevron-down"
-											class="size-4 transition-transform group-open:rotate-180"
-										/>
-									</summary>
+								<Disclosure
+									summary={m.analytics_evidence_details()}
+									summaryClass="text-xs text-muted-foreground hover:text-foreground"
+									class="mt-2 border-t border-border pt-1"
+								>
+									<p class="pb-2 text-xs leading-5 text-muted-foreground">{insightBody(insight)}</p>
 									<dl class="space-y-1 pb-2 text-xs leading-5 text-muted-foreground">
 										<div class="flex flex-wrap gap-x-1">
 											<dt>{m.analytics_evidence_availability()}:</dt>
@@ -1179,7 +1292,6 @@ FORM: Server-owned insights and content rows preserve source, period, sample, an
 												/>
 												<span>{getPlatformName(insight.content.platform)}</span>
 											</p>
-											<p>{sourceLabel(insight.content.source)}</p>
 										</div>
 									{/if}
 									{#if insightCaveat(insight)}
@@ -1187,7 +1299,7 @@ FORM: Server-owned insights and content rows preserve source, period, sample, an
 											{insightCaveat(insight)}
 										</p>
 									{/if}
-								</details>
+								</Disclosure>
 							</article>
 						{/each}
 					</div>
@@ -1195,39 +1307,13 @@ FORM: Server-owned insights and content rows preserve source, period, sample, an
 			{/if}
 
 			<section aria-labelledby="analytics-content-heading">
-				<div class="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+				<div class="mb-3 flex flex-wrap items-center justify-between gap-3">
 					<div class="min-w-0">
-						<h2 id="analytics-content-heading" class="text-base font-semibold">
+						<SectionHeading level={2} size="section" id="analytics-content-heading">
 							{m.analytics_content_title()}
-						</h2>
-						<p class="mt-1 text-sm text-muted-foreground">
-							{selectedAccount
-								? m.analytics_content_for_account({ account: accountLabel(selectedAccount) })
-								: m.analytics_content_description()}
-						</p>
+						</SectionHeading>
 					</div>
 					<div class="flex min-w-0 shrink-0 flex-col gap-2 sm:flex-row sm:items-center">
-						<div
-							class="flex min-w-0 items-center rounded-md border border-border p-0.5"
-							role="group"
-							aria-label={m.analytics_source_filter_label()}
-						>
-							{#each ['all', 'openpost', 'external'] as source (source)}
-								<Button
-									size="sm"
-									variant={sourceFilter === source ? 'secondary' : 'ghost'}
-									class="min-w-0 flex-1 border-transparent sm:flex-none"
-									aria-pressed={sourceFilter === source}
-									onclick={() => (sourceFilter = source as ContentSource)}
-								>
-									{source === 'all'
-										? m.analytics_source_all()
-										: source === 'openpost'
-											? m.analytics_source_openpost()
-											: m.analytics_source_external()}
-								</Button>
-							{/each}
-						</div>
 						<Select.Root
 							type="single"
 							value={sortMode}
@@ -1237,13 +1323,16 @@ FORM: Server-owned insights and content rows preserve source, period, sample, an
 								class="h-11 w-full sm:h-9 sm:w-44"
 								aria-label={m.analytics_sort_label()}
 							>
-								{sortMode === 'newest'
-									? m.analytics_sort_newest()
-									: sortMode === 'views'
-										? m.analytics_sort_views()
-										: m.analytics_sort_engagement()}
+								{sortMode === 'visibility'
+									? m.analytics_visibility()
+									: sortMode === 'newest'
+										? m.analytics_sort_newest()
+										: sortMode === 'views'
+											? m.analytics_sort_views()
+											: m.analytics_sort_engagement()}
 							</Select.Trigger>
 							<Select.Content>
+								<Select.Item value="visibility">{m.analytics_visibility()}</Select.Item>
 								<Select.Item value="engagement">{m.analytics_sort_engagement()}</Select.Item>
 								<Select.Item value="views">{m.analytics_sort_views()}</Select.Item>
 								<Select.Item value="newest">{m.analytics_sort_newest()}</Select.Item>
@@ -1262,12 +1351,12 @@ FORM: Server-owned insights and content rows preserve source, period, sample, an
 							class="analytics-content-grid analytics-content-table-header hidden gap-4 border-b border-border bg-muted/30 px-4 py-2.5 text-xs font-medium text-muted-foreground"
 							aria-hidden="true"
 						>
-							<span>{m.analytics_table_post()}</span>
-							<span>{m.analytics_table_platforms()}</span>
-							<span class="text-end">{m.analytics_summary_engagement()}</span>
-							<span class="text-end">{m.analytics_views()}</span>
-							<span>{m.analytics_table_published()}</span>
-							<span class="sr-only">{m.analytics_table_actions()}</span>
+							<span class="analytics-post">{m.analytics_table_post()}</span>
+							<span class="analytics-destination">{m.analytics_table_platforms()}</span>
+							<span class="analytics-engagement text-end">{m.analytics_summary_engagement()}</span>
+							<span class="analytics-views text-end">{m.analytics_visibility()}</span>
+							<span class="analytics-published hidden">{m.analytics_table_published()}</span>
+							<span class="analytics-actions sr-only">{m.analytics_table_actions()}</span>
 						</div>
 						<div class="divide-y divide-border">
 							{#each contentItems as item (contentIdentity(item))}
@@ -1275,9 +1364,9 @@ FORM: Server-owned insights and content rows preserve source, period, sample, an
 								{@const expanded = expandedContentID === id}
 								{@const itemEvidence = metricEvidence(item)}
 								<article data-testid="analytics-content-row">
-									<div class="analytics-content-grid grid min-w-0 gap-4 px-4 py-4">
-										<div class="min-w-0">
-											{#if item.reference.type === 'openpost' && item.reference.publication_id}
+									<div class="analytics-content-grid grid min-w-0 gap-x-3 gap-y-2 px-3 py-3">
+										<div class="analytics-post min-w-0 text-sm">
+											{#if item.reference.publication_id}
 												<a
 													href={resolve('/publications/[id]', {
 														id: item.reference.publication_id
@@ -1293,62 +1382,66 @@ FORM: Server-owned insights and content rows preserve source, period, sample, an
 											</p>
 										</div>
 										<div
-											class="flex min-w-0 items-center gap-2 text-sm"
+											class="analytics-destination flex min-w-0 items-center gap-2 text-sm"
 											data-testid="analytics-row-destinations"
 										>
 											<span
-												class="flex size-7 shrink-0 items-center justify-center rounded-full border border-border bg-background"
+												class={item.platform === 'youtube'
+													? 'flex shrink-0 items-center justify-center'
+													: 'flex size-7 shrink-0 items-center justify-center rounded-full border border-border bg-background'}
 											>
-												<PlatformIcon platform={item.platform} class="size-3.5" />
+												{#if item.platform === 'youtube'}
+													<span class="text-xs">YouTube</span>
+												{:else}
+													<PlatformIcon platform={item.platform} class="size-3.5" />
+												{/if}
 											</span>
-											<span class="min-w-0">
-												<span class="block truncate text-xs">{renditionName(item)}</span>
-												<span
-													class="block truncate text-xs text-muted-foreground"
-													title={sourceLabel(item.source)}
-													data-testid={`analytics-source-${id}`}
-													>{item.source === 'external'
-														? m.analytics_source_external()
-														: m.analytics_source_openpost()}</span
-												>
-											</span>
+											{#if item.platform !== 'youtube' || renditionName(item) !== 'YouTube'}
+												<span class="min-w-0">
+													<span class="block truncate text-xs">{renditionName(item)}</span>
+												</span>
+											{/if}
 										</div>
-										<div class="analytics-metric flex items-baseline justify-between gap-3 text-sm">
+										<div
+											class="analytics-metric analytics-engagement flex items-baseline justify-between gap-2 text-sm"
+										>
 											<span class="analytics-row-label text-xs text-muted-foreground"
 												>{m.analytics_summary_engagement()}</span
 											>
 											<span class="font-medium tabular-nums"
 												>{hasEngagementMeasurement(item)
 													? formatNumber(item.engagement)
-													: '—'}</span
+													: '-'}</span
 											>
 										</div>
-										<div class="analytics-metric flex items-baseline justify-between gap-3 text-sm">
+										<div
+											class="analytics-metric analytics-views flex items-baseline justify-between gap-2 text-sm"
+										>
 											<span class="analytics-row-label text-xs text-muted-foreground"
-												>{m.analytics_views()}</span
+												>{m.analytics_visibility()}</span
 											>
 											<span class="font-medium tabular-nums"
-												>{item.metrics.views === undefined
-													? '—'
-													: semanticMetricValue(item, 'views', item.metrics.views)}</span
+												>{item.visibility ? formatNumber(item.visibility.value) : '-'}</span
 											>
 										</div>
 										<div class="analytics-published hidden text-sm text-muted-foreground">
 											<span class="analytics-row-label">{m.analytics_table_published()}: </span>
 											{formatDate(item.published_at)}
 										</div>
-										<div class="analytics-actions flex w-full flex-wrap items-center gap-1">
-											<Button
-												variant="ghost"
-												size="sm"
-												disabled={Boolean(repurposingReferenceKey)}
-												onclick={() => repurposeContent(item)}
-												data-testid={`analytics-repurpose-${id}`}
-											>
-												{repurposingReferenceKey === id
-													? m.analytics_repurposing()
-													: m.analytics_repurpose()}
-											</Button>
+										<div class="analytics-actions flex w-full items-center justify-end gap-1">
+											{#if canEdit}
+												<Button
+													variant="ghost"
+													size="sm"
+													disabled={Boolean(repurposingReferenceKey)}
+													onclick={() => repurposeContent(item)}
+													data-testid={`analytics-repurpose-${id}`}
+												>
+													{repurposingReferenceKey === id
+														? m.analytics_repurposing()
+														: m.analytics_repurpose()}
+												</Button>
+											{/if}
 											<Button
 												variant="ghost"
 												size="icon-sm"
@@ -1462,9 +1555,6 @@ FORM: Server-owned insights and content rows preserve source, period, sample, an
 									total: overview?.content_total ?? contentItems.length
 								})}
 							</p>
-							{#if hasLimitedCoverage}
-								<p>{m.analytics_history_limited_note()}</p>
-							{/if}
 						</div>
 						{#if overview?.content_next_cursor}
 							<Button variant="outline" onclick={loadMoreContent} disabled={loadingMore}>
@@ -1485,29 +1575,46 @@ FORM: Server-owned insights and content rows preserve source, period, sample, an
 </PageContainer>
 
 <style>
-	@container (min-width: 58rem) {
-		.analytics-content-grid {
-			grid-template-columns: minmax(0, 2fr) minmax(7rem, 1fr) 5.5rem 4rem 7rem 9rem;
-			align-items: center;
-		}
+	.analytics-insights-grid {
+		grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr));
+	}
 
+	.analytics-content-grid {
+		grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+		grid-template-areas: 'post post' 'destination actions' 'engagement views';
+		align-items: center;
+	}
+	.analytics-post {
+		grid-area: post;
+	}
+	.analytics-destination {
+		grid-area: destination;
+	}
+	.analytics-engagement {
+		grid-area: engagement;
+	}
+	.analytics-views {
+		grid-area: views;
+	}
+	.analytics-published {
+		grid-area: published;
+	}
+	.analytics-actions {
+		grid-area: actions;
+	}
+
+	@container (min-width: 40rem) {
+		.analytics-content-grid {
+			grid-template-columns: minmax(0, 1fr) 7rem 5.5rem 4rem 9rem;
+			grid-template-areas: 'post destination engagement views actions';
+		}
 		.analytics-content-table-header {
 			display: grid;
 		}
-
-		.analytics-mobile-date {
-			display: none;
-		}
-
 		.analytics-metric {
 			display: block;
 			text-align: end;
 		}
-
-		.analytics-published {
-			display: block;
-		}
-
 		.analytics-row-label {
 			position: absolute;
 			width: 1px;
@@ -1519,9 +1626,17 @@ FORM: Server-owned insights and content rows preserve source, period, sample, an
 			white-space: nowrap;
 			border: 0;
 		}
-
-		.analytics-actions {
-			justify-content: flex-end;
+	}
+	@container (min-width: 58rem) {
+		.analytics-content-grid {
+			grid-template-columns: minmax(0, 2fr) minmax(7rem, 1fr) 5.5rem 4rem 7rem 9rem;
+			grid-template-areas: 'post destination engagement views published actions';
+		}
+		.analytics-mobile-date {
+			display: none;
+		}
+		.analytics-published {
+			display: block;
 		}
 	}
 </style>

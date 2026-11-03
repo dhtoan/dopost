@@ -2,18 +2,13 @@ import { describe, expect, test } from "bun:test";
 
 import {
   buildOpenPostRequest,
-  extractResult,
-  idempotencyKey,
-  nextCursorFromHeaders,
-  resultTotal,
+  findRequestMapper,
   shouldRetryOpenPost,
 } from "../../../../../nodes/OpenPost/v1/actions/mapper";
-import { findGeneratedAction } from "../../../../../nodes/OpenPost/v1/actions/generated/requestMappers";
 
 describe("OpenPost request mapper", () => {
   test("maps native create publication fields and default idempotency keys", () => {
-    const mapper = findGeneratedAction("publication", "create");
-    if (!mapper) throw new Error("missing mapper");
+    const mapper = findRequestMapper("publication", "create");
 
     const request = buildOpenPostRequest({
       baseUrl: "https://example.com",
@@ -54,17 +49,8 @@ describe("OpenPost request mapper", () => {
     });
   });
 
-  test("extracts cursor headers and wrapped result arrays", () => {
-    expect(nextCursorFromHeaders({ "x-next-cursor": "next-1" })).toBe("next-1");
-    expect(extractResult({ media: [{ id: "media-1" }] }, { body_path: "media" })).toEqual([
-      { id: "media-1" },
-    ]);
-    expect(resultTotal({ total: 73 }, "total")).toBe(73);
-  });
-
   test("maps offset pagination without exposing an internal offset field", () => {
-    const mapper = findGeneratedAction("media", "getMany");
-    if (!mapper) throw new Error("missing mapper");
+    const mapper = findRequestMapper("media", "getMany");
     const request = buildOpenPostRequest({
       baseUrl: "https://example.com",
       mapper,
@@ -80,16 +66,41 @@ describe("OpenPost request mapper", () => {
     expect(request.options.qs).toMatchObject({ workspace_id: "ws-1", limit: 50, offset: 50 });
   });
 
-  test("honors explicit idempotency keys", () => {
-    expect(idempotencyKey("event-1", "exec-1", "publication.create", 0)).toBe("event-1");
-  });
-
   test("retries naturally idempotent completion requests only for transient failures", () => {
+    // Safety branch first: a mutation without an idempotency guarantee must not replay.
+    expect(shouldRetryOpenPost({ method: "POST", statusCode: 503, idempotency: "none" })).toBe(
+      false,
+    );
+    expect(shouldRetryOpenPost({ method: "POST", statusCode: 503, idempotency: "required" })).toBe(
+      true,
+    );
     expect(shouldRetryOpenPost({ method: "POST", statusCode: 503, idempotency: "natural" })).toBe(
       true,
     );
     expect(shouldRetryOpenPost({ method: "POST", statusCode: 409, idempotency: "natural" })).toBe(
       false,
     );
+    expect(shouldRetryOpenPost({ method: "POST", statusCode: 500, idempotency: "required" })).toBe(
+      false,
+    );
+    expect(shouldRetryOpenPost({ method: "GET", statusCode: 429, idempotency: "none" })).toBe(true);
   });
+});
+
+test("mention lookup sends the search in the GET query", () => {
+  const mapper = findRequestMapper("account", "lookupMentions");
+  const request = buildOpenPostRequest({
+    baseUrl: "https://example.com",
+    mapper,
+    itemIndex: 0,
+    executionId: "exec",
+    parameters: {
+      get(name, fallback) {
+        return name === "accountId" ? "account-1" : name === "query" ? "A & B" : fallback;
+      },
+    },
+  });
+  expect(request.options.url).toBe("https://example.com/api/v1/accounts/account-1/mentions");
+  expect(request.options.qs).toEqual({ query: "A & B" });
+  expect(request.options.body).toBeUndefined();
 });

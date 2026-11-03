@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { previewVideoFrame } from "./video-frame";
+  import { previewEditing } from "./editing";
   import ChevronLeft from "@lucide/svelte/icons/chevron-left";
   import ChevronRight from "@lucide/svelte/icons/chevron-right";
   import Heart from "@lucide/svelte/icons/heart";
@@ -11,6 +13,8 @@
   import type { PreviewModel, PreviewPlatform } from "./model";
   import PreviewActions from "./PreviewActions.svelte";
   import PreviewAvatar from "./PreviewAvatar.svelte";
+
+  const editing = previewEditing();
 
   interface Props {
     model: PreviewModel;
@@ -25,12 +29,21 @@
   let currentIndex = $state(0);
 
   const segment = $derived(model.segments[0] ?? { id: "primary", text: "" });
-  const media = $derived(segment.media?.length ? segment.media : model.media);
+  const media = $derived(segment.media ?? model.media);
   const safeIndex = $derived(
     Math.min(currentIndex, Math.max(0, media.length - 1)),
   );
   const activeMedia = $derived(media[safeIndex]);
+  const isPhoto = $derived(model.format === "photo");
   const handle = $derived(model.identity.handle.replace(/^@/u, ""));
+  const caption = $derived(
+    platform === "youtube"
+      ? model.title || segment.text
+      : platform === "facebook" &&
+          (model.format === "reel" || model.format === "video")
+        ? model.subtitle || segment.text
+        : segment.text || model.title,
+  );
   const isStory = $derived(model.format === "story");
   const playerLabel = $derived(
     `${platform === "youtube" ? "YouTube" : platform[0]?.toUpperCase() + platform.slice(1)} ${model.format} player`,
@@ -53,14 +66,17 @@
 >
   <div class="vertical-media">
     {#if activeMedia?.kind === "video"}
+      {#key JSON.stringify([activeMedia.src, activeMedia.poster, activeMedia.previewFrameSeconds])}
       <video
         src={activeMedia.src}
         poster={activeMedia.poster}
+        {@attach previewVideoFrame(activeMedia.previewFrameSeconds)}
         aria-label={activeMedia.alt || "Video preview"}
         muted
         playsinline
         preload="metadata"
       ></video>
+      {/key}
       <span class="center-play" aria-hidden="true"
         ><Play fill="currentColor" /></span
       >
@@ -83,6 +99,14 @@
   <div class="top-fade" aria-hidden="true"></div>
   <div class="bottom-fade" aria-hidden="true"></div>
 
+  {#if isPhoto && media.length > 1}
+    <div class="photo-dots" aria-hidden="true">
+      {#each media as item, index (item.id)}
+        <span class:active={index === safeIndex}></span>
+      {/each}
+    </div>
+  {/if}
+
   {#if isStory}
     <div class="story-progress" aria-hidden="true">
       {#each media.length > 0 ? media : [{ id: "empty" }] as item, index (item.id)}
@@ -95,7 +119,9 @@
         size={34}
         ring={platform === "instagram"}
       />
-      <strong>{handle}</strong>
+      <strong
+        >{platform === "facebook" ? model.identity.displayName : handle}</strong
+      >
       <span>{model.createdAtLabel}</span>
       <MoreHorizontal aria-hidden="true" />
       <X aria-hidden="true" />
@@ -104,6 +130,8 @@
     <div class="player-heading">
       {#if platform === "facebook"}<strong>Reels</strong>{/if}
       {#if platform === "youtube"}<strong>Shorts</strong>{/if}
+      {#if platform === "instagram"}<strong>Reels</strong>{/if}
+      {#if platform === "tiktok"}<strong>For You</strong>{/if}
       <span class="volume"><Volume2 aria-hidden="true" /></span>
       <MoreHorizontal aria-hidden="true" />
     </div>
@@ -139,12 +167,20 @@
   {:else}
     <div class="vertical-copy">
       <div class="author-row">
-        <strong>@{handle}</strong>
+        {#if platform !== "tiktok"}<PreviewAvatar
+            identity={model.identity}
+            size={28}
+          />{/if}
+        <strong
+          >{platform === "facebook"
+            ? model.identity.displayName
+            : `@${handle}`}</strong
+        >
         {#if platform === "instagram" || platform === "youtube"}
           <span>{platform === "youtube" ? "Subscribe" : "Follow"}</span>
         {/if}
       </div>
-      <p>{segment.text || model.title || "Your caption will appear here."}</p>
+      {#if platform === "youtube" && editing()?.title}<div class="editable-caption">{@render editing()!.title!(caption ?? "", segment)}</div>{:else if editing()?.text}<div class="editable-caption">{@render editing()!.text(segment)}</div>{:else}<p dir="auto">{caption || "Your caption will appear here."}</p>{/if}
       <div class="audio-row">
         <Music2 aria-hidden="true" />
         <span
@@ -155,7 +191,10 @@
       </div>
     </div>
     <div class="action-stack">
-      <PreviewAvatar identity={model.identity} size={40} />
+      {#if platform === "tiktok"}<PreviewAvatar
+          identity={model.identity}
+          size={40}
+        />{/if}
       <PreviewActions {platform} vertical />
       {#if platform === "tiktok"}
         <span class="music-disc"><Music2 aria-hidden="true" /></span>
@@ -163,7 +202,9 @@
     </div>
   {/if}
 
-  <div class="player-progress" aria-hidden="true"><span></span></div>
+  {#if !isPhoto}
+    <div class="player-progress" aria-hidden="true"><span></span></div>
+  {/if}
 </div>
 
 <style>
@@ -436,6 +477,8 @@
     line-height: 1.4;
     overflow-wrap: anywhere;
     white-space: pre-wrap;
+    unicode-bidi: plaintext;
+    text-align: start;
     -webkit-box-orient: vertical;
     -webkit-line-clamp: 3;
     line-clamp: 3;
@@ -497,8 +540,31 @@
 
   .player-progress span {
     display: block;
-    width: 31%;
+    width: 0;
     height: 100%;
+    background: white;
+  }
+
+  /* TikTok photo posts show one dot per slide at the bottom center
+     instead of the video progress bar. */
+  .photo-dots {
+    position: absolute;
+    z-index: 3;
+    bottom: 0.7rem;
+    left: 50%;
+    display: flex;
+    translate: -50% 0;
+    gap: 0.3rem;
+  }
+
+  .photo-dots span {
+    width: 0.3rem;
+    height: 0.3rem;
+    border-radius: 999px;
+    background: rgb(255 255 255 / 40%);
+  }
+
+  .photo-dots span.active {
     background: white;
   }
 
@@ -527,10 +593,30 @@
     --player-width: 20rem;
   }
 
-  @media (max-width: 32rem) {
+  @container (max-width: 32rem) {
     .vertical-preview {
       width: min(100%, 22rem);
       border-radius: 0.45rem;
     }
+  }
+  .vertical-media img,
+  .vertical-media video {
+    object-fit: contain;
+  }
+  .story-heading strong,
+  .author-row strong {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .story-heading > :global(svg) {
+    flex: none;
+  }
+  .platform-tiktok .vertical-copy {
+    bottom: 2rem;
+  }
+  .platform-youtube .audio-row {
+    display: none;
   }
 </style>

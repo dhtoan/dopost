@@ -60,47 +60,91 @@ func TestMediaUsageSummaryUsesCanonicalPublicationReferences(t *testing.T) {
 }
 
 func TestMediaUsageSummaryCountsOnePublicationAcrossReferenceKinds(t *testing.T) {
-	t.Parallel()
+	for _, backend := range []string{"sqlite", "postgres"} {
+		t.Run(backend, func(t *testing.T) {
+			db := mediaUsageTestDB(t, backend)
+			handler := &MediaHandler{db: db}
+			ctx := t.Context()
+			publications := []models.Publication{
+				{ID: "draft-repeat", WorkspaceID: "ws-1", CreatedByID: "user", Status: models.PublicationStatusDraft},
+				{ID: "draft", WorkspaceID: "ws-1", CreatedByID: "user", Status: models.PublicationStatusDraft},
+				{ID: "published", WorkspaceID: "ws-1", CreatedByID: "user", Status: " \u2003PUBLISHED\u00a0"},
+				{ID: "failed", WorkspaceID: "ws-1", CreatedByID: "user", Status: " FAILED\t"},
+				{ID: "unknown", WorkspaceID: "ws-1", CreatedByID: "user", Status: "future-state"},
+				{ID: "private", WorkspaceID: "ws-2", CreatedByID: "other-user", Status: models.PublicationStatusDraft},
+			}
+			_, err := db.NewInsert().Model(&publications).Exec(ctx)
+			require.NoError(t, err)
+			for _, publication := range publications {
+				_, err = db.NewInsert().Model(&models.PublicationSegment{ID: publication.ID, PublicationID: publication.ID}).Exec(ctx)
+				require.NoError(t, err)
+				_, err = db.NewInsert().Model(&models.Rendition{ID: publication.ID, PublicationID: publication.ID}).Exec(ctx)
+				require.NoError(t, err)
+				_, err = db.NewInsert().Model(&models.RenditionSegment{
+					ID: publication.ID, RenditionID: publication.ID, PublicationSegmentID: publication.ID,
+				}).Exec(ctx)
+				require.NoError(t, err)
+				mediaIDs := []string{"shared"}
+				if publication.ID == "published" || publication.ID == "failed" {
+					mediaIDs = append(mediaIDs, "completed-only")
+				}
+				for _, mediaID := range mediaIDs {
+					for _, reference := range []any{
+						&models.PublicationAsset{PublicationID: publication.ID, MediaID: mediaID},
+						&models.PublicationSegmentMedia{SegmentID: publication.ID, MediaID: mediaID},
+						&models.RenditionMedia{RenditionID: publication.ID, MediaID: mediaID},
+						&models.RenditionSegmentMedia{RenditionSegmentID: publication.ID, MediaID: mediaID},
+					} {
+						_, err = db.NewInsert().Model(reference).Exec(ctx)
+						require.NoError(t, err)
+					}
+				}
+			}
+			// One post per reference kind proves each UNION arm contributes on its
+			// own; the shared-media posts above only prove deduplication.
+			_, err = db.NewInsert().Model(&models.Publication{ID: "asset-only-post", WorkspaceID: "ws-1", CreatedByID: "user", Status: models.PublicationStatusDraft}).Exec(ctx)
+			require.NoError(t, err)
+			_, err = db.NewInsert().Model(&models.PublicationAsset{PublicationID: "asset-only-post", MediaID: "asset-only"}).Exec(ctx)
+			require.NoError(t, err)
 
-	db := createHandlerTestDB(t,
-		(*models.Publication)(nil),
-		(*models.PublicationAsset)(nil),
-		(*models.PublicationSegment)(nil),
-		(*models.PublicationSegmentMedia)(nil),
-		(*models.Rendition)(nil),
-		(*models.RenditionMedia)(nil),
-		(*models.RenditionSegment)(nil),
-		(*models.RenditionSegmentMedia)(nil),
-	)
-	handler := &MediaHandler{db: db}
-	ctx := context.Background()
+			_, err = db.NewInsert().Model(&models.Publication{ID: "segment-only-post", WorkspaceID: "ws-1", CreatedByID: "user", Status: models.PublicationStatusDraft}).Exec(ctx)
+			require.NoError(t, err)
+			_, err = db.NewInsert().Model(&models.PublicationSegment{ID: "segment-only-segment", PublicationID: "segment-only-post"}).Exec(ctx)
+			require.NoError(t, err)
+			_, err = db.NewInsert().Model(&models.PublicationSegmentMedia{SegmentID: "segment-only-segment", MediaID: "segment-only"}).Exec(ctx)
+			require.NoError(t, err)
 
-	_, err := db.NewInsert().Model(&models.Publication{
-		ID: "publication-1", WorkspaceID: "ws-1", CreatedByID: "user-1", Status: models.PublicationStatusReady,
-	}).Exec(ctx)
-	require.NoError(t, err)
-	_, err = db.NewInsert().Model(&models.PublicationAsset{PublicationID: "publication-1", MediaID: "media-1"}).Exec(ctx)
-	require.NoError(t, err)
-	_, err = db.NewInsert().Model(&models.PublicationSegment{ID: "segment-1", PublicationID: "publication-1"}).Exec(ctx)
-	require.NoError(t, err)
-	_, err = db.NewInsert().Model(&models.PublicationSegmentMedia{SegmentID: "segment-1", MediaID: "media-1"}).Exec(ctx)
-	require.NoError(t, err)
-	_, err = db.NewInsert().Model(&models.Rendition{ID: "rendition-1", PublicationID: "publication-1"}).Exec(ctx)
-	require.NoError(t, err)
-	_, err = db.NewInsert().Model(&models.RenditionMedia{RenditionID: "rendition-1", MediaID: "media-1"}).Exec(ctx)
-	require.NoError(t, err)
-	_, err = db.NewInsert().Model(&models.RenditionSegment{
-		ID: "rendition-segment-1", RenditionID: "rendition-1", PublicationSegmentID: "segment-1",
-	}).Exec(ctx)
-	require.NoError(t, err)
-	_, err = db.NewInsert().Model(&models.RenditionSegmentMedia{
-		RenditionSegmentID: "rendition-segment-1", MediaID: "media-1",
-	}).Exec(ctx)
-	require.NoError(t, err)
+			_, err = db.NewInsert().Model(&models.Publication{ID: "rendition-only-post", WorkspaceID: "ws-1", CreatedByID: "user", Status: models.PublicationStatusDraft}).Exec(ctx)
+			require.NoError(t, err)
+			_, err = db.NewInsert().Model(&models.Rendition{ID: "rendition-only-rendition", PublicationID: "rendition-only-post"}).Exec(ctx)
+			require.NoError(t, err)
+			_, err = db.NewInsert().Model(&models.RenditionMedia{RenditionID: "rendition-only-rendition", MediaID: "rendition-only"}).Exec(ctx)
+			require.NoError(t, err)
 
-	usage, err := handler.mediaUsageSummary(ctx, "ws-1", "media-1")
-	require.NoError(t, err)
-	require.Equal(t, mediaUsageSummary{Total: 1, Blocking: 1}, usage)
+			_, err = db.NewInsert().Model(&models.Publication{ID: "rendition-segment-only-post", WorkspaceID: "ws-1", CreatedByID: "user", Status: models.PublicationStatusDraft}).Exec(ctx)
+			require.NoError(t, err)
+			_, err = db.NewInsert().Model(&models.PublicationSegment{ID: "rendition-segment-only-source", PublicationID: "rendition-segment-only-post"}).Exec(ctx)
+			require.NoError(t, err)
+			_, err = db.NewInsert().Model(&models.Rendition{ID: "rendition-segment-only-rendition", PublicationID: "rendition-segment-only-post"}).Exec(ctx)
+			require.NoError(t, err)
+			_, err = db.NewInsert().Model(&models.RenditionSegment{ID: "rendition-segment-only-segment", RenditionID: "rendition-segment-only-rendition", PublicationSegmentID: "rendition-segment-only-source"}).Exec(ctx)
+			require.NoError(t, err)
+			_, err = db.NewInsert().Model(&models.RenditionSegmentMedia{RenditionSegmentID: "rendition-segment-only-segment", MediaID: "rendition-segment-only"}).Exec(ctx)
+			require.NoError(t, err)
+
+			usage, err := handler.mediaUsageSummaries(ctx, "ws-1", []string{"shared", "completed-only", "unused", "asset-only", "segment-only", "rendition-only", "rendition-segment-only"})
+			require.NoError(t, err)
+			require.Equal(t, map[string]mediaUsageSummary{
+				"shared":                 {Total: 5, Blocking: 3},
+				"completed-only":         {Total: 2},
+				"unused":                 {},
+				"asset-only":             {Total: 1, Blocking: 1},
+				"segment-only":           {Total: 1, Blocking: 1},
+				"rendition-only":         {Total: 1, Blocking: 1},
+				"rendition-segment-only": {Total: 1, Blocking: 1},
+			}, usage)
+		})
+	}
 }
 
 func TestMediaUsageStatusBlocksOnlyActiveWork(t *testing.T) {

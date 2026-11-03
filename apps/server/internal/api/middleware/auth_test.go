@@ -96,21 +96,30 @@ func newHumaOptionallyAuthed(authenticator Authenticator, called *bool) *echo.Ec
 
 func TestBearerMiddleware_Success_AttachesPrincipal(t *testing.T) {
 	want := &Principal{UserID: "u_42", Email: "rodrigo@example.com"}
-	auth := &fakeAuthenticator{principal: want}
+	authenticator := &fakeAuthenticator{principal: want}
+	var echoUserID, echoEmail, contextUserID, contextEmail string
 
-	e := newEchoAuthed(auth)
+	e := echo.New()
+	e.GET("/x", func(c echo.Context) error {
+		echoUserID, _ = c.Get(string(UserIDKey)).(string)
+		echoEmail, _ = c.Get(string(EmailKey)).(string)
+		contextUserID = GetUserID(c.Request().Context())
+		contextEmail, _ = c.Request().Context().Value(EmailKey).(string)
+		return c.NoContent(http.StatusOK)
+	}, BearerMiddleware(authenticator))
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/x", nil)
 	req.Header.Set("Authorization", "Bearer op_cli_abc_secret")
 	rec := httptest.NewRecorder()
 
 	e.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d (body=%q)", rec.Code, rec.Body.String())
-	}
-	if auth.gotToken != "op_cli_abc_secret" {
-		t.Errorf("middleware did not pass raw token to authenticator, got %q", auth.gotToken)
-	}
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, "u_42", echoUserID, "Echo handler must see the authenticated user")
+	require.Equal(t, "rodrigo@example.com", echoEmail, "Echo handler must see the authenticated email")
+	require.Equal(t, "u_42", contextUserID, "request context must carry the authenticated user")
+	require.Equal(t, "rodrigo@example.com", contextEmail, "request context must carry the authenticated email")
+	require.Equal(t, "op_cli_abc_secret", authenticator.gotToken,
+		"middleware must pass the raw token to the authenticator")
 }
 
 func TestBearerMiddleware_MissingHeader(t *testing.T) {
@@ -156,10 +165,18 @@ func TestBearerMiddleware_InvalidToken_Returns401(t *testing.T) {
 	if rec.Code != http.StatusUnauthorized {
 		t.Errorf("expected 401 for rejected token, got %d (body=%q)", rec.Code, rec.Body.String())
 	}
+	if got := rec.Header().Get("WWW-Authenticate"); got != invalidTokenChallenge {
+		t.Errorf("expected rejected session challenge, got %q", got)
+	}
 }
 
 func TestBearerMiddlewareCanceledRequestDoesNotReturnInvalidToken(t *testing.T) {
-	e := newEchoAuthed(requestContextAuthenticator{})
+	called := false
+	e := echo.New()
+	e.GET("/x", func(c echo.Context) error {
+		called = true
+		return c.NoContent(http.StatusOK)
+	}, BearerMiddleware(requestContextAuthenticator{}))
 	requestContext, cancel := context.WithCancel(context.Background())
 	cancel()
 	req := httptest.NewRequestWithContext(requestContext, http.MethodGet, "/x", nil)
@@ -168,6 +185,9 @@ func TestBearerMiddlewareCanceledRequestDoesNotReturnInvalidToken(t *testing.T) 
 
 	e.ServeHTTP(rec, req)
 
+	require.False(t, called, "a canceled request must not reach the handler")
+	require.Empty(t, rec.Header().Get("WWW-Authenticate"),
+		"a canceled request must not carry an invalid-token challenge")
 	require.Empty(t, rec.Body.String())
 	require.NotContains(t, rec.Body.String(), "invalid or expired token")
 }
@@ -237,6 +257,7 @@ func TestAuthMiddlewareInvalidTokenStillReturns401(t *testing.T) {
 	require.False(t, called)
 	require.Equal(t, http.StatusUnauthorized, rec.Code)
 	require.Contains(t, rec.Body.String(), "invalid or expired token")
+	require.Equal(t, invalidTokenChallenge, rec.Header().Get("WWW-Authenticate"))
 }
 
 func TestOptionalAuthMiddlewareAuthenticationTimeoutReturns503(t *testing.T) {
@@ -251,20 +272,6 @@ func TestOptionalAuthMiddlewareAuthenticationTimeoutReturns503(t *testing.T) {
 	require.False(t, called)
 	require.Equal(t, http.StatusServiceUnavailable, rec.Code)
 	require.Contains(t, rec.Body.String(), "authentication is temporarily unavailable")
-}
-
-func TestOptionalAuthMiddlewareInvalidTokenContinuesAnonymously(t *testing.T) {
-	called := false
-	e := newHumaOptionallyAuthed(&fakeAuthenticator{err: errors.New("invalid token")}, &called)
-	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/optional-auth-test", nil)
-	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: "invalid-token"})
-	rec := httptest.NewRecorder()
-
-	e.ServeHTTP(rec, req)
-
-	require.True(t, called)
-	require.Equal(t, http.StatusOK, rec.Code)
-	require.NotContains(t, rec.Body.String(), "authentication is temporarily unavailable")
 }
 
 func TestBearerMiddlewareRejectsMCPResourceToken(t *testing.T) {
@@ -290,6 +297,37 @@ func TestPrincipalCanAccessREST(t *testing.T) {
 	require.False(t, PrincipalCanAccessREST(&Principal{Scope: apitokens.ScopeCLI, Audience: "https://example.test/mcp"}))
 	require.True(t, PrincipalCanAccessREST(&Principal{Scope: apitokens.ScopeAPIRead}, "list-publications"))
 	require.True(t, PrincipalCanAccessREST(&Principal{Scope: apitokens.ScopeAPIRead}, "get-provider-readiness"))
+	require.True(t, PrincipalCanAccessREST(&Principal{Scope: apitokens.ScopeAPIRead}, "get-analytics-overview"))
+	for _, operationID := range []string{
+		"export-analytics",
+		"list-jobs",
+		"list-notifications",
+		"list-engagement",
+		"list-conversations",
+		"list-conversation-messages",
+		"list-growth-recommendations",
+		"get-repost-automation",
+		"read-account-features",
+		"list-voice-profiles",
+		"get-voice-profile",
+		"resolve-effective-voice-profiles",
+		"list-prompts",
+		"get-random-prompt",
+		"get-prompt-categories",
+	} {
+		require.True(t, PrincipalCanAccessREST(&Principal{Scope: apitokens.ScopeAPIRead}, operationID), operationID)
+		require.True(t, PrincipalCanAccessREST(&Principal{Scope: apitokens.ScopeAPIWrite}, operationID), operationID)
+	}
+	// Mutations stay out of api:read; analytics refresh/repurpose and deletes
+	// remain uncatalogued until each is deliberately promoted.
+	for _, operationID := range []string{
+		"refresh-analytics",
+		"prepare-analytics-repurpose",
+		"delete-publication",
+		"delete-publication-rendition",
+	} {
+		require.False(t, PrincipalCanAccessREST(&Principal{Scope: apitokens.ScopeAPIRead}, operationID), operationID)
+	}
 	require.False(t, PrincipalCanAccessREST(&Principal{Scope: apitokens.ScopeAPIRead}, "create-publication"))
 	require.True(t, PrincipalCanAccessREST(&Principal{Scope: apitokens.ScopeAPIWrite}, "list-publications"))
 	require.True(t, PrincipalCanAccessREST(&Principal{Scope: apitokens.ScopeAPIWrite}, "publish-publication-now"))
@@ -308,6 +346,7 @@ func TestPrincipalCanAccessREST(t *testing.T) {
 		"restore-media",
 		"update-media-favorite",
 		"retry-media-analysis",
+		"optimize-media-image",
 	} {
 		require.True(t, PrincipalCanAccessREST(&Principal{Scope: apitokens.ScopeAPIWrite}, operationID), operationID)
 	}
@@ -328,6 +367,10 @@ func TestExternalApplicationRESTAccessRequiresExactGrant(t *testing.T) {
 	require.True(t, PrincipalCanAccessREST(principal, "create-external-webhook"))
 	require.False(t, PrincipalCanAccessREST(principal, "list-publications"))
 	require.False(t, PrincipalCanAccessREST(principal, "delete-publication"))
+	require.False(t, PrincipalCanAccessREST(principal, "optimize-media-image"))
+	principal.DelegatedScopes += " media:write"
+	require.True(t, PrincipalCanAccessREST(principal, "optimize-media-image"))
+	require.False(t, PrincipalCanAccessREST(&Principal{Scope: apitokens.ScopeAPIRead}, "optimize-media-image"))
 	require.False(t, PrincipalCanAccessREST(principal))
 	require.False(t, PrincipalCanAccessREST(&Principal{
 		Scope:           apitokens.ScopeExternalApp,
@@ -341,22 +384,10 @@ func TestExternalApplicationRESTAccessRequiresExactGrant(t *testing.T) {
 	}, "list-workspaces"))
 }
 
-func TestLegacyRESTScopeCatalogIsExplicit(t *testing.T) {
-	read, write := LegacyRESTScopeOperationCatalog()
-	require.Empty(t, read)
-	require.Equal(t, []string{RESTOperationUploadMediaSessionContent}, write)
-}
-
-func TestRequestAuthTokenAcceptsSessionCookie(t *testing.T) {
-	token, cookieAuth := requestAuthToken("", "theme=dark; openpost_session=session-token")
-	require.Equal(t, "session-token", token)
-	require.True(t, cookieAuth)
-}
-
 func TestCookieRequestOriginProtection(t *testing.T) {
 	require.True(t, cookieRequestAllowed(http.MethodGet, "", "app.openpost.test"))
 	require.True(t, cookieRequestAllowed(http.MethodPost, "https://app.openpost.test", "app.openpost.test"))
-	require.True(t, cookieRequestAllowed(http.MethodPost, "http://localhost:5173", "localhost:8080"))
+	require.False(t, cookieRequestAllowed(http.MethodPost, "http://localhost:5173", "localhost:8080"))
 	require.False(t, cookieRequestAllowed(http.MethodPost, "https://evil.example", "app.openpost.test"))
 	require.False(t, cookieRequestAllowed(http.MethodPost, "", "app.openpost.test"))
 }
@@ -485,4 +516,77 @@ func TestJWTAuthenticatorRejectsRevokedSession(t *testing.T) {
 	require.NoError(t, sessionService.RevokeSession(ctx, "user-1", session.ID))
 	_, err = authenticator.AuthenticateBearer(ctx, token)
 	require.Error(t, err)
+}
+
+func TestSessionBearerRejectsForeignOrigin(t *testing.T) {
+	for _, origin := range []string{"https://evil.example", "http://app.openpost.test", "https://app.openpost.test:444"} {
+		t.Run(origin, func(t *testing.T) {
+			called := false
+			e := newHumaAuthed(&fakeAuthenticator{principal: &Principal{UserID: "user", SessionID: "session"}}, &called)
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "https://app.openpost.test/api/v1/auth-test", nil)
+			req.Header.Set("Authorization", "Bearer session-token")
+			req.Header.Set("Origin", origin)
+			rec := httptest.NewRecorder()
+			e.ServeHTTP(rec, req)
+			require.Equal(t, http.StatusForbidden, rec.Code)
+			require.False(t, called)
+		})
+	}
+}
+
+func TestTrustedProxyNetworkAssertions(t *testing.T) {
+	for _, tc := range []struct{ name, peer, forwarded, wantIP, proto, wantProto, prefix string }{
+		{"direct spoof", "203.0.113.4:5000", "1.2.3.4", "203.0.113.4", "https", "", "10.0.0.0/24"},
+		{"trusted hop", "10.0.0.2:5000", "1.2.3.4, 203.0.113.4", "203.0.113.4", "https", "https", "10.0.0.0/24"},
+		{"trusted chain", "10.0.0.2:5000", "203.0.113.4, 10.0.0.1", "203.0.113.4", "https", "https", "10.0.0.0/24"},
+		{"mapped CIDR", "10.0.0.2:5000", "203.0.113.4", "203.0.113.4", "https", "https", "::ffff:10.0.0.0/120"},
+		{"mapped peer", "[::ffff:10.0.0.2]:5000", "203.0.113.4", "203.0.113.4", "https", "https", "::ffff:10.0.0.0/120"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			called := false
+			e := echo.New()
+			e.Pre(TrustedProxyMiddleware([]string{tc.prefix}))
+			e.GET("/", func(c echo.Context) error {
+				called = true
+				require.Equal(t, tc.wantIP, c.RealIP())
+				require.Equal(t, tc.wantProto, c.Request().Header.Get("X-Forwarded-Proto"))
+				expectedScheme := tc.wantProto
+				if expectedScheme == "" {
+					expectedScheme = "http"
+				}
+				require.Equal(t, expectedScheme, c.Scheme())
+				return c.NoContent(200)
+			})
+			req := httptest.NewRequestWithContext(t.Context(), "GET", "http://app.openpost.test/", nil)
+			req.RemoteAddr = tc.peer
+			req.Header.Set("X-Forwarded-For", tc.forwarded)
+			req.Header.Set("X-Forwarded-Proto", tc.proto)
+			rec := httptest.NewRecorder()
+			e.ServeHTTP(rec, req)
+			require.True(t, called, "trusted proxy middleware must forward the request")
+			require.Equal(t, http.StatusOK, rec.Code)
+		})
+	}
+	for header, value := range map[string]string{"X-Forwarded-Protocol": "https", "X-Forwarded-Ssl": "on", "X-Url-Scheme": "https"} {
+		for _, peer := range []string{"203.0.113.4:5000", "10.0.0.2:5000"} {
+			t.Run(header+"/"+peer, func(t *testing.T) {
+				called := false
+				e := echo.New()
+				e.Pre(TrustedProxyMiddleware([]string{"10.0.0.0/24"}))
+				e.GET("/", func(c echo.Context) error {
+					called = true
+					require.Equal(t, "http", c.Scheme())
+					return c.NoContent(http.StatusOK)
+				})
+				req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "http://app.openpost.test/", nil)
+				req.RemoteAddr = peer
+				req.Header.Set(header, value)
+				req.Header.Set("X-Forwarded-Proto", "malicious-proto")
+				rec := httptest.NewRecorder()
+				e.ServeHTTP(rec, req)
+				require.True(t, called, "trusted proxy middleware must forward the request")
+				require.Equal(t, http.StatusOK, rec.Code)
+			})
+		}
+	}
 }

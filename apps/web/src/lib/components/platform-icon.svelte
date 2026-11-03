@@ -6,12 +6,12 @@
 	import lemmy from '../../../../../assets/logos/lemmy.svg?raw';
 	import piefed from '../../../../../assets/logos/piefed.svg?raw';
 	import threads from '../../../../../assets/logos/threads.svg?raw';
+	import devnull from '../../../../../assets/logos/devnull.svg?raw';
 	import bluesky from '../../../../../assets/logos/bluesky.svg?raw';
 	import discord from '../../../../../assets/logos/discord.svg?raw';
 	import linkedin from '../../../../../assets/logos/linkedin.svg?raw';
 	import instagram from '../../../../../assets/logos/instagram.svg?raw';
 	import facebook from '../../../../../assets/logos/facebook.svg?raw';
-	import youtube from '../../../../../assets/logos/youtube.svg?raw';
 	import tiktok from '../../../../../assets/logos/tiktok.svg?raw';
 	import pinterest from '../../../../../assets/logos/pinterest.svg?raw';
 	import telegram from '../../../../../assets/logos/telegram.svg?raw';
@@ -33,12 +33,12 @@
 		['lemmy', lemmy],
 		['piefed', piefed],
 		['threads', threads],
+		['devnull', devnull],
 		['bluesky', bluesky],
 		['discord', discord],
 		['linkedin', linkedin],
 		['instagram', instagram],
 		['facebook', facebook],
-		['youtube', youtube],
 		['tiktok', tiktok],
 		['pinterest', pinterest],
 		['telegram', telegram]
@@ -53,6 +53,6 @@
 {#if svg}
 	<!-- eslint-disable-next-line svelte/no-at-html-tags -->
 	{@html svg}
-{:else}
+{:else if platformKey !== 'youtube'}
 	<ThemeIcon role="plugin" class={className} aria-hidden="true" />
 {/if}

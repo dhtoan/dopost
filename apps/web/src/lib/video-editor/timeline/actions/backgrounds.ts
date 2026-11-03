@@ -7,7 +7,10 @@ import { getBackgroundPreset, clonePresetBackground } from '../../backgrounds/pr
 import { ensureOpenTrackForRange } from './track-placement';
 import { effectiveMediaTracks } from '../utils/track-groups';
 
-export function addBackgroundItem(presetId?: string): string {
+export function addBackgroundItem(
+	presetId?: string,
+	placement: { frame?: number; preferredTrackId?: string } = {}
+): string {
 	return execute('ADD_BACKGROUND_ITEM', () => {
 		if (
 			!effectiveMediaTracks(timelineStore.tracks).some(
@@ -24,14 +27,16 @@ export function addBackgroundItem(presetId?: string): string {
 		const projectHeight = editorSession.project?.metadata.height ?? 1080;
 		const id = crypto.randomUUID();
 		const label = presetId ? (getBackgroundPreset(presetId)?.label ?? 'Background') : 'Background';
-		const from = timelineStore.currentFrame;
+		const from = placement.frame ?? timelineStore.currentFrame;
 		const durationInFrames = timelineStore.fps * 3;
 		const targetTrack = ensureOpenTrackForRange({
 			kind: 'video',
 			itemType: 'background',
 			from,
 			durationInFrames,
-			label
+			label,
+			preferredTrackId: placement.preferredTrackId,
+			stacking: 'bottom'
 		});
 		timelineStore._addItem({
 			id,
@@ -94,37 +99,6 @@ export function updateBackground(
 	commandType = 'UPDATE_BACKGROUND'
 ): boolean {
 	return applyPatch(itemId, patch, commandType);
-}
-
-export function updateBackgroundRotation(itemId: string, rotation: number): boolean {
-	return applyPatch(itemId, { rotation }, 'UPDATE_BACKGROUND_ROTATION');
-}
-
-export function updateBackgroundScale(itemId: string, scale: number): boolean {
-	return applyPatch(itemId, { scale }, 'UPDATE_BACKGROUND_SCALE');
-}
-
-export function updateBackgroundOffsetX(itemId: string, offsetX: number): boolean {
-	return applyPatch(itemId, { offsetX }, 'UPDATE_BACKGROUND_OFFSET_X');
-}
-
-export function updateBackgroundOffsetY(itemId: string, offsetY: number): boolean {
-	return applyPatch(itemId, { offsetY }, 'UPDATE_BACKGROUND_OFFSET_Y');
-}
-
-export function updateBackgroundSmoothness(itemId: string, smoothness: number): boolean {
-	return applyPatch(itemId, { smoothness }, 'UPDATE_BACKGROUND_SMOOTHNESS');
-}
-
-export function updateBackgroundDensity(itemId: string, density: number): boolean {
-	return applyPatch(itemId, { density }, 'UPDATE_BACKGROUND_DENSITY');
-}
-
-export function updateBackgroundForegroundOpacity(
-	itemId: string,
-	foregroundOpacity: number
-): boolean {
-	return applyPatch(itemId, { foregroundOpacity }, 'UPDATE_BACKGROUND_FOREGROUND_OPACITY');
 }
 
 export function updateBackgroundColors(

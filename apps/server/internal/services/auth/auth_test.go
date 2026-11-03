@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"slices"
 	"testing"
 	"time"
 
@@ -40,11 +41,24 @@ func TestValidateTokenRejectsUnexpectedAlgorithmAndIssuer(t *testing.T) {
 			ExpiresAt: jwt.NewNumericDate(now.Add(time.Hour)),
 		},
 	}
+	validToken, err := jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(secret))
+	if err != nil {
+		t.Fatalf("sign valid token: %v", err)
+	}
+	verified, err := service.ValidateToken(validToken)
+	if err != nil {
+		t.Fatalf("expected the same fixture signed with HS256 and the OpenPost issuer to validate: %v", err)
+	}
+	if verified.UserID != "user-123" || verified.Email != "user@example.com" {
+		t.Fatalf("valid token resolved the wrong identity: %#v", verified)
+	}
+
 	wrongAlgorithm := jwt.NewWithClaims(jwt.SigningMethodHS384, claims)
 	wrongAlgorithmToken, err := wrongAlgorithm.SignedString([]byte(secret))
 	if err != nil {
 		t.Fatalf("sign HS384 token: %v", err)
 	}
+
 	if _, err := service.ValidateToken(wrongAlgorithmToken); err == nil {
 		t.Fatal("expected HS384 token to be rejected")
 	}
@@ -57,5 +71,32 @@ func TestValidateTokenRejectsUnexpectedAlgorithmAndIssuer(t *testing.T) {
 	}
 	if _, err := service.ValidateToken(wrongIssuerToken); err == nil {
 		t.Fatal("expected token with a different issuer to be rejected")
+	}
+}
+
+// Use medians and a wide relative margin to distinguish an immediate account
+// existence oracle from normal scheduler noise around password verification.
+func TestMissingPasswordHashUsesPasswordVerificationCost(t *testing.T) {
+	service := NewService("test-secret")
+	hash, err := service.HashPassword("some unrelated password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	measure := func(hash string) time.Duration {
+		samples := make([]time.Duration, 3)
+		for i := range samples {
+			start := time.Now()
+			if service.CheckPassword("incorrect-password", hash) {
+				t.Fatal("invalid password authenticated")
+			}
+			samples[i] = time.Since(start)
+		}
+		slices.Sort(samples)
+		return samples[1]
+	}
+	known := measure(hash)
+	missing := measure("")
+	if missing < known/4 {
+		t.Fatalf("missing-account verification %s bypassed password KDF cost %s", missing, known)
 	}
 }

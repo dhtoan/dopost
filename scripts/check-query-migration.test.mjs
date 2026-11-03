@@ -299,13 +299,18 @@ test("enforces the central boundary in mobile Query adapters", () => {
           transport.GET('/app/bootstrap', { signal: requestSignal })
         );
       `,
+      "apps/mobile/src/lib/mention-lookup.ts": `
+        mobileQueryTransportRequest(signal, (requestSignal) =>
+          transport.GET('/accounts/{account_id}/mentions', { signal: requestSignal })
+        );
+      `,
       "apps/mobile/src/lib/example.ts": "transport.GET('/outside-query');",
     },
     (repoRoot) => {
       const result = scan(repoRoot, { roots: ["apps/mobile/src"] });
       assert.deepEqual(
         result.adapterCalls.map(({ endpoint }) => endpoint),
-        ["/app/bootstrap", "/workspaces"],
+        ["/app/bootstrap", "/accounts/{account_id}/mentions", "/workspaces"],
       );
       assert.deepEqual(result.adapterViolations, []);
       assert.deepEqual(
@@ -376,6 +381,7 @@ test("requires Query adapters to cross the central transport boundary", () => {
 		}
       `,
       "apps/web/src/lib/query/bypass.ts": "transport.GET('/query-bypass');",
+      "apps/web/src/lib/query/accounts.test.ts": "transport.GET('/fixture-only');",
       "apps/web/src/lib/image-editor/api.ts": "client.GET('/image-editor/designs');",
       "apps/web/src/lib/image-editor/other.ts": "client.GET('/must-still-be-seen');",
     },

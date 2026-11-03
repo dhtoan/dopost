@@ -18,9 +18,11 @@ import (
 	"github.com/openpost/backend/internal/jobregistry"
 	"github.com/openpost/backend/internal/models"
 	"github.com/openpost/backend/internal/platform"
+	"github.com/openpost/backend/internal/services/dataretention"
 	"github.com/openpost/backend/internal/services/organizationguard"
 	"github.com/openpost/backend/internal/services/providerreadiness"
 	"github.com/openpost/backend/internal/services/providerwrite"
+	"github.com/openpost/backend/internal/services/usage"
 	"github.com/uptrace/bun"
 )
 
@@ -45,16 +47,16 @@ type FeatureGate interface {
 }
 
 type Service struct {
-	db                *bun.DB
-	tokenSource       TokenSource
-	providersMu       sync.RWMutex
-	providers         map[string]platform.Adapter
-	sources           map[string]platform.AnalyticsAdapter
-	now               func() time.Time
-	featureGate       FeatureGate
-	readiness         *providerreadiness.Service
-	discoveryPolicies map[string]DiscoveryPolicy
-	cursorSigningKey  []byte
+	db               *bun.DB
+	tokenSource      TokenSource
+	providersMu      sync.RWMutex
+	providers        map[string]platform.Adapter
+	sources          map[string]platform.AnalyticsAdapter
+	now              func() time.Time
+	featureGate      FeatureGate
+	readiness        *providerreadiness.Service
+	usage            *usage.Service
+	cursorSigningKey []byte
 }
 
 func NewService(db *bun.DB, tokenSource TokenSource) *Service {
@@ -64,15 +66,16 @@ func NewService(db *bun.DB, tokenSource TokenSource) *Service {
 		cursorSigningKey = fallback[:]
 	}
 	return &Service{
-		db:                db,
-		tokenSource:       tokenSource,
-		providers:         make(map[string]platform.Adapter),
-		sources:           make(map[string]platform.AnalyticsAdapter),
-		now:               func() time.Time { return time.Now().UTC() },
-		discoveryPolicies: make(map[string]DiscoveryPolicy),
-		cursorSigningKey:  cursorSigningKey,
+		db:               db,
+		tokenSource:      tokenSource,
+		providers:        make(map[string]platform.Adapter),
+		sources:          make(map[string]platform.AnalyticsAdapter),
+		now:              func() time.Time { return time.Now().UTC() },
+		cursorSigningKey: cursorSigningKey,
 	}
 }
+
+func (s *Service) SetUsage(service *usage.Service) { s.usage = service }
 
 func (s *Service) SetCursorSigningKey(secret string) {
 	if s == nil || strings.TrimSpace(secret) == "" {
@@ -88,6 +91,10 @@ func (s *Service) SetProvider(name string, adapter platform.Adapter) {
 	s.providers[name] = adapter
 }
 
+// SetExternalSource registers the analytics adapter for a platform that has
+// no OAuth provider adapter. Telegram is bot-based, so its connection service
+// serves account analytics (member counts) through this side channel. There
+// is no generic external-source registry: operator-configured sources are gone.
 func (s *Service) SetExternalSource(platformName string, adapter platform.AnalyticsAdapter) {
 	s.providersMu.Lock()
 	defer s.providersMu.Unlock()
@@ -102,7 +109,7 @@ func (s *Service) SetProviderReadiness(readiness *providerreadiness.Service) {
 	s.readiness = readiness
 }
 
-func (s *Service) isProviderOperationEnabled(ctx context.Context, account models.SocialAccount, operation providerreadiness.Operation) bool {
+func (s *Service) isProviderOperationEnabled(ctx context.Context, account models.SocialAccount) bool {
 	requiresReadiness := account.Platform == capabilities.ProviderPinterest || account.Platform == capabilities.ProviderTelegram ||
 		(account.Platform == capabilities.ProviderDiscord && platform.AccountProviderKey(account.Platform, account.InstanceURL, account.CapabilityState) == capabilities.ProviderDiscord+":"+platform.ConnectionModeBot)
 	if !requiresReadiness {
@@ -111,17 +118,8 @@ func (s *Service) isProviderOperationEnabled(ctx context.Context, account models
 	if s.readiness == nil {
 		return false
 	}
-	decision := s.readiness.DecideAccountOperation(ctx, account, operation, providerreadiness.ExecutionIntentProduction)
-	switch operation {
-	case providerreadiness.OperationDiscover:
-		return decision.Discoverable
-	case providerreadiness.OperationObservation:
-		return decision.Observable
-	case providerreadiness.OperationAnalytics:
-		return decision.AnalyticsReady
-	default:
-		return false
-	}
+	decision := s.readiness.DecideAccountOperation(ctx, account, providerreadiness.OperationAnalytics, providerreadiness.ExecutionIntentProduction)
+	return decision.AnalyticsReady
 }
 
 func (s *Service) isAnalyticsEnabled(ctx context.Context, accountID string) bool {
@@ -166,12 +164,6 @@ func (s *Service) HandleJob(ctx context.Context, jobType, payload string) error 
 			return fmt.Errorf("decode analytics rendition job")
 		}
 		return s.syncRendition(ctx, input.RenditionID)
-	case jobregistry.TypeAccountContentDiscovery:
-		input, err := jobregistry.DecodeAccountContentDiscoveryPayload(payload)
-		if err != nil {
-			return err
-		}
-		return s.handleAccountContentDiscovery(ctx, input)
 	default:
 		return fmt.Errorf("unsupported analytics job type %q", jobType)
 	}
@@ -182,6 +174,12 @@ func (s *Service) RefreshWorkspace(ctx context.Context, workspaceID string) (int
 }
 
 func (s *Service) handleSweep(ctx context.Context) error {
+	if err := s.ScheduleSweep(ctx, s.now().Add(sweepInterval)); err != nil {
+		return err
+	}
+	if err := dataretention.PurgeYouTube(ctx, s.db, s.now(), "", ""); err != nil {
+		return err
+	}
 	var workspaces []string
 	if err := s.db.NewSelect().
 		Model((*models.SocialAccount)(nil)).
@@ -195,9 +193,6 @@ func (s *Service) handleSweep(ctx context.Context) error {
 		if _, err := s.enqueueWorkspace(ctx, workspaceID, false); err != nil {
 			sweepErr = errors.Join(sweepErr, err)
 		}
-	}
-	if err := s.ScheduleSweep(ctx, s.now().Add(sweepInterval)); err != nil {
-		sweepErr = errors.Join(sweepErr, err)
 	}
 	return sweepErr
 }
@@ -214,11 +209,6 @@ func (s *Service) enqueueWorkspace(ctx context.Context, workspaceID string, forc
 	}
 
 	queued, err := s.enqueueAccountJobs(ctx, accounts, force, now)
-	if err != nil {
-		return queued, err
-	}
-	discoveryJobs, err := s.reconsiderAccountContentAccounts(ctx, accounts, now)
-	queued += discoveryJobs
 	if err != nil {
 		return queued, err
 	}
@@ -259,7 +249,7 @@ func (s *Service) enqueueAccountJob(ctx context.Context, account models.SocialAc
 	if !s.isAnalyticsEnabled(ctx, account.ID) {
 		return false, s.recordUnavailable(ctx, subjectAccount, account.ID, account, platform.AnalyticsStatusPermissionRequired, "feature_disabled", "Analytics is disabled for this account.")
 	}
-	if !s.isProviderOperationEnabled(ctx, account, providerreadiness.OperationAnalytics) {
+	if !s.isProviderOperationEnabled(ctx, account) {
 		return false, s.recordUnavailable(ctx, subjectAccount, account.ID, account, platform.AnalyticsStatusPermissionRequired, "provider_readiness_blocked", "Provider analytics readiness is disabled.")
 	}
 	adapter := s.analyticsAdapter(account)
@@ -290,18 +280,19 @@ func (s *Service) enqueueAccountJob(ctx context.Context, account models.SocialAc
 }
 
 func (s *Service) listAnalyticsRenditions(ctx context.Context, workspaceID string, force bool, now time.Time) ([]models.Rendition, error) {
-	cutoff := now.Add(-7 * 24 * time.Hour)
-	if force {
-		cutoff = now.Add(-90 * 24 * time.Hour)
-	}
 	var renditions []models.Rendition
-	if err := s.db.NewSelect().
-		Model(&renditions).
+	query := s.db.NewSelect().Model(&renditions).
 		Join("JOIN publications AS publication ON publication.id = rendition.publication_id").
 		Where("publication.workspace_id = ?", workspaceID).
-		Where("COALESCE(publication.actual_run_at, publication.updated_at) >= ?", cutoff).
-		Where("rendition.status = ?", models.RenditionStatusPublished).
-		Scan(ctx); err != nil && !errors.Is(err, sql.ErrNoRows) {
+		Where("publication.status = ?", models.PublicationStatusPublished).
+		Where("rendition.status = ?", models.RenditionStatusPublished)
+	// Background collection keeps its existing bounded cadence. An explicit
+	// Workspace refresh can collect older published content through the same
+	// permission, provider-readiness, deduplication, and rate-limit gates.
+	if !force {
+		query = query.Where("COALESCE(publication.actual_run_at, publication.updated_at) >= ?", now.Add(-7*24*time.Hour))
+	}
+	if err := query.Scan(ctx); err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("list analytics renditions: %w", err)
 	}
 	return renditions, nil
@@ -348,7 +339,7 @@ func (s *Service) enqueueRenditionJob(
 	if !s.isAnalyticsEnabled(ctx, account.ID) {
 		return false, s.recordUnavailable(ctx, subjectRendition, rendition.ID, account, platform.AnalyticsStatusPermissionRequired, "feature_disabled", "Analytics is disabled for this account.")
 	}
-	if !s.isProviderOperationEnabled(ctx, account, providerreadiness.OperationAnalytics) {
+	if !s.isProviderOperationEnabled(ctx, account) {
 		return false, s.recordUnavailable(ctx, subjectRendition, rendition.ID, account, platform.AnalyticsStatusPermissionRequired, "provider_readiness_blocked", "Provider analytics readiness is disabled.")
 	}
 	adapter := s.analyticsAdapter(account)
@@ -374,7 +365,7 @@ func (s *Service) enqueueRenditionJob(
 		if err != nil {
 			return false, err
 		}
-		if contentCadence(now.Sub(publishedAt)) == 0 {
+		if providerContentCadence(rendition.Platform, now.Sub(publishedAt)) == 0 {
 			return false, nil
 		}
 	}
@@ -398,8 +389,17 @@ func (s *Service) syncAccount(ctx context.Context, accountID string) error {
 	if !s.isAnalyticsEnabled(ctx, account.ID) {
 		return s.recordUnavailable(ctx, subjectAccount, account.ID, account, platform.AnalyticsStatusPermissionRequired, "feature_disabled", "Analytics is disabled for this account.")
 	}
-	if !s.isProviderOperationEnabled(ctx, account, providerreadiness.OperationAnalytics) {
+	if !s.isProviderOperationEnabled(ctx, account) {
 		return s.recordUnavailable(ctx, subjectAccount, account.ID, account, platform.AnalyticsStatusPermissionRequired, "provider_readiness_blocked", "Provider analytics readiness is disabled.")
+	}
+	if account.Platform == "x" {
+		due, dueErr := s.subjectDue(ctx, subjectAccount, account.ID, s.now())
+		if dueErr != nil {
+			return dueErr
+		}
+		if !due {
+			return nil
+		}
 	}
 	adapter := s.analyticsAdapter(account)
 	if adapter == nil {
@@ -424,7 +424,12 @@ func (s *Service) syncAccount(ctx context.Context, accountID string) error {
 		ReportingPeriodStart: now.AddDate(0, 0, -30),
 		ReportingPeriodEnd:   now,
 	}
+	settle, costErr := s.reserveAnalyticsReadCost(ctx, account, usage.XOperationUserRead, 1)
+	if costErr != nil {
+		return s.recordFailure(ctx, subjectAccount, account.ID, account, adapter, costErr)
+	}
 	values, metadata, err := fetchAccountMeasurements(ctx, adapter, token, request, account.Platform)
+	settle(err)
 	if err != nil {
 		return s.recordFailure(ctx, subjectAccount, account.ID, account, adapter, err)
 	}
@@ -450,8 +455,17 @@ func (s *Service) syncRendition(ctx context.Context, renditionID string) error {
 	if !s.isAnalyticsEnabled(ctx, account.ID) {
 		return s.recordUnavailable(ctx, subjectRendition, rendition.ID, account, platform.AnalyticsStatusPermissionRequired, "feature_disabled", "Analytics is disabled for this account.")
 	}
-	if !s.isProviderOperationEnabled(ctx, account, providerreadiness.OperationAnalytics) {
+	if !s.isProviderOperationEnabled(ctx, account) {
 		return s.recordUnavailable(ctx, subjectRendition, rendition.ID, account, platform.AnalyticsStatusPermissionRequired, "provider_readiness_blocked", "Provider analytics readiness is disabled.")
+	}
+	if account.Platform == "x" {
+		due, dueErr := s.subjectDue(ctx, subjectRendition, rendition.ID, s.now())
+		if dueErr != nil {
+			return dueErr
+		}
+		if !due {
+			return nil
+		}
 	}
 	adapter := s.analyticsAdapter(account)
 	if adapter == nil {
@@ -501,11 +515,16 @@ func (s *Service) syncRendition(ctx context.Context, renditionID string) error {
 		GrantedScopes:        strings.Fields(account.GrantedScopes),
 		OwnReplyCount:        max(0, len(externalIDs)-1),
 	}
+	settle, costErr := s.reserveAnalyticsReadCost(ctx, account, usage.XOperationPostRead, int64(len(externalIDs)))
+	if costErr != nil {
+		return s.recordFailure(ctx, subjectRendition, rendition.ID, account, adapter, costErr)
+	}
 	values, metadata, err := fetchContentMeasurements(ctx, adapter, token, request, account.Platform)
+	settle(err)
 	if err != nil {
 		return s.recordFailure(ctx, subjectRendition, rendition.ID, account, adapter, err)
 	}
-	return s.recordSuccess(ctx, subjectRendition, rendition.ID, account, rendition.PublicationID, rendition.ID, values, metadata, contentCadence(s.now().Sub(publishedAt)))
+	return s.recordSuccess(ctx, subjectRendition, rendition.ID, account, rendition.PublicationID, rendition.ID, values, metadata, providerContentCadence(account.Platform, s.now().Sub(publishedAt)))
 }
 
 func (s *Service) resolveAndStoreContentURL(
@@ -524,6 +543,7 @@ func (s *Service) resolveAndStoreContentURL(
 		account.AccountUsername,
 		account.InstanceURL,
 		rendition.ExternalID,
+		rendition.OutputProfile,
 	)
 	if resolved == "" {
 		resolver, ok := adapter.(platform.ContentURLResolver)
@@ -1087,4 +1107,12 @@ func analyticsAdapterUsesProviderToken(adapter platform.AnalyticsAdapter) bool {
 
 func missingScopeMessage(scopes []string) string {
 	return "Reconnect this account to grant: " + strings.Join(scopes, ", ") + "."
+}
+
+func providerContentCadence(provider string, age time.Duration) time.Duration {
+	cadence := contentCadence(age)
+	if provider == "x" && cadence > 0 {
+		return accountCadence
+	}
+	return cadence
 }

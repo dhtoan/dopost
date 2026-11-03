@@ -45,59 +45,9 @@ export function getBezierPresetForEasing(easing: EasingType): BezierControlPoint
 	return { ...EASING_BEZIER_PRESETS[easing] };
 }
 
-export function areBezierPointsEqual(a: BezierControlPoints, b: BezierControlPoints): boolean {
-	return a.x1 === b.x1 && a.y1 === b.y1 && a.x2 === b.x2 && a.y2 === b.y2;
-}
-
-export function findMatchingBezierPreset(points: BezierControlPoints): string | null {
-	const match = BEZIER_PRESETS.find((preset) => areBezierPointsEqual(preset.points, points));
-	return match?.value ?? null;
-}
-
 export function clampBezierValue(key: keyof BezierControlPoints, value: number): number {
 	if (key === 'x1' || key === 'x2') return Math.max(0, Math.min(1, value));
 	return Math.max(-2, Math.min(3, value));
-}
-
-/**
- * Preview playback duration for a spring, derived from its physics like
- * easing.dev (which exposes no duration control). Ported from FreeCut (MIT)
- * `springPreviewDuration` in
- * features/keyframes/components/dopesheet-editor/easing-curve-editor.tsx.
- *
- * The oscillator's decay envelope e^(-(c/2m)t) settles to ~1% at
- * t = ln(100)·2m/c, so it depends only on mass + friction (damping), not
- * tension. Matches easing.dev's computed transition-duration
- * (mass 0.3 / friction 18 → 153ms; mass 4 / friction 80 → 460ms).
- */
-export function springPreviewDuration({
-	mass,
-	friction
-}: {
-	mass: number;
-	friction: number;
-}): number {
-	const decay = friction / (2 * mass);
-	const seconds = decay > 0 ? Math.log(100) / decay : 1;
-	return Math.max(0.15, Math.min(4, seconds));
-}
-
-/**
- * Mirror ping-pong phase for a timed easing preview, matching easing.dev and
- * FreeCut's easing-curve-editor tick: the dot eases out, then eases *back* —
- * the return leg is the easing flipped in both time and value (`1 - ease(p)`),
- * so a spring overshoots past the start too. Returns the eased position in
- * [0, 1]-ish space (springs may overshoot) for an elapsed time in seconds.
- */
-export function springPreviewPosition(
-	elapsedSeconds: number,
-	durationSeconds: number,
-	ease: (progress: number) => number
-): number {
-	const duration = Math.max(0.05, durationSeconds);
-	const phase = elapsedSeconds % (2 * duration);
-	if (phase < duration) return ease(phase / duration);
-	return 1 - ease((phase - duration) / duration);
 }
 
 export function clampSpringValue(key: 'tension' | 'friction' | 'mass', value: number): number {

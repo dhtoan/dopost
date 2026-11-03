@@ -14,8 +14,7 @@ import {
 	planMixdown,
 	planNestedMixdown,
 	selectCuesAtFrame,
-	sliceMixEntries,
-	transitionBlendAtFrame
+	sliceMixEntries
 } from './render-plan';
 
 function track(
@@ -208,39 +207,22 @@ describe('planMixdown', () => {
 	});
 });
 
-describe('transitionBlendAtFrame', () => {
-	const clips = new Map([
-		['left', item({ id: 'left', from: 0, durationInFrames: 100 })],
-		['right', item({ id: 'right', from: 100, durationInFrames: 100 })]
-	]);
-	const transitions: TimelineTransition[] = [
-		{
-			id: 't',
-			type: 'crossfade',
-			durationInFrames: 20,
-			fromItemId: 'left',
-			toItemId: 'right'
-		}
-	];
-
-	it('omits items on hidden tracks from the visual plan', () => {
-		const tracks = [track('shown', 'video', 0), track('hidden', 'video', 1, { visible: false })];
+describe('visual track visibility', () => {
+	it('keeps visual layering and hidden tracks independent of audio solo', () => {
 		const ordered = paintOrder(
 			[
-				item({ id: 'shown-item', trackId: 'shown' }),
-				item({ id: 'hidden-item', trackId: 'hidden' })
+				item({ id: 'overlay', trackId: 'overlay' }),
+				item({ id: 'base', trackId: 'base' }),
+				item({ id: 'hidden', trackId: 'hidden' })
 			],
-			tracks
-		);
-		expect(ordered.map((entry) => entry.id)).toEqual(['shown-item']);
-	});
-
-	it('renders only solo tracks when any track is soloed', () => {
-		const ordered = paintOrder(
-			[item({ id: 'normal-item', trackId: 'normal' }), item({ id: 'solo-item', trackId: 'solo' })],
-			[track('normal', 'video', 0), track('solo', 'video', 1, { solo: true })]
+			[
+				track('overlay', 'video', 0),
+				track('base', 'video', 1),
+				track('hidden', 'video', 2, { visible: false, solo: true }),
+				track('audio', 'audio', 3, { solo: true })
+			]
 		);
 
-		expect(ordered.map((entry) => entry.id)).toEqual(['solo-item']);
+		expect(ordered.map((entry) => entry.id)).toEqual(['base', 'overlay']);
 	});
 });

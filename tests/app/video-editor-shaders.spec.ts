@@ -2,6 +2,10 @@ import { expect, test, type Page } from "@playwright/test";
 
 // IntersectionObserver rounds fractional CSS pixels at phone widths.
 const FULLY_VISIBLE_RATIO = 0.999;
+// Gallery tiles are edge-aligned by scrollIntoViewIfNeeded, so headless
+// sub-pixel rounding can clip a fraction of a pixel. 0.99 still fails on any
+// real (whole-pixel) clipping of the 56px tiles.
+const GALLERY_VISIBLE_RATIO = 0.99;
 
 async function expectRenderedShader(page: Page) {
   await page.evaluate(async () => {
@@ -34,6 +38,12 @@ async function createShaderProject(
   resolution?: { width: number; height: number },
 ) {
   await page.addInitScript(() => {
+    if (!("showOpenFilePicker" in window)) {
+      Object.defineProperty(window, "showOpenFilePicker", {
+        configurable: true,
+        value: async () => [],
+      });
+    }
     Object.defineProperty(window, "showDirectoryPicker", {
       configurable: true,
       value: async () => {
@@ -64,14 +74,28 @@ async function createShaderProject(
       .fill(String(resolution.height));
     await page.getByRole("button", { name: "Create", exact: true }).click();
   } else {
-    await page.getByRole("button", { name: "New project", exact: true }).click();
+    await page.getByRole("button", { name: "Open Video Editor", exact: true }).click();
   }
   await expect(page.getByRole("tablist", { name: "Editor workspaces" })).toBeVisible({
     timeout: 15_000,
   });
+  await page.locator("[data-project-details]").click();
   await page.getByRole("textbox", { name: "Project name" }).fill("Shader proof");
-  await page.getByRole("textbox", { name: "Project name" }).press("Tab");
-  await page.getByRole("tab", { name: "Backgrounds", exact: true }).click();
+  await page.keyboard.press("Escape");
+  const backgroundsSearch = page.getByRole("searchbox", {
+    name: "Search backgrounds",
+    exact: true,
+  });
+  if (!(await backgroundsSearch.isVisible())) {
+    const elementsGroup = page.getByRole("tablist", { name: "Elements", exact: true });
+    if (!(await elementsGroup.getByRole("tab", { name: "Backgrounds", exact: true }).isVisible())) {
+      await page
+        .getByRole("navigation", { name: "Assets", exact: true })
+        .getByRole("tab", { name: "Elements", exact: true })
+        .click();
+    }
+    await elementsGroup.getByRole("tab", { name: "Backgrounds", exact: true }).click();
+  }
   await page.getByRole("searchbox", { name: "Search backgrounds" }).fill(preset);
   await page.getByRole("button", { name: preset, exact: true }).click();
   await page.getByRole("searchbox", { name: "Search backgrounds" }).fill("");
@@ -85,12 +109,15 @@ test("shader clips preserve edits, seek and export an MP4", async ({ page }) => 
   page.on("pageerror", (error) => errors.push(error.message));
   await createShaderProject(page);
   const canvas = page.locator("canvas[data-stacked-preview]");
+  const transport = page.locator("[data-video-transport]");
   const initial = await canvas.evaluate((canvas: HTMLCanvasElement) => canvas.toDataURL());
-  await page.getByRole("button", { name: "Step one frame forward", exact: true }).click();
+  await transport.getByRole("button", { name: "More actions", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Step one frame forward", exact: true }).click();
   await expect
     .poll(() => canvas.evaluate((canvas: HTMLCanvasElement) => canvas.toDataURL()))
     .not.toBe(initial);
-  await page.getByRole("button", { name: "Go to start", exact: true }).click();
+  await transport.getByRole("button", { name: "More actions", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Go to start", exact: true }).click();
   await expect
     .poll(() => canvas.evaluate((canvas: HTMLCanvasElement) => canvas.toDataURL()))
     .toBe(initial);
@@ -114,17 +141,24 @@ test("shader clips preserve edits, seek and export an MP4", async ({ page }) => 
   );
   await speed.press("ArrowRight");
   await page.keyboard.press("ControlOrMeta+s");
-  await expect(page.getByText("All changes saved locally", { exact: true })).toBeVisible();
+  await expect(page.getByRole("banner").locator('[role="status"][data-state]')).toHaveAttribute(
+    "data-state",
+    "saved",
+  );
   const projectURL = page.url();
   await page.goto("/video-editor");
   await page.goto(projectURL);
-  await page.getByRole("tab", { name: "Backgrounds", exact: true }).click();
+  const restoredSearch = page.getByRole("searchbox", { name: "Search backgrounds", exact: true });
+  await expect(restoredSearch).toBeVisible({ timeout: 15_000 });
   await expect(canvas).toBeVisible();
   await page.locator("header").getByRole("button", { name: "More actions" }).click();
-  await page.getByRole("menuitem", { name: "Export MP4", exact: true }).click();
-  await expect(
-    page.getByText("Saved Shader proof.mp4 to the exports folder.", { exact: true }),
-  ).toBeVisible({ timeout: 60_000 });
+  await page.getByRole("menuitem", { name: "Export", exact: true }).click();
+  await page.getByRole("dialog").getByText("WebM", { exact: true }).click();
+  await page.getByRole("option", { name: "MP4", exact: true }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Render now", exact: true }).click();
+  await expect(page.getByText("Saved Shader proof.mp4.", { exact: true })).toBeVisible({
+    timeout: 60_000,
+  });
   await page.getByRole("button", { name: "Exports", exact: true }).click();
   const download = page.getByRole("button", { name: "Download Shader proof.mp4", exact: true });
   await expect(download).toBeEnabled();
@@ -153,7 +187,7 @@ for (const scheme of ["light", "dark"] as const) {
     for (const width of [390, 320]) {
       await page.setViewportSize({ width, height: 900 });
       const panels = page.getByRole("navigation", { name: "Editor panels" });
-      for (const name of ["Assets", "Edit", "Program"]) {
+      for (const name of ["Media", "Properties", "Timeline"]) {
         await panels.getByRole("button", { name, exact: true }).click();
         await expect(panels.getByRole("button", { name, exact: true })).toHaveAttribute(
           "aria-pressed",
@@ -162,18 +196,26 @@ for (const scheme of ["light", "dark"] as const) {
         expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
           width,
         );
-        if (name === "Assets") {
+        if (name === "Media") {
+          await page
+            .getByRole("tablist", { name: "Assets", exact: true })
+            .getByRole("tab", { name: "Elements", exact: true })
+            .click();
+          await page
+            .getByRole("tablist", { name: "Elements", exact: true })
+            .getByRole("tab", { name: "Backgrounds", exact: true })
+            .click();
           for (const preset of ["Aurora", "Warp", "God rays", "Static radial gradient"]) {
             await page.getByRole("searchbox", { name: "Search backgrounds" }).fill(preset);
             const tile = page.getByRole("button", { name: preset, exact: true });
             await tile.scrollIntoViewIfNeeded();
-            await expect(tile).toBeInViewport({ ratio: FULLY_VISIBLE_RATIO });
+            await expect(tile).toBeInViewport({ ratio: GALLERY_VISIBLE_RATIO });
             await expect(tile.getByText(preset, { exact: true })).toBeInViewport({
-              ratio: FULLY_VISIBLE_RATIO,
+              ratio: GALLERY_VISIBLE_RATIO,
             });
           }
         }
-        if (name === "Edit") {
+        if (name === "Properties") {
           await page
             .getByRole("button", { name: "Warp: Shape", exact: true })
             .scrollIntoViewIfNeeded();
@@ -192,7 +234,7 @@ for (const scheme of ["light", "dark"] as const) {
       if (width < 1440) {
         await page
           .getByRole("navigation", { name: "Editor panels" })
-          .getByRole("button", { name: "Assets", exact: true })
+          .getByRole("button", { name: "Media", exact: true })
           .click();
       }
       await page
@@ -268,7 +310,10 @@ test("Paper backgrounds and chained shader effects survive reopening and export"
     .toBeGreaterThan(100);
   await page.screenshot({ path: test.info().outputPath("paper-effect-controls.png") });
   await page.keyboard.press("ControlOrMeta+s");
-  await expect(page.getByText("All changes saved locally", { exact: true })).toBeVisible();
+  await expect(page.getByRole("banner").locator('[role="status"][data-state]')).toHaveAttribute(
+    "data-state",
+    "saved",
+  );
   const projectURL = page.url();
   await page.goto("/video-editor");
   await page.goto(projectURL);
@@ -285,10 +330,13 @@ test("Paper backgrounds and chained shader effects survive reopening and export"
     "Dark areas",
   );
   await page.locator("header").getByRole("button", { name: "More actions" }).click();
-  await page.getByRole("menuitem", { name: "Export MP4", exact: true }).click();
-  await expect(
-    page.getByText("Saved Shader proof.mp4 to the exports folder.", { exact: true }),
-  ).toBeVisible({ timeout: 60_000 });
+  await page.getByRole("menuitem", { name: "Export", exact: true }).click();
+  await page.getByRole("dialog").getByText("WebM", { exact: true }).click();
+  await page.getByRole("option", { name: "MP4", exact: true }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Render now", exact: true }).click();
+  await expect(page.getByText("Saved Shader proof.mp4.", { exact: true })).toBeVisible({
+    timeout: 60_000,
+  });
   await page.getByRole("button", { name: "Exports", exact: true }).click();
   const [file] = await Promise.all([
     page.waitForEvent("download"),

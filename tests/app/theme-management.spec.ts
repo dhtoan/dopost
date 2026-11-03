@@ -1,6 +1,14 @@
 import { randomUUID } from "node:crypto";
 import { expect, test } from "@playwright/test";
+import type { Page } from "@playwright/test";
 import { authenticatePage, createWorkspace, registerUser } from "./helpers";
+
+async function openPostsFromSidebar(page: Page) {
+  await page
+    .getByTestId("sidebar-workspace-navigation")
+    .getByRole("button", { name: "Posts", exact: true })
+    .click();
+}
 
 test("create a theme, reopen its draft, publish, apply, and return to Appearance", async ({
   page,
@@ -60,14 +68,14 @@ test("create a theme, reopen its draft, publish, apply, and return to Appearance
   await page.getByRole("button", { name: "Apply My theme", exact: true }).click();
   await expect(page.getByRole("button", { name: "Applied My theme", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Stop testing" })).toHaveCount(0);
-  await page.getByRole("button", { name: "Publications", exact: true }).click();
+  await openPostsFromSidebar(page);
   await expect(page).toHaveURL(/\/publications(?:\?|$)/);
   await page.goBack();
   await expect(page.getByRole("button", { name: "Test Notebook", exact: true })).toBeEnabled();
   await page.getByRole("button", { name: "Test Notebook", exact: true }).click();
   await page.getByRole("button", { name: "Apply Notebook", exact: true }).click();
   await expect(page.locator("html")).toHaveAttribute("data-theme-id", "notebook");
-  await page.getByRole("button", { name: "Publications", exact: true }).click();
+  await openPostsFromSidebar(page);
   await expect(page).toHaveURL(/\/publications(?:\?|$)/);
   await page.goBack();
   await expect(page.getByRole("button", { name: "Create theme", exact: true })).toBeEnabled();
@@ -97,7 +105,7 @@ for (const width of [1440, 390, 320]) {
       await page.getByRole("button", { name: "Test Supabase", exact: true }).click();
       await expect(page.locator("html")).toHaveAttribute("data-theme-id", "supabase");
       await page.getByRole("button", { name: "Stop testing" }).click();
-      await expect(page.locator("html")).toHaveAttribute("data-theme-id", "dither");
+      await expect(page.locator("html")).toHaveAttribute("data-theme-id", "calm");
       await expect(page.locator("html")).toHaveAttribute("data-theme-scheme", scheme);
       await page.getByRole("button", { name: "Create theme", exact: true }).focus();
       await page.keyboard.press("Enter");
@@ -146,9 +154,9 @@ test("tests every built-in theme and restores the saved theme when leaving Appea
     await page.getByRole("button", { name: `Test ${theme.name}`, exact: true }).click();
     await expect(page.locator("html")).toHaveAttribute("data-theme-id", theme.reference.id);
   }
-  await page.getByRole("button", { name: "Publications", exact: true }).click();
+  await openPostsFromSidebar(page);
   await expect(page).toHaveURL(/\/publications(?:\?|$)/);
-  await expect(page.locator("html")).toHaveAttribute("data-theme-id", "dither");
+  await expect(page.locator("html")).toHaveAttribute("data-theme-id", "calm");
   await page.goBack();
   await expect(page.getByRole("button", { name: "Create theme", exact: true })).toBeEnabled();
 });

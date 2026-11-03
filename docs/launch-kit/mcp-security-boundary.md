@@ -21,18 +21,22 @@ The MCP client does not need the X, Meta, LinkedIn, Bluesky, Mastodon, TikTok, o
 | Scope | Appropriate use | Server behavior |
 | --- | --- | --- |
 | `mcp:read` | Workspace, account, media, draft, schedule, readiness, status, and lifecycle inspection | Exposes only read-safe discovery/query paths and rejects every mutation |
-| `mcp:full` | Create or update drafts and renditions, upload media, schedule, publish, cancel, reply, or moderate | Keeps read and mutation operations separated, but permits approved `execute_operation` calls |
+| `mcp:full` | Create or update drafts and variants, upload media, schedule, publish, cancel, reply, or moderate | Keeps read and mutation operations separated, but permits approved `execute_operation` calls |
 
 Bind either token to one workspace unless the client genuinely needs more. Start a campaign rehearsal with `mcp:read`. Issue or approve `mcp:full` only for the preparation or execution step that requires it, then revoke it when the integration no longer needs access.
 
 ## Read and mutation separation
 
-OpenPost advertises a compact MCP surface:
+OpenPost advertises each operation directly at `/mcp` by default. Clients with a strict tool-context limit can use the compact `/mcp/code` surface:
 
 - `search_operations` discovers relevant operations and returns the required execution tool;
 - `query_operation` runs guaranteed read-only operations and rejects mutations;
 - `execute_operation` runs state-changing or external operations and rejects read-only calls;
 - `render_scheduler_widget` renders a read-only scheduler summary in compatible clients.
+
+Compatible MCP Apps clients with `mcp:full` can also open
+`render_local_media_upload`. The file travels directly from the app to OpenPost
+with a one-use, ten-minute ticket that is hidden from model context.
 
 With `mcp:read`, discovery omits mutation operations and the server rejects attempts to execute them. With `mcp:full`, the server still enforces the catalog classification, while the MCP client can place an approval prompt around `execute_operation`.
 
@@ -52,7 +56,7 @@ With `mcp:read`, discovery omits mutation operations and the server rejects atte
 
 ## What still requires operator judgment
 
-- `mcp:full` can execute publication operations when the client allows it. Provider-token secrecy is not the same as read-only access.
+- `mcp:full` can execute post operations when the client allows it. Provider-token secrecy is not the same as read-only access.
 - Human review is not a mandatory server-side approval stage. It is a process enforced by token choice, client approval, and the person operating the campaign.
 - Provider configuration or OAuth initiation does not prove that a specific format can publish.
 - External provider approval, quotas, outages, and API changes remain outside OpenPost.
@@ -66,6 +70,9 @@ Use the remote endpoint:
 https://your-openpost-host.example/mcp
 ```
 
+Use `https://your-openpost-host.example/mcp/code` when the client needs the
+compact tool surface.
+
 Or use the local proxy:
 
 ```sh
@@ -75,4 +82,4 @@ openpost-mcp --profile local
 
 Prefer a workspace-scoped `mcp:read` token for audit and readiness work. Switch to `mcp:full` only when the agent must create or change OpenPost data. Never paste provider credentials, `OPENPOST_ENCRYPTION_KEY`, `OPENPOST_JWT_SECRET`, or server secrets into an agent prompt.
 
-See the [MCP documentation](https://docs.openpo.st/mcp/) for current connection steps.
+See the [MCP documentation](https://openpo.st/docs/mcp/) for current connection steps.

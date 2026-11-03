@@ -1,8 +1,10 @@
+import type { TimerSettings } from '../timers/timer';
 /** Versioned drag payload for text recipes and generated shape layers. */
 
 import type { ShapeType, TextStylePresetId } from '../project/types';
 import type { AddShapeItemStyle } from './actions/items';
 import { TEXT_STYLE_PRESETS } from '../typography/text-style-presets';
+import { BACKGROUND_PRESETS } from '../backgrounds/presets';
 
 export const GENERATED_ITEM_DRAG_MIME = 'application/x-openpost-generated-item-v1';
 
@@ -19,6 +21,8 @@ const SHAPE_TYPES = [
 ] satisfies readonly ShapeType[];
 
 export type GeneratedItemDragData =
+	| { version: 1; kind: 'library'; label: string; entryId: string }
+	| { version: 1; kind: 'timer'; label: string; timer: TimerSettings }
 	| {
 			version: typeof GENERATED_ITEM_DRAG_VERSION;
 			kind: 'text';
@@ -31,6 +35,12 @@ export type GeneratedItemDragData =
 			label: string;
 			shapeType: ShapeType;
 			style?: AddShapeItemStyle;
+	  }
+	| {
+			version: typeof GENERATED_ITEM_DRAG_VERSION;
+			kind: 'background';
+			label: string;
+			presetId: string;
 	  };
 
 let activeGeneratedItemDrag: GeneratedItemDragData | null = null;
@@ -45,6 +55,8 @@ interface UntrustedShapeStyle {
 }
 
 interface UntrustedGeneratedItemDragData {
+	entryId?: unknown;
+	timer?: TimerSettings;
 	version?: unknown;
 	kind?: unknown;
 	label?: unknown;
@@ -79,11 +91,56 @@ function isGeneratedItemDragData(value: unknown): value is GeneratedItemDragData
 	) {
 		return false;
 	}
+	if (candidate.kind === 'library')
+		return typeof candidate.entryId === 'string' && candidate.entryId.length > 0;
+	/* oxlint-disable anti-slop/no-runtime-typeof -- Validate untrusted drag JSON fields before accepting the timer payload. */
+	if (candidate.kind === 'timer') {
+		const timer = candidate.timer;
+		return Boolean(
+			timer &&
+			(timer.finishText === undefined || typeof timer.finishText === 'string') &&
+			(timer.warningSound === undefined || typeof timer.warningSound === 'boolean') &&
+			[timer.progressColor, timer.trackColor, timer.bodyColor, timer.accentColor].every(
+				(color) =>
+					color === undefined || (typeof color === 'string' && /^#[\da-f]{6}$/iu.test(color))
+			) &&
+			[timer.rounded, timer.showValue, timer.finishEffect].every(
+				(flag) => flag === undefined || typeof flag === 'boolean'
+			) &&
+			[
+				[timer.thickness, 1, 25],
+				[timer.segments, 1, 60],
+				[timer.trackOpacity, 0, 1],
+				[timer.startAngle, -360, 360]
+			].every(
+				([number, minimum, maximum]) =>
+					number === undefined ||
+					(typeof number === 'number' &&
+						Number.isFinite(number) &&
+						number >= minimum! &&
+						number <= maximum!)
+			) &&
+			(timer.finishHoldSeconds === undefined ||
+				(Number.isFinite(timer.finishHoldSeconds) &&
+					timer.finishHoldSeconds >= 0 &&
+					timer.finishHoldSeconds <= 10)) &&
+			['numbers', 'ring', 'bar', 'bomb', 'tomato'].includes(timer.style) &&
+			['down', 'up'].includes(timer.direction) &&
+			['clock', 'seconds', 'percent'].includes(timer.format)
+		);
+	}
+	/* oxlint-enable anti-slop/no-runtime-typeof */
 	if (candidate.kind === 'text') {
 		return (
 			candidate.presetId === undefined ||
 			(typeof candidate.presetId === 'string' &&
 				TEXT_STYLE_PRESETS.some((preset) => preset.id === candidate.presetId))
+		);
+	}
+	if (candidate.kind === 'background') {
+		return (
+			typeof candidate.presetId === 'string' &&
+			BACKGROUND_PRESETS.some((preset) => preset.id === candidate.presetId)
 		);
 	}
 	return (
@@ -117,6 +174,18 @@ export function shapeGeneratedItemDragData(
 		label,
 		shapeType,
 		style
+	};
+}
+
+export function backgroundGeneratedItemDragData(
+	label: string,
+	presetId: string
+): GeneratedItemDragData {
+	return {
+		version: GENERATED_ITEM_DRAG_VERSION,
+		kind: 'background',
+		label,
+		presetId
 	};
 }
 

@@ -67,6 +67,110 @@ func TestBuildBlueskyPostRecordAddsQuoteEmbed(t *testing.T) {
 	require.Equal(t, "bafyreibjifzpqj6o6wcq3hejh7y4z4z2vmiklkvykc57tw3pcbx3kxifpm", ref["cid"])
 }
 
+func TestBuildBlueskyFacetsTrimsTrailingPunctuation(t *testing.T) {
+	facets := buildBlueskyFacets("see https://example.com/path.", nil)
+	require.Len(t, facets, 1)
+	requireFacet(t, facets, 4, 28, "app.bsky.richtext.facet#link", "uri", "https://example.com/path")
+}
+
+func TestBuildBlueskyFacetsSkipsALinkWithoutAHost(t *testing.T) {
+	for _, text := range []string{"https:///path", "see https://.", "https://?q=1"} {
+		require.Empty(t, buildBlueskyFacets(text, nil), "text %q", text)
+	}
+}
+
+func TestBuildBlueskyFacetsLinksTheWholeURL(t *testing.T) {
+	tests := []struct {
+		text string
+		uri  string
+	}{
+		{text: "Map https://www.google.com/maps/@37.5665,126.978,15z", uri: "https://www.google.com/maps/@37.5665,126.978,15z"},
+		{text: "https://en.wikipedia.org/wiki/Washington,_D.C.", uri: "https://en.wikipedia.org/wiki/Washington,_D.C"},
+		{text: "Read https://openpost.digital/blog today", uri: "https://openpost.digital/blog"},
+		{text: "Docs: https://example.com/a;b=1!c", uri: "https://example.com/a;b=1!c"},
+		{text: "詳しくはhttps://example.com/aboutをご覧ください", uri: "https://example.com/about"},
+		{text: "**https://example.com/bold**", uri: "https://example.com/bold"},
+	}
+	for _, test := range tests {
+		facets := buildBlueskyFacets(test.text, nil)
+		require.Len(t, facets, 1, "text %q", test.text)
+		start := strings.Index(test.text, test.uri)
+		requireFacet(t, facets, start, start+len(test.uri), "app.bsky.richtext.facet#link", "uri", test.uri)
+	}
+}
+
+func TestBuildBlueskyFacetsDropsOverlappingTagInsideLink(t *testing.T) {
+	facets := buildBlueskyFacets("https://example.com/#OpenPost", nil)
+	require.Len(t, facets, 1)
+	requireFacet(t, facets, 0, 29, "app.bsky.richtext.facet#link", "uri", "https://example.com/#OpenPost")
+}
+
+// Hashtags follow TAG_REGEX in @atproto/api's rich-text detection: any
+// script, started by whitespace, not only digits, trailing punctuation
+// trimmed, and at most 64 graphemes (the lexicon's limit for a tag).
+func TestBuildBlueskyFacetsDetectsHashtagsLikeBluesky(t *testing.T) {
+	type tagFacet struct {
+		start, end int
+		tag        string
+	}
+	longTag := strings.Repeat("a", 64)
+	tests := []struct {
+		text string
+		want []tagFacet
+	}{
+		{text: "Bom dia #café", want: []tagFacet{{8, 14, "café"}}},
+		{text: "#日本語 です", want: []tagFacet{{0, 10, "日本語"}}},
+		{text: "Visit #São_Paulo!", want: []tagFacet{{6, 17, "São_Paulo"}}},
+		{text: "Join #open-source, today", want: []tagFacet{{5, 17, "open-source"}}},
+		{text: "こんにちは\u3000#東京", want: []tagFacet{{18, 25, "東京"}}},
+		{text: "＃OpenPost", want: []tagFacet{{0, 11, "OpenPost"}}},
+		{text: "#2024 is here", want: nil},
+		{text: "C#sharp", want: nil},
+		{text: "#" + longTag, want: []tagFacet{{0, 65, longTag}}},
+		{text: "#" + longTag + "a", want: nil},
+		{text: "#\uFE0F\u20E3 keycap", want: nil},
+		// 16 graphemes but 656 bytes: past the tag's 640-byte limit.
+		{text: "#" + strings.Repeat("e"+strings.Repeat("\u0301", 20), 16), want: nil},
+	}
+	for _, test := range tests {
+		var got []tagFacet
+		for _, facet := range buildBlueskyFacets(test.text, nil) {
+			features := facet["features"].([]map[string]string)
+			if features[0]["$type"] != "app.bsky.richtext.facet#tag" {
+				continue
+			}
+			index := facet["index"].(map[string]int)
+			got = append(got, tagFacet{index["byteStart"], index["byteEnd"], features[0]["tag"]})
+		}
+		require.Equal(t, test.want, got, "text %q", test.text)
+	}
+}
+
+func TestBuildBlueskyFacetsSkipsMalformedMentionDIDs(t *testing.T) {
+	facets := buildBlueskyFacets("hi @user.bsky.social", map[string]interface{}{
+		"mention_dids": "user.bsky.social=not-a-did",
+	})
+	require.Empty(t, facets)
+}
+
+func TestBuildBlueskyPostRecordRejectsOversizedText(t *testing.T) {
+	adapter := NewBlueskyAdapter("")
+	_, err := adapter.buildPostRecord("did:plc:openpost", &PublishRequest{
+		Content: strings.Repeat("a", 301),
+	}, fixedBlueskyTime())
+	require.ErrorContains(t, err, "300")
+
+	_, err = adapter.buildPostRecord("did:plc:openpost", &PublishRequest{
+		Content: strings.Repeat("é", 1600),
+	}, fixedBlueskyTime())
+	require.ErrorContains(t, err, "3000")
+
+	_, err = adapter.buildPostRecord("did:plc:openpost", &PublishRequest{
+		Content: strings.Repeat("é", 200),
+	}, fixedBlueskyTime())
+	require.NoError(t, err)
+}
+
 func TestBuildBlueskyPostRecordRejectsExternalCardWithMedia(t *testing.T) {
 	adapter := NewBlueskyAdapter("")
 	_, err := adapter.buildPostRecord("did:plc:openpost", &PublishRequest{
@@ -382,36 +486,6 @@ func TestResolveBlueskyComposerReferencesUsesCompleteHandlesAndByteFacets(t *tes
 
 // The adapter reached through a bluesky:<pds> key must build content identities
 // on the same base the account stores, or discovery cannot match its renditions.
-func TestBlueskyProviderKeyAdapterSharesAccountContentIdentity(t *testing.T) {
-	const instanceURL = "https://pds.example"
-	const did = "did:plc:selfhostedexample000000"
-	const uri = "at://" + did + "/app.bsky.feed.post/3kabcdefghi"
-
-	providers := map[string]Adapter{
-		providerBluesky: NewBlueskyAdapter(""),
-		AccountProviderKey(providerBluesky, instanceURL, ""): NewBlueskyAdapter(instanceURL),
-	}
-	adapter, ok := providers[AccountProviderKey(providerBluesky, instanceURL, "")].(*BlueskyAdapter)
-	require.True(t, ok)
-
-	originalClient := httpClient
-	t.Cleanup(func() { httpClient = originalClient })
-	httpClient = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
-		require.Equal(t, "pds.example", req.URL.Host)
-		body := `{"feed":[{"post":{"uri":"` + uri + `","author":{"did":"` + did + `"},` +
-			`"record":{"text":"hello","createdAt":"2026-01-02T03:04:05Z"}}}]}`
-		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body)), Request: req}, nil
-	})}
-
-	page, err := adapter.DiscoverAccountContent(context.Background(), "token", AccountContentDiscoveryRequest{AccountID: did, PageSize: 10})
-	require.NoError(t, err)
-	require.Len(t, page.Items, 1)
-
-	want, ok := CanonicalSocialAccountContentID(providerBluesky, instanceURL, did, uri)
-	require.True(t, ok)
-	require.Equal(t, want, page.Items[0].ProviderContentID)
-}
-
 func TestBlueskyUnrepostOnlyIgnoresMissingRecord(t *testing.T) {
 	originalClient := httpClient
 	defer func() { httpClient = originalClient }()
@@ -428,13 +502,16 @@ func TestBlueskyUnrepostOnlyIgnoresMissingRecord(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
+			requests := 0
 			httpClient = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+				requests++
 				return &http.Response{StatusCode: test.status, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(test.body)), Request: req}, nil
 			})}
 			adapter := NewBlueskyAdapter(BlueskyDefaultPDSURL)
 			err := adapter.Unrepost(t.Context(), "token", "did:plc:target", UnrepostRequest{
 				RepostExternalID: `{"uri":"at://did:plc:target/app.bsky.feed.repost/record-key","cid":"cid"}`,
 			})
+			require.Equal(t, 1, requests)
 			if test.wantErr {
 				require.Error(t, err)
 			} else {

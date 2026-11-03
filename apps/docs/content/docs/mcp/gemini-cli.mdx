@@ -1,8 +1,10 @@
 ---
 title: Connect Gemini CLI
-description: Review and prepare OpenPost publications from Gemini CLI.
+description: Review and prepare OpenPost posts from Gemini CLI.
 icon: gemini
 ---
+
+<img src="/docs/clients/gemini.svg" alt="Gemini logo" width={32} height={32} />
 
 Add OpenPost to an installed Gemini CLI, then authorize the connection in your browser.
 
@@ -23,7 +25,7 @@ Merge this entry into `~/.gemini/settings.json`:
 
 Use `httpUrl` for Streamable HTTP. Gemini's `url` field selects SSE, which is a different transport.
 
-## Sign in and test
+## Check the connection
 
 Restart Gemini CLI and run:
 
@@ -31,10 +33,10 @@ Restart Gemini CLI and run:
 /mcp auth openpost
 ```
 
-Complete OpenPost's browser consent. Choose read-only access for schedule reviews, or full access to prepare and publish content. Ask, "List my OpenPost workspaces," then name your workspace and request its connected accounts.
+Complete the browser consent. Ask, "List my OpenPost workspaces," then name your workspace and request its connected accounts.
 
 ## If it does not connect
 
-Run `/mcp auth openpost` again for an expired login. The browser callback must reach the machine running Gemini CLI. For a remote shell or private instance, consider the [local bridge](/mcp#self-hosted-connections).
+Run `/mcp auth openpost` again for an expired login. The browser callback must reach the machine running Gemini CLI. For a remote shell or private instance, consider the [local bridge](/mcp/mcp-guide#connect-a-self-hosted-instance).
 
 See [Gemini CLI MCP documentation](https://geminicli.com/docs/tools/mcp-server/) for authentication and transport settings.

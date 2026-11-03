@@ -1,9 +1,11 @@
 <script lang="ts">
 	import { Check, ClipboardCopy, RotateCcw, Sparkles } from '@lucide/svelte';
-	import { Button } from '$lib/components/ui/button';
-	import { Checkbox } from '$lib/components/ui/checkbox';
-	import { Textarea } from '$lib/components/ui/textarea';
+	import { Button } from '@openpost/ui/components/button';
+	import { Checkbox } from '@openpost/ui/components/checkbox';
+	import { Textarea } from '@openpost/ui/components/textarea';
+	import { PLATFORM_LIMITS } from '@openpost/platform-text';
 	import AppSelect from '$lib/components/app-select.svelte';
+	import DraftNextAction from './DraftNextAction.svelte';
 	import {
 		copyToClipboard,
 		formatLinkedInText,
@@ -24,6 +26,7 @@ That short brief makes editing faster and gives each post a job.`;
 	let sentencesPerParagraph = $state(2);
 	let normalizeBullets = $state(true);
 	let copied = $state(false);
+	const linkedInLimit = PLATFORM_LIMITS.linkedin.charLimit;
 
 	const formatted = $derived(
 		formatLinkedInText(draft, { sentencesPerParagraph, normalizeBullets })
@@ -47,7 +50,7 @@ That short brief makes editing faster and gives each post a job.`;
 	}
 </script>
 
-<div class="mt-8 grid gap-5 xl:grid-cols-2">
+<div class="mt-8 grid gap-5 lg:grid-cols-2">
 	<section class="rounded-lg border bg-card p-4 sm:p-6" aria-labelledby="formatter-input-title">
 		<div class="flex flex-wrap items-start justify-between gap-4">
 			<div>
@@ -134,7 +137,12 @@ That short brief makes editing faster and gives each post a job.`;
 		<dl class="mt-4 grid grid-cols-3 divide-x rounded-xl border bg-muted/20 py-3 text-center">
 			<div class="px-2">
 				<dt class="text-xs text-muted-foreground">Characters</dt>
-				<dd class={['mt-1 font-mono font-semibold', characterCount > 3000 && 'text-destructive']}>
+				<dd
+					class={[
+						'mt-1 font-mono font-semibold',
+						characterCount > linkedInLimit && 'text-destructive'
+					]}
+				>
 					{characterCount.toLocaleString()}
 				</dd>
 			</div>
@@ -167,12 +175,17 @@ That short brief makes editing faster and gives each post a job.`;
 			</div>
 		</div>
 
-		{#if characterCount > 3000}
+		{#if characterCount > linkedInLimit}
 			<p
 				class="mt-4 rounded-lg border border-destructive/30 bg-destructive/[0.04] p-3 text-sm text-destructive"
 			>
-				This draft is {characterCount - 3000} characters over LinkedIn's 3,000-character post limit.
+				This draft is {characterCount - linkedInLimit} characters over LinkedIn's {linkedInLimit.toLocaleString()}-character
+				post limit.
 			</p>
 		{/if}
+		<DraftNextAction
+			draft={{ version: 1, parts: [formatted], files: [], link: '' }}
+			disabled={!formatted.trim() || characterCount > linkedInLimit}
+		/>
 	</section>
 </div>

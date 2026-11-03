@@ -26,7 +26,7 @@ depend on `/tmp` state. It copies `apps/server/.env.example` only when
 The backend reads `apps/server/.env` with its non-executing dotenv loader. Do not
 `source` or `eval` dotenv files, and do not put credentials in Nix expressions.
 
-Use Devenv only to enter or repair the environment:
+Use Devenv to enter or repair the environment:
 
 ```bash
 devenv shell -- setup
@@ -38,6 +38,15 @@ root:
 ```bash
 bun run dev
 ```
+
+For concurrent checkouts, first run `bun run build -- frontend` in each checkout
+to prepare the backend's frontend artifact. Then use `devenv up -d`. The frontend
+hostname is available from `devenv eval processes.frontend.proxy.hostname`.
+Each checkout gets its own hostname, allocated ports, SQLite database and media
+under `.devenv/state/parallel-dev/`. Stop it with `devenv down`. This isolated
+data is separate from the database used by `bun run dev`. The proxy requires
+devenv 2.4 or newer; on Linux it may request sudo to bind port 80. Provider
+OAuth callbacks must be registered for the displayed URL.
 
 ## Commands
 
@@ -67,6 +76,8 @@ task-cache cap and the daily 4 GiB default cap on the shared Go build cache.
 Root commands use the OpenPost directory under the operating system's user
 cache, so linked worktrees share entries and one total limit, including inside
 Devenv.
+Shell entry also prunes only when the Turbo cache is idle, so entering another
+worktree does not wait for an active root task.
 Finite root tasks opportunistically enforce the Turbo cap after each run,
 keeping the newest complete entries. Automatic maintenance skips pruning when
 another task or maintenance pass is active instead of waiting for it. `dev`

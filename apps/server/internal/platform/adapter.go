@@ -147,14 +147,22 @@ type MediaItem struct {
 	ID               string
 	MimeType         string
 	Size             int64
+	Width            int
+	Height           int
 	DurationMS       int64
 	OriginalFilename string
 }
 
 type UploadMediaRequest struct {
+	// BeforeWrite revalidates the owning publication immediately before upload
+	// mutations. Resumable adapters must leave read-only reconciliation available.
+	BeforeWrite       func(context.Context) error
 	MimeType          string
 	Filename          string
 	Size              int64
+	Width             int
+	Height            int
+	DurationMS        int64
 	Title             string
 	Description       string
 	Settings          map[string]interface{}
@@ -171,6 +179,13 @@ type UploadMediaRequest struct {
 	// Resumable adapters use it after a worker restart or an ambiguous network
 	// response; ordinary upload adapters can keep using Reader.
 	OpenReaderAt func(offset int64) (io.ReadCloser, error)
+}
+
+func checkUploadWrite(ctx context.Context, req UploadMediaRequest) error {
+	if req.BeforeWrite != nil {
+		return req.BeforeWrite(ctx)
+	}
+	return nil
 }
 
 // DirectMediaPublisher is an optional publishing extension for providers, such
@@ -192,6 +207,13 @@ type InstanceCredentialPublisher interface {
 // provider operation. It must never recreate the write.
 type PublishReconciler interface {
 	ReconcilePublish(ctx context.Context, accessToken, accountID, providerReference string) (PublishResult, error)
+}
+
+// PublishRequestReconciler performs the same read-only reconciliation with the
+// original authorized request available for exact provider-side matching.
+// Implementations must not recreate the write.
+type PublishRequestReconciler interface {
+	ReconcilePublishRequest(ctx context.Context, accessToken, accountID string, request *PublishRequest, providerReference string) (PublishResult, error)
 }
 
 // PublishResumer continues a provider workflow from a durable stage recorded
@@ -218,8 +240,10 @@ var ErrUnsupportedCommentAction = errors.New("comment action unsupported")
 func RegisterAllMediaValidators() {
 	registerMediaValidatorsOnce.Do(func() {
 		MediaValidators[providerBluesky] = validateBlueskyMedia
+		MediaValidators[providerDevNull] = validateDevNullMedia
 		MediaValidators[providerDiscord] = validateDiscordMedia
 		MediaValidators[providerFacebook] = validateFacebookMedia
+		MediaValidators[providerGoogleBusiness] = validateGoogleBusinessMedia
 		MediaValidators[providerInstagram] = validateInstagramMedia
 		MediaValidators[providerLinkedIn] = validateLinkedInMedia
 		MediaValidators[providerMastodon] = validateMastodonMedia
@@ -366,6 +390,13 @@ type AccountCapabilityResult struct {
 // account, permission set, or instance.
 type AccountCapabilityProvider interface {
 	ResolveAccountPublishingCapabilities(ctx context.Context, accessToken string, input AccountCapabilityInput) (AccountCapabilityResult, error)
+}
+
+// AccountCapabilityKeyer declares which inputs can change an adapter's
+// ResolveAccountPublishingCapabilities result. Adapters that ignore their input
+// return an empty key.
+type AccountCapabilityKeyer interface {
+	AccountCapabilityKeyInput(input AccountCapabilityInput) string
 }
 
 // TokenResult is a platform-agnostic token response.

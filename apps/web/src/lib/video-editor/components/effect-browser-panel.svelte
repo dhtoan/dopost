@@ -1,4 +1,7 @@
 <script lang="ts">
+	import { videoLibrary } from '../library/library-store.svelte';
+	import LibraryShelf from './library-shelf.svelte';
+	import LibraryFavorite from './library-favorite.svelte';
 	import { onDestroy } from 'svelte';
 	import { Input } from '$lib/components/ui/input';
 	import { m } from '$lib/paraglide/messages';
@@ -112,13 +115,15 @@
 		onedit();
 	}
 
-	function apply(label: string, effects: readonly EffectTemplate[]): void {
+	function apply(label: string, effects: readonly EffectTemplate[], id: string): void {
 		const targets = compatibleSelection();
 		if (targets.length > 0 && addEffectTemplates(targets, effects.map(cloneTemplate))) {
 			onedit();
+			videoLibrary.recordChoice(`${videoLibrary.scope}:effects:${id}`, label);
 			return;
 		}
 		createAdjustment(label, effects);
+		videoLibrary.recordChoice(`${videoLibrary.scope}:effects:${id}`, label);
 	}
 
 	function startDrag(event: DragEvent, label: string, effects: readonly EffectTemplate[]): void {
@@ -139,27 +144,26 @@
 <div
 	bind:this={scroller}
 	class="effect-browser min-h-0 flex-1 overflow-y-auto p-2"
+	role="group"
 	aria-label={m.video_editor_effects()}
 >
+	<LibraryShelf kind="effects" selectedIds={selectedItemIds} {oninserted} {onedit} />
 	<Input
 		type="search"
 		bind:value={search}
 		placeholder={m.video_editor_effects_search()}
 		aria-label={m.video_editor_effects_search()}
-		class="mb-2"
+		class="mb-2 h-[25px] text-xs [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:text-base"
 	/>
-	<p class="mb-2 text-[10px] leading-4 text-[var(--video-editor-muted)]">
-		{m.video_editor_effects_add_or_drag()}
-	</p>
 	<button
 		type="button"
-		class="mb-3 flex min-h-16 w-full items-center gap-3 rounded-lg border border-[var(--video-editor-border)] bg-[var(--video-editor-panel)] px-3 text-left text-xs text-[var(--video-editor-muted)] hover:border-[var(--video-editor-focus-border)] hover:bg-[var(--video-editor-panel)] hover:text-[var(--video-editor-text)] focus-visible:outline-2 focus-visible:outline-[var(--video-editor-focus)]"
+		class="mb-2 flex h-[25px] w-full items-center gap-2 rounded-md border border-[var(--video-editor-border)] bg-[var(--video-editor-panel)] px-2 text-left text-[11px] text-[var(--video-editor-muted)] hover:border-[var(--video-editor-focus-border)] hover:bg-[var(--video-editor-panel)] hover:text-[var(--video-editor-text)] focus-visible:outline-2 focus-visible:outline-[var(--video-editor-focus)] [@media(pointer:coarse)]:min-h-11"
 		onclick={() => createAdjustment(m.video_editor_adjustment_layer())}
 	>
 		<span
-			class="grid size-10 place-items-center rounded-md border border-[var(--video-editor-border)] bg-[var(--video-editor-control-hover)]"
+			class="grid size-6 shrink-0 place-items-center rounded border border-[var(--video-editor-border)] bg-[var(--video-editor-control-hover)]"
 		>
-			<ProtectedIcon icon="editor-layers" class="size-5" />
+			<ProtectedIcon icon="editor-layers" class="size-3.5" />
 		</span>
 		<span>{m.video_editor_add_adjustment_layer()}</span>
 	</button>
@@ -177,34 +181,43 @@
 			<div class="effect-grid">
 				{#each group.items as item (item.id)}
 					{@const effectId = 'effectId' in item ? item.effectId : undefined}
-					<button
-						type="button"
-						draggable="true"
-						class="effect-card"
-						data-effect-catalog-id={item.id}
-						aria-label={item.label}
-						title={m.video_editor_effects_add_or_drag()}
-						onclick={() => apply(item.label, item.effects)}
-						ondragstart={(event) => startDrag(event, item.label, item.effects)}
-						ondragend={clearEffectDragData}
-						onpointerenter={() => (activeId = item.id)}
-						onpointerleave={() => {
-							if (activeId === item.id) activeId = null;
-						}}
-						onfocus={() => (activeId = item.id)}
-						onblur={() => {
-							if (activeId === item.id) activeId = null;
-						}}
-					>
-						<EffectThumbnail
-							{effectId}
-							effects={effectId ? undefined : item.effects}
-							viewport={scroller}
-							active={activeId === item.id}
-							class="aspect-video w-full rounded max-md:h-12 max-md:object-cover"
+					<div class="group/library-item relative min-w-0">
+						<button
+							type="button"
+							draggable="true"
+							class="effect-card w-full"
+							data-effect-catalog-id={item.id}
+							aria-label={item.label}
+							title={m.video_editor_effects_add_or_drag()}
+							onclick={(event) => {
+								if (event.detail <= 1) apply(item.label, item.effects, item.id);
+							}}
+							ondragstart={(event) => startDrag(event, item.label, item.effects)}
+							ondragend={clearEffectDragData}
+							onpointerenter={() => (activeId = item.id)}
+							onpointerleave={() => {
+								if (activeId === item.id) activeId = null;
+							}}
+							onfocus={() => (activeId = item.id)}
+							onblur={() => {
+								if (activeId === item.id) activeId = null;
+							}}
+						>
+							<EffectThumbnail
+								{effectId}
+								effects={effectId ? undefined : item.effects}
+								viewport={scroller}
+								active={activeId === item.id}
+								class="aspect-video w-full rounded max-md:h-12 max-md:object-cover"
+							/>
+							<span>{item.label}</span>
+						</button>
+						<LibraryFavorite
+							catalogId={`effects:${item.id}`}
+							name={item.label}
+							recipe={{ kind: 'effects', effects: item.effects.map(cloneTemplate) }}
 						/>
-						<span>{item.label}</span>
-					</button>
+					</div>
 				{/each}
 			</div>
 		</section>

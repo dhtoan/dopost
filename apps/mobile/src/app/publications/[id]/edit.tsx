@@ -1,5 +1,17 @@
-import * as ImagePicker from "expo-image-picker";
-import { Image } from "expo-image";
+import { renditionReadinessSegments } from "@/lib/publication-image-choices";
+import { AccountImageFit, type AccountImageChoice } from "@/components/account-image-fit";
+import { PostEditor } from "@/components/post-editor";
+import {
+  readMentionMetadata,
+  remapMentionMetadata,
+  type PostTextValue,
+} from "@openpost/platform-text/mentions";
+import { NativeText as Text } from "@/components/native-text";
+import { recordNativeFirstComposition } from "@/lib/telemetry/composition";
+import { nativeTelemetry } from "@/lib/telemetry";
+import type * as ImagePicker from "expo-image-picker";
+import { MediaImage } from "@/components/media-image";
+import { DestinationChooser } from "@/components/destination-chooser";
 import { router, Stack, useLocalSearchParams } from "expo-router";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import DateTimePicker from "@react-native-community/datetimepicker";
@@ -11,39 +23,68 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
-  Text,
-  TextInput,
   View,
 } from "react-native";
 
 import {
   BodyText,
   Button,
-  Card,
+  ContentSection,
   IconButton,
   Screen,
-  SectionHeader,
   StatusBadge,
   TextField,
 } from "@/components/ui";
 import { DelayedQueryPlaceholder, InitialQueryError, QueryNotice } from "@/components/query-state";
 import { CelebrationBurst } from "@/components/celebration-burst";
+import { DitherPanel } from "@/components/dither-panel";
 import { BottomDrawer } from "@/components/bottom-drawer";
 import { ThemeIcon } from "@/components/theme-icon";
 import { ProtectedIcon } from "@/components/protected-icon";
 import { api, errorMessage, type Api } from "@/lib/api/client";
 import { applyPickerValue, firstPickerStep, type PickerStep } from "@/lib/date-time-picker";
-import { accountHandle, formatDateTime, platformLabel } from "@/lib/format";
+import {
+  reconcileDestinationSelection,
+  destinationSummaryLabel,
+} from "@/lib/destination-selection";
+import {
+  destinationIssueMessages,
+  destinationNeedsAttention,
+  firstPublishBlocker,
+  readinessDebounceMs,
+  readinessRequestSignature,
+  resolveDestinationCapabilities,
+  type ReadinessRequestInput,
+  type ResolvedDestinationCapability,
+} from "@/lib/destination-readiness";
+import { formatDateTime, platformLabel } from "@/lib/format";
 import { errorHaptic, selectionHaptic, successHaptic } from "@/lib/haptics";
 import {
-  MAX_ATTACHMENT_BYTES,
   MAX_MOBILE_ATTACHMENT_COUNT,
+  attachmentSizeError,
   uploadAttachment,
   type PendingAttachment,
 } from "@/lib/media";
+import { pickMedia } from "@/lib/media-picker";
 import { takePendingAttachments } from "@/lib/share";
+import { publicationContentUpdate, publicationReadinessSegments } from "@/lib/publication-content";
+import {
+  attachmentRequirement,
+  mobileRenditionInput,
+  mobileRenditionGeneratedText,
+  mobileRenditionTextFields,
+  mobileRenditionTextValue,
+  renditionImages,
+  type RenditionTextEdits,
+} from "@/lib/publication-renditions";
 import { invalidatePublicationData, type Publication } from "@/lib/query-cache";
-import { currentWorkspaceId, useAccounts, usePublication, useSocialSets } from "@/lib/queries";
+import {
+  currentWorkspaceId,
+  useAccounts,
+  usePublication,
+  useSocialSets,
+  useWorkspaceCapabilities,
+} from "@/lib/queries";
 import type { PublicationActivity } from "@/lib/query-policy";
 import { getWorkspaceId } from "@/lib/api/token-store";
 import {
@@ -54,7 +95,7 @@ import {
   workspaceQueryScopeIsCurrent,
   type WorkspaceQueryScope,
 } from "@/lib/query-session";
-import { useNativeTheme, withAlpha } from "@/theme";
+import { useNativeTheme } from "@/theme";
 
 type Attachment = {
   localId: string;
@@ -64,16 +105,19 @@ type Attachment = {
   filename: string;
   size: number | null;
   status: "local" | "uploading" | "ready" | "error";
+  altText: string;
 };
 
 function attachmentsFromPublication(pub: PublicationDetail): Attachment[] {
-  return (pub.media ?? []).map((media) => ({
+  return (pub.segments?.[0]?.media ?? pub.media ?? []).map((media) => ({
     localId: `remote-${media.id}`,
     mediaId: media.id,
+    uri: media.url,
     mimeType: media.mime_type ?? "image/jpeg",
     filename: media.original_filename ?? media.id,
     size: media.size ?? null,
     status: "ready" as const,
+    altText: media.alt_text ?? "",
   }));
 }
 
@@ -87,27 +131,18 @@ type EditorMutationScope = WorkspaceQueryScope & {
 };
 
 function bodyFromPublication(pub: PublicationDetail): string {
-  return pub.source_text ?? pub.renditions?.find((rendition) => rendition.body)?.body ?? "";
+  return (
+    pub.segments?.[0]?.body ??
+    pub.source_text ??
+    pub.renditions?.find((rendition) => rendition.body)?.body ??
+    ""
+  );
 }
 
 function selectedAccountsFromPublication(pub: PublicationDetail): Set<string> {
   return new Set(
     (pub.renditions ?? []).map((rendition) => rendition.social_account_id).filter(Boolean),
   );
-}
-
-function renditionBodiesFromPublication(pub: PublicationDetail): Record<string, string> {
-  const bodies: Record<string, string> = {};
-  for (const rendition of pub.renditions ?? []) {
-    if (
-      rendition.social_account_id &&
-      rendition.body &&
-      rendition.body !== (pub.source_text ?? "")
-    ) {
-      bodies[rendition.social_account_id] = rendition.body;
-    }
-  }
-  return bodies;
 }
 
 function captureEditorMutationScope(
@@ -137,6 +172,17 @@ export default function ComposeScreen() {
   const publication = usePublication(id);
   const accounts = useAccounts();
   const socialSets = useSocialSets();
+  const workspace = useWorkspaceCapabilities();
+  if (!workspace?.can_edit)
+    return (
+      <Screen>
+        <BodyText>This Workspace is read-only for your role.</BodyText>
+        <Button
+          title="View post"
+          onPress={() => router.replace({ pathname: "/publications/[id]", params: { id } })}
+        />
+      </Screen>
+    );
 
   if (publication.isPending && !publication.data) {
     return (
@@ -205,11 +251,15 @@ function Composer({
   celebrateOnOpen: boolean;
 }) {
   const theme = useNativeTheme();
-  const { colors, editor, typography } = theme.manifest;
+  const { colors, editor, typography, spacing } = theme.manifest;
   const queryClient = useQueryClient();
-  const bodyInputRef = useRef<TextInput | null>(null);
+  const [canonicalTextEdits, setCanonicalTextEdits] = useState<Record<string, PostTextValue>>({});
+  const [annotatedRenditionEdits, setAnnotatedRenditionEdits] = useState<
+    Record<string, Record<string, PostTextValue>>
+  >({});
   const [initialPendingAttachments] = useState(() => takePendingAttachments());
   const editorDirty = useRef(initialPendingAttachments.length > 0);
+  const contentSnapshot = useRef(pub);
 
   const [body, setBody] = useState(() => bodyFromPublication(pub));
   const [revision, setRevision] = useState(pub.revision ?? 0);
@@ -224,12 +274,22 @@ function Composer({
   const [selectedAccounts, setSelectedAccounts] = useState<Set<string>>(() =>
     selectedAccountsFromPublication(pub),
   );
-  const [renditionBodies, setRenditionBodies] = useState<Record<string, string>>(() =>
-    renditionBodiesFromPublication(pub),
+  const [renditionTextEdits, setRenditionTextEdits] = useState<Record<string, RenditionTextEdits>>(
+    {},
   );
   const [expandedAccount, setExpandedAccount] = useState<string | null>(null);
+  const [imageChoices, setImageChoices] = useState<Record<string, AccountImageChoice>>({});
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [readinessByAccount, setReadinessByAccount] = useState<
+    Record<string, ResolvedDestinationCapability>
+  >({});
+  const [readinessError, setReadinessError] = useState<string | null>(null);
+  const [readinessNonce, setReadinessNonce] = useState(0);
+  const readinessTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const readinessAbort = useRef<AbortController | null>(null);
+  const readinessSequence = useRef(0);
+  const lastReadinessSignature = useRef<string | null>(null);
   const [celebrationTrigger, setCelebrationTrigger] = useState(celebrateOnOpen ? 1 : 0);
   const [attachments, setAttachments] = useState<Attachment[]>(() => [
     ...attachmentsFromPublication(pub),
@@ -240,21 +300,25 @@ function Composer({
       filename: pending.filename,
       size: pending.size,
       status: "local" as const,
+      altText: "",
     })),
   ]);
-  const initialMediaIds = pub.media?.map((media) => media.id) ?? [];
   const autoBuildStarted = useRef(false);
   const celebratedIdea = useRef(celebrateOnOpen);
 
   useEffect(() => {
     if (editorDirty.current) return;
+    contentSnapshot.current = pub;
     setBody(bodyFromPublication(pub));
     setRevision(pub.revision ?? 0);
     setScheduledAt(pub.scheduled_at ? new Date(pub.scheduled_at) : null);
     setSelectedSocialSetId(pub.social_set_id ?? "");
     setSelectionTouched((pub.renditions?.length ?? 0) > 0);
     setSelectedAccounts(selectedAccountsFromPublication(pub));
-    setRenditionBodies(renditionBodiesFromPublication(pub));
+    setRenditionTextEdits({});
+    setCanonicalTextEdits({});
+    setAnnotatedRenditionEdits({});
+    setImageChoices({});
     setAttachments((current) => [
       ...attachmentsFromPublication(pub),
       ...current.filter((attachment) => !attachment.mediaId),
@@ -273,8 +337,181 @@ function Composer({
   const originalActivity = publicationActivity(pub.status);
   const originalCalendarEntry =
     originalActivity === "scheduled" || originalActivity === "published";
-  const destinationCatalogFailed = accounts.isError || socialSets.isError;
-  const accountsLoadedEmpty = (accounts.data?.length ?? 0) === 0 && accounts.data !== undefined;
+  const selectableAccountIds =
+    accounts.data === undefined
+      ? [...activeAccounts]
+      : reconcileDestinationSelection(activeAccounts, accounts.data, pub.renditions).selectable;
+  const readyMediaIds = attachments
+    .filter((attachment) => attachment.mediaId)
+    .map((attachment) => attachment.mediaId as string);
+
+  function selectedImageIDs(accountId: string, resolvedProfile?: string) {
+    const profile =
+      contentSnapshot.current.renditions?.find((r) => r.social_account_id === accountId)
+        ?.output_profile ||
+      resolvedProfile ||
+      readinessByAccount[accountId]?.output_profile;
+    return Object.fromEntries(
+      Object.values(imageChoices)
+        .filter(
+          (choice) =>
+            choice.accountId === accountId && choice.selected && choice.profile === profile,
+        )
+        .map((choice) => [choice.originalId, choice.prepared.id]),
+    );
+  }
+
+  function computeReadinessInput(
+    firstSegmentMediaIds: string[],
+    accountIds = [...selectableAccountIds].sort(),
+  ) {
+    const segments = publicationReadinessSegments(
+      contentSnapshot.current,
+      body,
+      firstSegmentMediaIds,
+      canonicalTextEdits,
+    );
+    const snapshot = contentSnapshot.current;
+    const accountSegments = Object.fromEntries(
+      accountIds.map((accountId) => {
+        const stored = snapshot.renditions?.find((item) => item.social_account_id === accountId);
+        const strategy =
+          stored?.segments?.length === 1 && (snapshot.segments?.length ?? 0) > 1
+            ? "join"
+            : (readinessByAccount[accountId]?.segment_strategy ?? "preserve");
+        const input = mobileRenditionInput(
+          snapshot,
+          accountId,
+          renditionTextEdits[accountId],
+          attachments,
+          annotatedRenditionEdits[accountId],
+          strategy,
+          selectedImageIDs(accountId),
+        );
+        return [
+          accountId,
+          renditionReadinessSegments(
+            snapshot,
+            input,
+            segments,
+            strategy,
+            accounts.data?.find((account) => account.id === accountId),
+          ),
+        ];
+      }),
+    );
+    const input = { accountIds, segments, accountSegments };
+    return { ...input, signature: readinessRequestSignature(input) };
+  }
+
+  async function runReadinessResolve(
+    signature: string,
+    input: ReadinessRequestInput,
+  ): Promise<void> {
+    const workspaceId = getWorkspaceId();
+    if (!workspaceId) return;
+    const scope = captureWorkspaceQueryScope(workspaceId);
+    const sequence = ++readinessSequence.current;
+    readinessAbort.current?.abort();
+    const controller = new AbortController();
+    readinessAbort.current = controller;
+    try {
+      const resolved = await resolveDestinationCapabilities(api(), input, controller.signal);
+      requireCurrentQueryActor(scope);
+      if (sequence !== readinessSequence.current) return;
+      if (!workspaceScopeIsCurrent(scope)) return;
+      lastReadinessSignature.current = signature;
+      setReadinessByAccount(resolved);
+      setReadinessError(null);
+    } catch (err) {
+      if (controller.signal.aborted) return;
+      if (sequence !== readinessSequence.current) return;
+      if (!workspaceScopeIsCurrent(scope)) return;
+      setReadinessError(
+        err instanceof Error ? err.message : "Could not check destination readiness",
+      );
+    }
+  }
+
+  function retryReadiness(): void {
+    lastReadinessSignature.current = null;
+    setReadinessNonce((current) => current + 1);
+  }
+
+  const readinessAccountsKey = selectableAccountIds.join(",");
+  const readinessAttachmentsKey = attachments
+    .map((attachment) => `${attachment.localId}:${attachment.mediaId ?? ""}`)
+    .join(",");
+  useEffect(() => {
+    const input = computeReadinessInput(readyMediaIds);
+    const { accountIds, signature } = input;
+    if (readinessTimer.current) {
+      clearTimeout(readinessTimer.current);
+      readinessTimer.current = null;
+    }
+    if (accountIds.length === 0) {
+      readinessAbort.current?.abort();
+      lastReadinessSignature.current = signature;
+      // Readiness only applies to selectable destinations; consumers read the
+      // effective values below, so no results are shown while none are
+      // selected.
+      return;
+    }
+    if (signature === lastReadinessSignature.current) return;
+    readinessTimer.current = setTimeout(() => {
+      readinessTimer.current = null;
+      void runReadinessResolve(signature, input);
+    }, readinessDebounceMs());
+    return () => {
+      if (readinessTimer.current) {
+        clearTimeout(readinessTimer.current);
+        readinessTimer.current = null;
+      }
+      readinessAbort.current?.abort();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    body,
+    readinessAccountsKey,
+    readinessAttachmentsKey,
+    readinessNonce,
+    pub,
+    imageChoices,
+    renditionTextEdits,
+    annotatedRenditionEdits,
+    canonicalTextEdits,
+  ]);
+
+  // Readiness describes the destinations selected now. Clearing the last one
+  // leaves earlier results in state, so consumers read these derived values and
+  // never show a capability or error for a destination that is no longer
+  // selectable.
+  const hasSelectableDestinations = selectableAccountIds.length > 0;
+  const effectiveReadinessByAccount: Record<string, ResolvedDestinationCapability> =
+    hasSelectableDestinations ? readinessByAccount : {};
+  const effectiveReadinessError = hasSelectableDestinations ? readinessError : null;
+  const attentionCount = selectableAccountIds.filter((accountId) =>
+    effectiveReadinessByAccount[accountId]
+      ? destinationNeedsAttention(effectiveReadinessByAccount[accountId])
+      : false,
+  ).length;
+
+  async function resolvePublishBlocker(
+    scope: EditorMutationScope,
+    firstSegmentMediaIds: string[],
+  ): Promise<string | null> {
+    const input = computeReadinessInput(firstSegmentMediaIds);
+    const { accountIds } = input;
+    if (accountIds.length === 0) return null;
+    try {
+      const resolved = await resolveDestinationCapabilities(api(), input);
+      requireCurrentQueryActor(scope);
+      if (!workspaceScopeIsCurrent(scope)) return null;
+      return firstPublishBlocker(resolved, accountIds);
+    } catch {
+      return null;
+    }
+  }
 
   function markEditorDirty(): void {
     editorDirty.current = true;
@@ -299,21 +536,29 @@ function Composer({
     });
   }
 
-  async function httpError(response: Response | undefined, fallback: string): Promise<Error> {
+  async function httpError(
+    response: Response | undefined,
+    fallback: string,
+    problem: unknown,
+  ): Promise<Error> {
     if (response?.status === 409) {
       return new Error("This post changed elsewhere. Close and reopen it before trying again.");
     }
-    return new Error(await errorMessage(response, fallback));
+    return new Error(await errorMessage(response, fallback, problem));
   }
 
   async function resolveAttachments(
     scope: WorkspaceQueryScope,
     requestApi: Api,
-  ): Promise<string[]> {
-    const mediaIds: string[] = [];
+  ): Promise<{ mediaId: string; mimeType: string; localId: string }[]> {
+    const mediaIds: { mediaId: string; mimeType: string; localId: string }[] = [];
     for (const attachment of attachments) {
       if (attachment.mediaId) {
-        mediaIds.push(attachment.mediaId);
+        mediaIds.push({
+          mediaId: attachment.mediaId,
+          mimeType: attachment.mimeType,
+          localId: attachment.localId,
+        });
         continue;
       }
       if (!attachment.uri) continue;
@@ -337,7 +582,7 @@ function Composer({
           workspaceId: scope.workspaceId,
         });
         requireCurrentQueryActor(scope);
-        mediaIds.push(mediaId);
+        mediaIds.push({ mediaId, mimeType: attachment.mimeType, localId: attachment.localId });
         if (workspaceScopeIsCurrent(scope)) {
           setAttachments((current) =>
             current.map((item) =>
@@ -365,24 +610,63 @@ function Composer({
     scope: EditorMutationScope,
     requestApi: Api,
     scheduleOverride?: Date,
-  ): Promise<number> {
+  ): Promise<{ nextRevision: number; mediaIds: string[] }> {
     requireCurrentQueryActor(scope);
-    let mediaChanged = false;
-    for (const attachment of attachments) {
-      if (!attachment.mediaId || !initialMediaIds.includes(attachment.mediaId)) {
-        mediaChanged = true;
-        break;
-      }
-    }
-    if (attachments.length !== initialMediaIds.length) mediaChanged = true;
-
     const media = await resolveAttachments(scope, requestApi);
     requireCurrentQueryActor(scope);
-    const desired = [...activeAccounts];
+    // Per-post attachment descriptions live on the Publication media metadata
+    // for this destination, never on the shared library Media record. Only
+    // values that differ from the snapshot baseline (including explicit empty
+    // overrides) are sent.
+    const baselineAlt = new Map(
+      (contentSnapshot.current.segments?.[0]?.media ?? contentSnapshot.current.media ?? []).map(
+        (item) => [item.id, item.alt_text ?? ""],
+      ),
+    );
+    const altByLocalId = new Map(attachments.map((item) => [item.localId, item.altText]));
+    const altOverrides = new Map<string, string>();
+    for (const item of media) {
+      const altText = altByLocalId.get(item.localId) ?? "";
+      const previous = baselineAlt.get(item.mediaId);
+      if (previous === undefined ? altText !== "" : altText !== previous) {
+        altOverrides.set(item.mediaId, altText);
+      }
+    }
+    const renditionMedia = media.map((item) => ({
+      mediaId: item.mediaId,
+      mimeType: item.mimeType,
+      altText: altOverrides.get(item.mediaId),
+    }));
+    // Only ids the workspace can still publish to reach the upsert: the
+    // server lists only active accounts, and rejects inactive ids with a
+    // 400. Destinations whose account is gone stay in the
+    // selection so they render as explicit, removable rows; leaving them
+    // selected neither upserts nor deletes their authored rendition.
+    const desired =
+      accounts.data === undefined
+        ? [...activeAccounts]
+        : reconcileDestinationSelection(activeAccounts, accounts.data, pub.renditions).selectable;
     const removed = (pub.renditions ?? []).filter(
       (rendition) =>
         rendition.social_account_id && !activeAccounts.has(rendition.social_account_id),
     );
+
+    const addedAccounts = desired.filter(
+      (accountId) =>
+        !(contentSnapshot.current.renditions ?? []).some(
+          (rendition) => rendition.social_account_id === accountId,
+        ),
+    );
+    const addedCapabilities = addedAccounts.length
+      ? await resolveDestinationCapabilities(
+          requestApi,
+          computeReadinessInput(
+            media.flatMap((item) => (item.mediaId ? [item.mediaId] : [])),
+            addedAccounts,
+          ),
+        )
+      : {};
+    requireCurrentQueryActor(scope);
 
     const initialScheduled = pub.scheduled_at ? new Date(pub.scheduled_at).getTime() : 0;
     const effectiveScheduledAt = scheduleOverride ?? scheduledAt;
@@ -396,9 +680,14 @@ function Composer({
       params: { path: { id: scope.publicationId } },
       body: {
         expected_revision: revision,
-        source_text: body,
+        ...publicationContentUpdate(
+          contentSnapshot.current,
+          body,
+          media.map((item) => item.mediaId),
+          altOverrides,
+          canonicalTextEdits,
+        ),
         ...(activeSocialSetId ? { social_set_id: activeSocialSetId } : {}),
-        ...(mediaChanged ? { media: media.map((mediaId) => ({ media_id: mediaId })) } : {}),
         ...(scheduledChanged
           ? effectiveScheduledAt
             ? { scheduled_at: effectiveScheduledAt.toISOString() }
@@ -406,22 +695,34 @@ function Composer({
           : {}),
       },
     });
-    if (error) throw await httpError(response, "Could not save");
+    if (error) throw await httpError(response, "Could not save", error);
     requireCurrentQueryActor(scope);
     let nextRevision = updated?.revision ?? revision + 1;
+    if (workspaceScopeIsCurrent(scope) && updated) {
+      contentSnapshot.current = updated;
+      setRevision(nextRevision);
+    }
 
     if (desired.length > 0) {
       const upsert = await requestApi.PUT("/publications/{id}/renditions", {
         params: { path: { id: scope.publicationId } },
         body: {
           expected_revision: nextRevision,
-          renditions: desired.map((accountId) => ({
-            social_account_id: accountId,
-            body: renditionBodies[accountId]?.trim() ? renditionBodies[accountId] : undefined,
-          })),
+          renditions: desired.map((accountId) =>
+            mobileRenditionInput(
+              contentSnapshot.current,
+              accountId,
+              renditionTextEdits[accountId],
+              renditionMedia,
+              annotatedRenditionEdits[accountId],
+              addedCapabilities[accountId]?.segment_strategy,
+              selectedImageIDs(accountId, addedCapabilities[accountId]?.output_profile),
+            ),
+          ),
         },
       });
-      if (upsert.error) throw await httpError(upsert.response, "Could not update destinations");
+      if (upsert.error)
+        throw await httpError(upsert.response, "Could not update destinations", upsert.error);
       requireCurrentQueryActor(scope);
       nextRevision = upsert.data?.revision ?? nextRevision + 1;
     }
@@ -430,23 +731,30 @@ function Composer({
       if (!rendition.social_account_id) continue;
       const removal = await requestApi.DELETE("/publications/{id}/renditions/{account_id}", {
         params: {
-          path: { id: scope.publicationId, account_id: rendition.social_account_id },
+          path: {
+            id: scope.publicationId,
+            account_id: rendition.social_account_id,
+          },
           query: { confirm: true, expected_revision: nextRevision },
         },
       });
-      if (removal.error) throw await httpError(removal.response, "Could not remove destination");
+      if (removal.error)
+        throw await httpError(removal.response, "Could not remove destination", removal.error);
       requireCurrentQueryActor(scope);
       nextRevision += 1;
     }
 
     if (workspaceScopeIsCurrent(scope)) setRevision(nextRevision);
-    return nextRevision;
+    return { nextRevision, mediaIds: media.map((item) => item.mediaId) };
   }
 
   function handleError(
     err: Error,
     scope: EditorMutationScope,
-    refresh?: { activities: readonly PublicationActivity[]; calendar?: boolean },
+    refresh?: {
+      activities: readonly PublicationActivity[];
+      calendar?: boolean;
+    },
   ) {
     if (workspaceScopeIsCurrent(scope)) {
       setActionError(err.message);
@@ -460,9 +768,10 @@ function Composer({
   }
 
   const saveAndClose = useMutation({
-    mutationFn: (scope: EditorMutationScope) => {
+    mutationFn: async (scope: EditorMutationScope) => {
       requireCurrentQuerySession(scope);
-      return persist(scope, api());
+      const { nextRevision } = await persist(scope, api());
+      return nextRevision;
     },
     onSuccess: (_, scope) => {
       invalidate(scope, {
@@ -483,12 +792,18 @@ function Composer({
       requireCurrentQuerySession(scope);
       if (!scheduledAt) throw new Error("Pick a time first");
       const requestApi = api();
-      const nextRevision = await persist(scope, requestApi);
+      const { nextRevision, mediaIds } = await persist(scope, requestApi);
+      const blocker = await resolvePublishBlocker(scope, mediaIds);
+      if (blocker) throw new Error(blocker);
+      nativeTelemetry.capture("publication schedule requested", {
+        account_count: pub.renditions?.length ?? 0,
+        is_thread: (pub.segments?.length ?? 0) > 1,
+      });
       const { error, response } = await requestApi.POST("/publications/{id}/schedule", {
         params: { path: { id: scope.publicationId } },
         body: { expected_revision: nextRevision },
       });
-      if (error) throw await httpError(response, "Could not schedule");
+      if (error) throw await httpError(response, "Could not schedule", error);
       requireCurrentQueryActor(scope);
     },
     onSuccess: (_, scope) => {
@@ -499,7 +814,10 @@ function Composer({
           if (workspaceScopeIsCurrent(scope)) router.back();
         }, 700);
       }
-      invalidate(scope, { activities: [scope.originalActivity, "scheduled"], calendar: true });
+      invalidate(scope, {
+        activities: [scope.originalActivity, "scheduled"],
+        calendar: true,
+      });
     },
     onError: (err, scope) =>
       handleError(err, scope, {
@@ -512,12 +830,18 @@ function Composer({
     mutationFn: async (scope: EditorMutationScope) => {
       requireCurrentQuerySession(scope);
       const requestApi = api();
-      const nextRevision = await persist(scope, requestApi);
+      const { nextRevision, mediaIds } = await persist(scope, requestApi);
+      const blocker = await resolvePublishBlocker(scope, mediaIds);
+      if (blocker) throw new Error(blocker);
+      nativeTelemetry.capture("publication publish requested", {
+        account_count: pub.renditions?.length ?? 0,
+        is_thread: (pub.segments?.length ?? 0) > 1,
+      });
       const { error, response } = await requestApi.POST("/publications/{id}/publish-now", {
         params: { path: { id: scope.publicationId } },
         body: { expected_revision: nextRevision },
       });
-      if (error) throw await httpError(response, "Could not publish");
+      if (error) throw await httpError(response, "Could not publish", error);
       requireCurrentQueryActor(scope);
     },
     onSuccess: (_, scope) => {
@@ -525,7 +849,10 @@ function Composer({
         void successHaptic();
         router.back();
       }
-      invalidate(scope, { activities: [scope.originalActivity, "scheduled"], calendar: true });
+      invalidate(scope, {
+        activities: [scope.originalActivity, "scheduled"],
+        calendar: true,
+      });
     },
     onError: (err, scope) =>
       handleError(err, scope, {
@@ -543,7 +870,7 @@ function Composer({
           query: { confirm: true, expected_revision: revision },
         },
       });
-      if (error) throw await httpError(response, "Could not delete");
+      if (error) throw await httpError(response, "Could not delete", error);
       requireCurrentQueryActor(scope);
     },
     onSuccess: (_, scope) => {
@@ -566,7 +893,7 @@ function Composer({
       const { data, error, response } = await api().GET("/posting-schedules/next-slot", {
         params: { query: { workspace_id: scope.workspaceId } },
       });
-      if (error || !data) throw new Error(await errorMessage(response, "No slot found"));
+      if (error || !data) throw new Error(await errorMessage(response, "No slot found", error));
       requireCurrentQueryActor(scope);
       return new Date(data.slot_time);
     },
@@ -587,19 +914,23 @@ function Composer({
       const { data, error, response } = await requestApi.GET("/posting-schedules/next-slot", {
         params: { query: { workspace_id: scope.workspaceId } },
       });
-      if (error || !data) throw new Error(await errorMessage(response, "No slot found"));
+      if (error || !data) throw new Error(await errorMessage(response, "No slot found", error));
       requireCurrentQueryActor(scope);
       const slot = new Date(data.slot_time);
       if (workspaceScopeIsCurrent(scope)) {
         markEditorDirty();
         setScheduledAt(slot);
       }
-      const nextRevision = await persist(scope, requestApi, slot);
+      const persisted = await persist(scope, requestApi, slot);
+      const blocker = await resolvePublishBlocker(scope, persisted.mediaIds);
+      if (blocker) throw new Error(blocker);
+      const nextRevision = persisted.nextRevision;
       const scheduled = await requestApi.POST("/publications/{id}/schedule", {
         params: { path: { id: scope.publicationId } },
         body: { expected_revision: nextRevision },
       });
-      if (scheduled.error) throw await httpError(scheduled.response, "Could not queue post");
+      if (scheduled.error)
+        throw await httpError(scheduled.response, "Could not queue post", scheduled.error);
       requireCurrentQueryActor(scope);
       return slot;
     },
@@ -608,7 +939,10 @@ function Composer({
         void successHaptic();
         router.back();
       }
-      invalidate(scope, { activities: [scope.originalActivity, "scheduled"], calendar: true });
+      invalidate(scope, {
+        activities: [scope.originalActivity, "scheduled"],
+        calendar: true,
+      });
     },
     onError: (err, scope) =>
       handleError(err, scope, {
@@ -631,22 +965,57 @@ function Composer({
         },
       });
       if (error || !data)
-        throw new Error(await errorMessage(response, "Could not generate this draft"));
+        throw new Error(await errorMessage(response, "Could not generate this draft", error));
       requireCurrentQueryActor(scope);
-      return data;
+      const key = contentSnapshot.current.segments?.[0]?.id ?? "first";
+      const previous = canonicalTextEdits[key] ?? {
+        body,
+        mentions: readMentionMetadata(
+          body,
+          contentSnapshot.current.segments?.[0]?.settings?.mentions,
+        )?.spans,
+      };
+      try {
+        const metadata = remapMentionMetadata(
+          previous.body,
+          data.source_text,
+          previous.mentions === undefined ? undefined : { version: 1, spans: previous.mentions },
+        );
+        const annotated: Record<string, Record<string, PostTextValue>> = {
+          ...annotatedRenditionEdits,
+        };
+        const textEdits = { ...renditionTextEdits };
+        for (const rendition of data.renditions ?? []) {
+          const next = mobileRenditionGeneratedText(
+            contentSnapshot.current,
+            rendition.social_account_id,
+            rendition.body,
+            textEdits[rendition.social_account_id],
+            annotated[rendition.social_account_id],
+          );
+          textEdits[rendition.social_account_id] = next.textEdits;
+          annotated[rendition.social_account_id] = next.annotated;
+        }
+        return {
+          generated: data,
+          key,
+          canonical: { body: data.source_text, mentions: metadata?.spans },
+          annotated,
+          textEdits,
+        };
+      } catch {
+        throw new Error(
+          "The generated text changes a selected mention. Edit its mention choices before generating again.",
+        );
+      }
     },
-    onSuccess: (generated, scope) => {
+    onSuccess: ({ generated, key, canonical, annotated, textEdits }, scope) => {
       if (!workspaceScopeIsCurrent(scope)) return;
       markEditorDirty();
       setBody(generated.source_text);
-      setRenditionBodies(
-        Object.fromEntries(
-          (generated.renditions ?? []).map((rendition) => [
-            rendition.social_account_id,
-            rendition.body,
-          ]),
-        ),
-      );
+      setCanonicalTextEdits((current) => ({ ...current, [key]: canonical }));
+      setAnnotatedRenditionEdits(annotated);
+      setRenditionTextEdits(textEdits);
       setStatusMessage("Generated draft ready. Review it before you queue it.");
       setActionError(null);
       void successHaptic();
@@ -693,14 +1062,11 @@ function Composer({
   };
 
   function appendAttachments(items: LocalAttachmentInput[], focus?: () => void) {
-    const validItems = items.filter(
-      (item) =>
-        !item.mimeType.startsWith("image/") ||
-        item.size === null ||
-        item.size <= MAX_ATTACHMENT_BYTES,
-    );
-    if (validItems.length < items.length) {
-      setActionError("Each image must be 50 MB or smaller.");
+    const sizeErrors = items.map((item) => attachmentSizeError(item));
+    const validItems = items.filter((_, index) => !sizeErrors[index]);
+    const firstSizeError = sizeErrors.find((message) => message !== null);
+    if (firstSizeError) {
+      setActionError(firstSizeError);
       void errorHaptic();
     }
 
@@ -724,12 +1090,14 @@ function Composer({
 
     markEditorDirty();
     void selectionHaptic();
+    void recordNativeFirstComposition("media");
     setAttachments((current) => [
       ...current,
       ...accepted.map((item, index) => ({
         ...item,
         localId: item.localId ?? `local-${current.length + index}-${item.uri}`,
         status: "local" as const,
+        altText: "",
       })),
     ]);
     if (validItems.length === items.length && accepted.length === validItems.length) {
@@ -756,11 +1124,11 @@ function Composer({
   }
 
   async function pickFromLibrary() {
-    const result = await ImagePicker.launchImageLibraryAsync({
+    const result = await pickMedia({
+      source: "library",
       mediaTypes: ["images", "videos"],
-      allowsMultipleSelection: true,
-      selectionLimit: 10,
-      quality: 0.9,
+      multiple: true,
+      limit: MAX_MOBILE_ATTACHMENT_COUNT,
     });
     if (!result.canceled) {
       appendAttachments(result.assets.map((asset, index) => attachmentFromAsset(asset, index)));
@@ -768,21 +1136,27 @@ function Composer({
   }
 
   async function takePhoto() {
-    const permission = await ImagePicker.requestCameraPermissionsAsync();
-    if (!permission.granted) {
-      setActionError("Camera permission is needed to take photos.");
+    try {
+      const result = await pickMedia({ source: "camera", mediaTypes: ["images"] });
+      if (!result.canceled && result.assets[0]) {
+        addAttachment(result.assets[0]);
+      }
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Could not open the camera. Try again.");
       void errorHaptic();
-      return;
-    }
-    const result = await ImagePicker.launchCameraAsync({ quality: 0.9 });
-    if (!result.canceled && result.assets[0]) {
-      addAttachment(result.assets[0]);
     }
   }
 
   function removeAttachment(localId: string) {
     markEditorDirty();
     setAttachments((current) => current.filter((item) => item.localId !== localId));
+  }
+
+  function setAttachmentAlt(localId: string, altText: string) {
+    markEditorDirty();
+    setAttachments((current) =>
+      current.map((item) => (item.localId === localId ? { ...item, altText } : item)),
+    );
   }
 
   function moveAttachment(index: number, delta: -1 | 1) {
@@ -798,52 +1172,153 @@ function Composer({
 
   const isScheduled = pub.status === "scheduled" || pub.status === "publishing";
 
+  function renderAccountAction(accountId: string, selected: boolean) {
+    if (!selected) return null;
+    return (
+      <Button
+        title={expandedAccount === accountId ? "Hide" : "Edit"}
+        intent="quiet"
+        onPress={() => setExpandedAccount(expandedAccount === accountId ? null : accountId)}
+        style={styles.customizeButton}
+      />
+    );
+  }
+
+  function renderAccountNote(accountId: string) {
+    const capability = effectiveReadinessByAccount[accountId];
+    if (!capability || !destinationNeedsAttention(capability)) return null;
+    return (
+      <BodyText accessibilityRole="alert" numberOfLines={2} style={{ color: colors.error }}>
+        {readinessSummary(capability)}
+      </BodyText>
+    );
+  }
+
+  function renderAccountOverrides(accountId: string) {
+    if (expandedAccount !== accountId) return null;
+    const platform = accounts.data?.find((account) => account.id === accountId)?.platform ?? "";
+    return (
+      <View style={{ gap: spacing.small }}>
+        {(() => {
+          const rendition = contentSnapshot.current.renditions?.find(
+            (item) => item.social_account_id === accountId,
+          );
+          const profile =
+            rendition?.output_profile ||
+            effectiveReadinessByAccount[accountId]?.output_profile ||
+            "";
+          const images = rendition
+            ? renditionImages(rendition)
+            : [
+                ...new Map(
+                  (contentSnapshot.current.segments ?? [])
+                    .flatMap((source) => source.media ?? [])
+                    .filter((media) => media.mime_type?.startsWith("image/"))
+                    .map((media) => [media.id, media]),
+                ).values(),
+              ];
+          return images.map((media) => (
+            <AccountImageFit
+              key={`${accountId}:${profile}:${media.id}`}
+              accountId={accountId}
+              media={media}
+              profile={profile}
+              settings={rendition?.settings ?? {}}
+              choice={imageChoices[`${accountId}:${media.id}`]}
+              onChange={(choice) => {
+                if (choice.selected || imageChoices[`${accountId}:${media.id}`]?.selected)
+                  markEditorDirty();
+                setImageChoices((current) => ({
+                  ...current,
+                  [`${accountId}:${media.id}`]: choice,
+                }));
+              }}
+            />
+          ));
+        })()}
+
+        {mobileRenditionTextFields(contentSnapshot.current, accountId).map(
+          (field, index, fields) => (
+            <View key={field.key} style={{ gap: spacing.extraSmall }}>
+              {fields.length > 1 ? <BodyText>Text {index + 1}</BodyText> : null}
+              <PostEditor
+                value={
+                  annotatedRenditionEdits[accountId]?.[field.key] ??
+                  mobileRenditionTextValue(
+                    contentSnapshot.current,
+                    accountId,
+                    field.key,
+                    renditionTextEdits[accountId]?.[field.key] ?? field.value,
+                  )
+                }
+                accountId={accountId}
+                platform={platform}
+                instanceURL={
+                  accounts.data?.find((account) => account.id === accountId)?.instance_url
+                }
+                workspaceId={pub.workspace_id}
+                label={`Custom text ${index + 1} for ${platformLabel(platform)}`}
+                placeholder="Account version"
+                onChange={(value) => {
+                  markEditorDirty();
+                  setAnnotatedRenditionEdits((current) => ({
+                    ...current,
+                    [accountId]: { ...current[accountId], [field.key]: value },
+                  }));
+                  setRenditionTextEdits((current) => ({
+                    ...current,
+                    [accountId]: { ...current[accountId], [field.key]: value.body },
+                  }));
+                }}
+              />
+            </View>
+          ),
+        )}
+      </View>
+    );
+  }
+
   return (
     <Screen>
       <Stack.Screen options={{ headerShown: false }} />
       <View style={[styles.modalHeader, { borderBottomColor: colors.outlineVariant }]}>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Cancel editing"
-          onPress={() => router.back()}
-          style={styles.headerAction}
-        >
-          <Text style={[typography.bodyLarge, { color: colors.primary }]}>Cancel</Text>
-        </Pressable>
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-          <StatusBadge status={pub.status} />
-          {saveAndClose.isPending ? (
-            <ActivityIndicator size="small" color={colors.primary} />
-          ) : null}
-        </View>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Save draft"
-          accessibilityState={{ disabled: saveAndClose.isPending }}
+        <Button title="Cancel" intent="quiet" onPress={() => router.back()} />
+        <StatusBadge status={pub.status} />
+        <Button
+          title="Done"
+          intent="quiet"
+          loading={saveAndClose.isPending}
+          accessibilityHint="Save draft and close the editor"
           onPress={() =>
             saveAndClose.mutate(
               captureEditorMutationScope(id, originalActivity, originalCalendarEntry),
             )
           }
-          disabled={saveAndClose.isPending}
-          style={styles.headerAction}
-        >
-          <Text
-            style={[
-              typography.labelLarge,
-              {
-                color: saveAndClose.isPending ? colors.onSurfaceVariant : colors.primary,
-              },
-            ]}
-          >
-            Done
-          </Text>
-        </Pressable>
+        />
       </View>
 
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+        {(pub.renditions ?? []).flatMap((rendition) =>
+          (rendition.segments ?? []).flatMap((segment) => {
+            const requirement = attachmentRequirement(segment.settings);
+            return requirement &&
+              !(segment.media ?? []).some((media) =>
+                media.mime_type.startsWith(`${requirement.kind}/`),
+              )
+              ? [
+                  <ContentSection key={segment.id}>
+                    <BodyText style={{ color: colors.onSurface }}>
+                      {requirement.kind === "video" ? "Demo video needed" : "Image needed"}
+                    </BodyText>
+                    <BodyText>{requirement.brief}</BodyText>
+                    <BodyText>Add it using Photos before publishing.</BodyText>
+                  </ContentSection>,
+                ]
+              : [];
+          }),
+        )}
         {statusMessage ? (
-          <Card accessibilityRole="alert">
+          <ContentSection accessibilityRole="alert">
             <BodyText
               style={[
                 typography.labelLarge,
@@ -852,7 +1327,7 @@ function Composer({
             >
               {statusMessage}
             </BodyText>
-          </Card>
+          </ContentSection>
         ) : null}
         {actionError ? (
           <BodyText accessibilityRole="alert" style={{ color: colors.error }}>
@@ -869,57 +1344,79 @@ function Composer({
           <QueryNotice message="You are offline. You can keep editing the current draft." offline />
         ) : null}
 
-        <View style={styles.editorHeading}>
-          <View style={styles.editorHeadingCopy}>
-            <Text
-              accessibilityRole="header"
-              style={[typography.titleLarge, { color: colors.onSurface }]}
-            >
-              Post
-            </Text>
-            <BodyText>One idea, adapted for every destination</BodyText>
-          </View>
-          <Button
-            title={generatePost.isPending ? "Generating..." : "Generate draft"}
-            intent="ordinary"
-            onPress={() =>
-              generatePost.mutate(
-                captureEditorMutationScope(id, originalActivity, originalCalendarEntry),
-              )
+        <DitherPanel style={{ backgroundColor: "transparent", borderWidth: 0, padding: 0 }}>
+          <PostEditor
+            workspaceId={pub.workspace_id}
+            value={
+              canonicalTextEdits[pub.segments?.[0]?.id ?? "first"] ?? {
+                body,
+                mentions: readMentionMetadata(body, pub.segments?.[0]?.settings?.mentions)?.spans,
+              }
             }
-            disabled={generatePost.isPending || activeAccounts.size === 0 || !body.trim()}
-            loading={generatePost.isPending}
-            style={styles.aiButton}
+            onChange={(value) => {
+              markEditorDirty();
+              setBody(value.body);
+              setCanonicalTextEdits((current) => ({
+                ...current,
+                [pub.segments?.[0]?.id ?? "first"]: value,
+              }));
+              if (value.body.trim()) void recordNativeFirstComposition("text");
+            }}
+            label="Post text"
+            placeholder="What do you want to say?"
+            onImages={(images, focus) => appendAttachments(images, focus)}
           />
-        </View>
-        <TextField
-          ref={bodyInputRef}
-          value={body}
-          onChangeText={(text) => {
-            markEditorDirty();
-            setBody(text);
-          }}
-          accessibilityLabel="Post text"
-          placeholder="What do you want to say?"
-          multiline
-          textAlignVertical="top"
-          imageKeyboard={{
-            onImageReceived: (attachment, context) =>
-              appendAttachments([attachment], context.focus),
-            onError: (message, context) => {
-              setActionError(message);
-              void errorHaptic();
-              context.focus();
-            },
-          }}
-          style={[
-            styles.writingField,
-            {
-              backgroundColor: colors.surface,
-              borderColor: colors.outlineVariant,
-            },
-          ]}
-        />
+          {(pub.segments ?? []).slice(1).map((segment, index) => (
+            <View key={segment.id} style={{ gap: spacing.extraSmall }}>
+              <BodyText>Text {index + 2}</BodyText>
+              <PostEditor
+                workspaceId={pub.workspace_id}
+                label={`Post text ${index + 2}`}
+                placeholder="Add to the thread"
+                value={
+                  canonicalTextEdits[segment.id] ?? {
+                    body: segment.body,
+                    mentions: readMentionMetadata(segment.body, segment.settings?.mentions)?.spans,
+                  }
+                }
+                onChange={(value) => {
+                  markEditorDirty();
+                  setCanonicalTextEdits((current) => ({ ...current, [segment.id]: value }));
+                }}
+              />
+            </View>
+          ))}
+
+          <View style={styles.attachRow}>
+            <Button
+              title="Photos"
+              icon="gallery"
+              display="icon"
+              intent="ordinary"
+              onPress={() => void pickFromLibrary()}
+            />
+            <Button
+              title="Camera"
+              icon="camera"
+              display="icon"
+              intent="ordinary"
+              onPress={() => void takePhoto()}
+            />
+            <Button
+              title="AI assist"
+              icon="sparkles"
+              intent="ordinary"
+              onPress={() =>
+                generatePost.mutate(
+                  captureEditorMutationScope(id, originalActivity, originalCalendarEntry),
+                )
+              }
+              disabled={generatePost.isPending || activeAccounts.size === 0 || !body.trim()}
+              loading={generatePost.isPending}
+              style={{ flex: 1, minWidth: 96 }}
+            />
+          </View>
+        </DitherPanel>
 
         <View style={styles.attachmentList}>
           {attachments.map((attachment, index) => (
@@ -935,7 +1432,12 @@ function Composer({
             >
               <View style={styles.thumbWrap}>
                 {attachment.uri && attachment.mimeType.startsWith("image/") ? (
-                  <Image source={{ uri: attachment.uri }} style={styles.thumb} contentFit="cover" />
+                  <MediaImage
+                    uri={attachment.uri}
+                    size="md"
+                    style={styles.thumb}
+                    contentFit="cover"
+                  />
                 ) : (
                   <View
                     style={[
@@ -979,6 +1481,15 @@ function Composer({
                 <BodyText numberOfLines={1} style={{ color: colors.onSurface }}>
                   {attachment.filename}
                 </BodyText>
+                <TextField
+                  value={attachment.altText}
+                  onChangeText={(text) => setAttachmentAlt(attachment.localId, text)}
+                  accessibilityLabel={`Alt text for ${attachment.filename}`}
+                  placeholder="Describe this media for people who cannot see it"
+                  multiline
+                  textAlignVertical="top"
+                  style={styles.altField}
+                />
                 <View style={styles.attachmentActions}>
                   {index > 0 ? (
                     <IconButton
@@ -1005,41 +1516,22 @@ function Composer({
             </View>
           ))}
         </View>
-        <View style={styles.attachRow}>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Add photos or videos from library"
-            onPress={() => void pickFromLibrary()}
-            style={({ pressed }) => [
-              styles.addTile,
-              { borderColor: colors.outlineVariant },
-              pressed && { opacity: 0.6 },
-            ]}
-          >
-            <ProtectedIcon role="gallery" size={24} tintColor={colors.primary} />
-          </Pressable>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Take a photo"
-            onPress={() => void takePhoto()}
-            style={({ pressed }) => [
-              styles.addTile,
-              { borderColor: colors.outlineVariant },
-              pressed && { opacity: 0.6 },
-            ]}
-          >
-            <ProtectedIcon role="camera" size={24} tintColor={colors.primary} />
-          </Pressable>
-        </View>
-
-        <SectionHeader label="Publishing" />
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Choose Social Set and destinations"
           onPress={() => setDestinationDrawerOpen(true)}
         >
           {({ pressed }) => (
-            <Card style={[styles.settingCard, pressed && { opacity: 0.65 }]}>
+            <ContentSection
+              style={[
+                styles.settingCard,
+                {
+                  borderBottomWidth: StyleSheet.hairlineWidth,
+                  borderBottomColor: colors.outlineVariant,
+                },
+                pressed && { opacity: 0.65 },
+              ]}
+            >
               <View style={styles.settingIcon}>
                 <ThemeIcon role="account" size={22} tintColor={colors.primary} />
               </View>
@@ -1048,11 +1540,16 @@ function Composer({
                   Social Set
                 </Text>
                 <BodyText numberOfLines={1}>
-                  {selectedSetLabel(socialSets.data ?? [], activeSocialSetId, activeAccounts.size)}
+                  {selectedSetLabel(
+                    socialSets.data ?? [],
+                    activeSocialSetId,
+                    activeAccounts.size,
+                    attentionCount,
+                  )}
                 </BodyText>
               </View>
               <ThemeIcon role="disclosure" size={20} tintColor={colors.onSurfaceVariant} />
-            </Card>
+            </ContentSection>
           )}
         </Pressable>
         <Pressable
@@ -1061,7 +1558,16 @@ function Composer({
           onPress={() => setScheduleDrawerOpen(true)}
         >
           {({ pressed }) => (
-            <Card style={[styles.settingCard, pressed && { opacity: 0.65 }]}>
+            <ContentSection
+              style={[
+                styles.settingCard,
+                {
+                  borderBottomWidth: StyleSheet.hairlineWidth,
+                  borderBottomColor: colors.outlineVariant,
+                },
+                pressed && { opacity: 0.65 },
+              ]}
+            >
               <View style={styles.settingIcon}>
                 <ThemeIcon role="calendar" size={22} tintColor={colors.primary} />
               </View>
@@ -1076,7 +1582,7 @@ function Composer({
                 </BodyText>
               </View>
               <ThemeIcon role="disclosure" size={20} tintColor={colors.onSurfaceVariant} />
-            </Card>
+            </ContentSection>
           )}
         </Pressable>
 
@@ -1145,137 +1651,34 @@ function Composer({
 
       {destinationDrawerOpen ? (
         <BottomDrawer open title="Social Set" onDismiss={() => setDestinationDrawerOpen(false)}>
-          {(socialSets.data?.length ?? 0) > 0 ? (
-            <View style={styles.chipRow}>
-              {[...(socialSets.data ?? [])]
-                .sort((a, b) => Number(b.is_default === true) - Number(a.is_default === true))
-                .map((set) => (
-                  <Chip
-                    key={set.id}
-                    label={set.name ?? "Social Set"}
-                    active={activeSocialSetId === set.id}
-                    onPress={() =>
-                      applySocialSet(
-                        set.id,
-                        (set.accounts ?? []).map((account) => account.social_account_id),
-                      )
-                    }
-                  />
-                ))}
-            </View>
-          ) : null}
-          <BodyText>Choose a saved set or fine-tune the accounts below.</BodyText>
-          {(accounts.data === undefined && accounts.isPending) ||
-          (socialSets.data === undefined && socialSets.isPending) ? (
-            <DelayedQueryPlaceholder
-              pending
-              shape="list"
-              offline={accounts.fetchStatus === "paused" || socialSets.fetchStatus === "paused"}
-            />
-          ) : null}
-          {destinationCatalogFailed ? (
-            <QueryNotice
-              message={
-                accounts.data !== undefined || socialSets.data !== undefined
-                  ? "Could not refresh every destination. Current destinations remain visible."
-                  : "Could not load your Social Sets and accounts."
-              }
-              retry={() => {
-                void accounts.refetch();
-                void socialSets.refetch();
-              }}
-            />
-          ) : null}
-          {(accounts.data !== undefined || socialSets.data !== undefined) &&
-          (accounts.fetchStatus === "paused" || socialSets.fetchStatus === "paused") ? (
-            <QueryNotice message="You are offline. Current destinations remain visible." offline />
-          ) : null}
-          {accountsLoadedEmpty && !destinationCatalogFailed ? (
-            <Card>
-              <BodyText>No connected accounts. Connect them in the web app first.</BodyText>
-            </Card>
-          ) : (
-            <View style={styles.accountList}>
-              {(accounts.data ?? []).map((account) => {
-                const selected = activeAccounts.has(account.id);
-                return (
-                  <View key={account.id}>
-                    <Pressable
-                      accessibilityRole="checkbox"
-                      accessibilityState={{ checked: selected }}
-                      onPress={() => toggleAccount(account.id)}
-                      style={({ pressed }) => [
-                        styles.accountRow,
-                        {
-                          backgroundColor: colors.background,
-                          borderColor: selected ? colors.primary : colors.outlineVariant,
-                        },
-                        pressed && { opacity: 0.65 },
-                      ]}
-                    >
-                      <View
-                        style={[
-                          styles.checkbox,
-                          {
-                            borderColor: selected ? colors.primary : colors.outlineVariant,
-                            backgroundColor: selected ? colors.primary : "transparent",
-                          },
-                        ]}
-                      >
-                        {selected ? (
-                          <ThemeIcon role="check" size={15} tintColor={colors.onPrimary} />
-                        ) : null}
-                      </View>
-                      <View style={{ flex: 1 }}>
-                        <Text style={[typography.labelLarge, { color: colors.onSurface }]}>
-                          {accountHandle(account.account_username, account.slug)}
-                        </Text>
-                        <BodyText>{platformLabel(account.platform)}</BodyText>
-                      </View>
-                      {selected ? (
-                        <Button
-                          title={expandedAccount === account.id ? "Hide" : "Customize"}
-                          intent="quiet"
-                          onPress={() =>
-                            setExpandedAccount(expandedAccount === account.id ? null : account.id)
-                          }
-                          style={styles.customizeButton}
-                        />
-                      ) : null}
-                    </Pressable>
-                    {selected && expandedAccount === account.id ? (
-                      <TextField
-                        value={renditionBodies[account.id] ?? ""}
-                        accessibilityLabel={`Custom text for ${platformLabel(account.platform)}`}
-                        onChangeText={(text) => {
-                          markEditorDirty();
-                          setRenditionBodies((current) => ({
-                            ...current,
-                            [account.id]: text,
-                          }));
-                        }}
-                        placeholder="Leave empty to use the main post"
-                        multiline
-                        textAlignVertical="top"
-                        style={styles.overrideField}
-                      />
-                    ) : null}
-                  </View>
-                );
-              })}
-            </View>
-          )}
-          <Button
-            title="Done"
-            onPress={() => setDestinationDrawerOpen(false)}
-            disabled={activeAccounts.size === 0}
+          <DestinationChooser
+            accounts={accounts}
+            socialSets={socialSets}
+            selectedIds={[...activeAccounts]}
+            activeSetId={activeSocialSetId}
+            renditions={pub.renditions}
+            notice={
+              effectiveReadinessError ? (
+                <QueryNotice
+                  message="Could not check destination readiness. You can keep editing."
+                  retry={retryReadiness}
+                  offline={accounts.fetchStatus === "paused" || socialSets.fetchStatus === "paused"}
+                />
+              ) : null
+            }
+            onApplySet={applySocialSet}
+            onToggle={toggleAccount}
+            onConfirm={() => setDestinationDrawerOpen(false)}
+            rowAction={renderAccountAction}
+            rowNote={renderAccountNote}
+            expandedContent={renderAccountOverrides}
           />
         </BottomDrawer>
       ) : null}
 
       {scheduleDrawerOpen ? (
         <BottomDrawer open title="Publish time" onDismiss={() => setScheduleDrawerOpen(false)}>
-          <Card style={styles.scheduleCard}>
+          <ContentSection style={styles.scheduleCard}>
             <Text style={[typography.titleMedium, { color: colors.onSurface }]}>
               {scheduledAt ? formatDateTime(scheduledAt.toISOString()) : "Not scheduled"}
             </Text>
@@ -1326,7 +1729,7 @@ function Composer({
                 }}
               />
             ) : null}
-          </Card>
+          </ContentSection>
           <Button
             title="Schedule and queue"
             intent="focal"
@@ -1345,30 +1748,6 @@ function Composer({
   );
 }
 
-function Chip({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) {
-  const theme = useNativeTheme();
-  const { colors, typography } = theme.manifest;
-  return (
-    <Pressable
-      accessibilityRole="button"
-      hitSlop={8}
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.chip,
-        pressed && { opacity: 0.6 },
-        {
-          backgroundColor: active ? withAlpha(colors.primary, 0.15) : colors.surface,
-          borderColor: active ? colors.primary : colors.outlineVariant,
-        },
-      ]}
-    >
-      <Text style={[typography.labelMedium, { color: active ? colors.primary : colors.onSurface }]}>
-        {label}
-      </Text>
-    </Pressable>
-  );
-}
-
 function nextHour(): Date {
   const date = new Date();
   date.setHours(date.getHours() + 1, 0, 0, 0);
@@ -1379,10 +1758,21 @@ function selectedSetLabel(
   sets: { id: string; name?: string | null }[],
   selectedSetId: string,
   accountCount: number,
+  attentionCount = 0,
 ): string {
-  const selectedSet = sets.find((set) => set.id === selectedSetId);
-  if (selectedSet?.name) return `${selectedSet.name} · ${accountCount} destinations`;
-  return `${accountCount} ${accountCount === 1 ? "destination" : "destinations"}`;
+  const base = destinationSummaryLabel(
+    sets.find((set) => set.id === selectedSetId)?.name,
+    accountCount,
+  );
+  if (attentionCount <= 0) return base;
+  return `${base} · ${attentionCount} need${attentionCount === 1 ? "s" : ""} attention`;
+}
+
+function readinessSummary(capability: ResolvedDestinationCapability): string {
+  const messages = destinationIssueMessages(capability);
+  if (messages.length === 0) return "Needs attention";
+  const first = messages[0];
+  return messages.length > 1 ? `${first} (+${messages.length - 1} more)` : first;
 }
 
 function publicationActivity(status: string): PublicationActivity {
@@ -1406,35 +1796,15 @@ const styles = StyleSheet.create({
     paddingBottom: 12,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
-  headerAction: {
-    minWidth: 48,
-    minHeight: 48,
-    alignItems: "center",
-    justifyContent: "center",
-  },
   content: {
-    padding: 20,
+    padding: 16,
     gap: 12,
     paddingBottom: 120,
   },
-  editorHeading: {
-    alignItems: "flex-start",
-    flexDirection: "row",
-    justifyContent: "space-between",
-    gap: 12,
-  },
-  editorHeadingCopy: {
-    flex: 1,
-    minWidth: 0,
-  },
-  aiButton: {
-    minHeight: 48,
-    paddingHorizontal: 14,
-  },
   writingField: {
-    minHeight: 260,
-    paddingHorizontal: 16,
-    paddingTop: 16,
+    minHeight: 168,
+    paddingHorizontal: 0,
+    paddingTop: 4,
   },
   attachRow: {
     flexDirection: "row",
@@ -1462,6 +1832,10 @@ const styles = StyleSheet.create({
     justifyContent: "flex-end",
     minHeight: 48,
   },
+  altField: {
+    marginTop: 4,
+    minHeight: 40,
+  },
   thumbWrap: {
     width: 64,
     height: 64,
@@ -1482,46 +1856,6 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     borderRadius: 10,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  addTile: {
-    width: 64,
-    height: 64,
-    borderRadius: 10,
-    borderWidth: 1.5,
-    borderStyle: "dashed",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  chipRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-  },
-  chip: {
-    borderRadius: 999,
-    borderWidth: 1,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-  },
-  accountList: {
-    gap: 8,
-  },
-  accountRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    borderRadius: 12,
-    borderWidth: 1,
-    paddingHorizontal: 12,
-    minHeight: 52,
-  },
-  checkbox: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    borderWidth: 1.5,
     alignItems: "center",
     justifyContent: "center",
   },

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { appBranding } from '$lib/app-branding.svelte';
 	import { untrack } from 'svelte';
 	import { ProtectedIcon } from '$lib/themes/icons';
 	import { page } from '$app/state';
@@ -19,6 +20,10 @@
 		loadGuestImageEditorDesign
 	} from '$lib/image-editor/local-persistence';
 	import { trackPublicImageEditorEvent } from '$lib/image-editor/public-telemetry';
+	import {
+		releaseLocalImageEditorMediaForDesign,
+		retainLocalImageEditorMediaForDesign
+	} from '$lib/image-editor/local-media-url';
 	import { migrateImageEditorDocument } from '$lib/image-editor/document';
 	import type { ImageEditorBrandKit, ImageEditorDocumentResponse } from '$lib/image-editor/types';
 	import ImageEditorShell from '$lib/image-editor/components/image-editor-shell.svelte';
@@ -50,10 +55,15 @@
 
 	$effect(() => {
 		const designID = page.params.id ?? '';
+		const local = isLocalImageEditorDesignID(designID);
+		if (local) retainLocalImageEditorMediaForDesign(designID);
 		const request = ++loadRequest;
 		untrack(() => {
 			void initialize(designID, request);
 		});
+		return () => {
+			if (local) releaseLocalImageEditorMediaForDesign(designID);
+		};
 	});
 
 	async function initialize(designID: string, request: number): Promise<void> {
@@ -213,11 +223,15 @@
 	}
 </script>
 
-<svelte:head><title>{design?.document.title ?? m.image_editor_title()}</title></svelte:head>
+<svelte:head>
+	{#if loading || migrationBusy || error || !design}
+		<title>{appBranding.title(m.image_editor_title())}</title>
+	{/if}
+</svelte:head>
 
 {#if loading || migrationBusy}
 	<div class="flex h-dvh items-center justify-center bg-background text-foreground">
-		<ProtectedIcon icon="loading" class="mr-2 size-5 animate-spin" />
+		<ProtectedIcon icon="loading" class="mr-2 size-5 animate-spin motion-reduce:animate-none" />
 		{m.image_editor_public_importing()}
 	</div>
 {:else if error || !design}
@@ -267,15 +281,17 @@
 				{/snippet}
 			</InlineNotice>
 		{/if}
-		<ImageEditorShell
-			initial={design}
-			{returnToken}
-			{backgroundModelBaseURL}
-			{initialAction}
-			{readOnlyReason}
-			initialBrandKit={brandKit}
-			{guestMode}
-			onSaveToOpenPost={saveToOpenPost}
-		/>
+		{#key design.id}
+			<ImageEditorShell
+				initial={design}
+				{returnToken}
+				{backgroundModelBaseURL}
+				{initialAction}
+				{readOnlyReason}
+				initialBrandKit={brandKit}
+				{guestMode}
+				onSaveToOpenPost={saveToOpenPost}
+			/>
+		{/key}
 	</div>
 {/if}

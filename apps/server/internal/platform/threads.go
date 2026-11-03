@@ -16,6 +16,8 @@ import (
 	"golang.org/x/oauth2"
 )
 
+const threadsReadRepliesScope = "threads_read_replies"
+
 type ThreadsAdapter struct {
 	config     *oauth2.Config
 	stateStore sync.Map
@@ -34,6 +36,8 @@ func NewThreadsAdapter(clientID, clientSecret, redirectURI string) *ThreadsAdapt
 			Scopes: []string{
 				"threads_basic",
 				"threads_content_publish",
+				threadsReadRepliesScope,
+				"threads_manage_mentions",
 				"threads_manage_replies",
 				"threads_manage_insights",
 				"threads_location_tagging",
@@ -303,44 +307,64 @@ func (t *ThreadsAdapter) createCarouselContainer(ctx context.Context, accessToke
 	return containerID, nil
 }
 
-func (t *ThreadsAdapter) ListComments(ctx context.Context, accessToken, _ string, externalID string) ([]Comment, error) {
-	fields := "id,text,username,timestamp,hide_status,is_reply_owned_by_me"
-	endpoint := "https://graph.threads.net/v1.0/" + externalID + "/replies?fields=" + url.QueryEscape(fields) + "&access_token=" + url.QueryEscape(accessToken)
-	respBody, err := DoRequest(ctx, "GET", endpoint, nil, nil)
-	if err != nil {
-		return nil, fmt.Errorf("threads replies: %w", err)
-	}
-	var result struct {
-		Data []struct {
-			ID               string `json:"id"`
-			Text             string `json:"text"`
-			Username         string `json:"username"`
-			Timestamp        string `json:"timestamp"`
-			HideStatus       string `json:"hide_status"`
-			IsReplyOwnedByMe bool   `json:"is_reply_owned_by_me"`
-		} `json:"data"`
-		Error struct {
-			Message string `json:"message"`
-		} `json:"error"`
-	}
-	if err := json.Unmarshal(respBody, &result); err != nil {
-		return nil, fmt.Errorf("decoding threads replies: %w", err)
-	}
-	if result.Error.Message != "" {
-		return nil, fmt.Errorf("threads replies: %s", result.Error.Message)
-	}
+type threadsGraphComment struct {
+	ID               string `json:"id"`
+	Text             string `json:"text"`
+	Username         string `json:"username"`
+	Timestamp        string `json:"timestamp"`
+	HideStatus       string `json:"hide_status"`
+	IsReplyOwnedByMe bool   `json:"is_reply_owned_by_me"`
+	MediaURL         string `json:"media_url"`
+	MediaType        string `json:"media_type"`
+	ThumbnailURL     string `json:"thumbnail_url"`
+	RepliedTo        struct {
+		ID string `json:"id"`
+	} `json:"replied_to"`
+}
 
-	comments := make([]Comment, 0, len(result.Data))
-	for _, item := range result.Data {
+// threadsCommentAttachment keeps the media a reply carries. Threads returns the
+// reply's own media in media_url, separate from the post the reply answers.
+func threadsCommentAttachment(item threadsGraphComment) []CommentAttachment {
+	link := strings.TrimSpace(item.MediaURL)
+	if link == "" {
+		return nil
+	}
+	kind := "file"
+	switch strings.ToLower(strings.TrimSpace(item.MediaType)) {
+	case "image", "gif":
+		kind = "image"
+	case "video":
+		kind = "video"
+	case "audio":
+		kind = "audio"
+	}
+	return []CommentAttachment{{Type: kind, URL: link, Thumbnail: strings.TrimSpace(item.ThumbnailURL)}}
+}
+
+// Replies can carry their own image, video, or audio. The conversation edge
+// returns it in media_url, separate from the post the reply answers.
+const threadsCommentFields = "id,text,username,timestamp,hide_status,is_reply_owned_by_me,replied_to,media_url,media_type,thumbnail_url"
+
+func (t *ThreadsAdapter) ListComments(ctx context.Context, accessToken, _ string, externalID string) ([]Comment, error) {
+	// The conversation edge holds replies at every depth, each naming its parent.
+	endpoint := "https://graph.threads.net/v1.0/" + externalID + "/conversation?fields=" + url.QueryEscape(threadsCommentFields) + "&access_token=" + url.QueryEscape(accessToken)
+	items, err := fetchMetaGraphEdge[threadsGraphComment](ctx, endpoint, "threads replies", &metaGraphBudget{})
+	if err = metaCommentReadError(err); err != nil {
+		return nil, err
+	}
+	comments := make([]Comment, 0, len(items))
+	for _, item := range items {
 		comments = append(comments, Comment{
-			ID:         item.ID,
-			AuthorName: item.Username,
-			Text:       item.Text,
-			CreatedAt:  item.Timestamp,
-			Hidden:     strings.EqualFold(item.HideStatus, "HIDDEN"),
-			IsOurs:     item.IsReplyOwnedByMe,
-			CanReply:   true,
-			CanHide:    true,
+			ID:          item.ID,
+			ParentID:    item.RepliedTo.ID,
+			AuthorName:  item.Username,
+			Text:        item.Text,
+			CreatedAt:   item.Timestamp,
+			Hidden:      strings.EqualFold(item.HideStatus, "HIDDEN"),
+			IsOurs:      item.IsReplyOwnedByMe,
+			CanReply:    true,
+			CanHide:     true,
+			Attachments: threadsCommentAttachment(item),
 		})
 	}
 	return comments, nil
@@ -352,7 +376,7 @@ func (t *ThreadsAdapter) ResolveContentURL(ctx context.Context, accessToken, _ s
 		oauthParamAccessToken: {accessToken},
 	}
 	endpoint := "https://graph.threads.net/v1.0/" + url.PathEscape(externalID) + "?" + query.Encode()
-	body, err := DoRequest(ctx, http.MethodGet, endpoint, nil, nil)
+	body, err := doMetaRequest(ctx, http.MethodGet, endpoint, nil, nil)
 	if err != nil {
 		return "", fmt.Errorf("threads post permalink: %w", err)
 	}
@@ -421,10 +445,9 @@ func (t *ThreadsAdapter) waitForContainerReady(ctx context.Context, accessToken,
 				case "FINISHED", "PUBLISHED":
 					return nil
 				case "ERROR", "EXPIRED", platformStatusFailed:
-					if statusResp.ErrorMessage != "" {
-						return fmt.Errorf("threads container not publishable: %s", statusResp.ErrorMessage)
-					}
-					return fmt.Errorf("threads container not publishable: status=%s", statusResp.Status)
+					// Never retain the provider's error_message: only a
+					// bounded failure signal leaves this function.
+					return errors.New("threads container not publishable")
 				}
 			}
 		}
@@ -681,7 +704,7 @@ func (t *ThreadsAdapter) SearchPublishingOptions(ctx context.Context, accessToke
 
 func separatedSettingValues(settings map[string]interface{}, key string) []string {
 	raw := settingString(settings, key)
-	values := strings.FieldsFunc(raw, func(r rune) bool { return r == ',' || r == '\n' })
+	values := strings.FieldsFunc(raw, func(r rune) bool { return r == '\n' || (key != "poll_options" && r == ',') })
 	result := make([]string, 0, len(values))
 	for _, value := range values {
 		if value = strings.TrimSpace(value); value != "" {
@@ -693,7 +716,13 @@ func separatedSettingValues(settings map[string]interface{}, key string) []strin
 
 func (t *ThreadsAdapter) postContainer(ctx context.Context, userID string, payload map[string]string) (string, error) {
 	containerURL := "https://graph.threads.net/v1.0/" + userID + "/threads"
-	respBody, err := DoFormURLEncoded(ctx, "POST", containerURL, payload, nil)
+	var respBody []byte
+	var err error
+	if payload["media_type"] == "CAROUSEL" {
+		respBody, err = doMetaPropagationForm(ctx, containerURL, payload, metaCodeKey{code: "100", subcode: "4279004"})
+	} else {
+		respBody, err = DoFormURLEncoded(ctx, http.MethodPost, containerURL, payload, nil)
+	}
 	if err != nil {
 		return "", err
 	}
@@ -718,29 +747,7 @@ func (t *ThreadsAdapter) publishContainer(ctx context.Context, accessToken, user
 		oauthParamAccessToken: accessToken,
 	}
 
-	var respBody []byte
-	var err error
-	const maxPublishAttempts = 5
-	for attempt := 1; attempt <= maxPublishAttempts; attempt++ {
-		respBody, err = DoFormURLEncoded(ctx, "POST", publishURL, payload, nil)
-		if err == nil {
-			break
-		}
-
-		// Threads may return code 24 briefly right after container creation/status=FINISHED.
-		// Retry a few times with short backoff to handle propagation lag.
-		if isThreadsPublishPropagationError(err) && attempt < maxPublishAttempts {
-			select {
-			case <-ctx.Done():
-				return "", ctx.Err()
-			case <-time.After(time.Duration(attempt) * 2 * time.Second):
-			}
-			continue
-		}
-
-		return "", fmt.Errorf("threads publish: %w", err)
-	}
-
+	respBody, err := doMetaPropagationForm(ctx, publishURL, payload, metaCodeKey{code: "24", subcode: "4279009"})
 	if err != nil {
 		return "", fmt.Errorf("threads publish: %w", err)
 	}
@@ -753,11 +760,6 @@ func (t *ThreadsAdapter) publishContainer(ctx context.Context, accessToken, user
 	}
 
 	return publishResp.ID, nil
-}
-
-func isThreadsPublishPropagationError(err error) bool {
-	var providerErr *HTTPError
-	return errors.As(err, &providerErr) && providerErr.Code == "24" && providerErr.Subcode == "4279009"
 }
 
 func validateThreadsMedia(media []MediaItem) []MediaValidationIssue {

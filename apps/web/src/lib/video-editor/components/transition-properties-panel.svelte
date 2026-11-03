@@ -2,8 +2,11 @@
 	import { m } from '$lib/paraglide/messages';
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
-	import { Slider } from '$lib/components/ui/slider';
-	import AppSelect from '$lib/components/app-select.svelte';
+	import {
+		Disclosure as EditorDisclosure,
+		EditorMenu,
+		SliderRow
+	} from '$lib/components/editor-density';
 	import ColorPicker from '$lib/components/color-picker.svelte';
 	import { ThemeIcon } from '$lib/themes/icons';
 	import type {
@@ -146,6 +149,14 @@
 	const hasFilteredResults = $derived(
 		categories.some((category) => filteredDefinitions(category).length > 0)
 	);
+	const durationResetValue = $derived.by(() => {
+		if (!transition || !definition) return 1;
+		const available = maxDuration(transition);
+		return Math.max(
+			definition.minDuration,
+			Math.min(available, definition.maxDuration, definition.defaultDuration)
+		);
+	});
 
 	function pairFor(current: TimelineTransition) {
 		const outgoing = timelineStore.itemById.get(current.fromItemId);
@@ -171,16 +182,6 @@
 		if (!transition) return;
 		if (maxDuration(transition, alignment) < transition.durationInFrames) return;
 		commit({ alignment });
-	}
-
-	function resetDuration(): void {
-		if (!transition || !definition) return;
-		const available = maxDuration(transition);
-		const durationInFrames = Math.max(
-			definition.minDuration,
-			Math.min(available, definition.maxDuration, definition.defaultDuration)
-		);
-		commit({ durationInFrames });
 	}
 
 	function propertyValue(parameter: TransitionParameterDefinition): TransitionPropertyValue {
@@ -262,77 +263,70 @@
 			{m.video_editor_transition_properties()}
 		</h3>
 
-		<label class="text-[10px] text-[var(--video-editor-muted)]">
-			{m.video_editor_transition_preset()}
-			<Input
-				class="mt-1 h-8 w-full bg-[var(--video-editor-control)] text-xs"
-				type="search"
-				placeholder={m.video_editor_transition_search()}
-				aria-label={m.video_editor_transition_search()}
-				bind:value={search}
-			/>
-		</label>
-		<div class="max-h-52 overflow-y-auto rounded border border-[var(--video-editor-border)] p-1">
-			{#if !hasFilteredResults}
-				<p class="p-2 text-xs text-[var(--video-editor-muted)]">
-					{m.video_editor_transition_no_results()}
-				</p>
-			{/if}
-			{#each categories as category}
-				{@const matches = filteredDefinitions(category)}
-				{#if matches.length > 0}
-					<h4
-						class="px-1 pt-1 text-[9px] font-semibold tracking-wide text-[var(--video-editor-muted)] uppercase"
-					>
-						{categoryLabel(category)}
-					</h4>
-					<div class="grid grid-cols-2 gap-1 py-1">
-						{#each matches as candidate (candidate.id)}
-							<button
-								type="button"
-								class="min-h-8 rounded px-1.5 py-1 text-left text-[10px] leading-tight hover:bg-[var(--video-editor-control-hover)] focus-visible:outline-2 focus-visible:outline-[var(--video-editor-focus)] data-[selected=true]:bg-[var(--video-editor-selection)] data-[selected=true]:text-[var(--video-editor-selection-text)]"
-								data-selected={candidate.id === definition.id}
-								aria-pressed={candidate.id === definition.id}
-								onclick={() => choosePresentation(candidate)}
-							>
-								{transitionLabel(candidate)}
-							</button>
-						{/each}
-					</div>
-				{/if}
-			{/each}
-		</div>
-
-		<div class="text-[10px] text-[var(--video-editor-muted)]">
-			<span class="flex justify-between">
-				<span>{m.video_editor_transition_duration()}</span>
-				<span class="font-mono"
-					>{transition.durationInFrames} {m.video_editor_transition_frames()}</span
+		<details class="rounded border border-[var(--video-editor-border)]">
+			<summary
+				class="flex h-[25px] cursor-pointer items-center gap-1 px-1.5 text-[11px] text-[var(--video-editor-text)] [&::-webkit-details-marker]:hidden"
+			>
+				<ThemeIcon role="chevron-down" class="size-3 shrink-0" />
+				<span class="text-[var(--video-editor-muted)]">{m.video_editor_transition_preset()}</span>
+				<span class="ml-auto min-w-0 truncate font-mono text-[10px]"
+					>{transitionLabel(definition)}</span
 				>
-			</span>
-			<div class="mt-1 flex items-center gap-1">
-				<Slider
-					class="min-w-0 flex-1"
-					min={Math.min(definition.minDuration, maxDuration(transition))}
-					max={Math.max(2, Math.min(definition.maxDuration, maxDuration(transition)))}
-					step={1}
-					value={transition.durationInFrames}
-					ariaLabel={m.video_editor_transition_duration()}
-					onValueChange={(value) => commit({ durationInFrames: Math.round(value) })}
+			</summary>
+			<div class="border-t border-[var(--video-editor-border)] p-1">
+				<Input
+					class="h-[25px] w-full bg-[var(--video-editor-control)] text-[11px]"
+					type="search"
+					placeholder={m.video_editor_transition_search()}
+					aria-label={m.video_editor_transition_search()}
+					bind:value={search}
 				/>
-				<Button
-					size="icon"
-					variant="ghost"
-					class="size-7 shrink-0"
-					aria-label={m.video_editor_motion_override_reset({
-						name: m.video_editor_transition_duration()
-					})}
-					onclick={resetDuration}
-				>
-					<ThemeIcon role="undo" class="size-3.5" />
-				</Button>
+				<div class="max-h-44 overflow-y-auto p-1">
+					{#if !hasFilteredResults}
+						<p class="p-2 text-xs text-[var(--video-editor-muted)]">
+							{m.video_editor_transition_no_results()}
+						</p>
+					{/if}
+					{#each categories as category}
+						{@const matches = filteredDefinitions(category)}
+						{#if matches.length > 0}
+							<h4
+								class="px-1 pt-1 text-[9px] font-semibold tracking-wide text-[var(--video-editor-muted)] uppercase"
+							>
+								{categoryLabel(category)}
+							</h4>
+							<div class="grid grid-cols-2 gap-1 py-1">
+								{#each matches as candidate (candidate.id)}
+									<button
+										type="button"
+										class="min-h-[25px] rounded px-1.5 py-1 text-left text-[10px] leading-tight hover:bg-[var(--video-editor-control-hover)] focus-visible:outline-2 focus-visible:outline-[var(--video-editor-focus)] data-[selected=true]:bg-[var(--video-editor-selection)] data-[selected=true]:text-[var(--video-editor-selection-text)]"
+										data-selected={candidate.id === definition.id}
+										aria-pressed={candidate.id === definition.id}
+										onclick={() => choosePresentation(candidate)}
+									>
+										{transitionLabel(candidate)}
+									</button>
+								{/each}
+							</div>
+						{/if}
+					{/each}
+				</div>
 			</div>
-		</div>
+		</details>
+
+		<SliderRow
+			label={m.video_editor_transition_duration()}
+			value={transition.durationInFrames}
+			min={Math.min(definition.minDuration, maxDuration(transition))}
+			max={Math.max(2, Math.min(definition.maxDuration, maxDuration(transition)))}
+			step={1}
+			precision={0}
+			suffix={m.video_editor_transition_frames()}
+			resetValue={durationResetValue}
+			resetLabel={m.video_editor_settings_reset()}
+			onValueChange={(value) => commit({ durationInFrames: Math.round(value) })}
+			onValueCommit={(value) => commit({ durationInFrames: Math.round(value) })}
+		/>
 
 		<fieldset>
 			<legend class="text-[10px] text-[var(--video-editor-muted)]">
@@ -344,7 +338,7 @@
 					<Button
 						size="sm"
 						variant={(transition.alignment ?? 0.5) === placement.value ? 'secondary' : 'outline'}
-						class="h-auto min-h-8 px-1 text-[9px] leading-tight"
+						class="h-[25px] min-h-[25px] px-1 text-[9px] leading-tight"
 						disabled={placementAvailable < transition.durationInFrames}
 						onclick={() => setPlacement(placement.value)}
 					>
@@ -354,66 +348,73 @@
 			</div>
 		</fieldset>
 
-		<label class="text-[10px] text-[var(--video-editor-muted)]">
-			{m.video_editor_transition_timing()}
-			<AppSelect
-				class="mt-1 h-8 w-full text-xs"
+		<div class="flex flex-col gap-1">
+			<span class="text-[10px] text-[var(--video-editor-muted)]"
+				>{m.video_editor_transition_timing()}</span
+			>
+			<EditorMenu
+				label={m.video_editor_transition_timing()}
 				value={transition.timing ?? 'linear'}
 				options={timingOptions}
-				ariaLabel={m.video_editor_transition_timing()}
-				onValueChange={(value) => commit({ timing: value as TransitionTiming })}
+				onSelect={(value) => commit({ timing: value as TransitionTiming })}
 			/>
-		</label>
+		</div>
 
 		{#if transition.timing === 'cubic-bezier'}
-			<div class="grid grid-cols-4 gap-1">
-				{#each ['x1', 'y1', 'x2', 'y2'] as point}
-					<label class="text-[9px] text-[var(--video-editor-muted)]">
-						{point}
-						<Input
-							class="mt-0.5 h-7 px-1 text-[10px]"
-							type="number"
-							min="0"
-							max="1"
-							step="0.01"
-							value={transition.bezierPoints?.[point as 'x1' | 'y1' | 'x2' | 'y2'] ??
-								(point === 'x1' ? 0.25 : point === 'y1' ? 0.1 : point === 'x2' ? 0.25 : 1)}
-							onchange={(event) =>
-								commit({
-									bezierPoints: {
-										x1: transition.bezierPoints?.x1 ?? 0.25,
-										y1: transition.bezierPoints?.y1 ?? 0.1,
-										x2: transition.bezierPoints?.x2 ?? 0.25,
-										y2: transition.bezierPoints?.y2 ?? 1,
-										[point]: Math.min(1, Math.max(0, event.currentTarget.valueAsNumber))
-									}
-								})}
-						/>
-					</label>
-				{/each}
-			</div>
+			<EditorDisclosure
+				label={m.video_editor_keyframe_easing_bezier()}
+				summary={`${(transition.bezierPoints?.x1 ?? 0.25).toFixed(2)}, ${(transition.bezierPoints?.y1 ?? 0.1).toFixed(2)}, ${(transition.bezierPoints?.x2 ?? 0.25).toFixed(2)}, ${(transition.bezierPoints?.y2 ?? 1).toFixed(2)}`}
+			>
+				<div class="grid grid-cols-4 gap-1 border-t border-[var(--video-editor-border)] p-1">
+					{#each ['x1', 'y1', 'x2', 'y2'] as point}
+						<label class="text-[9px] text-[var(--video-editor-muted)]">
+							{point}
+							<Input
+								class="mt-0.5 h-7 px-1 text-[10px]"
+								type="number"
+								min="0"
+								max="1"
+								step="0.01"
+								value={transition.bezierPoints?.[point as 'x1' | 'y1' | 'x2' | 'y2'] ??
+									(point === 'x1' ? 0.25 : point === 'y1' ? 0.1 : point === 'x2' ? 0.25 : 1)}
+								onchange={(event) =>
+									commit({
+										bezierPoints: {
+											x1: transition.bezierPoints?.x1 ?? 0.25,
+											y1: transition.bezierPoints?.y1 ?? 0.1,
+											x2: transition.bezierPoints?.x2 ?? 0.25,
+											y2: transition.bezierPoints?.y2 ?? 1,
+											[point]: Math.min(1, Math.max(0, event.currentTarget.valueAsNumber))
+										}
+									})}
+							/>
+						</label>
+					{/each}
+				</div>
+			</EditorDisclosure>
 		{/if}
 
 		{#if definition.hasDirection}
-			<label class="text-[10px] text-[var(--video-editor-muted)]">
-				{m.video_editor_transition_direction()}
-				<AppSelect
-					class="mt-1 h-8 w-full text-xs"
+			<div class="flex flex-col gap-1">
+				<span class="text-[10px] text-[var(--video-editor-muted)]"
+					>{m.video_editor_transition_direction()}</span
+				>
+				<EditorMenu
+					label={m.video_editor_transition_direction()}
 					value={transition.direction ?? definition.directions?.[0] ?? 'from-left'}
 					options={directionOptions.filter((option) =>
 						definition.directions?.includes(option.value as TransitionDirection)
 					)}
-					ariaLabel={m.video_editor_transition_direction()}
-					onValueChange={(value) => commit({ direction: value as TransitionDirection })}
+					onSelect={(value) => commit({ direction: value as TransitionDirection })}
 				/>
-			</label>
+			</div>
 		{/if}
 
 		{#if definition.parameters?.length}
 			<div class="flex flex-col gap-2 border-t border-[var(--video-editor-border)] pt-2">
 				{#each definition.parameters as parameter (parameter.key)}
-					<div class="flex items-end gap-1">
-						{#if parameter.type === 'color'}
+					{#if parameter.type === 'color'}
+						<div class="flex items-end gap-1">
 							<ColorPicker
 								label={parameterLabel(parameter)}
 								value={rgbToHex(propertyValue(parameter))}
@@ -421,36 +422,34 @@
 								live={false}
 								onChange={(value) => setProperty(parameter, hexToRgb(value))}
 							/>
-						{:else}
-							<label class="min-w-0 flex-1 text-[10px] text-[var(--video-editor-muted)]">
-								<span class="flex justify-between">
-									<span>{parameterLabel(parameter)}</span>
-									<span class="font-mono">{propertyValue(parameter)}{parameter.unit ?? ''}</span>
-								</span>
-								<Slider
-									class="mt-1"
-									min={parameter.min ?? 0}
-									max={parameter.max ?? 1}
-									step={parameter.step ?? 0.01}
-									value={propertyValue(parameter) as number}
-									ariaLabel={parameterLabel(parameter)}
-									onValueChange={(value) => setProperty(parameter, value)}
-								/>
-							</label>
-						{/if}
-						<Button
-							size="icon"
-							variant="ghost"
-							class="size-7 shrink-0"
-							disabled={parameterAtDefault(parameter)}
-							aria-label={m.video_editor_motion_override_reset({
-								name: parameterLabel(parameter)
-							})}
-							onclick={() => resetProperty(parameter)}
-						>
-							<ThemeIcon role="undo" class="size-3.5" />
-						</Button>
-					</div>
+							<Button
+								size="icon"
+								variant="ghost"
+								class="size-7 shrink-0"
+								disabled={parameterAtDefault(parameter)}
+								aria-label={m.video_editor_motion_override_reset({
+									name: parameterLabel(parameter)
+								})}
+								onclick={() => resetProperty(parameter)}
+							>
+								<ThemeIcon role="undo" class="size-3.5" />
+							</Button>
+						</div>
+					{:else}
+						<SliderRow
+							label={parameterLabel(parameter)}
+							value={propertyValue(parameter) as number}
+							min={parameter.min ?? 0}
+							max={parameter.max ?? 1}
+							step={parameter.step ?? 0.01}
+							precision={(parameter.step ?? 0.01) < 1 ? 2 : 0}
+							suffix={parameter.unit ?? ''}
+							resetValue={parameter.defaultValue as number}
+							resetLabel={m.video_editor_settings_reset()}
+							onValueChange={(value) => setProperty(parameter, value)}
+							onValueCommit={(value) => setProperty(parameter, value)}
+						/>
+					{/if}
 				{/each}
 				<Button
 					size="sm"

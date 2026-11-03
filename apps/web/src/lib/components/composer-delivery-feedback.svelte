@@ -2,6 +2,9 @@
 	import type { components } from '$lib/api/types';
 	import { Button } from '$lib/components/ui/button';
 	import { m } from '$lib/paraglide/messages';
+	import { resolveAppPath } from '$lib/app-path';
+	import { deliveryOutcomeSummary } from '$lib/delivery-outcome';
+	import InlineNotice from './inline-notice.svelte';
 	import PublicationDeliveryCard from './publication-delivery-card.svelte';
 
 	type Rendition = components['schemas']['RenditionActionOutcome'];
@@ -10,6 +13,7 @@
 		publicationID,
 		renditions,
 		accountLabels = {},
+		accountAvatars = {},
 		workspaceActivated = false,
 		retryingRenditionID = '',
 		onRetry,
@@ -19,6 +23,7 @@
 		publicationID: string;
 		renditions: Rendition[];
 		accountLabels?: Record<string, string>;
+		accountAvatars?: Record<string, string | null | undefined>;
 		workspaceActivated?: boolean;
 		retryingRenditionID?: string;
 		onRetry: (renditionID: string) => void | Promise<void>;
@@ -26,26 +31,7 @@
 		onCreateAnother: () => void | Promise<void>;
 	} = $props();
 
-	function outcomeGroup(rendition: Rendition): 'succeeded' | 'pending' | 'failed' | 'manual' {
-		const state = rendition.delivery?.state || rendition.status;
-		if (state === 'live' || state === 'published') return 'succeeded';
-		if (
-			state === 'ambiguous' ||
-			state === 'manual_resolution' ||
-			rendition.delivery?.recovery_action === 'reconcile' ||
-			rendition.delivery?.recovery_action === 'manual_resolution'
-		) {
-			return 'manual';
-		}
-		if (state === 'rejected' || state === 'failed') return 'failed';
-		return 'pending';
-	}
-
-	const summary = $derived.by(() => {
-		const counts = { succeeded: 0, pending: 0, failed: 0, manual: 0 };
-		for (const rendition of renditions) counts[outcomeGroup(rendition)] += 1;
-		return counts;
-	});
+	const summary = $derived(deliveryOutcomeSummary(renditions));
 </script>
 
 <section
@@ -55,12 +41,9 @@
 >
 	<div class="space-y-4">
 		{#if workspaceActivated}
-			<div class="rounded-lg border border-success-foreground/25 bg-success p-4">
-				<h2 class="font-semibold">{m.workspace_activation_heading()}</h2>
-				<p class="mt-1 text-sm/6 text-muted-foreground">
-					{m.workspace_activation_description()}
-				</p>
-			</div>
+			<InlineNotice tone="success" message={m.workspace_activation_heading()}>
+				<p class="mt-0.5">{m.workspace_activation_description()}</p>
+			</InlineNotice>
 		{/if}
 		<div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
 			<div>
@@ -72,7 +55,10 @@
 				</p>
 			</div>
 			<div class="flex flex-wrap gap-2">
-				<Button variant="outline" href={`/publications/${encodeURIComponent(publicationID)}`}>
+				<Button
+					variant="outline"
+					href={resolveAppPath(`/publications/${encodeURIComponent(publicationID)}`)}
+				>
 					{m.workspace_activation_view_publication()}
 				</Button>
 				<Button onclick={onCreateAnother}>{m.workspace_activation_create_another()}</Button>
@@ -84,6 +70,7 @@
 				<PublicationDeliveryCard
 					{rendition}
 					destinationLabel={accountLabels[rendition.social_account_id]}
+					accountAvatarUrl={accountAvatars[rendition.social_account_id] ?? ''}
 					retrying={retryingRenditionID === rendition.id}
 					{onRetry}
 					{onManualResolution}

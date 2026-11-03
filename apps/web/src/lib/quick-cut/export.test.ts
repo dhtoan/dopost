@@ -1,4 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { PerformanceObserver } from 'node:perf_hooks';
+import { describe, expect, it, vi } from 'vitest';
+import { configureProfiling } from '$lib/performance/profiling';
 import { exportSegments, preflightExport } from './export';
 import { createSegment } from './model';
 import type { QuickCutSource } from './types';
@@ -56,6 +58,78 @@ function makeSource(id: string, overrides: Partial<QuickCutSource> = {}): QuickC
 }
 
 describe('quick-cut preflight', () => {
+	it('admits a small export when its working files fit below 50 MB of free quota', async () => {
+		vi.stubGlobal('navigator', {
+			storage: { estimate: async () => ({ quota: 1024 * 1024, usage: 0 }) }
+		});
+		try {
+			const source = makeSource('small', { size: 112_000, duration: 3 });
+			const segment = createSegment(0.5, 2.5, { sourceId: source.id });
+			for (const cutMode of ['nearestKeyframe', 'exact'] as const) {
+				const result = await preflightExport([source], [segment], cutMode, true);
+				expect(result.eligible).toBe(true);
+			}
+		} finally {
+			vi.unstubAllGlobals();
+		}
+	});
+
+	it('rejects an export whose required working files exceed remaining quota', async () => {
+		vi.stubGlobal('navigator', {
+			storage: { estimate: async () => ({ quota: 1024 * 1024, usage: 100_000 }) }
+		});
+		try {
+			const source = makeSource('large', { size: 2 * 1024 * 1024, duration: 3 });
+			const result = await preflightExport(
+				[source],
+				[createSegment(0, 3, { sourceId: source.id })],
+				'exact',
+				true
+			);
+			expect(result).toMatchObject({
+				eligible: false,
+				reason: 'Not enough storage for this export.'
+			});
+		} finally {
+			vi.unstubAllGlobals();
+		}
+	});
+
+	it('includes synchronous planning in the export preflight trace', async () => {
+		const source = makeSource('profiled');
+		const entries: { name: string; duration: number }[] = [];
+		const observer = new PerformanceObserver((list) => entries.push(...list.getEntries()));
+		observer.observe({ type: 'measure' });
+		let now = 100;
+		const clock = vi.spyOn(performance, 'now').mockImplementation(() => now);
+		vi.stubGlobal('navigator', {
+			storage: {
+				estimate: async () => {
+					now += 20;
+					return { quota: 1, usage: 0 };
+				}
+			}
+		});
+		configureProfiling({ enabled: true });
+		try {
+			await expect(
+				exportSegments({
+					sources: [source],
+					segments: [createSegment(0, 1, { sourceId: source.id })],
+					cutMode: 'nearestKeyframe',
+					merge: false
+				})
+			).rejects.toThrow('Not enough storage');
+			await expect.poll(() => entries.length).toBe(1);
+			expect(entries[0]).toMatchObject({ name: 'OpenPost/Quick Cut/Preflight', duration: 20 });
+		} finally {
+			configureProfiling({ enabled: false });
+			clock.mockRestore();
+			vi.unstubAllGlobals();
+			observer.disconnect();
+		}
+	});
+
 	it('reports stream copy when starts are on keyframes', async () => {
 		const src = makeSource('s1');
 		const segs = [createSegment(0, 2, { sourceId: 's1' }), createSegment(4, 6, { sourceId: 's1' })];
@@ -241,13 +315,24 @@ describe('quick-cut preflight', () => {
 		expect(preflight.reason).toMatch(/video and audio-only/i);
 	});
 
-	it('cancels while a source handle is still resolving', async () => {
+	it('rejects cancellation after a pending source handle resolves', async () => {
 		let resolveFile!: (file: File) => void;
 		const pendingFile = new Promise<File>((resolve) => {
 			resolveFile = resolve;
 		});
-		// SAFETY: export only calls getFile on this focused FileSystemFileHandle test double.
-		const handle = { getFile: () => pendingFile } as FileSystemFileHandle;
+		const getFile = vi.fn(() => pendingFile);
+		const handle: FileSystemFileHandle = {
+			kind: 'file',
+			name: 'slow.mp4',
+			getFile,
+			async createWritable() {
+				throw new Error('Unexpected write to export source');
+			},
+			async createSyncAccessHandle() {
+				throw new Error('Unexpected synchronous access to export source');
+			},
+			isSameEntry: async (other) => other === handle
+		};
 		const source = makeSource('slow', { handle });
 		const controller = new AbortController();
 		const exported = exportSegments({
@@ -258,6 +343,7 @@ describe('quick-cut preflight', () => {
 			signal: controller.signal
 		});
 
+		await vi.waitFor(() => expect(getFile).toHaveBeenCalledOnce());
 		controller.abort(new DOMException('Export cancelled.', 'AbortError'));
 		resolveFile(new File(['not decoded'], 'slow.mp4', { type: 'video/mp4' }));
 		await expect(exported).rejects.toMatchObject({ name: 'AbortError' });

@@ -1,27 +1,47 @@
 <script lang="ts">
 	import { ArrowLeft, ArrowRight, Check } from '@lucide/svelte';
 	import type { Snippet } from 'svelte';
-	import { Button } from '$lib/components/ui/button';
+	import { Button } from '@openpost/ui/components/button';
 	import HeroAccent from '../HeroAccent.svelte';
 	import ThemeImage from '../ThemeImage.svelte';
 	import {
 		managedSignupUrl,
 		managedTrialNote,
 		tools,
+		getToolCategory,
 		type MarketingToolSlug
 	} from '../../_marketing';
+	import { previewTools } from '@openpost/social-images';
 	import { toolArticles } from '../../tools/_articles';
 	let { slug, children }: { slug: MarketingToolSlug; children: Snippet } = $props();
+	const isPreview = $derived(
+		slug === 'post-preview-generator' || previewTools.some((tool) => tool.slug === slug)
+	);
+	const hasDraftAction = $derived(
+		['multi-platform-character-counter', 'thread-splitter', 'linkedin-text-formatter'].includes(
+			slug
+		)
+	);
+	const fullWidth = $derived(isPreview || hasDraftAction);
 	const article = $derived(toolArticles[slug]);
-	const related = $derived(tools.filter((tool) => tool.slug !== slug).slice(0, 4));
+	const related = $derived(
+		tools
+			.filter((tool) => tool.slug !== slug)
+			.toSorted(
+				(left, right) =>
+					Number(getToolCategory(right.slug) === getToolCategory(slug)) -
+					Number(getToolCategory(left.slug) === getToolCategory(slug))
+			)
+			.slice(0, 4)
+	);
 </script>
 
 <section class="tool-page marketing-shell">
 	<a href="/tools" class="back-link focus-ring"><ArrowLeft size={16} /> All free tools</a>
-	<div class="tool-layout">
+	<div class="tool-layout" class:preview-layout={fullWidth}>
 		<div class="tool-main">
 			<header>
-				<h1>{article.title}</h1>
+				<h1 class="marketing-title marketing-title--compact">{article.title}</h1>
 				<p>{article.description}</p>
 			</header>
 			<div class="tool-controls" data-agent-exclude="interactive-tool">
@@ -49,7 +69,7 @@
 				<section>
 					<h2>Common questions</h2>
 					{#each article.questions as item (item.question)}<details>
-							<summary>{item.question}</summary>
+							<summary class="focus-ring">{item.question}</summary>
 							<p>{item.answer}</p>
 						</details>{/each}
 				</section>
@@ -63,40 +83,43 @@
 				</section>
 			</article>
 		</div>
-		<aside
-			class="tool-promo"
-			aria-label="Create and schedule with OpenPost"
-			data-agent-exclude="application-cta"
-		>
-			<div class="promo-content">
-				<div class="promo-brand">
-					<ThemeImage
-						lightSrc="/assets/brand/logo.svg"
-						darkSrc="/assets/brand/logo-dark.svg"
-						alt=""
-						width={24}
-						height={24}
-					/><span>OpenPost</span>
+		{#if !fullWidth}
+			<aside
+				class="tool-promo"
+				aria-label="Create and schedule with OpenPost"
+				data-agent-exclude="application-cta"
+			>
+				<div class="promo-content">
+					<div class="promo-brand">
+						<ThemeImage
+							lightSrc="/assets/brand/logo.svg"
+							darkSrc="/assets/brand/logo-dark.svg"
+							alt=""
+							width={24}
+							height={24}
+						/><span>OpenPost</span>
+					</div>
+					<h2>A good post.<br /><HeroAccent>Then another.</HeroAccent></h2>
+					<p>Keep your ideas, images, videos, and schedule in one place.</p>
+					<ul>
+						<li><Check size={16} /> Write with a little AI help</li>
+						<li><Check size={16} /> Edit images and videos</li>
+						<li><Check size={16} /> Plan your week of posts</li>
+					</ul>
+					<Button href={managedSignupUrl}>Try OpenPost <ArrowRight data-icon="inline-end" /></Button
+					>
+					<small>{managedTrialNote}</small>
 				</div>
-				<h2>A good post.<br /><HeroAccent>Then another.</HeroAccent></h2>
-				<p>Keep your ideas, images, videos, and schedule in one place.</p>
-				<ul>
-					<li><Check size={16} /> Write with a little AI help</li>
-					<li><Check size={16} /> Edit images and videos</li>
-					<li><Check size={16} /> Plan your week of posts</li>
-				</ul>
-				<Button href={managedSignupUrl}>Try OpenPost <ArrowRight data-icon="inline-end" /></Button>
-				<small>{managedTrialNote}</small>
-			</div>
-			<img
-				class="promo-preview"
-				src="/assets/screenshots/calendar-dark.webp"
-				alt="Scheduled posts in the OpenPost calendar"
-				width="1280"
-				height="800"
-				loading="lazy"
-			/>
-		</aside>
+				<img
+					class="promo-preview"
+					src="/assets/screenshots/calendar-dark.webp"
+					alt="Scheduled posts in the OpenPost calendar"
+					width="1280"
+					height="800"
+					loading="lazy"
+				/>
+			</aside>
+		{/if}
 	</div>
 </section>
 
@@ -125,14 +148,6 @@
 	}
 	header {
 		padding-block: 16px 28px;
-	}
-	h1 {
-		max-width: 22ch;
-		font-size: clamp(36px, 4vw, 56px);
-		font-weight: 550;
-		line-height: 1.08;
-		letter-spacing: -0.035em;
-		text-wrap: balance;
 	}
 	header > p {
 		margin-top: 18px;
@@ -273,7 +288,7 @@
 		font-size: 15px;
 	}
 	@media (min-width: 1100px) {
-		.tool-layout {
+		.tool-layout:not(.preview-layout) {
 			grid-template-columns: minmax(0, 1fr) 300px;
 		}
 		.tool-promo {

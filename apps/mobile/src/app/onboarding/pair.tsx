@@ -1,18 +1,21 @@
+import { NativeText as Text } from "@/components/native-text";
 import * as WebBrowser from "expo-web-browser";
 import { router, Stack, useFocusEffect } from "expo-router";
-import { useCallback, useRef, useState } from "react";
-import { ActivityIndicator, BackHandler, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useCallback, useRef, useState, useSyncExternalStore } from "react";
+import { ActivityIndicator, BackHandler, ScrollView, StyleSheet, View } from "react-native";
 
-import { BodyText, Button, Card, Screen, useColors } from "@/components/ui";
+import { BodyText, Button, ContentSection, Screen, useColors } from "@/components/ui";
 import { Brand } from "@/components/brand";
 import { pollPairing, startPairing } from "@/lib/auth";
+import { getToken, subscribeToken } from "@/lib/api/token-store";
 import { successHaptic } from "@/lib/haptics";
-import { isAbortError, waitForPairingResult } from "@/lib/pairing-loop";
+import { isAbortError, pairingAttemptAction, waitForPairingResult } from "@/lib/pairing-loop";
 
 type Phase = "starting" | "waiting" | "approved" | "denied" | "expired" | "error";
 
 export default function PairScreen() {
   const colors = useColors();
+  const token = useSyncExternalStore(subscribeToken, getToken);
   const [phase, setPhase] = useState<Phase>("starting");
   const [userCode, setUserCode] = useState("");
   const [verificationUrl, setVerificationUrl] = useState("");
@@ -32,6 +35,11 @@ export default function PairScreen() {
 
   useFocusEffect(
     useCallback(() => {
+      if (pairingAttemptAction(token) === "redirect") {
+        router.replace("/");
+        return;
+      }
+
       const controller = new AbortController();
       const attemptId = attempt;
       const isCancelled = () => controller.signal.aborted || attemptRef.current !== attemptId;
@@ -73,7 +81,7 @@ export default function PairScreen() {
         controller.abort();
         if (navigationTimer) clearTimeout(navigationTimer);
       };
-    }, [attempt]),
+    }, [attempt, token]),
   );
 
   function restart() {
@@ -114,7 +122,7 @@ export default function PairScreen() {
 
         {phase === "starting" || phase === "waiting" ? (
           <>
-            <Card style={styles.codeCard}>
+            <ContentSection style={styles.codeCard}>
               {phase === "starting" ? (
                 <ActivityIndicator color={colors.primary} />
               ) : (
@@ -129,7 +137,7 @@ export default function PairScreen() {
                   {userCode}
                 </Text>
               )}
-            </Card>
+            </ContentSection>
             <BodyText style={styles.center}>Enter this code at</BodyText>
             <BodyText style={[styles.center, styles.url, { color: colors.onSurface }]}>
               {verificationUrl.replace(/^https?:\/\//, "").replace(/\?.*$/, "")}

@@ -108,6 +108,7 @@
 			<Command.Input
 				value={search}
 				placeholder={searchPlaceholder}
+				aria-label={searchPlaceholder}
 				oninput={(event) => updateSearch(event.currentTarget.value)}
 			/>
 			<Command.List id={`${id}-options`}>
@@ -115,7 +116,10 @@
 					<div
 						class="flex min-h-16 items-center justify-center gap-2 px-3 text-xs text-muted-foreground"
 					>
-						<ProtectedIcon icon="loading" class="size-3.5 animate-spin" />
+						<ProtectedIcon
+							icon="loading"
+							class="size-3.5 animate-spin motion-reduce:animate-none"
+						/>
 						{loadingLabel}
 					</div>
 				{:else}

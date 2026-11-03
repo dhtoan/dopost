@@ -12,7 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"mime/multipart"
+	"mime"
 	"net/http"
 	"net/url"
 	"os"
@@ -21,6 +21,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/openpost/cli/internal/transport"
 )
 
 const defaultVersion = "dev"
@@ -85,16 +87,19 @@ func (e *Error) Error() string {
 	return fmt.Sprintf("HTTP %d", e.StatusCode)
 }
 
-func (c *Client) do(ctx context.Context, method, path string, body any, out any, contentType string) error {
+func (c *Client) do(ctx context.Context, method, path string, body any, out any) error {
 	u, err := url.Parse(c.BaseURL + path)
 	if err != nil {
 		return fmt.Errorf("invalid URL %s: %w", c.BaseURL+path, err)
+	}
+	if err := transport.ValidateURL(u); err != nil {
+		return err
 	}
 	var rdr io.Reader
 	if body != nil {
 		if r, ok := body.(io.Reader); ok {
 			rdr = r
-		} else if s, ok := body.(string); ok && contentType == "" {
+		} else if s, ok := body.(string); ok {
 			rdr = strings.NewReader(s)
 		} else {
 			data, err := json.Marshal(body)
@@ -112,14 +117,14 @@ func (c *Client) do(ctx context.Context, method, path string, body any, out any,
 		req.Header.Set("Authorization", "Bearer "+c.Token)
 	}
 	req.Header.Set("Accept", "application/json")
-	if contentType != "" {
-		req.Header.Set("Content-Type", contentType)
-	} else if body != nil {
+	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
 	req.Header.Set("User-Agent", c.UserAgent)
 
-	resp, err := c.HTTP.Do(req)
+	client := *c.HTTP
+	client.CheckRedirect = transport.NoRedirect
+	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("request failed: %w", err)
 	}
@@ -130,7 +135,7 @@ func (c *Client) do(ctx context.Context, method, path string, body any, out any,
 		return fmt.Errorf("read response: %w", err)
 	}
 
-	if resp.StatusCode >= 400 {
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		apiErr := &Error{StatusCode: resp.StatusCode}
 		_ = json.Unmarshal(respBody, apiErr)
 		if apiErr.Message == "" && apiErr.Detail == "" {
@@ -149,52 +154,23 @@ func (c *Client) do(ctx context.Context, method, path string, body any, out any,
 }
 
 func (c *Client) GetJSON(ctx context.Context, path string, out any) error {
-	return c.do(ctx, http.MethodGet, path, nil, out, "")
+	return c.do(ctx, http.MethodGet, path, nil, out)
 }
 
 func (c *Client) PostJSON(ctx context.Context, path string, body, out any) error {
-	return c.do(ctx, http.MethodPost, path, body, out, "")
+	return c.do(ctx, http.MethodPost, path, body, out)
 }
 
 func (c *Client) PatchJSON(ctx context.Context, path string, body, out any) error {
-	return c.do(ctx, http.MethodPatch, path, body, out, "")
+	return c.do(ctx, http.MethodPatch, path, body, out)
 }
 
 func (c *Client) PutJSON(ctx context.Context, path string, body, out any) error {
-	return c.do(ctx, http.MethodPut, path, body, out, "")
+	return c.do(ctx, http.MethodPut, path, body, out)
 }
 
 func (c *Client) DeleteJSON(ctx context.Context, path string, out any) error {
-	return c.do(ctx, http.MethodDelete, path, nil, out, "")
-}
-
-// PostForm posts a multipart/form-data request with the given fields
-// and a file under fieldName. out is decoded from the JSON body.
-func (c *Client) PostForm(ctx context.Context, path, fileField, filePath string, fields map[string]string, out any) error {
-	f, err := os.Open(filePath)
-	if err != nil {
-		return fmt.Errorf("open file: %w", err)
-	}
-	defer func() { _ = f.Close() }()
-
-	var buf bytes.Buffer
-	mw := multipart.NewWriter(&buf)
-	for k, v := range fields {
-		if err := mw.WriteField(k, v); err != nil {
-			return err
-		}
-	}
-	fw, err := mw.CreateFormFile(fileField, filepath.Base(filePath))
-	if err != nil {
-		return err
-	}
-	if _, err := io.Copy(fw, f); err != nil {
-		return err
-	}
-	if err := mw.Close(); err != nil {
-		return err
-	}
-	return c.do(ctx, http.MethodPost, path, &buf, out, mw.FormDataContentType())
+	return c.do(ctx, http.MethodDelete, path, nil, out)
 }
 
 // ----- typed endpoints used by the CLI -----
@@ -250,10 +226,28 @@ type Me struct {
 
 // ----- Workspaces -----
 
+// Workspace mirrors the served WorkspaceResponse shape. The human table
+// renderers select the columns they need; --json re-emits the full
+// projection. CreatedAt stays a time.Time because the workspace table
+// formats it; the server emits RFC3339, which round-trips losslessly.
 type Workspace struct {
-	ID        string    `json:"id"`
-	Name      string    `json:"name"`
-	CreatedAt time.Time `json:"created_at"`
+	ID                   string    `json:"id"`
+	OrganizationID       string    `json:"organization_id"`
+	OrganizationName     string    `json:"organization_name"`
+	Name                 string    `json:"name"`
+	AvatarURL            string    `json:"avatar_url"`
+	Color                string    `json:"color"`
+	CreatedAt            time.Time `json:"created_at"`
+	Role                 string    `json:"role"`
+	CanEdit              bool      `json:"can_edit"`
+	CanConnect           bool      `json:"can_connect"`
+	CanApprove           bool      `json:"can_approve"`
+	ClientReviewsEnabled bool      `json:"client_reviews_enabled,omitempty"`
+	SSORequired          bool      `json:"sso_required"`
+	SSOAuthenticated     bool      `json:"sso_authenticated"`
+	SSOIdentityLinked    bool      `json:"sso_identity_linked"`
+	SSOProviderID        string    `json:"sso_provider_id,omitempty"`
+	SSOProviderName      string    `json:"sso_provider_name,omitempty"`
 }
 
 func (c *Client) ListWorkspaces(ctx context.Context) ([]Workspace, error) {
@@ -452,15 +446,32 @@ func (c *Client) NextAvailableSlot(ctx context.Context, in NextAvailableSlotInpu
 
 // ----- Accounts -----
 
+// SocialAccount mirrors the served AccountResponse shape. The human
+// table renderers select the columns they need; --json re-emits the full
+// projection.
 type SocialAccount struct {
 	ID                     string `json:"id"`
 	Slug                   string `json:"slug"`
 	Platform               string `json:"platform"`
 	AccountID              string `json:"account_id"`
+	AccountKind            string `json:"account_kind,omitempty"`
+	Alias                  string `json:"alias,omitempty"`
 	AccountUsername        string `json:"account_username"`
+	AccountAvatarURL       string `json:"account_avatar_url"`
 	InstanceURL            string `json:"instance_url"`
 	IsActive               bool   `json:"is_active"`
 	ThreadRepliesSupported bool   `json:"thread_replies_supported"`
+	// messaging_supported and messages_enabled are deprecated
+	// compatibility shims (use GET /account-features), but the server
+	// still sends them, so --json projects them.
+	MessagingSupported     bool   `json:"messaging_supported"`
+	MessagesEnabled        bool   `json:"messages_enabled"`
+	LimitProfile           string `json:"limit_profile,omitempty"`
+	CapabilityCheckedAt    string `json:"capability_checked_at,omitempty"`
+	FediverseSoftware      string `json:"fediverse_software,omitempty"`
+	GrantDestinationCount  int    `json:"grant_destination_count"`
+	SharedGrant            bool   `json:"shared_grant"`
+	ProviderInstallationID string `json:"provider_installation_id,omitempty"`
 }
 
 type ProviderInfo struct {
@@ -568,7 +579,8 @@ type CapabilityCatalog struct {
 }
 
 type UpdateAccountInput struct {
-	Slug string `json:"slug"`
+	Alias *string `json:"alias,omitempty"`
+	Slug  string  `json:"slug"`
 }
 
 func (c *Client) ListAccountProviders(ctx context.Context) ([]ProviderInfo, error) {
@@ -623,6 +635,9 @@ func (c *Client) DisconnectAccount(ctx context.Context, accountID string) error 
 // ----- Media -----
 
 type Media struct {
+	ParentMediaID    string `json:"parent_media_id,omitempty"`
+	Source           string `json:"source,omitempty"`
+	ProcessingStatus string `json:"processing_status,omitempty"`
 	ID               string `json:"id"`
 	MimeType         string `json:"mime_type"`
 	URL              string `json:"url"`
@@ -704,17 +719,125 @@ func (c *Client) ListMedia(ctx context.Context, workspaceID string, limit int) (
 	return out.Media, nil
 }
 
-// UploadMedia uploads a local file to the active workspace using the multipart media endpoint.
+// UploadMedia uploads a local file through a streaming media upload session.
 func (c *Client) UploadMedia(ctx context.Context, workspaceID, filePath, altText string) (*Media, error) {
-	fields := map[string]string{"workspace_id": workspaceID}
-	if altText != "" {
-		fields["alt_text"] = altText
+	f, err := os.Open(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("open file: %w", err)
 	}
-	var m Media
-	if err := c.PostForm(ctx, "/api/v1/media/upload", "file", filePath, fields, &m); err != nil {
+	defer func() { _ = f.Close() }()
+	info, err := f.Stat()
+	if err != nil {
+		return nil, fmt.Errorf("stat file: %w", err)
+	}
+	mimeType := mime.TypeByExtension(filepath.Ext(filePath))
+	if mimeType == "" {
+		mimeType = "application/octet-stream"
+	}
+	var session mediaUploadSession
+	if err := c.PostJSON(ctx, "/api/v1/media/upload-session", map[string]any{
+		"workspace_id": workspaceID,
+		"filename":     filepath.Base(filePath),
+		"mime_type":    mimeType,
+		"size":         info.Size(),
+		"alt_text":     altText,
+	}, &session); err != nil {
 		return nil, err
 	}
-	return &m, nil
+	if session.Deduped {
+		return &Media{
+			ID: session.MediaID, MimeType: mimeType,
+			URL: "/media/" + session.MediaID, Size: info.Size(),
+			Deduped: true, AltText: altText, OriginalFilename: filepath.Base(filePath),
+		}, nil
+	}
+	if err := c.putFile(ctx, session.Upload, f, info.Size()); err != nil {
+		return nil, err
+	}
+	var media Media
+	if err := c.PostJSON(ctx, session.CompleteURL, map[string]string{"workspace_id": workspaceID}, &media); err != nil {
+		return nil, err
+	}
+	return &media, nil
+}
+
+type mediaUploadSession struct {
+	MediaID     string                   `json:"media_id"`
+	Deduped     bool                     `json:"deduped"`
+	CompleteURL string                   `json:"complete_url"`
+	Upload      mediaUploadSessionTarget `json:"upload"`
+}
+
+type mediaUploadSessionTarget struct {
+	Method  string            `json:"method"`
+	URL     string            `json:"url"`
+	Headers map[string]string `json:"headers"`
+}
+
+func (c *Client) putFile(ctx context.Context, target mediaUploadSessionTarget, file *os.File, size int64) error {
+	if target.URL == "" {
+		return fmt.Errorf("media upload session did not include an upload URL")
+	}
+	u, err := url.Parse(target.URL)
+	if err != nil {
+		return fmt.Errorf("invalid media upload URL: %w", err)
+	}
+	baseURL, err := url.Parse(c.BaseURL)
+	if err != nil {
+		return fmt.Errorf("invalid API URL: %w", err)
+	}
+	if !u.IsAbs() {
+		u = baseURL.ResolveReference(u)
+	}
+	if err := transport.ValidateURL(u); err != nil {
+		return err
+	}
+	method := target.Method
+	if method == "" {
+		method = http.MethodPut
+	}
+	req, err := http.NewRequestWithContext(ctx, method, u.String(), file)
+	if err != nil {
+		return fmt.Errorf("create media upload request: %w", err)
+	}
+	req.ContentLength = size
+	for key, value := range target.Headers {
+		req.Header.Set(key, value)
+	}
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("User-Agent", c.UserAgent)
+	if c.Token != "" && strings.EqualFold(u.Scheme, baseURL.Scheme) && strings.EqualFold(u.Host, baseURL.Host) {
+		req.Header.Set("Authorization", "Bearer "+c.Token)
+	}
+	// Large uploads can outlast the general API timeout. The request context
+	// still cancels the transfer when the caller stops it.
+	client := *c.HTTP
+	client.Timeout = 0
+	client.CheckRedirect = func(_ *http.Request, _ []*http.Request) error {
+		return http.ErrUseLastResponse
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("media upload failed: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode >= http.StatusMultipleChoices {
+		body, readErr := io.ReadAll(resp.Body)
+		if readErr != nil {
+			return fmt.Errorf("media upload failed: HTTP %d (read response: %w)", resp.StatusCode, readErr)
+		}
+		apiErr := &Error{StatusCode: resp.StatusCode}
+		_ = json.Unmarshal(body, apiErr)
+		if apiErr.Message == "" && apiErr.Detail == "" {
+			apiErr.Message = strings.TrimSpace(string(body))
+		}
+		return apiErr
+	}
+	_, err = io.Copy(io.Discard, resp.Body)
+	if err != nil {
+		return fmt.Errorf("read media upload response: %w", err)
+	}
+	return nil
 }
 
 func (c *Client) DeleteMedia(ctx context.Context, mediaID string) error {
@@ -746,19 +869,26 @@ func (c *Client) GetMediaUsage(ctx context.Context, mediaID string) (*MediaUsage
 // ----- Publications -----
 
 type PublicationMediaInput struct {
-	MediaID string `json:"media_id"`
-	Role    string `json:"role,omitempty"`
-	AltText string `json:"alt_text,omitempty"`
+	ThumbnailTimestampMS int64          `json:"thumbnail_timestamp_ms,omitempty"`
+	Settings             map[string]any `json:"settings,omitempty"`
+	MediaID              string         `json:"media_id"`
+	Role                 string         `json:"role,omitempty"`
+	AltText              string         `json:"alt_text,omitempty"`
 }
 
 type RenditionInput struct {
-	SocialAccountID string                  `json:"social_account_id"`
-	Profile         string                  `json:"profile,omitempty"`
-	Body            string                  `json:"body,omitempty"`
-	Title           string                  `json:"title,omitempty"`
-	Description     string                  `json:"description,omitempty"`
-	Settings        map[string]interface{}  `json:"settings,omitempty"`
-	Media           []PublicationMediaInput `json:"media,omitempty"`
+	TargetKey        string                  `json:"target_key,omitempty"`
+	OutputProfile    string                  `json:"output_profile,omitempty"`
+	FormatLocked     bool                    `json:"format_locked,omitempty"`
+	ScheduleOverride *time.Time              `json:"schedule_override,omitempty"`
+	Segments         []RenditionSegmentInput `json:"segments,omitempty"`
+	SocialAccountID  string                  `json:"social_account_id"`
+	Profile          string                  `json:"profile,omitempty"`
+	Body             string                  `json:"body,omitempty"`
+	Title            string                  `json:"title,omitempty"`
+	Description      string                  `json:"description,omitempty"`
+	Settings         map[string]interface{}  `json:"settings,omitempty"`
+	Media            []PublicationMediaInput `json:"media,omitempty"`
 }
 
 type CreatePublicationInput struct {
@@ -781,72 +911,226 @@ type CreatePublicationInput struct {
 }
 
 type UpdatePublicationInput struct {
-	ExpectedRevision   int                    `json:"expected_revision"`
-	Force              bool                   `json:"force,omitempty"`
-	Title              *string                `json:"title,omitempty"`
-	ContentProfile     *string                `json:"content_profile,omitempty"`
-	SourceText         *string                `json:"source_text,omitempty"`
-	SourceURL          *string                `json:"source_url,omitempty"`
-	Goal               *string                `json:"goal,omitempty"`
-	Audience           *string                `json:"audience,omitempty"`
-	ScheduledAt        *time.Time             `json:"scheduled_at,omitempty"`
-	ClearSchedule      bool                   `json:"clear_schedule,omitempty"`
-	RandomDelayMinutes *int                   `json:"random_delay_minutes,omitempty"`
-	Metadata           map[string]interface{} `json:"metadata,omitempty"`
-	Renditions         []RenditionInput       `json:"renditions,omitempty"`
+	Segments           []PublicationSegmentInput `json:"segments,omitempty"`
+	ExpectedRevision   int                       `json:"expected_revision"`
+	Force              bool                      `json:"force,omitempty"`
+	Title              *string                   `json:"title,omitempty"`
+	ContentProfile     *string                   `json:"content_profile,omitempty"`
+	SourceText         *string                   `json:"source_text,omitempty"`
+	SourceURL          *string                   `json:"source_url,omitempty"`
+	Goal               *string                   `json:"goal,omitempty"`
+	Audience           *string                   `json:"audience,omitempty"`
+	ScheduledAt        *time.Time                `json:"scheduled_at,omitempty"`
+	ClearSchedule      bool                      `json:"clear_schedule,omitempty"`
+	RandomDelayMinutes *int                      `json:"random_delay_minutes,omitempty"`
+	Metadata           map[string]interface{}    `json:"metadata,omitempty"`
+	Renditions         []RenditionInput          `json:"renditions,omitempty"`
 }
 
 type PublicationSegmentInput struct {
-	ID    string                  `json:"id,omitempty"`
-	Body  string                  `json:"body,omitempty"`
-	Media []PublicationMediaInput `json:"media,omitempty"`
+	Title       string                  `json:"title,omitempty"`
+	Description string                  `json:"description,omitempty"`
+	URL         string                  `json:"url,omitempty"`
+	Settings    map[string]any          `json:"settings,omitempty"`
+	ID          string                  `json:"id,omitempty"`
+	Body        string                  `json:"body,omitempty"`
+	Media       []PublicationMediaInput `json:"media,omitempty"`
 }
 
+type PublicationCreationSource string
+
+const (
+	PublicationCreationSourceWeb      PublicationCreationSource = "web"
+	PublicationCreationSourceAPI      PublicationCreationSource = "api"
+	PublicationCreationSourceSDK      PublicationCreationSource = "sdk"
+	PublicationCreationSourceMCP      PublicationCreationSource = "mcp"
+	PublicationCreationSourceCLI      PublicationCreationSource = "cli"
+	PublicationCreationSourceAutopost PublicationCreationSource = "autopost"
+	PublicationCreationSourceUnknown  PublicationCreationSource = "unknown"
+)
+
+// Publication mirrors the served PublicationResponse shape. The human
+// table renderers select the columns they need; --json re-emits the full
+// projection. Optional fields use omitempty so existing parsers keep
+// working; required slices stay non-omitted so a served null re-emits as
+// null rather than disappearing.
 type Publication struct {
-	ID             string                 `json:"id"`
-	WorkspaceID    string                 `json:"workspace_id"`
-	CreatedBy      string                 `json:"created_by"`
-	Title          string                 `json:"title"`
-	Intent         string                 `json:"intent"`
-	ContentProfile string                 `json:"content_profile"`
-	SourceText     string                 `json:"source_text"`
-	SourceURL      string                 `json:"source_url,omitempty"`
-	Goal           string                 `json:"goal,omitempty"`
-	Audience       string                 `json:"audience,omitempty"`
-	Metadata       map[string]interface{} `json:"metadata,omitempty"`
-	Status         string                 `json:"status"`
-	Revision       int                    `json:"revision"`
-	ScheduledAt    string                 `json:"scheduled_at,omitempty"`
-	ActualRunAt    string                 `json:"actual_run_at,omitempty"`
-	CreatedAt      string                 `json:"created_at"`
-	UpdatedAt      string                 `json:"updated_at"`
-	Renditions     []Rendition            `json:"renditions"`
-	Media          []MediaSummary         `json:"media"`
+	ID                   string                    `json:"id"`
+	WorkspaceID          string                    `json:"workspace_id"`
+	CreatedBy            string                    `json:"created_by"`
+	CreationSource       PublicationCreationSource `json:"creation_source"`
+	CreationPreset       string                    `json:"creation_preset"`
+	Title                string                    `json:"title"`
+	Intent               string                    `json:"intent"`
+	ContentProfile       string                    `json:"content_profile"`
+	SourceText           string                    `json:"source_text"`
+	SourceURL            string                    `json:"source_url,omitempty"`
+	Goal                 string                    `json:"goal,omitempty"`
+	Audience             string                    `json:"audience,omitempty"`
+	Metadata             map[string]interface{}    `json:"metadata,omitempty"`
+	Status               string                    `json:"status"`
+	Revision             int                       `json:"revision"`
+	RandomDelayMinutes   int                       `json:"random_delay_minutes"`
+	RandomDelayInherited bool                      `json:"random_delay_inherited"`
+	SocialSetID          string                    `json:"social_set_id,omitempty"`
+	ReviewState          string                    `json:"review_state,omitempty"`
+	ReviewID             string                    `json:"review_id,omitempty"`
+	ReviewEpoch          int64                     `json:"review_epoch,omitempty"`
+	RepostOverride       *RepostOverride           `json:"repost_override,omitempty"`
+	FailureDismissedAt   string                    `json:"failure_dismissed_at,omitempty"`
+	ScheduledAt          string                    `json:"scheduled_at,omitempty"`
+	ActualRunAt          string                    `json:"actual_run_at,omitempty"`
+	CreatedAt            string                    `json:"created_at"`
+	UpdatedAt            string                    `json:"updated_at"`
+	Segments             []PublicationSegment      `json:"segments"`
+	Renditions           []Rendition               `json:"renditions"`
+	Media                []MediaSummary            `json:"media"`
 }
 
+// PublicationSegment is one authored content segment of a Publication
+// (thread part). It mirrors PublicationSegmentResponse.
+type PublicationSegment struct {
+	ID          string                 `json:"id"`
+	Position    int                    `json:"position"`
+	Body        string                 `json:"body"`
+	Title       string                 `json:"title"`
+	Description string                 `json:"description"`
+	Settings    map[string]interface{} `json:"settings"`
+	URL         string                 `json:"url,omitempty"`
+	Media       []MediaSummary         `json:"media"`
+}
+
+// RepostOverride mirrors the served Override shape: the workspace rule
+// mode plus this post's custom rule, if any.
+type RepostOverride struct {
+	Mode             string         `json:"mode"`
+	Rule             map[string]any `json:"rule,omitempty"`
+	TargetAccountIDs []string       `json:"target_account_ids,omitempty"`
+}
+
+// MediaSummary mirrors the served MediaSummary shape: generated text
+// cards, analysis results and delivery URLs are part of the projection,
+// not just the media ID.
 type MediaSummary struct {
-	ID string `json:"id"`
+	ID                   string         `json:"id"`
+	MimeType             string         `json:"mime_type"`
+	Size                 int64          `json:"size"`
+	OriginalFilename     string         `json:"original_filename"`
+	Width                int            `json:"width"`
+	Height               int            `json:"height"`
+	DurationMS           int64          `json:"duration_ms"`
+	FrameRate            float64        `json:"frame_rate"`
+	AspectRatio          string         `json:"aspect_ratio"`
+	DominantType         string         `json:"dominant_type"`
+	AnalysisStatus       string         `json:"analysis_status"`
+	PublicURLReady       bool           `json:"public_url_ready"`
+	PublicURLStatus      int            `json:"public_url_status"`
+	URL                  string         `json:"url"`
+	AltText              string         `json:"alt_text,omitempty"`
+	Role                 string         `json:"role,omitempty"`
+	Settings             map[string]any `json:"settings,omitempty"`
+	DisplayOrder         int            `json:"display_order,omitempty"`
+	ThumbnailTimestampMS int64          `json:"thumbnail_timestamp_ms,omitempty"`
+	PosterThumbnailURL   string         `json:"poster_thumbnail_url,omitempty"`
+	AnalysisError        string         `json:"analysis_error,omitempty"`
+	PublicURLCheckedAt   string         `json:"public_url_checked_at,omitempty"`
+	PublicURLError       string         `json:"public_url_error,omitempty"`
+}
+
+// ProviderDelivery mirrors ProviderDeliveryResponse: the per-destination
+// delivery attempt state the server reconciles.
+type ProviderDelivery struct {
+	TargetKey               string `json:"target_key"`
+	State                   string `json:"state"`
+	CurrentAttemptID        string `json:"current_attempt_id"`
+	CurrentAttemptNumber    int    `json:"current_attempt_number"`
+	CurrentAttemptCreatedAt string `json:"current_attempt_created_at"`
+	RecoveryAction          string `json:"recovery_action"`
+	ErrorKind               string `json:"error_kind,omitempty"`
+	ErrorCode               string `json:"error_code,omitempty"`
+	ErrorHTTPStatus         int    `json:"error_http_status,omitempty"`
+	ExternalID              string `json:"external_id,omitempty"`
+	ExternalURL             string `json:"external_url,omitempty"`
+	LastReconciledAt        string `json:"last_reconciled_at,omitempty"`
+	NextReconciliationAt    string `json:"next_reconciliation_at,omitempty"`
+	TerminalReason          string `json:"terminal_reason,omitempty"`
+}
+
+// RenditionSourceOverride is one caller-authored per-source decision
+// inside a joined rendition segment. It mirrors RenditionSourceOverride.
+type RenditionSourceOverride struct {
+	Mentions             *Mentions               `json:"mentions,omitempty"`
+	PublicationSegmentID string                  `json:"publication_segment_id"`
+	BodyOverride         *string                 `json:"body_override,omitempty"`
+	MediaInherited       bool                    `json:"media_inherited"`
+	Media                []PublicationMediaInput `json:"media,omitempty"`
+}
+
+// RenditionSegment is one destination-specific segment. It mirrors
+// RenditionSegmentResponse.
+type RenditionSegment struct {
+	ID                   string                    `json:"id"`
+	PublicationSegmentID string                    `json:"publication_segment_id"`
+	Position             int                       `json:"position"`
+	Body                 string                    `json:"body"`
+	BodyOverride         *string                   `json:"body_override,omitempty"`
+	Title                string                    `json:"title"`
+	TitleOverride        *string                   `json:"title_override,omitempty"`
+	Description          string                    `json:"description"`
+	DescriptionOverride  *string                   `json:"description_override,omitempty"`
+	URL                  string                    `json:"url,omitempty"`
+	URLOverride          *string                   `json:"url_override,omitempty"`
+	MediaInherited       bool                      `json:"media_inherited"`
+	Settings             map[string]interface{}    `json:"settings"`
+	Status               string                    `json:"status"`
+	ErrorRetryable       bool                      `json:"error_retryable"`
+	ErrorMessage         string                    `json:"error_message,omitempty"`
+	ErrorKind            string                    `json:"error_kind,omitempty"`
+	ErrorCode            string                    `json:"error_code,omitempty"`
+	ErrorHTTPStatus      int                       `json:"error_http_status,omitempty"`
+	ErrorRetryAt         string                    `json:"error_retry_at,omitempty"`
+	ErrorAction          string                    `json:"error_action,omitempty"`
+	ExternalID           string                    `json:"external_id,omitempty"`
+	ExternalURL          string                    `json:"external_url,omitempty"`
+	Media                []MediaSummary            `json:"media"`
+	OutputMedia          []MediaSummary            `json:"output_media,omitempty"`
+	SourceOverrides      []RenditionSourceOverride `json:"source_overrides,omitempty"`
+}
+
+type RenditionAccountIdentity struct {
+	Platform    string `json:"platform"`
+	DisplayName string `json:"display_name"`
+	AvatarURL   string `json:"avatar_url,omitempty"`
 }
 
 type Rendition struct {
-	ID              string                 `json:"id"`
-	SocialAccountID string                 `json:"social_account_id"`
-	Platform        string                 `json:"platform"`
-	Profile         string                 `json:"profile"`
-	Body            string                 `json:"body"`
-	Title           string                 `json:"title"`
-	Description     string                 `json:"description"`
-	Settings        map[string]interface{} `json:"settings"`
-	Status          string                 `json:"status"`
-	ExternalID      string                 `json:"external_id,omitempty"`
-	ExternalURL     string                 `json:"external_url,omitempty"`
-	ErrorMessage    string                 `json:"error_message,omitempty"`
-	ErrorKind       string                 `json:"error_kind,omitempty"`
-	ErrorCode       string                 `json:"error_code,omitempty"`
-	ErrorHTTPStatus int                    `json:"error_http_status,omitempty"`
-	ErrorRetryable  bool                   `json:"error_retryable"`
-	ErrorRetryAt    string                 `json:"error_retry_at,omitempty"`
-	ErrorAction     string                 `json:"error_action,omitempty"`
+	Account          *RenditionAccountIdentity `json:"account,omitempty"`
+	ID               string                    `json:"id"`
+	PublicationID    string                    `json:"publication_id"`
+	SocialAccountID  string                    `json:"social_account_id"`
+	TargetKey        string                    `json:"target_key"`
+	Platform         string                    `json:"platform"`
+	Profile          string                    `json:"profile"`
+	OutputProfile    string                    `json:"output_profile"`
+	FormatLocked     bool                      `json:"format_locked"`
+	Body             string                    `json:"body"`
+	Title            string                    `json:"title"`
+	Description      string                    `json:"description"`
+	Settings         map[string]interface{}    `json:"settings"`
+	Status           string                    `json:"status"`
+	ScheduleOverride string                    `json:"schedule_override,omitempty"`
+	Delivery         *ProviderDelivery         `json:"delivery,omitempty"`
+	Segments         []RenditionSegment        `json:"segments"`
+	Media            []MediaSummary            `json:"media"`
+	ExternalID       string                    `json:"external_id,omitempty"`
+	ExternalURL      string                    `json:"external_url,omitempty"`
+	ErrorMessage     string                    `json:"error_message,omitempty"`
+	ErrorKind        string                    `json:"error_kind,omitempty"`
+	ErrorCode        string                    `json:"error_code,omitempty"`
+	ErrorHTTPStatus  int                       `json:"error_http_status,omitempty"`
+	ErrorRetryable   bool                      `json:"error_retryable"`
+	ErrorRetryAt     string                    `json:"error_retry_at,omitempty"`
+	ErrorAction      string                    `json:"error_action,omitempty"`
 }
 
 type ListPublicationsInput struct {
@@ -1185,20 +1469,25 @@ func (c *Client) ListAPITokens(ctx context.Context) ([]Token, error) {
 }
 
 func (c *Client) RevokeAPIToken(ctx context.Context, id string) error {
-	return c.DeleteJSON(ctx, "/api/v1/api-tokens/"+id, nil)
+	return c.DeleteJSON(ctx, "/api/v1/api-tokens/"+url.PathEscape(id), nil)
 }
 
 // ----- Jobs -----
 
+// Job mirrors the served JobResponse shape. Payload was already
+// projected; created_at, publication_id and locked_at complete it.
 type Job struct {
-	ID          string `json:"id"`
-	Type        string `json:"type"`
-	Payload     string `json:"payload"`
-	Status      string `json:"status"`
-	RunAt       string `json:"run_at"`
-	Attempts    int    `json:"attempts"`
-	MaxAttempts int    `json:"max_attempts"`
-	LastError   string `json:"last_error,omitempty"`
+	ID            string `json:"id"`
+	Type          string `json:"type"`
+	Payload       string `json:"payload"`
+	Status        string `json:"status"`
+	RunAt         string `json:"run_at"`
+	Attempts      int    `json:"attempts"`
+	MaxAttempts   int    `json:"max_attempts"`
+	LastError     string `json:"last_error,omitempty"`
+	CreatedAt     string `json:"created_at"`
+	PublicationID string `json:"publication_id,omitempty"`
+	LockedAt      string `json:"locked_at,omitempty"`
 }
 
 type ListJobsInput struct {
@@ -1246,4 +1535,90 @@ func (c *Client) CheckToken() error {
 		return ErrAuthRequired
 	}
 	return nil
+}
+
+type MentionTarget struct {
+	Provider  string `json:"provider"`
+	Kind      string `json:"kind"`
+	ID        string `json:"id"`
+	Authority string `json:"authority,omitempty"`
+	Handle    string `json:"handle,omitempty"`
+}
+type MentionSpan struct {
+	Start  int           `json:"start"`
+	End    int           `json:"end"`
+	Text   string        `json:"text"`
+	Target MentionTarget `json:"target"`
+}
+type Mentions struct {
+	Version int           `json:"version"`
+	Spans   []MentionSpan `json:"spans"`
+}
+type MentionCandidate struct {
+	Label  string        `json:"label"`
+	Detail string        `json:"detail"`
+	Target MentionTarget `json:"target"`
+}
+type MentionLookup struct {
+	Candidates []MentionCandidate `json:"candidates"`
+	Mode       string             `json:"mode"`
+}
+type RenditionSegmentInput struct {
+	PublicationSegmentID string                    `json:"publication_segment_id,omitempty"`
+	Body                 string                    `json:"body,omitempty"`
+	Title                string                    `json:"title,omitempty"`
+	Description          string                    `json:"description,omitempty"`
+	URL                  string                    `json:"url,omitempty"`
+	BodyOverride         *string                   `json:"body_override,omitempty"`
+	TitleOverride        *string                   `json:"title_override,omitempty"`
+	DescriptionOverride  *string                   `json:"description_override,omitempty"`
+	URLOverride          *string                   `json:"url_override,omitempty"`
+	MediaInherited       *bool                     `json:"media_inherited,omitempty"`
+	Settings             map[string]any            `json:"settings,omitempty"`
+	SourceOverrides      []RenditionSourceOverride `json:"source_overrides,omitempty"`
+	Media                []PublicationMediaInput   `json:"media,omitempty"`
+}
+
+func (c *Client) LookupAccountMentions(ctx context.Context, accountID, query string) (*MentionLookup, error) {
+	var result MentionLookup
+	err := c.GetJSON(ctx, "/api/v1/accounts/"+url.PathEscape(accountID)+"/mentions?query="+url.QueryEscape(query), &result)
+	return &result, err
+}
+
+type PrepareMediaImageInput struct {
+	AccountID     string         `json:"account_id"`
+	OutputProfile string         `json:"output_profile"`
+	Settings      map[string]any `json:"settings,omitempty"`
+	AltText       *string        `json:"alt_text,omitempty"`
+}
+type PreparedMediaImage struct {
+	Media  MediaUploadResult `json:"media"`
+	Status string            `json:"status"`
+}
+
+func (c *Client) PrepareMediaImage(ctx context.Context, id string, input PrepareMediaImageInput) (*PreparedMediaImage, error) {
+	var result PreparedMediaImage
+	err := c.PostJSON(ctx, "/api/v1/media/"+url.PathEscape(id)+"/prepare-image", input, &result)
+	return &result, err
+}
+
+type MediaUploadResult struct {
+	ID                 string `json:"id"`
+	MimeType           string `json:"mime_type"`
+	URL                string `json:"url"`
+	Size               int64  `json:"size"`
+	Deduped            bool   `json:"deduped"`
+	AltText            string `json:"alt_text"`
+	OriginalFilename   string `json:"original_filename"`
+	Source             string `json:"source"`
+	AssetKind          string `json:"asset_kind"`
+	RetentionClass     string `json:"retention_class"`
+	ParentMediaID      string `json:"parent_media_id,omitempty"`
+	DesignDocumentID   string `json:"design_document_id,omitempty"`
+	DesignPageID       string `json:"design_page_id,omitempty"`
+	ProcessingStatus   string `json:"processing_status"`
+	ProcessingProgress int    `json:"processing_progress"`
+	AnalysisStatus     string `json:"analysis_status"`
+	AnalysisError      string `json:"analysis_error,omitempty"`
+	PosterThumbnailURL string `json:"poster_thumbnail_url,omitempty"`
 }

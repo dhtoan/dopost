@@ -139,6 +139,10 @@ func (s *Service) CreateAuthorizationCode(ctx context.Context, input Authorizati
 	if err != nil {
 		return nil, err
 	}
+	responseScope, err := normalizeResponseScope(input.Scope)
+	if err != nil {
+		return nil, err
+	}
 	resource, err := normalizeResource(input.Resource, input.ExpectedResource)
 	if err != nil {
 		return nil, err
@@ -160,13 +164,15 @@ func (s *Service) CreateAuthorizationCode(ctx context.Context, input Authorizati
 		return nil, err
 	}
 	model := &models.MCPOAuthCode{
-		ID:                  uuid.NewString(),
-		CodeHash:            codeHash,
-		UserID:              strings.TrimSpace(input.UserID),
-		ClientID:            strings.TrimSpace(input.ClientID),
-		ClientName:          clientName,
-		RedirectURI:         redirectURI.String(),
-		Scope:               scope,
+		ID:          uuid.NewString(),
+		CodeHash:    codeHash,
+		UserID:      strings.TrimSpace(input.UserID),
+		ClientID:    strings.TrimSpace(input.ClientID),
+		ClientName:  clientName,
+		RedirectURI: redirectURI.String(),
+		// Preserve the requested supported scope set for the OAuth response.
+		// The exchange normalizes it back to one server-side token scope.
+		Scope:               responseScope,
 		WorkspaceID:         workspaceID,
 		OrganizationID:      strings.TrimSpace(input.OrganizationID),
 		IdentityProviderID:  strings.TrimSpace(input.IdentityProviderID),
@@ -241,7 +247,11 @@ func (s *Service) ExchangeCode(ctx context.Context, input TokenRequest) (*TokenR
 	if expiresAt.IsZero() {
 		expiresAt = now.Add(apitokens.DefaultExpiration)
 	}
-	generated, err := s.tokens.GenerateTokenWithOptions(ctx, code.UserID, tokenName(*code), code.Scope, apitokens.GenerateOptions{
+	grantedScope, err := normalizeScope(code.Scope)
+	if err != nil {
+		return nil, ErrInvalidGrant
+	}
+	generated, err := s.tokens.GenerateTokenWithOptions(ctx, code.UserID, tokenName(*code), grantedScope, apitokens.GenerateOptions{
 		ExpiresAt:          &expiresAt,
 		WorkspaceID:        code.WorkspaceID,
 		OrganizationID:     code.OrganizationID,
@@ -256,7 +266,7 @@ func (s *Service) ExchangeCode(ctx context.Context, input TokenRequest) (*TokenR
 	return &TokenResult{
 		AccessToken: generated.Token,
 		TokenPrefix: generated.Model.TokenPrefix,
-		Scope:       generated.Model.Scope,
+		Scope:       code.Scope,
 		ExpiresIn:   int(expiresAt.Sub(now).Seconds()),
 		Resource:    code.Resource,
 	}, nil
@@ -444,6 +454,32 @@ func normalizeScope(scope string) (string, error) {
 	return granted, nil
 }
 
+func normalizeResponseScope(scope string) (string, error) {
+	parts := strings.Fields(scope)
+	if len(parts) == 0 {
+		return apitokens.ScopeMCP, nil
+	}
+	hasRead, hasFull := false, false
+	for _, part := range parts {
+		switch part {
+		case apitokens.ScopeMCPRead:
+			hasRead = true
+		case apitokens.ScopeMCP:
+			hasFull = true
+		default:
+			return "", ErrUnsupportedScope
+		}
+	}
+	switch {
+	case hasRead && hasFull:
+		return apitokens.ScopeMCPRead + " " + apitokens.ScopeMCP, nil
+	case hasFull:
+		return apitokens.ScopeMCP, nil
+	default:
+		return apitokens.ScopeMCPRead, nil
+	}
+}
+
 func normalizeResource(resource, expected string) (string, error) {
 	expected = strings.TrimRight(strings.TrimSpace(expected), "/")
 	resource = strings.TrimRight(strings.TrimSpace(resource), "/")
@@ -599,4 +635,22 @@ func tokenName(code models.MCPOAuthCode) string {
 		return strings.TrimSpace(code.ClientName)
 	}
 	return "OpenPost MCP"
+}
+
+// Revoke invalidates MCP bearer tokens even when external application OAuth is
+// disabled. Presented authorization codes and outstanding grants for the same
+// client are retired so revocation cannot be undone by exchanging an old code.
+func (s *Service) Revoke(ctx context.Context, rawToken string) error {
+	principal, authErr := s.tokens.ValidateToken(ctx, rawToken)
+	if err := s.tokens.RevokePresentedToken(ctx, rawToken); err != nil {
+		return err
+	}
+	query := s.db.NewUpdate().Model((*models.MCPOAuthCode)(nil)).Set("consumed_at = ?", s.now()).Where("consumed_at IS NULL")
+	if authErr == nil && principal.ClientID != "" && (principal.Scope == apitokens.ScopeMCP || principal.Scope == apitokens.ScopeMCPRead || strings.Contains(principal.Scope, "mcp:")) {
+		query = query.Where("user_id = ? AND client_id = ?", principal.UserID, principal.ClientID)
+	} else {
+		query = query.Where("code_hash = ?", hashSecret(strings.TrimSpace(rawToken)))
+	}
+	_, err := query.Exec(ctx)
+	return err
 }

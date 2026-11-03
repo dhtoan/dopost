@@ -38,6 +38,31 @@ describe('editor-settings caption search mode', () => {
 });
 
 describe('editor-settings layout dock', () => {
+	it('restores Color palette and scope visibility across editor instances', () => {
+		const storage = memoryStorage();
+		const first = createEditorSettingsStore(storage);
+		first.set('colorPalette', 'windows');
+		first.set('colorScopesVisible', false);
+		first.set('colorKeyframesVisible', true);
+		const reopened = createEditorSettingsStore(storage);
+		expect(reopened.value.colorPalette).toBe('windows');
+		expect(reopened.value.colorScopesVisible).toBe(false);
+		expect(reopened.value.colorKeyframesVisible).toBe(true);
+		expect(
+			normalizeEditorSettings({ colorPalette: 'missing', colorScopesVisible: 'yes' }).colorPalette
+		).toBe('primaries');
+		expect(normalizeEditorSettings({ colorScopesVisible: 'yes' }).colorScopesVisible).toBeNull();
+		expect(normalizeEditorSettings({ colorKeyframesVisible: 'yes' }).colorKeyframesVisible).toBe(
+			false
+		);
+	});
+	it('restores a compact Color dock after reopening the editor', () => {
+		const storage = memoryStorage();
+		const first = createEditorSettingsStore(storage);
+		first.set('colorDockHeight', 367);
+		expect(createEditorSettingsStore(storage).colorDockHeight).toBe(367);
+	});
+
 	it('keeps the assets column full height and the tools above the timeline by default', () => {
 		const settings = normalizeEditorSettings({});
 		expect(settings.leftSidebarCollapsed).toBe(false);

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { appBranding } from '$lib/app-branding.svelte';
 	import { goto } from '$app/navigation';
 	import { ThemeIcon, ProtectedIcon } from '$lib/themes/icons';
 	import { resolve } from '$app/paths';
@@ -247,7 +248,7 @@
 </script>
 
 <svelte:head>
-	<title>{m.cli_authorize_title()}</title>
+	<title>{appBranding.title(m.cli_authorize_title())}</title>
 </svelte:head>
 
 {#snippet clientIcon()}
@@ -262,6 +263,10 @@
 	<Button variant="outline" size="sm" disabled={loading} onclick={retryLoadSession}>
 		{m.common_retry()}
 	</Button>
+{/snippet}
+
+{#snippet returnHomeAction()}
+	<Button variant="outline" size="sm" href={resolve('/')}>{m.auth_account_deleted_home()}</Button>
 {/snippet}
 
 <StandaloneShell
@@ -280,8 +285,8 @@
 		<InlineNotice
 			tone="error"
 			message={error}
-			actions={sessionLoadFailed ? retryLoadAction : undefined}
-			class="mb-4"
+			actions={!userCode ? returnHomeAction : sessionLoadFailed ? retryLoadAction : undefined}
+			class={!userCode ? 'mb-4 flex-col items-stretch sm:flex-row sm:items-center' : 'mb-4'}
 		/>
 	{/if}
 	{#if completed}
@@ -358,7 +363,7 @@
 					disabled={submitting || selectedWorkspaceID === null}
 				>
 					{#if pendingDecision === 'approved'}
-						<ProtectedIcon icon="loading" class="size-4 animate-spin" />
+						<ProtectedIcon icon="loading" class="size-4 animate-spin motion-reduce:animate-none" />
 					{:else}
 						<ThemeIcon role="security" class="h-4 w-4" />
 					{/if}
@@ -366,7 +371,7 @@
 				</Button>
 				<Button variant="outline" class="w-full gap-2" onclick={deny} disabled={submitting}>
 					{#if pendingDecision === 'denied'}
-						<ProtectedIcon icon="loading" class="size-4 animate-spin" />
+						<ProtectedIcon icon="loading" class="size-4 animate-spin motion-reduce:animate-none" />
 					{:else}
 						<ThemeIcon role="close" class="h-4 w-4" />
 					{/if}

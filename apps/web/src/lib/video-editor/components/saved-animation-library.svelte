@@ -1,4 +1,5 @@
 <script lang="ts">
+	import LibraryFavorite from './library-favorite.svelte';
 	import { Checkbox } from '$lib/components/ui/checkbox';
 	import { Input } from '$lib/components/ui/input';
 	import { m } from '$lib/paraglide/messages';
@@ -132,8 +133,9 @@
 <section class="saved-library" aria-labelledby="saved-animation-title">
 	<div class="library-heading">
 		<div>
-			<h3 id="saved-animation-title">{m.video_editor_saved_animation_title()}</h3>
-			<p>{m.video_editor_saved_animation_description()}</p>
+			<h3 id="saved-animation-title" title={m.video_editor_saved_animation_description()}>
+				{m.video_editor_saved_animation_title()}
+			</h3>
 		</div>
 		<button type="button" class="save-button" disabled={!canSave} onclick={openSave}>
 			{m.video_editor_saved_animation_save()}
@@ -147,7 +149,7 @@
 				id="saved-animation-name"
 				bind:value={presetName}
 				maxlength={80}
-				class="h-7 min-h-0 rounded border border-[var(--video-editor-border)] bg-[var(--video-editor-field)] px-2 text-[0.6rem] text-[var(--video-editor-field-text)]"
+				class="h-[var(--editor-22,22px)] min-h-0 rounded border border-[var(--video-editor-border)] bg-[var(--video-editor-field)] px-2 text-[0.6rem] text-[var(--video-editor-field-text)]"
 				onkeydown={(event) => event.key === 'Enter' && savePreset()}
 			/>
 			<div>
@@ -170,7 +172,7 @@
 						type="search"
 						bind:value={localQuery}
 						placeholder={m.video_editor_saved_animation_search()}
-						class="h-7 min-h-0 rounded border border-[var(--video-editor-border)] bg-[var(--video-editor-field)] px-2 text-[0.6rem] text-[var(--video-editor-field-text)]"
+						class="h-[var(--editor-22,22px)] min-h-0 rounded border border-[var(--video-editor-border)] bg-[var(--video-editor-field)] px-2 text-[0.6rem] text-[var(--video-editor-field-text)]"
 					/>
 				</label>
 			{/if}
@@ -182,9 +184,15 @@
 		<div class="preset-list">
 			{#each filteredPresets as preset (preset.id)}
 				{@const reason = compatibilityReason(preset)}
-				<article class="saved-card">
+				<article class="saved-card group/library-item">
 					<div>
 						<strong>{preset.name}</strong>
+						<LibraryFavorite
+							placement="inline"
+							catalogId={`animation:${preset.id}`}
+							name={preset.name}
+							recipe={{ kind: 'animation', preset }}
+						/>
 						<span
 							>{m.video_editor_saved_animation_summary({
 								count: String(preset.properties.length + (preset.vectorProperties?.length ?? 0)),
@@ -261,7 +269,6 @@
 		font-size: 0.65rem;
 		color: var(--video-editor-text);
 	}
-	.library-heading p,
 	.empty,
 	.status {
 		margin-top: 0.15rem;
@@ -273,7 +280,10 @@
 		font: inherit;
 	}
 	button {
-		min-height: 1.75rem;
+		min-height: 22px;
+		@media (pointer: coarse) {
+			min-height: 44px;
+		}
 		border-radius: 0.32rem;
 		padding: 0.25rem 0.5rem;
 		font-size: 0.5625rem;
@@ -307,10 +317,10 @@
 	.save-form,
 	.library-controls,
 	.saved-card {
-		margin-top: 0.55rem;
+		margin-top: 0.4rem;
 		border: 1px solid var(--video-editor-border);
 		border-radius: 0.4rem;
-		padding: 0.5rem;
+		padding: 0.375rem;
 		background: color-mix(in oklch, var(--video-editor-panel) 76%, transparent);
 	}
 	.save-form,

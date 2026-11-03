@@ -5,6 +5,7 @@
 	import PageHeader from '$lib/components/page-header.svelte';
 	import PageLoading from '$lib/components/page-loading.svelte';
 	import { createDelayedVisibility } from '$lib/query/presentation.svelte';
+	import { m } from '$lib/paraglide/messages';
 
 	type PageLoadingProps = ComponentProps<typeof PageLoading>;
 
@@ -19,6 +20,8 @@
 		description?: string;
 		/** Optional header actions (buttons, etc.) */
 		actions?: Snippet;
+		/** Keep a single compact action beside the title at phone widths. */
+		headerActionLayout?: 'responsive' | 'inline';
 		/** Navigation and filters that remain usable while content loads. */
 		navigation?: Snippet;
 		/** Whether to show loading state */
@@ -47,9 +50,10 @@
 		themeIconRole,
 		description,
 		actions,
+		headerActionLayout = 'responsive',
 		navigation,
 		loading = false,
-		loadingMessage = 'Loading...',
+		loadingMessage = m.common_loading(),
 		loadingLayout = 'list',
 		loadingVariant = 'profile',
 		loadingItems = 4,
@@ -103,7 +107,14 @@
 		data-theme-content
 		style="container-type: inline-size;"
 	>
-		<PageHeader {title} icon={Icon} {themeIconRole} {description} {actions} />
+		<PageHeader
+			{title}
+			icon={Icon}
+			{themeIconRole}
+			{description}
+			{actions}
+			actionLayout={headerActionLayout}
+		/>
 
 		{#if navigation}
 			<div data-slot="page-navigation" data-theme-type="body" class="min-w-0 empty:hidden">

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { ditherSurface } from '@openpost/dither';
 	import { onMount } from 'svelte';
 	import ProductScreenshot from './ProductScreenshot.svelte';
 	import Pause from '@lucide/svelte/icons/pause';
@@ -61,12 +62,12 @@
 			caption: 'Keep your photos, clips, and brand assets together.'
 		},
 		{
-			name: 'Accounts',
-			icon: '/assets/brand/features/accounts.svg',
-			lightSrc: '/assets/screenshots/accounts-light.webp',
-			darkSrc: '/assets/screenshots/accounts-dark.webp',
-			alt: 'OpenPost Accounts page with connected social profiles',
-			caption: 'Bring your social accounts into one place.'
+			name: 'Workflows',
+			icon: '/assets/brand/features/workflows.svg',
+			lightSrc: '/assets/screenshots/workflows-light.webp',
+			darkSrc: '/assets/screenshots/workflows-dark.webp',
+			alt: 'OpenPost Workflows sends breaking changes through AI writing, approval, and scheduling, while other releases become shortened drafts with tracking links',
+			caption: 'Announce breaking changes. Save smaller updates for later.'
 		}
 	];
 	let selected = $state(0);
@@ -115,6 +116,8 @@
 </script>
 
 <div
+	data-dither-panel
+	use:ditherSurface
 	class="product-tour"
 	role="region"
 	aria-label="OpenPost screenshot tour"
@@ -126,25 +129,24 @@
 		if (!(event.target instanceof Element && event.target.closest('.tour-playback'))) paused = true;
 	}}
 >
-	{#if ready}
-		<div class="view-picker" role="group" aria-label="Explore OpenPost">
-			{#each views as item, index (item.name)}
-				<button
-					type="button"
-					class="focus-ring"
-					aria-pressed={selected === index}
-					onclick={() => select(index)}
-					><img src={item.icon} alt="" width="24" height="24" /><span>{item.name}</span><span
-						class="progress-track"
-						aria-hidden="true"
-						><span
-							style:transform={`scaleX(${selected === index ? (paused || reducedMotion ? 1 : progress) : 0})`}
-						></span></span
-					></button
-				>
-			{/each}
-		</div>
-	{/if}
+	<div class="view-picker" role="group" aria-label="Explore OpenPost">
+		{#each views as item, index (item.name)}
+			<button
+				type="button"
+				disabled={!ready}
+				class="focus-ring"
+				aria-pressed={selected === index}
+				onclick={() => select(index)}
+				><img src={item.icon} alt="" width="24" height="24" /><span>{item.name}</span><span
+					class="progress-track"
+					aria-hidden="true"
+					><span
+						style:transform={`scaleX(${selected === index ? (paused || reducedMotion ? 1 : progress) : 0})`}
+					></span></span
+				></button
+			>
+		{/each}
+	</div>
 	<div class="preview">
 		{#key selected}
 			<ProductScreenshot
@@ -185,8 +187,6 @@
 		border: 1px solid var(--border);
 		border-radius: 16px;
 		background: var(--card);
-		background-image: var(--marketing-dither-pattern);
-		background-size: 32px 32px;
 	}
 	.view-picker {
 		display: grid;

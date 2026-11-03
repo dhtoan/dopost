@@ -1,51 +1,36 @@
-import { clsx, type ClassValue } from 'clsx';
-import { twMerge } from 'tailwind-merge';
+export {
+	cn,
+	type WithoutChild,
+	type WithoutChildren,
+	type WithoutChildrenOrChild,
+	type WithElementRef
+} from '@openpost/ui/utils';
 
-export function cn(...inputs: ClassValue[]) {
-	return twMerge(clsx(inputs));
+/**
+ * Canonical platform-key owner for the web client. `getPlatformKey` trims,
+ * case-folds, strips any `:instance` suffix, and resolves legacy aliases
+ * (`twitter` → `x`, `gmb` → `googlebusiness`); every other key passes through
+ * unchanged. Mobile mirrors these semantics in `platformKey`
+ * (`apps/mobile/src/lib/format.ts`) because the native bundle cannot import
+ * this module; keep the two in sync. The proposed long-term home for both is
+ * `@openpost/platform-text`, which both apps already consume for limits.
+ */
+const PLATFORM_KEY_ALIASES = {
+	twitter: 'x',
+	gmb: 'googlebusiness'
+} as const;
+
+function resolvePlatformAlias(key: string): string {
+	if (Object.hasOwn(PLATFORM_KEY_ALIASES, key)) {
+		// SAFETY: `key` was just checked with `Object.hasOwn` against this exact table,
+		// so narrowing to its key union cannot yield a missing entry.
+		return PLATFORM_KEY_ALIASES[key as keyof typeof PLATFORM_KEY_ALIASES];
+	}
+	return key;
 }
 
-export type WithoutChild<T> = T extends { child?: any } ? Omit<T, 'child'> : T;
-export type WithoutChildren<T> = T extends { children?: any } ? Omit<T, 'children'> : T;
-export type WithoutChildrenOrChild<T> = WithoutChildren<WithoutChild<T>>;
-export type WithElementRef<T, U extends HTMLElement = HTMLElement> = T & {
-	ref?: U | null;
-};
-
 export function getPlatformKey(platform: string): string {
-	const key = platform.toLowerCase().split(':')[0];
-
-	switch (key) {
-		case 'twitter':
-		case 'x':
-			return 'x';
-		case 'mastodon':
-			return 'mastodon';
-		case 'pixelfed':
-			return 'pixelfed';
-		case 'peertube':
-			return 'peertube';
-		case 'lemmy':
-			return 'lemmy';
-		case 'piefed':
-			return 'piefed';
-		case 'threads':
-			return 'threads';
-		case 'bluesky':
-			return 'bluesky';
-		case 'linkedin':
-			return 'linkedin';
-		case 'instagram':
-			return 'instagram';
-		case 'facebook':
-			return 'facebook';
-		case 'youtube':
-			return 'youtube';
-		case 'tiktok':
-			return 'tiktok';
-		default:
-			return key;
-	}
+	return resolvePlatformAlias(platform.trim().toLowerCase().split(':')[0]);
 }
 
 export function getPlatformName(platform: string): string {
@@ -72,6 +57,8 @@ export function getPlatformName(platform: string): string {
 			return 'Friendica';
 		case 'threads':
 			return 'Threads';
+		case 'devnull':
+			return 'dev/null';
 		case 'bluesky':
 			return 'Bluesky';
 		case 'discord':
@@ -90,6 +77,10 @@ export function getPlatformName(platform: string): string {
 			return 'Pinterest';
 		case 'telegram':
 			return 'Telegram';
+		case 'reddit':
+			return 'Reddit';
+		case 'googlebusiness':
+			return 'Google Business';
 		default:
 			return platform.split(':')[0];
 	}
@@ -102,6 +93,7 @@ export function formatAccountHandle(username: string | null | undefined): string
 
 const HANDLE_FIRST_PLATFORMS = new Set([
 	'bluesky',
+	'devnull',
 	'instagram',
 	'mastodon',
 	'pixelfed',
@@ -112,8 +104,10 @@ const HANDLE_FIRST_PLATFORMS = new Set([
 
 export function formatSocialAccountName(
 	username: string | null | undefined,
-	platform: string
+	platform: string,
+	alias = ''
 ): string {
+	if (alias.trim()) return alias.trim();
 	const normalizedUsername = username?.trim();
 	if (!normalizedUsername) return '';
 	const platformKey = getPlatformKey(platform.trim());
@@ -153,24 +147,38 @@ export function getStatusColor(status: string): string {
 	return colors.get(status) ?? 'bg-muted text-muted-foreground';
 }
 
+/** Brand-chip tokens per canonical platform key. Values are the established
+ * Tailwind classes; add a token here rather than a new ad-hoc class.
+ * Native mirrors this table as hex in `platformColor`
+ * (`apps/mobile/src/lib/format.ts`). */
+export const PLATFORM_COLORS = {
+	x: 'bg-black',
+	mastodon: 'bg-indigo-500',
+	pixelfed: 'bg-violet-500',
+	peertube: 'bg-orange-500',
+	lemmy: 'bg-emerald-600',
+	piefed: 'bg-blue-500',
+	threads: 'bg-orange-500',
+	devnull: 'bg-lime-600',
+	bluesky: 'bg-sky-500',
+	discord: 'bg-indigo-500',
+	linkedin: 'bg-blue-600',
+	instagram: 'bg-pink-500',
+	facebook: 'bg-blue-700',
+	youtube: 'bg-red-600',
+	tiktok: 'bg-zinc-900',
+	pinterest: 'bg-red-700',
+	telegram: 'bg-sky-500'
+} as const;
+
+export const PLATFORM_COLOR_FALLBACK = 'bg-gray-500';
+
 export function getPlatformColor(platform: string): string {
-	const colors = new Map([
-		['x', 'bg-black'],
-		['mastodon', 'bg-indigo-500'],
-		['pixelfed', 'bg-violet-500'],
-		['peertube', 'bg-orange-500'],
-		['lemmy', 'bg-emerald-600'],
-		['piefed', 'bg-blue-500'],
-		['threads', 'bg-orange-500'],
-		['bluesky', 'bg-sky-500'],
-		['discord', 'bg-indigo-500'],
-		['linkedin', 'bg-blue-600'],
-		['instagram', 'bg-pink-500'],
-		['facebook', 'bg-blue-700'],
-		['youtube', 'bg-red-600'],
-		['tiktok', 'bg-zinc-900'],
-		['pinterest', 'bg-red-700'],
-		['telegram', 'bg-sky-500']
-	]);
-	return colors.get(getPlatformKey(platform)) ?? 'bg-gray-500';
+	const key = getPlatformKey(platform);
+	if (Object.hasOwn(PLATFORM_COLORS, key)) {
+		// SAFETY: `key` was just checked with `Object.hasOwn` against this exact table,
+		// so narrowing to its key union cannot yield a missing entry.
+		return PLATFORM_COLORS[key as keyof typeof PLATFORM_COLORS];
+	}
+	return PLATFORM_COLOR_FALLBACK;
 }

@@ -1,6 +1,6 @@
 module github.com/openpost/cli
 
-go 1.26.6
+go 1.26.10
 
 require (
 	github.com/BurntSushi/toml v1.6.0
@@ -20,6 +20,7 @@ require (
 	github.com/magefile/mage v1.14.0 // indirect
 	github.com/tetratelabs/wazero v1.2.1 // indirect
 	github.com/wasilibs/go-re2 v1.3.0 // indirect
-	golang.org/x/sys v0.42.0 // indirect
-	golang.org/x/text v0.40.0 // indirect
+	golang.org/x/net v0.62.0 // indirect
+	golang.org/x/sys v0.49.0 // indirect
+	golang.org/x/text v0.43.0 // indirect
 )

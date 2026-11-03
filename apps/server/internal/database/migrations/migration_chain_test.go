@@ -114,7 +114,8 @@ func TestMigrationChainAppliesCleanlyAndIsIdempotent(t *testing.T) {
 	}
 }
 
-func TestMigrationChainAppliesCleanlyOnPostgres(t *testing.T) {
+func newPostgresMigrationTestDB(t *testing.T) *bun.DB {
+	t.Helper()
 	dsn := os.Getenv("OPENPOST_TEST_POSTGRES_URL")
 	if dsn == "" {
 		t.Skip("OPENPOST_TEST_POSTGRES_URL is not configured")
@@ -135,7 +136,11 @@ func TestMigrationChainAppliesCleanlyOnPostgres(t *testing.T) {
 	_, err = db.ExecContext(t.Context(), `SET search_path TO "`+schema+`"`)
 	require.NoError(t, err)
 	createMigrationBaseTables(t, db)
+	return db
+}
 
+func TestMigrationChainAppliesCleanlyOnPostgres(t *testing.T) {
+	db := newPostgresMigrationTestDB(t)
 	require.NoError(t, RunMigrations(db))
 	require.NoError(t, RunMigrations(db))
 
@@ -197,13 +202,14 @@ func TestMultiStageRepostMigrationPreservesLegacyExecutions(t *testing.T) {
 		Intent: models.PublishingIntentPost, ContentProfile: models.ContentProfileShortText,
 		SourceContent: "Legacy post", Status: models.PublicationStatusPublished,
 	}
-	_, err = db.NewInsert().Model(publication).Exec(ctx)
+	_, err = db.NewInsert().Model(publication).Column("id", "workspace_id", "created_by", "title", "intent", "content_profile", "source_content", "status").Returning("").Exec(ctx)
 	require.NoError(t, err)
-	_, err = db.NewInsert().Model(&models.Rendition{
-		ID: "rendition-1", PublicationID: publication.ID, SocialAccountID: source.ID,
-		TargetKey: "x:source-provider", Platform: "x", Profile: models.ContentProfileShortText,
-		Status: models.RenditionStatusPublished, ExternalID: "source-post-1",
-	}).Exec(ctx)
+	// Seed the historical schema without fields introduced by later migrations.
+	_, err = db.ExecContext(ctx, `INSERT INTO renditions (
+		id, publication_id, social_account_id, target_key, platform, profile, status, external_id
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		"rendition-1", publication.ID, source.ID, "x:source-provider", "x",
+		models.ContentProfileShortText, models.RenditionStatusPublished, "source-post-1")
 	require.NoError(t, err)
 	_, err = db.ExecContext(ctx, `INSERT INTO repost_executions (
 		id, workspace_id, publication_id, rendition_id, source_account_id, target_account_id,

@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/danielgtaylor/huma/v2"
+	"github.com/openpost/backend/internal/ai"
 	"github.com/openpost/backend/internal/api/handlers"
 	"github.com/openpost/backend/internal/api/middleware"
 	"github.com/openpost/backend/internal/capabilities"
@@ -30,9 +31,11 @@ import (
 	"github.com/openpost/backend/internal/services/externalapps"
 	"github.com/openpost/backend/internal/services/externalwebhooks"
 	"github.com/openpost/backend/internal/services/feedback"
+	"github.com/openpost/backend/internal/services/githubstars"
 	growthservice "github.com/openpost/backend/internal/services/growth"
 	"github.com/openpost/backend/internal/services/identity"
 	"github.com/openpost/backend/internal/services/imagecaption"
+	"github.com/openpost/backend/internal/services/imagegeneration"
 	"github.com/openpost/backend/internal/services/instancesettings"
 	"github.com/openpost/backend/internal/services/mastodonapps"
 	"github.com/openpost/backend/internal/services/mcpoauth"
@@ -42,23 +45,31 @@ import (
 	messagingservice "github.com/openpost/backend/internal/services/messaging"
 	"github.com/openpost/backend/internal/services/mfa"
 	"github.com/openpost/backend/internal/services/notifications"
+	"github.com/openpost/backend/internal/services/oauth2messaging"
 	"github.com/openpost/backend/internal/services/organizationownership"
 	"github.com/openpost/backend/internal/services/passwordmail"
 	"github.com/openpost/backend/internal/services/postgeneration"
+	"github.com/openpost/backend/internal/services/postimport"
 	"github.com/openpost/backend/internal/services/providerapps"
 	"github.com/openpost/backend/internal/services/providerreadiness"
 	"github.com/openpost/backend/internal/services/publicationbuilder"
 	"github.com/openpost/backend/internal/services/publicationdiscovery"
 	"github.com/openpost/backend/internal/services/publicurl"
+	"github.com/openpost/backend/internal/services/ratelimit"
 	repostservice "github.com/openpost/backend/internal/services/reposts"
+	"github.com/openpost/backend/internal/services/repurpose"
 	"github.com/openpost/backend/internal/services/sessions"
 	telegramservice "github.com/openpost/backend/internal/services/telegram"
 	"github.com/openpost/backend/internal/services/updatestatus"
+	"github.com/openpost/backend/internal/services/waitlist"
+	"github.com/openpost/backend/internal/services/workflows"
 	"github.com/openpost/backend/internal/telemetry"
 	"github.com/uptrace/bun"
 )
 
 type RouteDeps struct {
+	ImageGeneration              *imagegeneration.Service
+	WorkflowService              *workflows.Service
 	DB                           *bun.DB
 	Readiness                    *Readiness
 	AuthService                  *auth.Service
@@ -80,9 +91,12 @@ type RouteDeps struct {
 	PostBuilder                  postgeneration.Builder
 	AutoVideoPlanner             autovideo.Planner
 	DocumentaryPlanner           documentary.Planner
+	EditorAgentGenerator         ai.Generator
+	EditorAgentModel             string
 	ContentBuilderEnabled        bool
 	ContentDiscoveryEnabled      bool
 	PublicationBuilder           *publicationbuilder.Application
+	RepurposeSuggestions         *repurpose.Service
 	PublicationPlanner           *publicationbuilder.Service
 	PublicationDiscovery         publicationdiscovery.Discoverer
 	PublicMediaVerifier          *publicurl.MediaVerifier
@@ -114,16 +128,20 @@ type RouteDeps struct {
 	UnsplashAccessKey            string
 	PixabayAPIKey                string
 	FeedbackService              *feedback.Service
+	WaitlistService              *waitlist.Service
 	IdentityService              *identity.Service
 	InstanceSettingsService      *instancesettings.Service
 	AIPromptService              *aiprompts.Service
 	AnalyticsService             *analyticsservice.Service
+	PostImportService            *postimport.Service
 	MessagingService             *messagingservice.Service
+	XMessagingService            *oauth2messaging.Service
 	EngagementService            *engagementservice.Service
 	RepostService                *repostservice.Service
 	NotificationService          *notifications.Service
 	OrganizationOwnershipService *organizationownership.Service
 	UpdateStatusService          *updatestatus.Service
+	GitHubStarsService           *githubstars.Service
 	ProviderReadinessService     *providerreadiness.Service
 	ConnectorRegistry            *connectors.Registry
 	ConnectorStore               *connectors.Store
@@ -146,6 +164,7 @@ type RouteDeps struct {
 }
 
 func RegisterHumaRoutes(api huma.API, deps RouteDeps) {
+	providerRegistrars := append([]func(string, platform.Adapter){}, deps.ProviderRegistrars...)
 	profileHandler := deps.ProfileHandler
 	if profileHandler == nil {
 		profileHandler = handlers.NewProfileHandler(deps.DB, deps.Authenticator, deps.MediaStorage)
@@ -160,6 +179,7 @@ func RegisterHumaRoutes(api huma.API, deps RouteDeps) {
 	mediaHandler.SetPublicMediaVerifier(deps.PublicMediaVerifier)
 	mediaHandler.RegisterRoutes(api)
 	mediaHandler.RegisterImageCaptionRoutes(api, deps.ImageCaptioner)
+	handlers.NewScreenshotTemplateHandler(deps.DB, deps.Authenticator).RegisterRoutes(api)
 	handlers.NewMemeHandler(
 		deps.DB,
 		deps.Authenticator,
@@ -198,6 +218,9 @@ func RegisterHumaRoutes(api huma.API, deps RouteDeps) {
 		deps.MFAService,
 		deps.DisableRegistrations,
 	)
+	authHandler.SetRateLimiter(ratelimit.NewShared(deps.DB))
+	authHandler.SetWaitlist(deps.WaitlistService)
+	authHandler.JoinWaitlist(api)
 	authHandler.SetSessionService(deps.SessionService)
 	authHandler.SetPasswordResetSender(deps.PasswordResetSender, deps.PublicURL)
 	authHandler.SetEmailVerification(deps.EmailVerificationService, deps.EmailVerificationSender, deps.EmailVerificationRequired)
@@ -267,6 +290,7 @@ func RegisterHumaRoutes(api huma.API, deps RouteDeps) {
 	handlers.NewExternalApplicationHandler(deps.ExternalApps, deps.DB, deps.Authenticator).RegisterRoutes(api)
 	handlers.NewExternalWebhookHandler(deps.ExternalWebhooks, deps.DB, deps.Authenticator).RegisterRoutes(api)
 	cliAuthHandler := handlers.NewCLIAuthHandler(deps.CLIAuthService, deps.Authenticator, deps.PublicURL)
+	cliAuthHandler.SetRateLimiter(ratelimit.NewShared(deps.DB))
 	cliAuthHandler.SetIdentityService(deps.IdentityService)
 	cliAuthHandler.RegisterRoutes(api)
 	handlers.NewMCPActivityHandler(deps.DB, deps.Authenticator).RegisterRoutes(api)
@@ -280,33 +304,43 @@ func RegisterHumaRoutes(api huma.API, deps RouteDeps) {
 	handlers.NewTelegramConnectionHandler(deps.DB, deps.Authenticator, deps.BotIngressService, deps.TelegramService, deps.Entitlement).RegisterRoutes(api)
 	handlers.NewCapabilityHandler().RegisterRoutes(api)
 	capabilityResolverHandler := handlers.NewCapabilityResolverHandler(deps.DB, deps.Authenticator, deps.Providers, deps.TokenSource)
+	mediaHandler.SetCapabilityResolver(capabilityResolverHandler)
 	capabilityResolverHandler.SetPublicMediaVerifier(deps.PublicMediaVerifier)
 	capabilityResolverHandler.SetProviderReadiness(deps.ProviderReadinessService)
 	capabilityResolverHandler.SetConnectorRegistry(deps.ConnectorRegistry, deps.ConnectorStore)
+	providerRegistrars = append(providerRegistrars, capabilityResolverHandler.SetProvider)
 	capabilityResolverHandler.RegisterRoutes(api)
 	handlers.NewProviderReadinessHandler(deps.DB, deps.Authenticator, deps.ProviderReadinessService, deps.Providers).RegisterRoutes(api)
 	handlers.NewProviderReadinessAdminHandler(deps.DB, deps.Authenticator, deps.ProviderReadinessService).RegisterRoutes(api)
 	destinationOptionsHandler := handlers.NewDestinationOptionsHandler(deps.DB, deps.Authenticator, deps.Providers, deps.TokenSource)
+	providerRegistrars = append(providerRegistrars, destinationOptionsHandler.SetProvider)
 	if deps.TelegramService != nil {
 		destinationOptionsHandler.SetTelegramChatOptions(deps.TelegramService)
 	}
 	destinationOptionsHandler.RegisterRoutes(api)
 	publicationHandler := handlers.NewPublicationHandler(deps.DB, deps.Authenticator, deps.Entitlement)
+	publicationHandler.SetTextCardStorage(deps.MediaStorage)
 	publicationHandler.SetCapabilityDependencies(deps.Providers, deps.TokenSource)
+	providerRegistrars = append(providerRegistrars, publicationHandler.SetProvider)
 	publicationHandler.SetConnectorRegistry(deps.ConnectorRegistry)
 	publicationHandler.SetPublicMediaVerifier(deps.PublicMediaVerifier)
 	publicationHandler.SetRepostService(deps.RepostService)
 	publicationHandler.SetProviderReadiness(deps.ProviderReadinessService)
 	publicationHandler.SetTelemetry(deps.Telemetry)
+	publicationHandler.SetNotificationService(deps.NotificationService)
 	publicationHandler.RegisterRoutes(api)
 	publicationBuildHandler := handlers.NewPublicationBuildHandler(deps.DB, deps.Authenticator, deps.PublicationBuilder)
 	publicationBuildHandler.SetPublicationApplication(publicationHandler.BuilderApplication())
 	publicationBuildHandler.SetCapabilityResolver(capabilityResolverHandler)
 	publicationBuildHandler.SetPlanner(deps.PublicationPlanner)
 	publicationBuildHandler.RegisterRoutes(api)
+	handlers.NewRepurposeHandler(deps.RepurposeSuggestions, deps.Authenticator).RegisterRoutes(api)
+	handlers.NewImageGenerationHandler(deps.ImageGeneration, deps.Authenticator).RegisterRoutes(api)
+	registerWorkflowRoutes(api, deps, publicationHandler, publicationBuildHandler)
 	handlers.NewPublicationDiscoveryHandler(deps.DB, deps.Authenticator, deps.PublicationDiscovery).RegisterRoutes(api)
 	handlers.NewVoiceProfileHandler(deps.DB, deps.Authenticator).RegisterRoutes(api)
 	handlers.NewThemeHandler(deps.DB, deps.Authenticator, deps.MediaStorage).RegisterRoutes(api)
+	handlers.NewAppBrandingHandler(deps.DB, deps.Authenticator, deps.MediaStorage).RegisterRoutes(api)
 	handlers.NewPostBuilderHandler(deps.DB, deps.Authenticator, deps.PostBuilder).RegisterRoutes(api)
 	handlers.NewAutoVideoHandler(deps.DB, deps.Authenticator, deps.AutoVideoPlanner, deps.MediaStorage).RegisterRoutes(api)
 	handlers.NewDocumentaryHandler(deps.DB, deps.Authenticator, deps.DocumentaryPlanner, deps.MediaStorage).RegisterRoutes(api)
@@ -314,15 +348,20 @@ func RegisterHumaRoutes(api huma.API, deps RouteDeps) {
 	socialSetHandler := handlers.NewSocialSetHandler(deps.DB, deps.Authenticator)
 	socialSetHandler.SetCapabilityResolver(capabilityResolverHandler)
 	socialSetHandler.RegisterRoutes(api)
-	handlers.NewVideoProjectHandler(deps.DB, deps.Authenticator).RegisterRoutes(api)
+	handlers.NewVideoProjectHandler(deps.DB, deps.Authenticator, deps.MediaStorage).RegisterRoutes(api)
+	handlers.NewEditorAgentHandler(deps.DB, deps.Authenticator).RegisterRoutes(api)
+	handlers.NewEditorPreferencesHandler(deps.DB, deps.Authenticator).RegisterRoutes(api)
+	handlers.NewEditorAgentAssistantHandler(deps.DB, deps.Authenticator, deps.Entitlement, deps.EditorAgentGenerator, deps.EditorAgentModel, deps.Edition).RegisterRoutes(api)
 	handlers.NewRepostHandler(deps.DB, deps.RepostService, deps.Authenticator).RegisterRoutes(api)
 	commentHandler := handlers.NewCommentHandler(deps.DB, deps.Authenticator, deps.Providers, deps.TokenEncryptor)
+	providerRegistrars = append(providerRegistrars, commentHandler.SetProvider)
 	commentHandler.SetTokenSource(deps.TokenSource)
 	commentHandler.RegisterRoutes(api)
 	analyticsHandler := handlers.NewAnalyticsHandler(deps.DB, deps.Authenticator, deps.AnalyticsService)
 	analyticsHandler.RegisterRoutes(api)
 	engagementMessagingHandler := handlers.NewEngagementMessagingHandler(deps.Authenticator, deps.MessagingService, deps.EngagementService)
 	engagementMessagingHandler.RegisterRoutes(api)
+	handlers.NewXMessagingHandler(deps.Authenticator, deps.XMessagingService).RegisterRoutes(api)
 	handlers.NewNotificationHandler(deps.DB, deps.Authenticator, deps.NotificationService).RegisterRoutes(api)
 	growthHandler := handlers.NewGrowthHandler(deps.GrowthService, deps.Authenticator)
 	growthHandler.RegisterRoutes(api)
@@ -336,11 +375,13 @@ func RegisterHumaRoutes(api huma.API, deps RouteDeps) {
 	handlers.NewInstanceSettingsHandler(deps.InstanceSettingsService, deps.DB, deps.Authenticator).RegisterRoutes(api)
 	handlers.NewAIPromptHandler(deps.AIPromptService, deps.DB, deps.Authenticator).RegisterRoutes(api)
 	handlers.NewUpdateStatusHandler(deps.DB, deps.Authenticator, deps.UpdateStatusService, deps.InstanceSettingsService).RegisterRoutes(api)
+	handlers.NewGitHubStarsHandler(deps.GitHubStarsService).RegisterRoutes(api)
 
 	mcpOAuthHandler := deps.MCPOAuthHandler
 	if mcpOAuthHandler == nil {
 		mcpOAuthHandler = handlers.NewMCPOAuthHandler(deps.MCPOAuthService, deps.Authenticator, deps.PublicURL)
 	}
+	mcpOAuthHandler.SetRateLimiter(ratelimit.NewShared(deps.DB))
 	mcpOAuthHandler.SetIdentityService(deps.IdentityService)
 	mcpOAuthHandler.SetExternalApplicationService(deps.ExternalApps)
 	mcpOAuthHandler.RegisterAPIRoutes(api)
@@ -349,6 +390,7 @@ func RegisterHumaRoutes(api huma.API, deps RouteDeps) {
 	workspaceHandler.SetSensitiveActionServices(deps.AuthService, deps.IdentityService, deps.TokenEncryptor)
 	workspaceHandler.SetFrontendURL(deps.FrontendURL)
 	workspaceHandler.SetNotificationService(deps.NotificationService)
+	workspaceHandler.SetTelemetry(deps.Telemetry)
 	workspaceHandler.CreateWorkspace(api)
 	workspaceHandler.ListWorkspaces(api)
 	workspaceHandler.GetWorkspaceDeletionPreview(api)
@@ -385,12 +427,15 @@ func RegisterHumaRoutes(api huma.API, deps RouteDeps) {
 	postingScheduleHandler.CreateSchedule(api)
 	postingScheduleHandler.UpdateSchedule(api)
 	postingScheduleHandler.DeleteSchedule(api)
+	postingScheduleHandler.BatchDeleteSchedules(api)
 	postingScheduleHandler.SuggestSchedule(api)
 	postingScheduleHandler.GetNextAvailableSlot(api)
 
 	promptHandler := handlers.NewPromptHandler(deps.DB, deps.Authenticator)
+	handlers.RegisterSavedMentionRoutes(api, deps.DB, deps.Authenticator)
 	promptHandler.ListPrompts(api)
 	promptHandler.CreatePrompt(api)
+	promptHandler.UpdatePrompt(api)
 	promptHandler.DeletePrompt(api)
 	promptHandler.GetRandomPrompt(api)
 	promptHandler.GetCategories(api)
@@ -412,7 +457,10 @@ func RegisterHumaRoutes(api huma.API, deps RouteDeps) {
 	oauthHandler.SetMastodonAppService(deps.MastodonAppService)
 	oauthHandler.SetProviderReadiness(deps.ProviderReadinessService)
 	oauthHandler.SetConnectorRegistry(deps.ConnectorRegistry, deps.ConnectorStore)
-	oauthHandler.SetProviderRegistrars(deps.ProviderRegistrars...)
+	if deps.MCPHandler != nil {
+		providerRegistrars = append(providerRegistrars, deps.MCPHandler.SetProvider)
+	}
+	oauthHandler.SetProviderRegistrars(providerRegistrars...)
 	oauthHandler.SetTelemetry(deps.Telemetry)
 	oauthHandler.SetTokenSource(deps.TokenSource)
 	oauthHandler.SetAccountAvatarStorage(deps.MediaStorage)
@@ -424,6 +472,7 @@ func RegisterHumaRoutes(api huma.API, deps RouteDeps) {
 	oauthHandler.Callback(api)
 	oauthHandler.ExchangeCode(api)
 	oauthHandler.BlueskyLogin(api)
+	oauthHandler.DevNullLogin(api)
 	oauthHandler.PeerTubeLogin(api)
 	oauthHandler.LemmyLogin(api)
 	oauthHandler.PieFedLogin(api)
@@ -435,6 +484,7 @@ func RegisterHumaRoutes(api huma.API, deps RouteDeps) {
 	oauthHandler.RefreshAccountMetadata(api)
 	oauthHandler.DisconnectAccount(api)
 	oauthHandler.RevokeAccountGrant(api)
+	handlers.NewPostImportHandler(deps.DB, deps.PostImportService, deps.Authenticator).RegisterRoutes(api)
 
 	var planPolicy accountfeatures.PlanPolicy
 	if deps.Entitlement != nil {
@@ -451,7 +501,7 @@ func RegisterHumaRoutes(api huma.API, deps RouteDeps) {
 	afhHandler.ReadFeatures(api)
 	afhHandler.SaveFeatures(api)
 	oauthHandler.SetAccountFeaturesService(afhService)
-	oauthHandler.SetProviderRegistrars(append(deps.ProviderRegistrars, afhService.SetProvider)...)
+	oauthHandler.SetProviderRegistrars(append(providerRegistrars, afhService.SetProvider)...)
 	// Inject shared feature resolver into every feature service and handler. Avoid duplicating support/scope/plan rules.
 	if deps.AnalyticsService != nil {
 		deps.AnalyticsService.SetFeatureGate(afhService)
@@ -622,4 +672,17 @@ func RegisterHealth(api huma.API, db *bun.DB, readiness *Readiness, storage medi
 		}
 		return resp, nil
 	})
+}
+
+func registerWorkflowRoutes(api huma.API, deps RouteDeps, publicationHandler *handlers.PublicationHandler, publicationBuildHandler *handlers.PublicationBuildHandler) {
+	workflowService := deps.WorkflowService
+	if workflowService == nil {
+		workflowService = workflows.NewService(deps.DB, nil, deps.TokenEncryptor)
+	}
+	workflowService.SetActions(handlers.NewWorkflowActionsWithEngagement(publicationHandler, publicationBuildHandler, deps.AnalyticsService, deps.EngagementService))
+	workflowService.SetNotificationService(deps.NotificationService)
+	if deps.EngagementService != nil {
+		deps.EngagementService.SetAutomationRunStopper(workflowService.CancelCommentReplyRuns)
+	}
+	handlers.NewWorkflowHandler(workflowService, deps.Authenticator).RegisterRoutes(api)
 }

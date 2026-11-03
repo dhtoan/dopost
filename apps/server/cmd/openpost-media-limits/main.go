@@ -2,6 +2,10 @@ package main
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
+	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 
@@ -9,16 +13,35 @@ import (
 )
 
 func main() {
-	fmt.Print(`---
+	document, err := generate()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	fmt.Print(document)
+}
+
+func generate() (string, error) {
+	uploadLimits, err := serverUploadLimits()
+	if err != nil {
+		return "", err
+	}
+	var document strings.Builder
+	document.WriteString(`---
 title: Media limits
 description: Default attachment limits used by OpenPost before publishing.
 icon: FileCheck
 ---
 
-These are OpenPost's default publishing limits, generated from the same capability catalogue used by the composer, API, CLI, and MCP. They are not a promise that every connected account can publish every format. The destination preview applies account-specific limits, permissions, and provider readiness.
+These defaults apply before publishing. The destination preview shows account-specific limits and readiness.
 
-A dash means the catalogue has no fixed limit for that field. It does not mean unlimited. Your upload plan, server configuration, provider account, and connected instance can impose lower limits. Sizes below are exact bytes; duration is in seconds. Attachment counts apply to each thread segment.
+Sizes are exact bytes, durations are seconds, and attachment counts apply to each thread segment. A dash means no fixed catalogue limit, not unlimited. Your plan, server, account, or connected instance can impose lower limits.
 
+## Upload limits
+
+`)
+	document.WriteString(uploadLimits)
+	document.WriteString(`
 ## Default limits
 
 | Destination format | Attachments | File types | Maximum bytes | Image maximum bytes | Video seconds | Additional rules |
@@ -45,29 +68,127 @@ A dash means the catalogue has no fixed limit for that field. It does not mean u
 			continue
 		}
 		seenRows[row] = true
-		fmt.Print(row)
+		document.WriteString(row)
 	}
-	fmt.Print(`
-## Provider specifications and exceptions
+	document.WriteString(`
+## Provider exceptions
 
-Catalogue and publisher validation reviewed: **14 September 2026**. The following API references were checked on that date:
+Reviewed **26 September 2026**. The table above comes from OpenPost's capability catalogue. Preflight also checks codecs, dimensions, and account restrictions.
 
-- **Bluesky:** [image specifications](https://docs.bsky.app/docs/tutorials/creating-a-post) and [video schema](https://github.com/bluesky-social/atproto/blob/main/lexicons/app/bsky/embed/video.json). Images are limited to 2,000,000 bytes. MP4 video is limited to 300,000,000 bytes and [10 minutes](https://bsky.app/profile/bsky.app/post/3mtwf7gxkwc2r). A segment can contain images or one video.
-- **X:** [media upload documentation](https://docs.x.com/x-api/media/introduction). OpenPost currently uses the legacy OAuth 1.0a upload route. Its default 512 MiB / 140-second limit is deliberate; the newer v2 route's 8 GB / 20-minute limits do not describe this adapter. Connected-account capabilities can adjust the default. A segment can contain images or one video.
-- **TikTok:** [media transfer specifications](https://developers.tiktok.com/docs/en/content-posting-api-media-transfer-guide). MP4, MOV, and WebM are supported. Direct Post uses the connected creator's available duration and privacy options. URL uploads require a verified domain and an accessible HTTPS file.
-- **YouTube:** [video upload API](https://developers.google.com/youtube/v3/docs/videos/insert). OpenPost's default file-size cap is lower than YouTube's API upload maximum. Unverified API projects can be restricted to private uploads. YouTube now supports [custom Shorts thumbnails for eligible channels](https://blog.youtube/news-and-events/youtube-studio-custom-thumbnail-updates/). OpenPost therefore does not impose a blanket Shorts restriction.
-- **LinkedIn:** [Videos API](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/videos-api). Video formats and account permissions differ from documents and image posts.
-- **Mastodon:** [instance configuration](https://docs.joinmastodon.org/methods/instance/#v2). OpenPost uses the connected instance's advertised MIME types, attachment count, and image/video size limits when available.
-- **Pixelfed:** [Mastodon-compatible statuses and media APIs](https://github.com/pixelfed/pixelfed/blob/dev/routes/api.php). Photo and album publishing reuse the compatible transport with Pixelfed's own identity and capability reporting. The connected instance's advertised configuration wins over catalogue defaults.
-- **PeerTube:** [REST API quick start](https://docs.joinpeertube.org/api/rest-getting-started) and [OpenAPI specification](https://github.com/Chocobozzz/PeerTube/blob/develop/support/doc/api/openapi.yaml). Videos upload through the resumable protocol to a selected channel; transcoding state is reconciled before delivery is reported. Instance quota and transcoding policy apply.
-- **Lemmy:** [API documentation](https://join-lemmy.org/docs/contributors/04-api.html) (v3, as used by the 0.19 series). Community posts carry a required title with an optional link and body. Lemmy 1.x instances using API v4 are refused with an explicit error until a v4 adapter is certified.
-- **PieFed:** [alpha API documentation](https://freamon.github.io/piefed-api/). Community posting shares the Lemmy authoring model through PieFed's native post, community, and comment endpoints.
-- **Telegram:** [Bot API file sending](https://core.telegram.org/bots/api#sending-files). File limits depend on the sending method and whether the deployment uses the hosted or local Bot API. The catalogue does not currently express every Telegram transfer limit.
-
-Other destinations retain their catalogue defaults. Check their current provider requirements before relying on a boundary value. OpenPost's preflight also checks analysed media, codecs, dimensions, and account restrictions that are not all shown in this table.
+| Provider | What to check |
+| --- | --- |
+| [Bluesky](https://docs.bsky.app/docs/tutorials/creating-a-post) | A segment can contain images or one [video](https://github.com/bluesky-social/atproto/blob/main/lexicons/app/bsky/embed/video.json). |
+| [X](https://docs.x.com/x-api/media/quickstart/media-upload-chunked) | Premium and verified accounts can have higher video limits. The destination preview applies them. |
+| [TikTok](https://developers.tiktok.com/docs/en/content-posting-api-media-transfer-guide) | The connected creator determines duration and privacy options. URL uploads need a verified domain and accessible HTTPS file. |
+| [YouTube](https://developers.google.com/youtube/v3/docs/videos/insert) | OpenPost's default size cap is lower than the API maximum. Unverified API projects may be limited to private uploads. |
+| [LinkedIn](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/videos-api) | Video permissions differ from image and document permissions. |
+| [Mastodon](https://docs.joinmastodon.org/methods/instance/#v2) and [Pixelfed](https://github.com/pixelfed/pixelfed/blob/dev/routes/api.php) | The connected instance's advertised limits override defaults. |
+| [PeerTube](https://docs.joinpeertube.org/api/rest-getting-started) | Instance quota and transcoding policy apply. |
+| [Lemmy](https://join-lemmy.org/docs/contributors/04-api.html) and [PieFed](https://freamon.github.io/piefed-api/) | Community posts need a title. Lemmy API v4 instances are not supported. |
+| [Telegram](https://core.telegram.org/bots/api#sending-files) | Limits depend on the sending method and hosted or local Bot API. Not every transfer limit appears above. |
 
 For access or approval failures, see [connecting accounts](/guides/accounts) and the [integration setup guides](/self-hosting/integrations).
 `)
+	return document.String(), nil
+}
+
+// serverUploadLimits renders the workspace upload-limits sentence from the
+// enforced uploader constants in internal/api/handlers/media.go, so a limit
+// change flows into the guide through this generator instead of leaving
+// hand-authored prose stale. It fails closed when the constants cannot be
+// read: silently falling back to old numbers would reintroduce the drift.
+func serverUploadLimits() (string, error) {
+	maxBytes, maxPixels, err := readUploaderConstants()
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("Workspace uploads accept files up to %s (%s bytes). Images must decode successfully and contain no more than %s (%s pixels). This bounds the memory needed to open compressed files. Destination publishing limits below are separate.\n",
+		humanBytes(maxBytes), groupThousands(maxBytes), humanPixels(maxPixels), groupThousands(maxPixels)), nil
+}
+
+var uploaderConstantPattern = regexp.MustCompile(`(?m)^\s*(MaxBufferedMediaUploadBytes|mediaUploadMaxImagePixels)\s+int64\s*=\s*(.+?)\s*$`)
+
+func readUploaderConstants() (maxBytes, maxPixels int64, err error) {
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		return 0, 0, fmt.Errorf("cannot locate media upload constants")
+	}
+	source, err := os.ReadFile(filepath.Join(filepath.Dir(file), "..", "..", "internal", "api", "handlers", "media.go"))
+	if err != nil {
+		return 0, 0, fmt.Errorf("read media upload constants: %w", err)
+	}
+	values := map[string]int64{}
+	for _, match := range uploaderConstantPattern.FindAllStringSubmatch(string(source), -1) {
+		value, parseErr := evalConstExpr(match[2])
+		if parseErr != nil {
+			return 0, 0, fmt.Errorf("parse %s: %w", match[1], parseErr)
+		}
+		values[match[1]] = value
+	}
+	maxBytes, okBytes := values["MaxBufferedMediaUploadBytes"]
+	maxPixels, okPixels := values["mediaUploadMaxImagePixels"]
+	if !okBytes || !okPixels || maxBytes <= 0 || maxPixels <= 0 {
+		return 0, 0, fmt.Errorf("media upload constants not found in handlers/media.go")
+	}
+	return maxBytes, maxPixels, nil
+}
+
+// evalConstExpr evaluates simple integer constant expressions such as
+// "50 * 1024 * 1024" or "64_000_000".
+func evalConstExpr(expr string) (int64, error) {
+	result := int64(1)
+	matched := false
+	for _, part := range strings.Split(expr, "*") {
+		literal := strings.ReplaceAll(strings.TrimSpace(part), "_", "")
+		if literal == "" {
+			return 0, fmt.Errorf("empty term in %q", expr)
+		}
+		value, err := strconv.ParseInt(literal, 10, 64)
+		if err != nil {
+			return 0, fmt.Errorf("unsupported term %q in %q", part, expr)
+		}
+		result *= value
+		matched = true
+	}
+	if !matched {
+		return 0, fmt.Errorf("empty expression")
+	}
+	return result, nil
+}
+
+func humanBytes(value int64) string {
+	if value%(1024*1024) == 0 {
+		return strconv.FormatInt(value/(1024*1024), 10) + " MB"
+	}
+	return groupThousands(value) + " bytes"
+}
+
+func humanPixels(value int64) string {
+	if value%1_000_000 == 0 {
+		return strconv.FormatInt(value/1_000_000, 10) + " million"
+	}
+	return groupThousands(value)
+}
+
+func groupThousands(value int64) string {
+	digits := strconv.FormatInt(value, 10)
+	sign := ""
+	if strings.HasPrefix(digits, "-") {
+		sign, digits = "-", digits[1:]
+	}
+	remainder := len(digits) % 3
+	var grouped strings.Builder
+	grouped.WriteString(sign)
+	if remainder > 0 {
+		grouped.WriteString(digits[:remainder])
+	}
+	for i := remainder; i < len(digits); i += 3 {
+		if grouped.Len() > len(sign) {
+			grouped.WriteString(",")
+		}
+		grouped.WriteString(digits[i : i+3])
+	}
+	return grouped.String()
 }
 
 func limit(value int64) string {

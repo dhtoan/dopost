@@ -6,10 +6,14 @@ OpenPost dependency licenses remain available through their upstream packages an
 - IMG.LY Background Removal 1.7.0
 - ONNX Runtime Web 1.21.0
 - fflate 0.8.2
+- gifenc 1.0.3, MIT. See `GIFENC.txt`.
+- gifuct-js 2.1.2, MIT. See `GIFUCT-JS.txt`.
 
 The bundled background-removal runtime, quantized model, content-addressed resource filenames, source reference, and full notices are in `apps/web/static/image-editor-models/`. Redistributors must keep those notices with the corresponding assets.
 
 OpenPost Image Editor is an original implementation. It does not redistribute the commercial shadcn Designer package, its components, its CSS, or its generated utilities.
+
+OpenPost Logo Maker includes search metadata from Lucide 0.577.0 under the ISC License, with portions derived from Feather under the MIT License. The pinned source revision is `0ea8780434e2b4527dc860b18ff94883d080b59c`; see `licenses/LUCIDE.txt`.
 
 OpenPost Meme Maker includes a pinned catalog snapshot from Memegen at commit `aa0fc3af4dd1c669cc35039a7d8efcca7d4eb98a`, Copyright (c) 2015 Jace Browning, under the MIT License. The bundled source notice is in `apps/server/internal/memes/catalog/LICENSE-MEMEGEN.txt`. Bundled fonts retain their SIL Open Font License notices in `apps/server/internal/memes/catalog/fonts/`.
 
@@ -30,3 +34,5 @@ OpenPost Video Editor includes adapted source from:
 - Microsoft Fluent Emoji Flat under the MIT License, distributed through `@iconify-json/fluent-emoji-flat` 1.2.5 for the local sticker browser. OpenPost records the source and license on each imported sticker. See `licenses/FLUENT_EMOJI.txt`.
 
 Microsoft and Fluent are trademarks of the Microsoft group of companies. Their use here does not imply endorsement or sponsorship.
+
+OpenPost Workflows embeds QuickJS WebAssembly from `fastschema/qjs` v0.0.6 under the MIT License, evaluated through Wazero. The unmodified engine and both upstream notices are retained in `apps/server/internal/workflowcode/`. CodeMirror and shell-quote retain their MIT notices through the frontend dependencies.

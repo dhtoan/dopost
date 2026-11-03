@@ -4,6 +4,7 @@
 	import type { components } from '$lib/api/types';
 	import { client } from '$lib/api/client';
 	import AppSelect from '$lib/components/app-select.svelte';
+	import Disclosure from '$lib/components/disclosure.svelte';
 	import InlineNotice from '$lib/components/inline-notice.svelte';
 	import PageLoading from '$lib/components/page-loading.svelte';
 	import { Badge } from '$lib/components/ui/badge';
@@ -11,6 +12,7 @@
 	import { Label } from '$lib/components/ui/label';
 	import { Textarea } from '$lib/components/ui/textarea';
 	import { getLocaleTag } from '$lib/i18n';
+	import { getPlatformName } from '$lib/utils';
 	import { m } from '$lib/paraglide/messages';
 	import { showToast } from '$lib/toast';
 	import { getOptionalUnsavedChanges } from '$lib/unsaved-changes.svelte';
@@ -33,18 +35,6 @@
 	interface Props {
 		active: boolean;
 	}
-
-	const platformLabels = new Map([
-		['x', 'X'],
-		['linkedin', 'LinkedIn'],
-		['threads', 'Threads'],
-		['facebook', 'Facebook'],
-		['instagram', 'Instagram'],
-		['youtube', 'YouTube'],
-		['tiktok', 'TikTok'],
-		['mastodon', 'Mastodon'],
-		['bluesky', 'Bluesky']
-	]);
 
 	let { active }: Props = $props();
 	const unsavedChanges = getOptionalUnsavedChanges();
@@ -124,7 +114,7 @@
 	function promptLabel(prompt: Prompt) {
 		return prompt.kind === 'base'
 			? m.settings_ai_prompts_base()
-			: (platformLabels.get(prompt.platform ?? '') ?? prompt.platform ?? prompt.key);
+			: getPlatformName(prompt.platform || prompt.key);
 	}
 
 	function promptDescription(prompt: Prompt) {
@@ -303,7 +293,7 @@
 </script>
 
 <div class="space-y-6" data-testid="instance-ai-prompts">
-	<InlineNotice tone="info" message={m.settings_ai_prompts_intro()} />
+	<p class="text-sm text-muted-foreground">{m.settings_ai_prompts_intro()}</p>
 	{#if error && loaded}
 		<InlineNotice tone="warning" message={error}>
 			{#snippet actions()}
@@ -406,29 +396,18 @@
 						</p>
 					{/if}
 					{#if selected.overridden}
-						<details class="rounded-md border bg-muted/20">
-							<summary
-								class="flex min-h-11 cursor-pointer list-none items-center px-3 py-2 text-sm font-medium focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-							>
-								{m.settings_ai_prompts_builtin_default()}
-							</summary>
+						<Disclosure summary={m.settings_ai_prompts_builtin_default()} boxed class="bg-muted/20">
 							<p
 								class="border-t px-3 py-3 text-sm leading-6 whitespace-pre-wrap text-muted-foreground"
 							>
 								{selected.default_value}
 							</p>
-						</details>
+						</Disclosure>
 					{/if}
 				</div>
 
 				<div class="rounded-lg border bg-muted/20">
-					<details>
-						<summary
-							class="flex min-h-11 cursor-pointer list-none items-center gap-2 px-4 py-3 text-sm font-medium focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-						>
-							<ThemeIcon role="code" class="size-4 text-muted-foreground" />
-							{m.settings_ai_prompts_preview()}
-						</summary>
+					<Disclosure summary={m.settings_ai_prompts_preview()} icon="code">
 						<div class="border-t px-4 py-4">
 							<div class="mb-3 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
 								<p class="max-w-2xl text-xs leading-5 text-muted-foreground">
@@ -450,7 +429,7 @@
 							<pre
 								class="max-h-96 overflow-auto rounded-md bg-background p-4 text-sm leading-6 whitespace-pre-wrap text-foreground">{effectivePreview}</pre>
 						</div>
-					</details>
+					</Disclosure>
 				</div>
 
 				<div class="flex flex-wrap items-center justify-between gap-3 border-t pt-4">
@@ -475,7 +454,10 @@
 						onclick={() => void saveSelected()}
 					>
 						{#if saving}
-							<ProtectedIcon icon="loading" class="size-4 animate-spin" />
+							<ProtectedIcon
+								icon="loading"
+								class="size-4 animate-spin motion-reduce:animate-none"
+							/>
 							{m.settings_ai_prompts_saving()}
 						{:else}
 							<ThemeIcon role="save" class="size-4" />

@@ -8,12 +8,22 @@ const screenshotDirectory = path.join(repositoryRoot, "assets", "screenshots");
 const webpQuality = 0.84;
 
 const images = [
-  ...["main", "calendar", "analytics", "accounts", "media", "image-editor", "video-editor"].flatMap(
-    (name) =>
-      ["light", "dark"].map((scheme) => ({
-        name: `${name}-${scheme}`,
-        width: 2880,
-      })),
+  ...[
+    "main",
+    "calendar",
+    "analytics",
+    "accounts",
+    "media",
+    "image-editor",
+    "video-editor",
+    "workflows",
+    "workflows-node",
+    "workflows-detail",
+  ].flatMap((name) =>
+    ["light", "dark"].map((scheme) => ({
+      name: `${name}-${scheme}`,
+      width: 2880,
+    })),
   ),
   ...[
     "calendar-detail",
@@ -21,8 +31,18 @@ const images = [
     "analytics-detail",
     "image-canvas-detail",
     "image-controls-detail",
+    "image-start",
+    "image-layers-detail",
+    "image-pages-detail",
+    "image-export-detail",
+    "image-background-removal-detail",
     "video-preview-detail",
     "video-timeline-detail",
+    "video-color",
+    "video-motion",
+    "video-effects",
+    "video-transcript",
+    "video-export",
     "connect-bluesky",
     "connect-mastodon",
     "connect-pixelfed",
@@ -44,6 +64,15 @@ const images = [
       outputName: `main-${scheme}-${width}`,
       width,
     })),
+  ),
+  ...["calendar-detail", "meme-creator-detail", "analytics-detail"].flatMap((name) =>
+    [768, 1536].flatMap((width) =>
+      ["light", "dark"].map((scheme) => ({
+        name: `${name}-${scheme}`,
+        outputName: `${name}-${scheme}-${width}`,
+        width,
+      })),
+    ),
   ),
 ];
 

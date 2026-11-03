@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { appBranding } from '$lib/app-branding.svelte';
 	import type { Snippet } from 'svelte';
 	import { resolve } from '$app/paths';
 	import Logo from '$lib/components/Logo.svelte';
@@ -33,9 +34,11 @@
 	const widthClass = $derived(maxWidth === 'lg' ? 'max-w-lg' : 'max-w-md');
 </script>
 
+<!-- Grid tracks size to their content, so a long localized string could push the
+card past the viewport on narrow phones. Keep the single track shrinkable. -->
 <main
 	data-slot="standalone-shell"
-	class="grid w-full place-items-center px-4 sm:px-6"
+	class="grid w-full grid-cols-[minmax(0,1fr)] place-items-center px-4 sm:px-6"
 	style="min-height: 100dvh; padding-top: max(3rem, calc(env(safe-area-inset-top) + 1.5rem)); padding-bottom: max(3rem, calc(env(safe-area-inset-bottom) + 1.5rem));"
 >
 	<div class={cn('flex w-full flex-col items-center gap-6', widthClass, className)}>
@@ -43,7 +46,7 @@
 			<a
 				href={resolve(logoHref as '/')}
 				class="inline-flex size-16 items-center justify-center rounded-md focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none"
-				aria-label="OpenPost"
+				aria-label={appBranding.profile.display_name}
 			>
 				<Logo width={64} height={50} decorative />
 			</a>

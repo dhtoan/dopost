@@ -79,6 +79,12 @@ func (application *Application) Commit(
 	if err := decodeStoredJSON(record.ResultJSON, &result); err != nil {
 		return Build{}, errors.New("saved publication build result is invalid")
 	}
+	if len(result.Series) > 0 {
+		return Build{}, errors.New("choose series concepts and generate posts before creating drafts")
+	}
+	if len(result.Options) > 0 && result.SelectedOptionID == "" {
+		return Build{}, errors.New("choose a post option before creating the draft")
+	}
 	selectedMediaIDs := selectedSourceMediaIDs(request.Assets, result)
 	if err := application.validateCommitSourceMedia(ctx, record.WorkspaceID, selectedMediaIDs); err != nil {
 		return Build{}, err
@@ -177,6 +183,7 @@ func publicationCreateCommand(
 				DescriptionOverride:  optionalTextOverride(description),
 				MediaInherited:       &inheritMedia,
 				Media:                segmentMedia,
+				Settings:             buildSegmentSettings(destination.Media, index),
 			})
 		}
 		body, title, description := "", "", ""
@@ -212,6 +219,9 @@ func publicationCreateCommand(
 			"destinations":     result.Destinations,
 		},
 	}
+	if request.SeriesOrigin != nil {
+		metadata["series"] = request.SeriesOrigin
+	}
 	command := publicationservice.CreateCommand{
 		WorkspaceID:    workspaceID,
 		Title:          firstNonEmptyBuilderText(result.Direction.Thesis, firstBuilderLine(result.CanonicalText), "Built publication"),
@@ -227,6 +237,16 @@ func publicationCreateCommand(
 		Renditions:     renditions,
 	}
 	return command
+}
+
+func buildSegmentSettings(plan MediaPlan, index int) map[string]any {
+	if index != 0 {
+		return nil
+	}
+	if requirement := MediaRequirement(plan); requirement != nil {
+		return map[string]any{"attachment_requirement": requirement}
+	}
+	return nil
 }
 
 func aggregateBuildClaims(result BuildResult) []Claim {

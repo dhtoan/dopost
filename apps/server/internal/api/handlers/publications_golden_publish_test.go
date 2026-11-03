@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"image/jpeg"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
@@ -18,19 +19,68 @@ import (
 	"github.com/openpost/backend/internal/platform"
 	"github.com/openpost/backend/internal/queue"
 	"github.com/openpost/backend/internal/services/crypto"
+	"github.com/openpost/backend/internal/services/mediastore"
 	"github.com/openpost/backend/internal/services/providerreadiness"
 	"github.com/openpost/backend/internal/services/publisher"
 	"github.com/openpost/backend/internal/services/tokenmanager"
 	"github.com/stretchr/testify/require"
 )
 
+// This fixture owns the provider boundary. HTTP protocol behavior is covered
+// by platform tests; this suite exercises API, durable worker and stored media.
+type goldenWorkerProvider struct {
+	platform.Adapter
+	network string
+	calls   atomic.Int32
+	uploads atomic.Int32
+}
+
+func (p *goldenWorkerProvider) UploadMediaWithMetadata(_ context.Context, token, accountID string, req platform.UploadMediaRequest) (string, error) {
+	if token != "provider-token" || accountID != "founder" || req.MimeType != "image/jpeg" {
+		return "", fmt.Errorf("incorrect media upload credentials or MIME")
+	}
+	photo, err := jpeg.Decode(req.Reader)
+	if err != nil {
+		return "", err
+	}
+	if photo.Bounds().Dx() != 1080 || photo.Bounds().Dy() != 1350 {
+		return "", fmt.Errorf("missing text card JPEG")
+	}
+	p.uploads.Add(1)
+	return "card-upload", nil
+}
+func (p *goldenWorkerProvider) Publish(_ context.Context, token, accountID string, req *platform.PublishRequest) (platform.PublishResult, error) {
+	if token != "provider-token" || accountID != "founder" || req.Content != "Shipping from the API" || req.IdempotencyKey == "" || req.OperationID == "" {
+		return platform.PublishResult{}, fmt.Errorf("incorrect publishing content, credential or fence identity")
+	}
+	if p.network == "pixelfed" && (len(req.PlatformMediaIDs) != 1 || req.PlatformMediaIDs[0] != "card-upload" || len(req.MediaAltTexts) != 1 || req.MediaAltTexts[0] != "Shipping from the API") {
+		return platform.PublishResult{}, fmt.Errorf("missing generated card or authored alt text")
+	}
+	if err := req.BeginWrite(platform.PublishResult{RetrySafety: platform.PublishRetryIdempotent}); err != nil {
+		return platform.PublishResult{}, err
+	}
+	p.calls.Add(1)
+	result := platform.AcceptedPublishResult("remote-42")
+	result.ExternalURL = "https://social.example/@founder/remote-42"
+	return result, req.Checkpoint(result)
+}
+
 func TestPublicationAPIThroughWorkerRetainsProviderResult(t *testing.T) {
+	testPublicationAPIThroughWorker(t, "mastodon")
+}
+
+func TestTextCardAPIThroughWorkerUploadsGeneratedImage(t *testing.T) {
+	testPublicationAPIThroughWorker(t, "pixelfed")
+}
+
+func testPublicationAPIThroughWorker(t *testing.T, network string) {
 	db := createHandlerTestDB(t,
 		(*models.Workspace)(nil), (*models.WorkspaceMember)(nil), (*models.Publication)(nil),
 		(*models.SocialAccount)(nil), (*models.MediaAttachment)(nil), (*models.RenditionMedia)(nil),
 		(*models.PublicationAsset)(nil), (*models.Job)(nil), (*models.UsageCounter)(nil), (*models.ProviderUsageEvent)(nil),
 		(*models.ProviderUsageReservation)(nil), (*models.ProviderUsagePeriodCounter)(nil),
 		(*models.ProviderDelivery)(nil), (*models.ProviderInstallation)(nil), (*models.ProviderAccountBinding)(nil),
+		(*models.RenditionMediaDelivery)(nil), (*models.RenditionMediaDeliveryRelation)(nil),
 		(*models.User)(nil), (*models.Organization)(nil), (*models.UserNotification)(nil),
 		(*models.UserNotificationPreference)(nil), (*models.UserWorkspaceQueueReminder)(nil),
 		(*models.UserNotificationDigestItem)(nil), (*models.UserNotificationMute)(nil), (*models.APIToken)(nil),
@@ -39,21 +89,8 @@ func TestPublicationAPIThroughWorkerRetainsProviderResult(t *testing.T) {
 	_, err := db.ExecContext(t.Context(), "CREATE UNIQUE INDEX provider_deliveries_target ON provider_deliveries (rendition_id, target_key)")
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
-	var calls atomic.Int32
-	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost || r.URL.Path != "/api/v1/statuses" {
-			http.Error(w, "unexpected provider request", http.StatusBadRequest)
-			return
-		}
-		if err := r.ParseForm(); err != nil || r.Form.Get("status") != "Shipping from the API" || r.Header.Get("Idempotency-Key") == "" || r.Header.Get("Authorization") != "Bearer provider-token" {
-			http.Error(w, "incorrect publishing request", http.StatusBadRequest)
-			return
-		}
-		calls.Add(1)
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"id":"remote-42","url":"https://social.example/@founder/remote-42"}`))
-	}))
-	defer provider.Close()
+	const providerURL = "https://social.example"
+
 	encryptor := crypto.NewTokenEncryptor("golden-test-key")
 	token, err := encryptor.Encrypt("provider-token")
 	require.NoError(t, err)
@@ -63,14 +100,16 @@ func TestPublicationAPIThroughWorkerRetainsProviderResult(t *testing.T) {
 	require.NoError(t, err)
 	_, err = db.NewInsert().Model(&models.WorkspaceMember{WorkspaceID: "workspace-1", UserID: "user-1", Role: models.WorkspaceRoleAdmin}).Exec(t.Context())
 	require.NoError(t, err)
-	account := &models.SocialAccount{ID: "account-1", WorkspaceID: "workspace-1", Platform: "mastodon", Slug: "founder", AccountID: "founder", InstanceURL: provider.URL, AccessTokenEnc: token, IsActive: true}
+	account := &models.SocialAccount{ID: "account-1", WorkspaceID: "workspace-1", Platform: network, Slug: "founder", AccountID: "founder", InstanceURL: providerURL, AccessTokenEnc: token, IsActive: true}
 	_, err = db.NewInsert().Model(account).Exec(t.Context())
 	require.NoError(t, err)
 	handler := newReadyPublicationHandler(t, db, testAuthenticator{})
-	readiness := oauthConnectionReadiness(t, &oauthReadinessLedger{control: providerreadiness.RuntimeControlStateEnabled}, platform.AppConfig{Provider: "mastodon", ClientID: "client", InstanceURL: provider.URL})
+	storage := mediastore.NewLocalStorage(t.TempDir(), "https://media.example")
+	handler.SetTextCardStorage(storage)
+	readiness := oauthConnectionReadiness(t, &oauthReadinessLedger{control: providerreadiness.RuntimeControlStateEnabled}, platform.AppConfig{Provider: network, ClientID: "client", InstanceURL: providerURL})
 	handler.SetProviderReadiness(readiness)
 	// The readiness fixture establishes scopes; the worker needs actual ciphertext.
-	_, err = db.NewUpdate().Model((*models.OAuthGrant)(nil)).Set("access_token_encrypted = ?", token).Where("provider = ?", "mastodon").Exec(t.Context())
+	_, err = db.NewUpdate().Model((*models.OAuthGrant)(nil)).Set("access_token_encrypted = ?", token).Where("provider = ?", network).Exec(t.Context())
 	require.NoError(t, err)
 	e := echo.New()
 	api := humaecho.NewWithGroup(e, e.Group("/api/v1"), huma.DefaultConfig("Golden", "1.0.0"))
@@ -88,11 +127,18 @@ func TestPublicationAPIThroughWorkerRetainsProviderResult(t *testing.T) {
 	var publication PublicationResponse
 	require.NoError(t, json.Unmarshal(created.Body.Bytes(), &publication))
 	request(http.MethodPost, "/api/v1/publications/"+publication.ID+"/publish-now", fmt.Sprintf(`{"expected_revision":%d}`, publication.Revision))
-	adapter := platform.NewMastodonAdapter("client", "secret", "https://app.example/callback", provider.URL)
+	var base platform.Adapter = platform.NewMastodonAdapter("client", "secret", "https://app.example/callback", providerURL)
+	if network == "pixelfed" {
+		base = platform.NewPixelfedAdapter("client", "secret", "https://app.example/callback", providerURL)
+	}
+	adapter := &goldenWorkerProvider{Adapter: base, network: network}
+
 	key := platform.AccountProviderKey(account.Platform, account.InstanceURL, account.CapabilityState)
 	tokens := tokenmanager.NewTokenManager(db, encryptor)
 	tokens.SetProvider(key, adapter)
 	service := publisher.NewService(db, tokens)
+	service.SetStorage(storage)
+	service.SetMediaStateEncryptor(encryptor)
 	service.SetProvider(key, adapter)
 	service.SetProviderReadiness(readiness)
 	worker := queue.NewWorker(db, "golden-publish", 10*time.Millisecond, service, tokens, nil)
@@ -116,5 +162,11 @@ func TestPublicationAPIThroughWorkerRetainsProviderResult(t *testing.T) {
 	require.Equal(t, models.RenditionStatusPublished, result.Renditions[0].Status)
 	require.Equal(t, "remote-42", result.Renditions[0].ExternalID)
 	require.Equal(t, "https://social.example/@founder/remote-42", result.Renditions[0].ExternalURL)
-	require.Equal(t, int32(1), calls.Load())
+	require.Equal(t, int32(1), adapter.calls.Load())
+	if network == "pixelfed" {
+		require.Equal(t, int32(1), adapter.uploads.Load())
+		require.Empty(t, result.Media)
+		require.Empty(t, result.Renditions[0].Segments[0].Media)
+		require.Equal(t, "text_card", result.Renditions[0].Segments[0].OutputMedia[0].Role)
+	}
 }

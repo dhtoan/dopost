@@ -11,8 +11,6 @@ import (
 	"reflect"
 	"strings"
 	"testing"
-
-	"github.com/openpost/cli/internal/api"
 )
 
 func TestInstanceHealthChecksLivenessAndReadiness(t *testing.T) {
@@ -26,6 +24,9 @@ func TestInstanceHealthChecksLivenessAndReadiness(t *testing.T) {
 		case "/api/v1/health":
 			_, _ = w.Write([]byte(`{"status":"ok"}`))
 		case "/api/v1/ready":
+			if got := r.Header.Get("User-Agent"); got != "openpost-cli/test" {
+				t.Fatalf("user-agent = %q, want openpost-cli/test", got)
+			}
 			_, _ = w.Write([]byte(`{"status":"ready","database":"ok"}`))
 		default:
 			http.NotFound(w, r)
@@ -286,47 +287,6 @@ func TestInstanceDiagnosticsIncludesBillingSnapshot(t *testing.T) {
 	}
 }
 
-func TestBillingSummaryHelpers(t *testing.T) {
-	status := api.BillingStatus{
-		Status:            "active",
-		PlanID:            "pro",
-		CancelAtPeriodEnd: true,
-		Limits: map[string]int64{
-			"social_accounts":         15,
-			"scheduled_posts_monthly": 2500,
-		},
-		Usage: map[string]int64{
-			"social_accounts":         4,
-			"scheduled_posts_monthly": 125,
-		},
-	}
-
-	got := summarizeBillingStatus(status)
-	want := "pro; active; canceling; scheduled_posts_monthly=125/2500, social_accounts=4/15"
-	if got != want {
-		t.Fatalf("summarizeBillingStatus() = %q, want %q", got, want)
-	}
-}
-
-func TestProviderCatalogSummaryAndLookupHelpers(t *testing.T) {
-	providers := []api.ProviderInfo{
-		{Platform: "x", DisplayName: "X", Configured: true, Status: "available"},
-		{Platform: "youtube", DisplayName: "YouTube", Configured: false, Status: "needs_configuration"},
-		{Platform: "pinterest", DisplayName: "Pinterest", Configured: false, Status: "planned"},
-		{Platform: "instagram", DisplayName: "Instagram", Configured: false, Status: "disabled"},
-	}
-
-	if got := summarizeProviderCatalog(providers); got != "available=1 needs_configuration=1 planned=1 disabled=1" {
-		t.Fatalf("summarizeProviderCatalog() = %q", got)
-	}
-	if got := providerStatusFor(providers, "twitter"); got != "X: available (configured)" {
-		t.Fatalf("providerStatusFor(twitter) = %q", got)
-	}
-	if got := providerStatusFor(providers, "not-a-provider"); got != "not-a-provider: not found" {
-		t.Fatalf("providerStatusFor(not-a-provider) = %q", got)
-	}
-}
-
 func TestInstanceDiagnosticsIncludesRedactedContextAndLogTail(t *testing.T) {
 	t.Setenv("OPENPOST_CONFIG_DIR", t.TempDir())
 
@@ -347,7 +307,7 @@ func TestInstanceDiagnosticsIncludesRedactedContextAndLogTail(t *testing.T) {
 	for i := 1; i <= 105; i++ {
 		_, _ = fmt.Fprintf(&logs, "line %03d\n", i)
 	}
-	logs.WriteString(`Authorization: Bearer supersecret OPENPOST_JWT_SECRET=abc access_token=tok`)
+	logs.WriteString(`Authorization: Bearer supersecret OPENPOST_JWT_SECRET=abc access_token=tok op_cli_sensitive --token flag-secret`)
 
 	logPath := t.TempDir() + "/openpost.log"
 	if err := os.WriteFile(logPath, []byte(logs.String()), 0o600); err != nil {
@@ -382,7 +342,7 @@ func TestInstanceDiagnosticsIncludesRedactedContextAndLogTail(t *testing.T) {
 		t.Fatalf("redacted_log_tail length = %#v, want 100", got["redacted_log_tail"])
 	}
 	joinedTail := fmt.Sprint(tail)
-	for _, secret := range []string{"supersecret", "OPENPOST_JWT_SECRET=abc", "access_token=tok"} {
+	for _, secret := range []string{"supersecret", "OPENPOST_JWT_SECRET=abc", "access_token=tok", "op_cli_sensitive", "flag-secret"} {
 		if strings.Contains(joinedTail, secret) {
 			t.Fatalf("redacted log tail leaked %q: %s", secret, joinedTail)
 		}

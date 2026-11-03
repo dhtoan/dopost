@@ -3,6 +3,7 @@ package usage
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -28,6 +29,18 @@ func MonthStart(t time.Time) time.Time {
 }
 
 func (s *Service) IncrementMonthly(ctx context.Context, workspaceID string, metric entitlements.LimitKey, amount int64, at time.Time) (int64, error) {
+	var value int64
+	err := s.db.RunInTx(ctx, &sql.TxOptions{}, func(ctx context.Context, tx bun.Tx) error {
+		var err error
+		value, err = IncrementMonthlyInTransaction(ctx, tx, workspaceID, metric, amount, at)
+		return err
+	})
+	return value, err
+}
+
+// IncrementMonthlyInTransaction lets durable imports commit their receipt and
+// upload accounting together. The caller owns the transaction.
+func IncrementMonthlyInTransaction(ctx context.Context, db bun.IDB, workspaceID string, metric entitlements.LimitKey, amount int64, at time.Time) (int64, error) {
 	if amount <= 0 {
 		return 0, fmt.Errorf("usage increment amount must be positive")
 	}
@@ -38,45 +51,14 @@ func (s *Service) IncrementMonthly(ctx context.Context, workspaceID string, metr
 		return 0, fmt.Errorf("usage metric is required")
 	}
 
-	periodStart := MonthStart(at)
 	now := time.Now().UTC()
+	counter := models.UsageCounter{WorkspaceID: workspaceID, Metric: string(metric), PeriodStart: MonthStart(at), Value: amount, CreatedAt: now, UpdatedAt: now}
 	var value int64
-	err := s.db.RunInTx(ctx, &sql.TxOptions{}, func(txCtx context.Context, tx bun.Tx) error {
-		var counter models.UsageCounter
-		err := tx.NewSelect().
-			Model(&counter).
-			Where("workspace_id = ?", workspaceID).
-			Where("metric = ?", string(metric)).
-			Where("period_start = ?", periodStart).
-			Scan(txCtx)
-		switch err {
-		case nil:
-			value = counter.Value + amount
-			_, err = tx.NewUpdate().
-				Model((*models.UsageCounter)(nil)).
-				Set("value = ?", value).
-				Set("updated_at = ?", now).
-				Where("workspace_id = ?", workspaceID).
-				Where("metric = ?", string(metric)).
-				Where("period_start = ?", periodStart).
-				Exec(txCtx)
-			return err
-		case sql.ErrNoRows:
-			value = amount
-			counter = models.UsageCounter{
-				WorkspaceID: workspaceID,
-				Metric:      string(metric),
-				PeriodStart: periodStart,
-				Value:       value,
-				CreatedAt:   now,
-				UpdatedAt:   now,
-			}
-			_, err = tx.NewInsert().Model(&counter).Exec(txCtx)
-			return err
-		default:
-			return err
-		}
-	})
+	err := db.NewInsert().Model(&counter).
+		On("CONFLICT (workspace_id, metric, period_start) DO UPDATE").
+		Set("value = usage_counter.value + EXCLUDED.value").
+		Set("updated_at = EXCLUDED.updated_at").
+		Returning("value").Scan(ctx, &value)
 	return value, err
 }
 
@@ -138,4 +120,33 @@ func (s *Service) SnapshotOrganizationMonthly(ctx context.Context, organizationI
 		snapshot[entitlements.LimitKey(row.Metric)] = row.Value
 	}
 	return snapshot, nil
+}
+
+var ErrQuotaExceeded = errors.New("monthly usage limit exceeded")
+
+// IncrementMonthlyLimitedInTransaction admits and accounts for usage in one
+// conditional database write. The caller commits it with the owning mutation.
+func IncrementMonthlyLimitedInTransaction(ctx context.Context, db bun.IDB, workspaceID string, metric entitlements.LimitKey, amount int64, at time.Time, decision entitlements.Decision) (int64, error) {
+	if amount <= 0 || workspaceID == "" || metric == "" {
+		return 0, fmt.Errorf("positive usage amount, workspace and metric are required")
+	}
+	if !decision.Allowed || (!decision.Unlimited && amount > decision.Limit) {
+		return 0, ErrQuotaExceeded
+	}
+	if decision.Unlimited {
+		return IncrementMonthlyInTransaction(ctx, db, workspaceID, metric, amount, at)
+	}
+	now := time.Now().UTC()
+	counter := models.UsageCounter{WorkspaceID: workspaceID, Metric: string(metric), PeriodStart: MonthStart(at), Value: amount, CreatedAt: now, UpdatedAt: now}
+	var value int64
+	err := db.NewInsert().Model(&counter).
+		On("CONFLICT (workspace_id, metric, period_start) DO UPDATE").
+		Set("value = usage_counter.value + EXCLUDED.value").
+		Set("updated_at = EXCLUDED.updated_at").
+		Where("usage_counter.value <= ? - EXCLUDED.value", decision.Limit).
+		Returning("value").Scan(ctx, &value)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, ErrQuotaExceeded
+	}
+	return value, err
 }

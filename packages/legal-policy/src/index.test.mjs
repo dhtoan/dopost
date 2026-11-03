@@ -69,6 +69,7 @@ test("policy acceptance flags, register reviews, and change history stay current
 });
 
 test("managed-service providers disclose purpose, data, and transfer with safe sources", () => {
+  assert.ok(managedService.providers.length > 0, "managed service needs disclosed providers");
   assert.match(managedService.contact, /^[^@]+@[^@]+$/u);
   assert.equal(
     new Set(managedService.stores.map(({ id }) => id)).size,
@@ -114,6 +115,7 @@ test("managed-service providers disclose purpose, data, and transfer with safe s
 });
 
 test("managed data has an owned purpose, retention rule, and deletion trigger", () => {
+  assert.ok(privacyInventory.managed_retention.length > 0, "managed data needs retention rules");
   const ids = new Set();
   for (const entry of privacyInventory.managed_retention) {
     assert.ok(!ids.has(entry.id), `duplicate managed category ${entry.id}`);
@@ -137,7 +139,7 @@ test("managed data has an owned purpose, retention rule, and deletion trigger", 
 test("analytics disclosures match the rendered privacy page and stay consent-gated", () => {
   const analytics = privacyInventory.managed_retention.find(({ id }) => id === "analytics-usage");
   assert.ok(analytics);
-  assert.match(analytics.includes, /bounded titles and text.*published outside OpenPost/u);
+  assert.match(analytics.includes, /content published through OpenPost/u);
   assert.match(
     analytics.exceptions,
     /do not retain raw provider responses, remote media bytes, access tokens, bot tokens, or webhook secrets/u,
@@ -147,15 +149,12 @@ test("analytics disclosures match the rendered privacy page and stay consent-gat
     `${repositoryRoot}apps/marketing/src/routes/privacy/+page.svelte`,
     "utf8",
   );
+  assert.match(policy, /posts published through\s+OpenPost/u);
   assert.match(
     policy,
-    /bounded titles and text for eligible content published\s+outside OpenPost/u,
+    /do not contain\s+raw platform replies,\s+remote media, access tokens, bot tokens,\s+webhook secrets/u,
   );
-  assert.match(
-    policy,
-    /do not contain raw platform replies, remote media, access tokens, bot tokens,\s+webhook secrets/u,
-  );
-  assert.match(policy, /We do not send post content[\s\S]*telemetry properties/u);
+  assert.match(policy, /We\s+do\s+not\s+send\s+post\s+content[\s\S]*telemetry properties/u);
 
   const storage = new Map(privacyInventory.browser_storage.map((entry) => [entry.id, entry]));
   assert.equal(storage.get("cookie-telemetry-preference")?.necessity, "functional");
@@ -176,6 +175,7 @@ test("analytics disclosures match the rendered privacy page and stay consent-gat
 });
 
 test("security assurance states its boundary and the security page claims nothing more", () => {
+  assert.ok(securityAssurance.control_matrix.length > 0, "security needs disclosed controls");
   assert.deepEqual(securityAssurance.assurance_boundary.published_certifications, []);
   assert.deepEqual(securityAssurance.assurance_boundary.published_independent_reports, []);
   assert.match(securityAssurance.assurance_boundary.statement, /does not claim SOC 2/u);

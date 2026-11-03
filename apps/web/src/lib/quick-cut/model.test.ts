@@ -9,7 +9,7 @@ import {
 	formatTimecode,
 	parseTimecode,
 	hasOverlap,
-	assessExport,
+	requiresCloseConfirmation,
 	segmentsOutsideMarkedRanges
 } from './model';
 
@@ -101,23 +101,6 @@ describe('quick-cut model', () => {
 		expect(findSnapKeyframe(3.9, kfs).direction).toBe('after');
 	});
 
-	it('assesses exact and lossless segment overrides independently', () => {
-		const exact = createSegment(2, 3, {
-			id: 'exact',
-			sourceId: SRC_A,
-			cutMode: 'exact'
-		});
-		const lossless = createSegment(3.5, 5, {
-			id: 'lossless',
-			sourceId: SRC_A,
-			cutMode: 'nearestKeyframe'
-		});
-
-		const assessment = assessExport([exact, lossless], [0, 2, 4], 'exact', false);
-		expect(assessment.wasLossless).toBe(true);
-		expect(assessment.reason).toMatch(/start 3\.50s snaps/iu);
-	});
-
 	it('formats and parses timecodes', () => {
 		expect(formatTimecode(65.5)).toBe('01:05.50');
 		expect(parseTimecode('01:05.50')).toBeCloseTo(65.5);
@@ -194,5 +177,41 @@ describe('quick-cut model', () => {
 		];
 
 		expect(segmentsOutsideMarkedRanges(marked, [{ id: SRC_A, duration: 5 }])).toEqual([]);
+	});
+
+	describe('requiresCloseConfirmation', () => {
+		it('requires confirmation for a local project without a workspace root', () => {
+			expect(
+				requiresCloseConfirmation({
+					hasProject: true,
+					storageMode: 'local',
+					hasWorkspaceRoot: false
+				})
+			).toBe(true);
+		});
+
+		it('skips confirmation without a project, with cloud storage, or with a workspace root', () => {
+			expect(
+				requiresCloseConfirmation({
+					hasProject: false,
+					storageMode: 'local',
+					hasWorkspaceRoot: false
+				})
+			).toBe(false);
+			expect(
+				requiresCloseConfirmation({
+					hasProject: true,
+					storageMode: 'cloud',
+					hasWorkspaceRoot: false
+				})
+			).toBe(false);
+			expect(
+				requiresCloseConfirmation({
+					hasProject: true,
+					storageMode: 'local',
+					hasWorkspaceRoot: true
+				})
+			).toBe(false);
+		});
 	});
 });

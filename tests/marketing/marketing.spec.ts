@@ -12,7 +12,29 @@ test("marketing index links to the app and documentation @desktop", async ({ pag
   ).toHaveAttribute("href", "https://app.openpo.st/register?plan=founder&billing_period=monthly");
   await expect(
     page.getByRole("link", { name: "Help centre", exact: true }).first(),
-  ).toHaveAttribute("href", "https://docs.openpo.st/guides/quickstart");
+  ).toHaveAttribute("href", "https://openpo.st/docs/guides/quickstart");
+});
+
+test("landing header shows the live GitHub star link beside the wordmark", async ({ page }) => {
+  await page.route("https://app.openpo.st/api/v1/github-stars", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ count: 512 }),
+    });
+  });
+  await page.goto("/");
+
+  const header = page.locator("header.marketing-nav");
+  const starPill = header.getByTestId("github-star-pill");
+  await expect(starPill).toBeVisible();
+  await expect(starPill).toHaveAttribute("href", "https://github.com/getopenpost/openpost");
+  await expect(starPill).toHaveText("512");
+  await expect(starPill.locator("svg")).toBeVisible();
+  await expect(
+    header.getByRole("link", { name: "OpenPost home", exact: true }).locator(".."),
+  ).toContainText("OpenPost");
+  await expect(page.getByTestId("github-star-pill")).toHaveCount(1);
 });
 
 test("resources menu uses one column per resource group @desktop", async ({ page }) => {
@@ -21,6 +43,11 @@ test("resources menu uses one column per resource group @desktop", async ({ page
 
   const menuGrid = page.locator(".resource-menu > div");
   await expect(menuGrid).toBeVisible();
+  await expect(menuGrid.getByRole("link", { name: "Comparisons", exact: true })).toHaveAttribute(
+    "href",
+    "/comparisons",
+  );
+  await expect(menuGrid.getByRole("link", { name: "Workflows", exact: true })).toHaveCount(0);
   expect(
     await menuGrid.evaluate(
       (element) => getComputedStyle(element).gridTemplateColumns.split(" ").length,
@@ -28,7 +55,9 @@ test("resources menu uses one column per resource group @desktop", async ({ page
   ).toBe(2);
 });
 
-test("free tools directory links every working tool @desktop", async ({ page }) => {
+test("free tools directory keeps core tools reachable and fits narrow screens @desktop", async ({
+  page,
+}) => {
   const toolSlugs = [
     "social-media-video-editor",
     "social-media-image-editor",
@@ -42,15 +71,20 @@ test("free tools directory links every working tool @desktop", async ({ page }) 
   ] as const;
 
   await page.goto("/tools");
-  await expect(
-    page.getByRole("heading", { name: "A few tools. On the house.", level: 1 }),
-  ).toBeVisible();
+  await expect(page.getByRole("heading", { name: /^Free tools\./, level: 1 })).toBeVisible();
   const main = page.getByRole("main");
   for (const slug of toolSlugs) {
     await expect(main.locator(`a[href="/tools/${slug}"]`)).toHaveCount(1);
   }
 
   await page.setViewportSize({ width: 320, height: 720 });
+  await expect
+    .poll(() =>
+      page
+        .getByRole("heading", { name: /^Free tools\./, level: 1 })
+        .evaluate((heading) => heading.scrollWidth <= heading.clientWidth),
+    )
+    .toBe(true);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
     true,
   );
@@ -101,7 +135,7 @@ test("pricing makes every plan selectable for monthly and annual billing", async
   await expect(selfHosted).toContainText("no software fee");
   await expect(selfHosted.getByRole("link", { name: "Review self-hosting" })).toHaveAttribute(
     "href",
-    "https://docs.openpo.st/self-hosting",
+    "https://openpo.st/docs/self-hosting",
   );
   await page.getByText("Trial and billing details").click();
   await expect(page.getByText("Paddle is the Merchant of Record", { exact: false })).toBeVisible();
@@ -231,7 +265,7 @@ test("public changelog is generated from the canonical release record @desktop",
     readFileSync(new URL("../../CHANGELOG.md", import.meta.url), "utf8"),
   ).find((section) => section.groups.some((group) => group.items.length > 0));
   const canonicalItem = canonicalSection?.groups.find((group) => group.items.length > 0)?.items[0];
-  if (!canonicalItem) {
+  if (!canonicalSection || !canonicalItem) {
     throw new Error("The canonical changelog has no visible entries");
   }
 
@@ -244,7 +278,12 @@ test("public changelog is generated from the canonical release record @desktop",
       })
       .first(),
   ).toBeVisible();
-  await expect(page.getByText(canonicalItem, { exact: true })).toBeVisible();
+  const canonicalLabel =
+    canonicalSection.label === "Unreleased" ? "Unreleased" : `v${canonicalSection.label}`;
+  const section = page.locator("article").filter({
+    has: page.getByRole("heading", { name: canonicalLabel, exact: true }),
+  });
+  await expect(section.getByText(canonicalItem, { exact: true })).toBeVisible();
   await expect(page.getByRole("link", { name: "Full changelog" })).toHaveAttribute(
     "href",
     "https://github.com/getopenpost/openpost/blob/main/CHANGELOG.md",

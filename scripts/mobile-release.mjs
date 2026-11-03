@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -48,35 +48,19 @@ export function requireCurrentMobileIdentity(current, previous) {
   }
 }
 
-export function nextMobileIdentity(current, previous) {
-  requireCurrentMobileIdentity(current, previous);
-  if (current.version_code > previous.version_code) return { ...current };
-
-  const versionParts = current.version_name.split(".").map(Number);
-  versionParts[2] += 1;
-  return {
-    version_name: versionParts.join("."),
-    version_code: current.version_code + 1,
-  };
-}
-
-export async function prepareMobileReleaseFiles({ configPath, packagePath, previousConfig }) {
-  const [config, packageMetadata] = await Promise.all([
-    readJSON(configPath),
-    readJSON(packagePath),
-  ]);
-  const current = readMobileIdentity(config, packageMetadata);
-  const previous = readMobileIdentity(previousConfig);
-  const next = nextMobileIdentity(current, previous);
-
-  config.expo.version = next.version_name;
-  config.expo.android.versionCode = next.version_code;
-  packageMetadata.version = next.version_name;
-  await Promise.all([
-    writeFile(path.resolve(configPath), `${JSON.stringify(config, null, 2)}\n`),
-    writeFile(path.resolve(packagePath), `${JSON.stringify(packageMetadata, null, 2)}\n`),
-  ]);
-  return next;
+export function requireReleaseMobileIdentity(current, previous, mobileChanged) {
+  if (mobileChanged) {
+    requireMonotonicMobileIdentity(current, previous);
+    return;
+  }
+  if (
+    current.version_name !== previous.version_name ||
+    current.version_code !== previous.version_code
+  ) {
+    throw new Error(
+      `mobile identity ${current.version_name} (${current.version_code}) must stay at the released identity ${previous.version_name} (${previous.version_code}) when no mobile surface changed; ship mobile changes explicitly instead of bumping every core release`,
+    );
+  }
 }
 
 function compareVersions(left, right) {
@@ -129,7 +113,24 @@ async function main() {
     return;
   }
 
-  throw new Error("usage: mobile-release.mjs <check|check-current> --config FILE [options]");
+  if (command === "check-release") {
+    if (!options["previous-config"]) throw new Error("--previous-config is required");
+    if (options.changed === undefined) throw new Error("--changed true|false is required");
+    const previous = readMobileIdentity(await readJSON(options["previous-config"]));
+    const changed = options.changed === "true";
+    if (options.changed !== "true" && options.changed !== "false") {
+      throw new Error('--changed must be "true" or "false"');
+    }
+    requireReleaseMobileIdentity(identity, previous, changed);
+    process.stdout.write(
+      `${identity.version_name} (${identity.version_code})${changed ? "" : " unchanged"}\n`,
+    );
+    return;
+  }
+
+  throw new Error(
+    "usage: mobile-release.mjs <check|check-current|check-release> --config FILE [options]",
+  );
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {

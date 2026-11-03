@@ -1,4 +1,5 @@
-import type { Project } from '../project/types';
+import { captureTelemetryEvent } from '@openpost/telemetry';
+import { projectForRenderJob } from './render-queue-job';
 import type { RenderExportProgress } from '../media/render-export';
 import { renderQueueStore, type RenderQueueJob, type RenderQueueStore } from './render-queue-store';
 
@@ -13,40 +14,13 @@ export type RenderQueueExecutor = (
 	options: { signal: AbortSignal; onProgress: (progress: RenderExportProgress) => void }
 ) => Promise<QueueExecutionResult>;
 
-function projectForJob(job: RenderQueueJob): Project {
-	const { snapshot } = job;
-	return {
-		id: snapshot.projectId,
-		name: job.name,
-		description: '',
-		createdAt: job.createdAt,
-		updatedAt: job.createdAt,
-		duration: (job.settings.range.endFrame - job.settings.range.startFrame) / snapshot.fps,
-		metadata: {
-			width: snapshot.width,
-			height: snapshot.height,
-			fps: snapshot.fps,
-			backgroundColor: snapshot.backgroundColor
-		},
-		timeline: {
-			tracks: snapshot.tracks,
-			items: snapshot.items,
-			transitions: snapshot.transitions,
-			compositions: snapshot.compositions,
-			masterVolumeDb: snapshot.masterVolumeDb ?? 0,
-			masterMuted: snapshot.masterMuted ?? false,
-			busAudioEq: snapshot.busAudioEq
-		}
-	};
-}
-
 async function executeRenderJob(
 	job: RenderQueueJob,
 	options: { signal: AbortSignal; onProgress: (progress: RenderExportProgress) => void }
 ): Promise<QueueExecutionResult> {
 	const { renderVideoExport, renderAudioExport, renderImageSequenceExport } =
 		await import('../media/render-execution');
-	const project = projectForJob(job);
+	const project = projectForRenderJob(job);
 	const range = job.settings.range;
 	if (
 		job.settings.format === 'mp3' ||
@@ -186,7 +160,7 @@ export class RenderQueueRunner {
 	}
 
 	#schedule(): void {
-		if (this.#scheduled || this.#running) return;
+		if (!this.#unsubscribe || this.#scheduled || this.#running) return;
 		this.#scheduled = true;
 		queueMicrotask(() => {
 			this.#scheduled = false;
@@ -195,7 +169,7 @@ export class RenderQueueRunner {
 	}
 
 	async #drain(): Promise<void> {
-		if (this.#running) return;
+		if (!this.#unsubscribe || this.#running) return;
 		const job = this.queue.next();
 		if (!job || !this.queue.markRendering(job.id)) return;
 		this.#running = true;
@@ -206,6 +180,11 @@ export class RenderQueueRunner {
 				signal: controller.signal,
 				onProgress: (progress) => this.queue.updateProgress(job.id, progress)
 			});
+			captureTelemetryEvent('video export completed', {
+				format: job.settings.format,
+				variant_count: 1,
+				editor: 'video'
+			});
 			this.queue.markCompleted(job.id, {
 				savedPath: result.savedPath,
 				outputLabel: result.outputLabel,
@@ -215,6 +194,11 @@ export class RenderQueueRunner {
 			if (error instanceof DOMException && error.name === 'AbortError') {
 				this.queue.markCancelled(job.id);
 			} else {
+				captureTelemetryEvent('video export failed', {
+					editor: 'video',
+					format: job.settings.format,
+					error_kind: 'export_failed'
+				});
 				this.queue.markFailed(job.id, error instanceof Error ? error.message : String(error));
 			}
 		} finally {

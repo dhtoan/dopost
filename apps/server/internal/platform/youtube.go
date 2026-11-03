@@ -3,7 +3,6 @@ package platform
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,10 +11,11 @@ import (
 	"net/http"
 	"net/textproto"
 	"net/url"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/openpost/backend/internal/providerlimits"
 )
 
 const (
@@ -25,7 +25,6 @@ const (
 	youtubeAPIBaseURL          = "https://www.googleapis.com/youtube/v3"
 	youtubeUploadBaseURL       = "https://www.googleapis.com/upload/youtube/v3"
 	youtubeTitleMaxRunes       = 100
-	youtubeDiscoveryPageSize   = 50
 	youtubeDataAPIMetricSource = "youtube_data_api"
 	youtubeUploadTimeout       = 10 * time.Minute
 	// YouTube documents a finite but unspecified session lifetime. Stop
@@ -64,7 +63,6 @@ func (y *YouTubeAdapter) GenerateAuthURL(state string) (string, map[string]strin
 	params.Set("state", state)
 	params.Set("access_type", "offline")
 	params.Set("prompt", "consent")
-	params.Set("include_granted_scopes", "true")
 	return googleOAuthURL + "?" + params.Encode(), nil
 }
 
@@ -100,69 +98,23 @@ func (y *YouTubeAdapter) RefreshToken(ctx context.Context, input RefreshTokenInp
 }
 
 func (y *YouTubeAdapter) exchangeToken(ctx context.Context, values map[string]string, label string) (*TokenResult, error) {
-	respBody, err := DoFormURLEncoded(ctx, http.MethodPost, googleTokenURL, values, nil)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", label, err)
-	}
-
-	var tokenResp struct {
-		AccessToken  string `json:"access_token"`
-		RefreshToken string `json:"refresh_token"`
-		ExpiresIn    int    `json:"expires_in"`
-		TokenType    string `json:"token_type"`
-		Scope        string `json:"scope"`
-		Error        string `json:"error"`
-		Description  string `json:"error_description"`
-	}
-	if err := json.Unmarshal(respBody, &tokenResp); err != nil {
-		return nil, fmt.Errorf("decoding %s: %w", label, err)
-	}
-	if tokenResp.Error != "" {
-		return nil, fmt.Errorf("%s: %s", label, firstNonEmptyString(tokenResp.Description, tokenResp.Error))
-	}
-	if tokenResp.AccessToken == "" {
-		return nil, fmt.Errorf("%s: missing access token", label)
-	}
-
-	extra := map[string]string{}
-	if tokenResp.Scope != "" {
-		extra["scope"] = tokenResp.Scope
-	}
-	return &TokenResult{
-		AccessToken:  tokenResp.AccessToken,
-		RefreshToken: tokenResp.RefreshToken,
-		ExpiresIn:    tokenResp.ExpiresIn,
-		TokenType:    firstNonEmptyString(tokenResp.TokenType, tokenTypeBearer),
-		Extra:        extra,
-	}, nil
+	return exchangeGoogleOAuthToken(ctx, values, label)
 }
 
 func (y *YouTubeAdapter) GetProfile(ctx context.Context, accessToken string) (*UserProfile, error) {
-	respBody, err := DoRequest(ctx, http.MethodGet, googleUserInfoURL, nil, bearerHeaders(accessToken))
+	// YouTube grants request YouTube scopes only. Resolve the connected identity
+	// from the authorized channel list instead of Google UserInfo, which needs
+	// separate OpenID profile scopes that this integration intentionally omits.
+	channels, err := y.listChannels(ctx, accessToken)
 	if err != nil {
-		return nil, fmt.Errorf("youtube google profile: %w", err)
+		return nil, err
 	}
-
-	var profile struct {
-		ID      string `json:"id"`
-		Name    string `json:"name"`
-		Picture string `json:"picture"`
-		Email   string `json:"email"`
-		Error   struct {
-			Message string `json:"message"`
-		} `json:"error"`
-	}
-	if err := json.Unmarshal(respBody, &profile); err != nil {
-		return nil, fmt.Errorf("decoding youtube google profile: %w", err)
-	}
-	if profile.Error.Message != "" {
-		return nil, fmt.Errorf("youtube google profile: %s", profile.Error.Message)
-	}
+	channel := channels[0]
 	return &UserProfile{
-		ID:          profile.ID,
-		Username:    firstNonEmptyString(profile.Email, profile.Name, profile.ID),
-		DisplayName: firstNonEmptyString(profile.Name, profile.Email, profile.ID),
-		AvatarURL:   profile.Picture,
+		ID:          channel.ID,
+		Username:    firstNonEmptyString(channel.Snippet.CustomURL, channel.Snippet.Title, channel.ID),
+		DisplayName: channel.Snippet.Title,
+		AvatarURL:   channel.Snippet.Thumbnails.Default.URL,
 	}, nil
 }
 
@@ -273,6 +225,18 @@ func (y *YouTubeAdapter) ListDestinationOptions(ctx context.Context, accessToken
 	}, nil
 }
 
+func (y *YouTubeAdapter) AccountCapabilityKeyInput(input AccountCapabilityInput) string {
+	regionCode := strings.ToUpper(strings.TrimSpace(input.RegionCode))
+	if len(regionCode) != 2 {
+		regionCode = "US"
+	}
+	language := strings.TrimSpace(localeLanguageCode(input.Locale))
+	if language == "" {
+		language = "en"
+	}
+	return language + "\x1f" + regionCode
+}
+
 func (y *YouTubeAdapter) ResolveAccountPublishingCapabilities(ctx context.Context, accessToken string, input AccountCapabilityInput) (AccountCapabilityResult, error) {
 	options, err := y.ListDestinationOptions(ctx, accessToken, DestinationOptionsInput{
 		RegionCode: input.RegionCode,
@@ -297,311 +261,6 @@ func localeLanguageCode(locale string) string {
 		return locale[:index]
 	}
 	return locale
-}
-
-var youtubeVideoIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,128}$`)
-
-type youtubeDiscoveryCursor struct {
-	UploadsPlaylistID string `json:"uploads_playlist_id"`
-	PageToken         string `json:"page_token"`
-}
-
-func (y *YouTubeAdapter) AccountContentDiscoverySupport(input AnalyticsAccountContext) AccountContentDiscoverySupport {
-	const (
-		readScope = "https://www.googleapis.com/auth/youtube.readonly"
-		fullScope = "https://www.googleapis.com/auth/youtube"
-	)
-	requiredScope := readScope
-	if len(MissingAnalyticsScopes(input.GrantedScopes, []string{fullScope})) == 0 {
-		requiredScope = fullScope
-	}
-	return AccountContentDiscoverySupport{
-		Supported:      true,
-		RequiredScopes: []string{requiredScope},
-		MaxPageSize:    youtubeDiscoveryPageSize,
-	}
-}
-
-func (y *YouTubeAdapter) AccountContentDiscoveryReadRequests(input AccountContentDiscoveryRequest) int {
-	if strings.TrimSpace(input.Cursor) == "" {
-		return 2 // channels.list plus the first uploads playlist page
-	}
-	return 1
-}
-
-func (y *YouTubeAdapter) DiscoverAccountContent(ctx context.Context, accessToken string, input AccountContentDiscoveryRequest) (AccountContentPage, error) {
-	if strings.TrimSpace(input.AccountID) == "" {
-		return AccountContentPage{}, NewAccountContentDiscoveryError(AccountContentDiscoveryFailed, "missing_channel_id", 0)
-	}
-	cursor, err := decodeYouTubeDiscoveryCursor(input.Cursor)
-	if err != nil {
-		return AccountContentPage{}, err
-	}
-	if cursor.UploadsPlaylistID == "" {
-		cursor.UploadsPlaylistID, err = y.youtubeUploadsPlaylist(ctx, accessToken, input.AccountID)
-		if err != nil {
-			return AccountContentPage{}, err
-		}
-	}
-
-	pageSize := min(max(1, input.PageSize), youtubeDiscoveryPageSize)
-	params := url.Values{
-		"part":       {"snippet,contentDetails"},
-		"playlistId": {cursor.UploadsPlaylistID},
-		"maxResults": {strconv.Itoa(pageSize)},
-	}
-	if cursor.PageToken != "" {
-		params.Set("pageToken", cursor.PageToken)
-	}
-	body, err := doYouTubeDiscoveryRequest(ctx, youtubeAPIBaseURL+"/playlistItems?"+params.Encode(), accessToken)
-	if err != nil {
-		return AccountContentPage{}, fmt.Errorf("youtube uploads playlist: %w", err)
-	}
-	var response youtubeUploadsPlaylistResponse
-	if err := json.Unmarshal(body, &response); err != nil {
-		return AccountContentPage{}, fmt.Errorf("decoding youtube uploads playlist: %w", err)
-	}
-
-	return youtubeAccountContentPage(response, cursor, input.PublishedAfter)
-}
-
-func youtubeAccountContentPage(response youtubeUploadsPlaylistResponse, cursor youtubeDiscoveryCursor, publishedAfter time.Time) (AccountContentPage, error) {
-	page := AccountContentPage{Coverage: AccountContentCoverage{
-		Status:      AccountContentDiscoveryComplete,
-		Description: "Channel uploads in the requested history window are complete.",
-	}}
-	seen := make(map[string]struct{}, len(response.Items))
-	reachedLowerBound := false
-	for _, playlistItem := range response.Items {
-		videoID := strings.TrimSpace(firstNonEmptyString(playlistItem.ContentDetails.VideoID, playlistItem.Snippet.ResourceID.VideoID))
-		if !youtubeVideoIDPattern.MatchString(videoID) {
-			continue
-		}
-		publishedAt, parseErr := youtubePlaylistItemPublishedAt(playlistItem)
-		if parseErr != nil {
-			continue
-		}
-		if !publishedAfter.IsZero() && publishedAt.Before(publishedAfter) {
-			reachedLowerBound = true
-			continue
-		}
-		if _, duplicate := seen[videoID]; duplicate {
-			continue
-		}
-		seen[videoID] = struct{}{}
-		item, normalizeErr := normalizeYouTubeAccountContentItem(playlistItem, cursor.UploadsPlaylistID, videoID, publishedAt)
-		if normalizeErr != nil {
-			continue
-		}
-		page.Items = append(page.Items, item)
-		if page.BackfillWatermark.IsZero() || publishedAt.Before(page.BackfillWatermark) {
-			page.BackfillWatermark = publishedAt
-		}
-	}
-	if reachedLowerBound || response.NextPageToken == "" || response.NextPageToken == cursor.PageToken {
-		return page, nil
-	}
-	nextCursor, err := encodeYouTubeDiscoveryCursor(youtubeDiscoveryCursor{
-		UploadsPlaylistID: cursor.UploadsPlaylistID,
-		PageToken:         response.NextPageToken,
-	})
-	if err != nil {
-		return AccountContentPage{}, err
-	}
-	page.NextCursor = nextCursor
-	page.Coverage.Status = AccountContentDiscoveryPartial
-	page.Coverage.Description = "More channel uploads remain within the requested history window."
-	return page, nil
-}
-
-func normalizeYouTubeAccountContentItem(playlistItem youtubeUploadsPlaylistItem, uploadsPlaylistID, videoID string, publishedAt time.Time) (AccountContentItem, error) {
-	return NormalizeAccountContentItem(providerYouTube, AccountContentItem{
-		ProviderContentID: videoID,
-		ProviderParentID:  uploadsPlaylistID,
-		ContentProfile:    "long_video",
-		Title:             playlistItem.Snippet.Title,
-		Text:              playlistItem.Snippet.Description,
-		ExternalURL:       "https://www.youtube.com/watch?v=" + url.QueryEscape(videoID),
-		PublishedAt:       publishedAt,
-		Origin:            AccountContentOriginExternal,
-		OriginConfidence:  AccountContentOriginConfidenceExact,
-	})
-}
-
-func (y *YouTubeAdapter) youtubeUploadsPlaylist(ctx context.Context, accessToken, channelID string) (string, error) {
-	params := url.Values{
-		"part":       {"contentDetails"},
-		"id":         {strings.TrimSpace(channelID)},
-		"maxResults": {"1"},
-	}
-	body, err := doYouTubeDiscoveryRequest(ctx, youtubeAPIBaseURL+"/channels?"+params.Encode(), accessToken)
-	if err != nil {
-		return "", fmt.Errorf("youtube channel uploads playlist: %w", err)
-	}
-	var response struct {
-		Items []struct {
-			ContentDetails struct {
-				RelatedPlaylists struct {
-					Uploads string `json:"uploads"`
-				} `json:"relatedPlaylists"`
-			} `json:"contentDetails"`
-		} `json:"items"`
-	}
-	if err := json.Unmarshal(body, &response); err != nil {
-		return "", fmt.Errorf("decoding youtube channel uploads playlist: %w", err)
-	}
-	if len(response.Items) == 0 || strings.TrimSpace(response.Items[0].ContentDetails.RelatedPlaylists.Uploads) == "" {
-		return "", NewAccountContentDiscoveryError(AccountContentDiscoveryFailed, "uploads_playlist_not_found", 0)
-	}
-	return strings.TrimSpace(response.Items[0].ContentDetails.RelatedPlaylists.Uploads), nil
-}
-
-func (y *YouTubeAdapter) FetchAccountContentBatchMeasurements(ctx context.Context, accessToken string, input AccountContentBatchMeasurementRequest) (AccountContentBatchMeasurements, error) {
-	ids := uniqueNonEmpty(input.ProviderContentIDs)
-	if len(ids) == 0 {
-		return AccountContentBatchMeasurements{}, nil
-	}
-	if len(ids) > youtubeDiscoveryPageSize {
-		return nil, NewAccountContentDiscoveryError(AccountContentDiscoveryFailed, "measurement_batch_too_large", 0)
-	}
-	for _, id := range ids {
-		if !youtubeVideoIDPattern.MatchString(id) {
-			return nil, NewAccountContentDiscoveryError(AccountContentDiscoveryFailed, "invalid_video_id", 0)
-		}
-	}
-	params := url.Values{"part": {"statistics"}, "id": {strings.Join(ids, ",")}}
-	body, err := doYouTubeDiscoveryRequest(ctx, youtubeAPIBaseURL+"/videos?"+params.Encode(), accessToken)
-	if err != nil {
-		return nil, fmt.Errorf("youtube upload statistics: %w", err)
-	}
-	var response struct {
-		Items []struct {
-			ID         string `json:"id"`
-			Statistics struct {
-				ViewCount    string `json:"viewCount"`
-				LikeCount    string `json:"likeCount"`
-				CommentCount string `json:"commentCount"`
-			} `json:"statistics"`
-		} `json:"items"`
-	}
-	if err := json.Unmarshal(body, &response); err != nil {
-		return nil, fmt.Errorf("decoding youtube upload statistics: %w", err)
-	}
-	requested := make(map[string]struct{}, len(ids))
-	for _, id := range ids {
-		requested[id] = struct{}{}
-	}
-	result := make(AccountContentBatchMeasurements, len(response.Items))
-	for _, video := range response.Items {
-		videoID := strings.TrimSpace(video.ID)
-		if _, ok := requested[videoID]; !ok {
-			continue
-		}
-		measurements := AnalyticsMeasurements{}
-		addYouTubeLifetimeMeasurement(measurements, MetricViews, video.Statistics.ViewCount)
-		addYouTubeLifetimeMeasurement(measurements, MetricLikes, video.Statistics.LikeCount)
-		addYouTubeLifetimeMeasurement(measurements, MetricComments, video.Statistics.CommentCount)
-		result[videoID] = measurements
-	}
-	return result, nil
-}
-
-func addYouTubeLifetimeMeasurement(measurements AnalyticsMeasurements, metric, raw string) {
-	value, err := strconv.ParseInt(strings.TrimSpace(raw), 10, 64)
-	if err != nil {
-		return
-	}
-	measurements[metric] = AnalyticsMeasurement{
-		Value: value,
-		AnalyticsMetricMetadata: AnalyticsMetricMetadata{
-			Unit:        AnalyticsMetricUnitCount,
-			Aggregation: AnalyticsMetricAggregationLifetimeTotal,
-			Source:      youtubeDataAPIMetricSource,
-		},
-	}
-}
-
-func doYouTubeDiscoveryRequest(ctx context.Context, endpoint, accessToken string) ([]byte, error) {
-	response, err := doYouTubeRequest(ctx, http.MethodGet, endpoint, nil, bearerHeaders(accessToken))
-	if err != nil {
-		return nil, err
-	}
-	if response.statusCode >= 200 && response.statusCode < 300 {
-		return response.body, nil
-	}
-	reason := strings.TrimSpace(youtubeErrorReason(response.body))
-	code := reason
-	if !safeProviderCode.MatchString(code) {
-		code = "provider_request_failed"
-	}
-	switch response.statusCode {
-	case http.StatusUnauthorized:
-		return nil, NewAccountContentDiscoveryError(AccountContentDiscoveryPermissionRequired, code, 0)
-	case http.StatusTooManyRequests:
-		return nil, NewAccountContentDiscoveryError(AccountContentDiscoveryRateLimited, code, parseRetryAfter(response.header.Get("Retry-After"), time.Now().UTC()))
-	case http.StatusForbidden:
-		normalizedReason := strings.ToLower(reason)
-		if strings.Contains(normalizedReason, "quota") || strings.Contains(normalizedReason, "ratelimit") || strings.Contains(normalizedReason, "dailylimit") {
-			return nil, NewAccountContentDiscoveryError(AccountContentDiscoveryRateLimited, code, parseRetryAfter(response.header.Get("Retry-After"), time.Now().UTC()))
-		}
-		return nil, NewAccountContentDiscoveryError(AccountContentDiscoveryPermissionRequired, code, 0)
-	default:
-		return nil, youtubeAPIError(response)
-	}
-}
-
-func youtubePlaylistItemPublishedAt(item youtubeUploadsPlaylistItem) (time.Time, error) {
-	raw := firstNonEmptyString(item.ContentDetails.VideoPublishedAt, item.Snippet.PublishedAt)
-	publishedAt, err := time.Parse(time.RFC3339, strings.TrimSpace(raw))
-	if err != nil || publishedAt.IsZero() {
-		return time.Time{}, fmt.Errorf("youtube upload has no valid publish time")
-	}
-	return publishedAt.UTC(), nil
-}
-
-func encodeYouTubeDiscoveryCursor(cursor youtubeDiscoveryCursor) (string, error) {
-	encoded, err := json.Marshal(cursor)
-	if err != nil {
-		return "", fmt.Errorf("encoding youtube discovery cursor: %w", err)
-	}
-	return base64.RawURLEncoding.EncodeToString(encoded), nil
-}
-
-func decodeYouTubeDiscoveryCursor(raw string) (youtubeDiscoveryCursor, error) {
-	if strings.TrimSpace(raw) == "" {
-		return youtubeDiscoveryCursor{}, nil
-	}
-	decoded, err := base64.RawURLEncoding.DecodeString(strings.TrimSpace(raw))
-	if err != nil {
-		return youtubeDiscoveryCursor{}, NewAccountContentDiscoveryError(AccountContentDiscoveryFailed, "invalid_cursor", 0)
-	}
-	var cursor youtubeDiscoveryCursor
-	if json.Unmarshal(decoded, &cursor) != nil || strings.TrimSpace(cursor.UploadsPlaylistID) == "" || strings.TrimSpace(cursor.PageToken) == "" {
-		return youtubeDiscoveryCursor{}, NewAccountContentDiscoveryError(AccountContentDiscoveryFailed, "invalid_cursor", 0)
-	}
-	cursor.UploadsPlaylistID = strings.TrimSpace(cursor.UploadsPlaylistID)
-	cursor.PageToken = strings.TrimSpace(cursor.PageToken)
-	return cursor, nil
-}
-
-type youtubeUploadsPlaylistResponse struct {
-	NextPageToken string                       `json:"nextPageToken"`
-	Items         []youtubeUploadsPlaylistItem `json:"items"`
-}
-
-type youtubeUploadsPlaylistItem struct {
-	Snippet struct {
-		Title       string `json:"title"`
-		Description string `json:"description"`
-		PublishedAt string `json:"publishedAt"`
-		ResourceID  struct {
-			VideoID string `json:"videoId"`
-		} `json:"resourceId"`
-	} `json:"snippet"`
-	ContentDetails struct {
-		VideoID          string `json:"videoId"`
-		VideoPublishedAt string `json:"videoPublishedAt"`
-	} `json:"contentDetails"`
 }
 
 func (y *YouTubeAdapter) listYouTubePlaylists(ctx context.Context, accessToken string) ([]DestinationOption, error) {
@@ -795,11 +454,28 @@ func prepareYouTubeUpload(req UploadMediaRequest) (youtubeVideoInsertRequest, er
 	if title == "" {
 		return youtubeVideoInsertRequest{}, fmt.Errorf("youtube upload requires an explicit title")
 	}
+	if err := providerlimits.ValidateYouTubeTitleCharacters(firstNonEmptyString(settingString(req.Settings, "title"), strings.TrimSpace(req.Title))); err != nil {
+		return youtubeVideoInsertRequest{}, err
+	}
+	if err := providerlimits.ValidateYouTubeDescription(req.Description); err != nil {
+		return youtubeVideoInsertRequest{}, err
+	}
 	privacy := settingString(req.Settings, "privacy")
 	switch privacy {
 	case "public", "unlisted", "private":
 	default:
 		return youtubeVideoInsertRequest{}, fmt.Errorf("youtube upload requires an explicit supported privacy setting")
+	}
+	publishAt := settingString(req.Settings, "publish_at")
+	if publishAt != "" {
+		at, err := time.Parse(time.RFC3339, publishAt)
+		if err != nil {
+			return youtubeVideoInsertRequest{}, fmt.Errorf("youtube publish_at must be an RFC 3339 time")
+		}
+		if privacy != "private" {
+			return youtubeVideoInsertRequest{}, fmt.Errorf("youtube publish_at requires private privacy")
+		}
+		publishAt = at.UTC().Format(time.RFC3339Nano)
 	}
 	categoryID := settingString(req.Settings, "category_id")
 	if categoryID == "" {
@@ -814,10 +490,11 @@ func prepareYouTubeUpload(req UploadMediaRequest) (youtubeVideoInsertRequest, er
 		},
 		Status: youtubeVideoStatus{
 			PrivacyStatus:           privacy,
+			PublishAt:               publishAt,
 			License:                 firstNonEmptyString(settingString(req.Settings, "license"), "youtube"),
 			Embeddable:              settingBoolDefault(req.Settings, "embeddable", true),
-			SelfDeclaredMadeForKids: settingBool(req.Settings, "self_declared_made_for_kids"),
-			ContainsSyntheticMedia:  settingBool(req.Settings, "contains_synthetic_media"),
+			SelfDeclaredMadeForKids: settingBoolPtr(req.Settings, "self_declared_made_for_kids"),
+			ContainsSyntheticMedia:  settingBoolPtr(req.Settings, "contains_synthetic_media"),
 		},
 		PaidProductPlacementDetails: youtubePaidProductPlacementDetails{
 			HasPaidProductPlacement: settingBool(req.Settings, "paid_placement"),
@@ -907,18 +584,22 @@ func (y *YouTubeAdapter) finalizeYouTubeUpload(
 			return err
 		}
 	}
-	if err := y.finalizeYouTubePlaylist(ctx, accessToken, videoID, settingString(req.Settings, "playlist_id"), resuming, providerState, state, checkpoint); err != nil {
+	if err := y.finalizeYouTubePlaylist(ctx, accessToken, videoID, settingString(req.Settings, "playlist_id"), req, resuming, providerState, state, checkpoint); err != nil {
 		return err
 	}
 	if err := y.finalizeYouTubeCaption(ctx, accessToken, videoID, req, resuming, providerState, state, checkpoint); err != nil {
 		return err
 	}
-	return y.checkYouTubeProcessingStatus(ctx, accessToken, videoID)
+	// The upload receipt is durable even while processing continues. Publication
+	// owns positive readiness confirmation and its subsequent reconciliation.
+	_, err := y.checkYouTubeProcessingStatus(ctx, accessToken, videoID)
+	return err
 }
 
 func (y *YouTubeAdapter) finalizeYouTubePlaylist(
 	ctx context.Context,
 	accessToken, videoID, playlistID string,
+	req UploadMediaRequest,
 	resuming bool,
 	providerState *youtubeResumableUploadState,
 	state *ResumableMediaUploadState,
@@ -936,6 +617,9 @@ func (y *YouTubeAdapter) finalizeYouTubePlaylist(
 			providerState.PlaylistApplied = true
 			return checkpointYouTubeProviderState(state, *providerState, checkpoint)
 		}
+	}
+	if err := checkUploadWrite(ctx, req); err != nil {
+		return err
 	}
 	if err := y.insertYouTubePlaylistItem(ctx, accessToken, playlistID, videoID); err != nil {
 		return err
@@ -1045,6 +729,9 @@ func (y *YouTubeAdapter) youtubeCaptionExists(ctx context.Context, accessToken, 
 }
 
 func (y *YouTubeAdapter) insertYouTubeCaption(ctx context.Context, accessToken, videoID string, req UploadMediaRequest) error {
+	if err := checkUploadWrite(ctx, req); err != nil {
+		return err
+	}
 	body, contentType, err := buildYouTubeCaptionRequest(videoID, req)
 	if err != nil {
 		return err
@@ -1118,20 +805,29 @@ func buildYouTubeCaptionRequest(videoID string, req UploadMediaRequest) (*bytes.
 }
 
 func youtubeErrorReason(body []byte) string {
+	reason, _ := youtubeErrorDetail(body)
+	return reason
+}
+
+func youtubeErrorDetail(body []byte) (string, string) {
 	var payload struct {
 		Error struct {
 			Errors []struct {
 				Reason string `json:"reason"`
+				Domain string `json:"domain"`
 			} `json:"errors"`
 		} `json:"error"`
 	}
 	if json.Unmarshal(body, &payload) != nil || len(payload.Error.Errors) == 0 {
-		return ""
+		return "", ""
 	}
-	return strings.TrimSpace(payload.Error.Errors[0].Reason)
+	return strings.TrimSpace(payload.Error.Errors[0].Reason), strings.TrimSpace(payload.Error.Errors[0].Domain)
 }
 
 func (y *YouTubeAdapter) setYouTubeThumbnail(ctx context.Context, accessToken, videoID string, req UploadMediaRequest) error {
+	if err := checkUploadWrite(ctx, req); err != nil {
+		return err
+	}
 	thumbnailBytes, err := io.ReadAll(req.ThumbnailReader)
 	if err != nil {
 		return fmt.Errorf("reading youtube thumbnail: %w", err)
@@ -1152,10 +848,19 @@ func (y *YouTubeAdapter) setYouTubeThumbnail(ctx context.Context, accessToken, v
 	if err != nil {
 		return fmt.Errorf("youtube thumbnail upload: %w", err)
 	}
+	if resp.statusCode < 200 || resp.statusCode >= 300 {
+		_, domain := youtubeErrorDetail(resp.body)
+		if domain == "youtube.thumbnail" {
+			return &HTTPError{StatusCode: resp.statusCode, Code: "youtube:thumbnail_channel_verification_required"}
+		}
+	}
 	return youtubeAPIError(resp)
 }
 
 func (y *YouTubeAdapter) startYouTubeResumableUpload(ctx context.Context, accessToken string, req UploadMediaRequest, metadata youtubeVideoInsertRequest, mediaSize int64) (string, error) {
+	if err := checkUploadWrite(ctx, req); err != nil {
+		return "", err
+	}
 	metaBytes, err := jsonMarshal(metadata)
 	if err != nil {
 		return "", fmt.Errorf("marshaling youtube metadata: %w", err)
@@ -1185,10 +890,58 @@ func (y *YouTubeAdapter) startYouTubeResumableUpload(ctx context.Context, access
 	return sessionURL, nil
 }
 
-func (y *YouTubeAdapter) Publish(_ context.Context, _ string, _ string, req *PublishRequest) (PublishResult, error) {
-	return executePublishWrite(req, "finalize_resumable_upload", func() (string, error) {
-		return y.publish(req)
-	})
+func (y *YouTubeAdapter) Publish(ctx context.Context, token string, _ string, req *PublishRequest) (PublishResult, error) {
+	videoID, err := y.publish(req)
+	if err != nil {
+		return PublishResult{}, err
+	}
+	pending := pendingYouTubeVideo(videoID)
+	if err := req.BeginWrite(pending); err != nil {
+		return PublishResult{}, err
+	}
+	result, err := y.reconcileVideoProcessing(ctx, token, req, videoID)
+	if err == nil && result.SubmissionState == PublishSubmissionAccepted {
+		if checkpointErr := req.Checkpoint(result); checkpointErr != nil {
+			return result, checkpointErr
+		}
+	}
+	return result, err
+}
+
+func pendingYouTubeVideo(videoID string) PublishResult {
+	return PublishResult{SubmissionState: PublishSubmissionPending, ProviderState: "youtube_video_processing", ProviderReference: "yt1:" + videoID, RetrySafety: PublishRetryReconcileOnly, ReconcileAfter: time.Minute}
+}
+
+func (y *YouTubeAdapter) ReconcilePublishRequest(ctx context.Context, token, _ string, req *PublishRequest, reference string) (PublishResult, error) {
+	videoID, ok := strings.CutPrefix(reference, "yt1:")
+	if !ok || !safeContentID.MatchString(videoID) {
+		return PublishResult{SubmissionState: PublishSubmissionRejected, RetrySafety: PublishRetryNever}, fmt.Errorf("invalid YouTube video checkpoint")
+	}
+	return y.reconcileVideoProcessing(ctx, token, req, videoID)
+}
+
+func (y *YouTubeAdapter) reconcileVideoProcessing(ctx context.Context, token string, req *PublishRequest, videoID string) (PublishResult, error) {
+	pending := pendingYouTubeVideo(videoID)
+	ready, err := y.checkYouTubeProcessingStatus(ctx, token, videoID)
+	if err != nil {
+		if classification, ok := MediaRetryClassificationForError(err); ok && classification == MediaRetryTerminal {
+			pending.SubmissionState = PublishSubmissionRejected
+			pending.RetrySafety = PublishRetryNever
+		}
+		return pending, err
+	}
+	if !ready {
+		return pending, nil
+	}
+	result := AcceptedPublishResult(videoID)
+	result.ProviderState = "published"
+	result.ProviderReference = pending.ProviderReference
+	if req != nil {
+		if at, err := time.Parse(time.RFC3339, settingString(req.Settings, "publish_at")); err == nil && at.After(time.Now()) {
+			result.ProviderState = "scheduled"
+		}
+	}
+	return result, nil
 }
 
 func (y *YouTubeAdapter) publish(req *PublishRequest) (string, error) {
@@ -1268,6 +1021,9 @@ func (y *YouTubeAdapter) uploadYouTubeChunk(
 	sessionURL string,
 	offset int64,
 ) (*youtubeHTTPResponse, error) {
+	if err := checkUploadWrite(ctx, req); err != nil {
+		return nil, err
+	}
 	end := min(offset+youtubeUploadChunkSize-1, req.Size-1)
 	reader, err := req.OpenReaderAt(offset)
 	if err != nil {
@@ -1438,31 +1194,34 @@ func (y *YouTubeAdapter) youtubePlaylistItemExists(ctx context.Context, accessTo
 	return len(items.Items) > 0, nil
 }
 
-func (y *YouTubeAdapter) checkYouTubeProcessingStatus(ctx context.Context, accessToken, videoID string) error {
+func (y *YouTubeAdapter) checkYouTubeProcessingStatus(ctx context.Context, accessToken, videoID string) (bool, error) {
 	params := url.Values{}
 	params.Set("part", "status,processingDetails")
 	params.Set("id", videoID)
 	endpoint := youtubeAPIBaseURL + "/videos?" + params.Encode()
 	respBody, err := DoRequest(ctx, http.MethodGet, endpoint, nil, bearerHeaders(accessToken))
 	if err != nil {
-		return fmt.Errorf("youtube processing status: %w", err)
+		return false, fmt.Errorf("youtube processing status: %w", err)
 	}
 	var statusResp youtubeVideosListResponse
 	if err := json.Unmarshal(respBody, &statusResp); err != nil {
-		return fmt.Errorf("decoding youtube processing status: %w", err)
+		return false, fmt.Errorf("decoding youtube processing status: %w", err)
 	}
 	if statusResp.Error.Message != "" {
-		return &HTTPError{StatusCode: http.StatusBadRequest, Code: "youtube_processing_error"}
+		return false, &HTTPError{StatusCode: http.StatusBadRequest, Code: "youtube_processing_error"}
 	}
 	if len(statusResp.Items) == 0 {
-		return &MediaUploadError{
+		return false, &MediaUploadError{
 			RetryClassification: MediaRetryReconcile,
 			Err:                 errors.New("youtube processing status is not available yet"),
 		}
 	}
 	item := statusResp.Items[0]
-	if item.ProcessingDetails.ProcessingStatus == "failed" || item.Status.UploadStatus == "rejected" || item.Status.UploadStatus == "failed" {
-		return &MediaUploadError{
+	if item.ID != videoID {
+		return false, &MediaUploadError{RetryClassification: MediaRetryReconcile, Err: errors.New("youtube processing status returned an unexpected video")}
+	}
+	if item.ProcessingDetails.ProcessingStatus == "failed" || item.Status.UploadStatus == "rejected" || item.Status.UploadStatus == "failed" || item.Status.UploadStatus == "deleted" {
+		return false, &MediaUploadError{
 			RetryClassification: MediaRetryTerminal,
 			Err: fmt.Errorf("youtube processing failed: %s", firstNonEmptyString(
 				item.ProcessingDetails.ProcessingFailureReason,
@@ -1472,7 +1231,7 @@ func (y *YouTubeAdapter) checkYouTubeProcessingStatus(ctx context.Context, acces
 			)),
 		}
 	}
-	return nil
+	return item.ProcessingDetails.ProcessingStatus == "succeeded" || item.Status.UploadStatus == "processed", nil
 }
 
 func youtubeVideoIDFromResponse(label string, respBody []byte) (string, error) {
@@ -1533,7 +1292,9 @@ func doYouTubeRequestWithClient(ctx context.Context, client *http.Client, method
 		return nil, safeYouTubeTransportError(err)
 	}
 	defer resp.Body.Close()
-	respBody, err := io.ReadAll(resp.Body)
+	// YouTube data and upload responses are small JSON payloads (upload
+	// status, video metadata). Bound the read with the shared 16 MB cap.
+	respBody, err := readProviderBody(resp)
 	if err != nil {
 		return nil, err
 	}
@@ -1565,7 +1326,41 @@ func youtubeAPIError(response *youtubeHTTPResponse) error {
 	if response.statusCode >= 200 && response.statusCode < 300 {
 		return nil
 	}
-	return NewHTTPError(response.statusCode, response.header, response.body)
+	err := NewHTTPError(response.statusCode, response.header, response.body)
+	if (response.statusCode == http.StatusTooManyRequests || response.statusCode == http.StatusForbidden) && youtubeDailyUploadQuota(response.body) {
+		providerErr := err.(*HTTPError)
+		providerErr.Code = "youtube:daily_upload_quota_exceeded"
+		providerErr.RetryAfter = 0
+	}
+	return err
+}
+
+// Inspect only Google's typed quota identity, never provider messages or project
+// identifiers. Keep this mapping local to YouTube responses.
+func youtubeDailyUploadQuota(body []byte) bool {
+	if len(body) > 256*1024 {
+		return false
+	}
+	var payload struct {
+		Error struct {
+			Details []struct {
+				Type     string `json:"@type"`
+				Metadata struct {
+					Service    string `json:"service"`
+					QuotaLimit string `json:"quota_limit"`
+				} `json:"metadata"`
+			} `json:"details"`
+		} `json:"error"`
+	}
+	if json.Unmarshal(body, &payload) != nil {
+		return false
+	}
+	for _, detail := range payload.Error.Details {
+		if detail.Type == "type.googleapis.com/google.rpc.ErrorInfo" && detail.Metadata.Service == "youtube.googleapis.com" && detail.Metadata.QuotaLimit == "defaultVideoInsertPerDayPerProject" {
+			return true
+		}
+	}
+	return false
 }
 
 func youtubeNextUploadOffset(rangeHeader string) int64 {
@@ -1629,12 +1424,11 @@ func youtubeSubscriberDescription(count string) string {
 
 func youtubeScopes() []string {
 	return []string{
-		"https://www.googleapis.com/auth/userinfo.profile",
-		"https://www.googleapis.com/auth/userinfo.email",
 		"https://www.googleapis.com/auth/youtube.readonly",
 		youtubeAnalyticsReadScope,
 		"https://www.googleapis.com/auth/youtube.upload",
 		"https://www.googleapis.com/auth/youtube",
+		youtubeCommentScope,
 	}
 }
 
@@ -1657,10 +1451,11 @@ type youtubeVideoSnippet struct {
 
 type youtubeVideoStatus struct {
 	PrivacyStatus           string `json:"privacyStatus"`
+	PublishAt               string `json:"publishAt,omitempty"`
 	License                 string `json:"license,omitempty"`
 	Embeddable              bool   `json:"embeddable"`
-	SelfDeclaredMadeForKids bool   `json:"selfDeclaredMadeForKids,omitempty"`
-	ContainsSyntheticMedia  bool   `json:"containsSyntheticMedia,omitempty"`
+	SelfDeclaredMadeForKids *bool  `json:"selfDeclaredMadeForKids,omitempty"`
+	ContainsSyntheticMedia  *bool  `json:"containsSyntheticMedia,omitempty"`
 }
 
 type youtubePaidProductPlacementDetails struct {

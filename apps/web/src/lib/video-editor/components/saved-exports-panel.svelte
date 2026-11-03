@@ -13,6 +13,7 @@
 		type ExportEntry
 	} from '../workspace-fs/exports';
 	import { createLogger } from '../workspace-fs/logger';
+	import { formatBytes as formatByteSize } from '$lib/byte-size';
 
 	const logger = createLogger('SavedExports');
 
@@ -59,16 +60,7 @@
 	}
 
 	function formatBytes(bytes: number): string {
-		if (bytes < 1024) return `${bytes} B`;
-		const units = ['KB', 'MB', 'GB', 'TB'];
-		let value = bytes / 1024;
-		let unit = 0;
-		while (value >= 1024 && unit < units.length - 1) {
-			value /= 1024;
-			unit += 1;
-		}
-		const digits = value >= 10 || Number.isInteger(value) ? 0 : 1;
-		return `${value.toFixed(digits)} ${units[unit]}`;
+		return formatByteSize(bytes, { base: 'iec' }) ?? '—';
 	}
 
 	function formatDate(timestamp: number): string {
@@ -203,7 +195,7 @@
 	<div class="max-h-[50dvh] min-h-0 overflow-y-auto pr-1">
 		{#if loading && entries === null}
 			<div
-				class="flex items-center justify-center gap-2 py-10 text-sm text-[var(--video-editor-muted)]"
+				class="flex items-center justify-center gap-2 py-6 text-sm text-[var(--video-editor-muted)]"
 				role="status"
 			>
 				<ProtectedIcon icon="loading" class="size-4 animate-spin motion-reduce:animate-none" />
@@ -211,7 +203,7 @@
 			</div>
 		{:else if entries?.length === 0}
 			<div
-				class="flex flex-col items-center gap-2 py-10 text-center text-sm text-[var(--video-editor-muted)]"
+				class="flex flex-col items-center gap-2 py-6 text-center text-sm text-[var(--video-editor-muted)]"
 			>
 				<ThemeIcon role="folder" class="size-6" />
 				<p class="max-w-72">{m.video_editor_saved_exports_empty()}</p>

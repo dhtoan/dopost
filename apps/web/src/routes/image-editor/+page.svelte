@@ -1,14 +1,30 @@
 <script lang="ts">
+	import { queryClient } from '$lib/query/client';
+	import { imageEditorErrorMessage } from '$lib/image-editor/animation-error-message';
+	import { appBranding } from '$lib/app-branding.svelte';
 	import { onMount } from 'svelte';
-	import { createQuery } from '@tanstack/svelte-query';
+	import { createQuery, createInfiniteQuery } from '@tanstack/svelte-query';
 	import {
 		imageEditorConfigQueryOptions,
-		imageEditorPublicTemplatesQueryOptions
+		imageEditorDesignCatalogQueryOptions,
+		imageEditorPublicTemplatesQueryOptions,
+		imageEditorTemplatesQueryOptions
 	} from '@openpost/query-catalog';
 	import { goto } from '$app/navigation';
 	import { resolveAppPath } from '$lib/app-path';
 	import { auth } from '$lib/stores/auth';
+	import { workspaceCtx } from '$lib/stores/workspace.svelte';
+	import ProjectStorageStatus from '$lib/components/project-storage-status.svelte';
+	import {
+		createImageEditorDesign,
+		deleteImageEditorDesign,
+		restoreImageEditorDesign,
+		instantiateImageEditorTemplate
+	} from '$lib/image-editor/api';
+	import { migrateGuestImageEditorDesign } from '$lib/image-editor/guest-migration';
+	import { getAuthenticatedMediaURL } from '$lib/media-url';
 	import { Button } from '$lib/components/ui/button';
+	import AppSelect from '$lib/components/app-select.svelte';
 	import { Input } from '$lib/components/ui/input';
 	import DestructiveConfirmDialog from '$lib/components/destructive-confirm-dialog.svelte';
 	import type { DestructiveActionOutcome } from '$lib/destructive-action-outcome';
@@ -16,6 +32,7 @@
 	import PageLoading from '$lib/components/page-loading.svelte';
 	import EditorStart from '$lib/components/editor-start.svelte';
 	import EditorFormatButton from '$lib/components/editor-format-button.svelte';
+	import SectionHeading from '$lib/components/section-heading.svelte';
 	import TemplatePreview from '$lib/image-editor/components/template-preview.svelte';
 	import { imageEditorQueryAPI, type WebImageEditorQueryData } from '$lib/query/image-editor';
 	import {
@@ -25,15 +42,72 @@
 		deleteGuestImageEditorDesign,
 		listGuestImageEditorDesigns,
 		requestGuestImageEditorPersistence,
+		warmGuestImageEditorPreviewMedia,
 		type LocalImageEditorDesign
 	} from '$lib/image-editor/local-persistence';
 	import { trackPublicImageEditorEvent } from '$lib/image-editor/public-telemetry';
+	import {
+		releaseLocalImageEditorMediaForDesign,
+		releaseUnretainedLocalImageEditorMediaForDesign,
+		retainLocalImageEditorMediaForDesign
+	} from '$lib/image-editor/local-media-url';
 	import type { ImageEditorPreset, ImageEditorTemplate } from '$lib/image-editor/types';
 	import { m } from '$lib/paraglide/messages';
 	import { showToast } from '$lib/toast';
 	import { ProtectedIcon, ThemeIcon } from '$lib/themes/icons';
 
 	let authState = $derived($auth);
+	let storageChoice = $state<'cloud' | 'local' | null>(null);
+	let trashOpen = $state(false);
+	const workspaceID = $derived(
+		authState.isAuthenticated ? (workspaceCtx.currentWorkspace?.id ?? '') : ''
+	);
+	const storageMode = $derived(storageChoice ?? (workspaceID ? 'cloud' : 'local'));
+	const cloudDesignsQuery = createInfiniteQuery(() =>
+		imageEditorDesignCatalogQueryOptions<WebImageEditorQueryData>(
+			imageEditorQueryAPI,
+			workspaceID,
+			{ limit: 24 }
+		)
+	);
+	const cloudDesigns = $derived(
+		workspaceID ? (cloudDesignsQuery.data?.pages.flatMap((page) => page.designs) ?? []) : []
+	);
+	const trashedDesignsOptions = $derived(
+		imageEditorDesignCatalogQueryOptions<WebImageEditorQueryData>(
+			imageEditorQueryAPI,
+			workspaceID,
+			{ limit: 24, trashed: true }
+		)
+	);
+	const trashedDesignsQuery = createInfiniteQuery(() => trashedDesignsOptions);
+	const trashedDesigns = $derived(
+		workspaceID ? (trashedDesignsQuery.data?.pages.flatMap((page) => page.designs) ?? []) : []
+	);
+	// A delete prunes every cached list, so the trash list restarts from the server.
+	function reloadTrashedDesigns() {
+		return queryClient.resetQueries({ queryKey: trashedDesignsOptions.queryKey, exact: true });
+	}
+	let restoring = $state('');
+	async function restoreDesign(id: string): Promise<void> {
+		if (restoring || !workspaceID) return;
+		const targetWorkspace = workspaceID;
+		restoring = id;
+		error = '';
+		try {
+			await restoreImageEditorDesign(targetWorkspace, id);
+			if (workspaceID !== targetWorkspace) return;
+			await Promise.all([cloudDesignsQuery.refetch(), trashedDesignsQuery.refetch()]);
+		} catch (cause) {
+			if (workspaceID === targetWorkspace)
+				error = imageEditorErrorMessage(cause) ?? m.image_editor_public_load_failed();
+		} finally {
+			restoring = '';
+		}
+	}
+
+	let localLimit = $state(12);
+
 	let localLoading = $state(true);
 	let creating = $state('');
 	let error = $state('');
@@ -42,7 +116,7 @@
 	let customWidth = $state(1080);
 	let customHeight = $state(1080);
 	let fileInput = $state<HTMLInputElement | null>(null);
-	let pendingDelete = $state<LocalImageEditorDesign | null>(null);
+	let pendingDelete = $state<{ id: string; workspaceID: string } | null>(null);
 	let deleteDialogOpen = $state(false);
 	let pageHeading = $state<HTMLHeadingElement | null>(null);
 	let recentHeading = $state<HTMLHeadingElement | null>(null);
@@ -51,6 +125,12 @@
 	const templatesQuery = createQuery(() =>
 		imageEditorPublicTemplatesQueryOptions<WebImageEditorQueryData>(imageEditorQueryAPI)
 	);
+	const workspaceTemplatesQuery = createQuery(() =>
+		imageEditorTemplatesQueryOptions<WebImageEditorQueryData>(imageEditorQueryAPI, workspaceID)
+	);
+	const workspaceTemplates = $derived(
+		workspaceID ? (workspaceTemplatesQuery.data ?? []).filter((template) => !template.built_in) : []
+	);
 	let enabled = $derived(configQuery.data?.enabled ?? true);
 	let presets = $derived<ImageEditorPreset[]>(configQuery.data?.presets ?? []);
 	let templates = $derived<ImageEditorTemplate[]>(templatesQuery.data ?? []);
@@ -58,17 +138,15 @@
 		presets.find((preset) => preset.key === 'instagram-square') ?? presets[0]
 	);
 	let loading = $derived(
-		localLoading ||
-			(configQuery.isPending && !configQuery.data) ||
+		(configQuery.isPending && !configQuery.data) ||
 			(templatesQuery.isPending && !templatesQuery.data)
 	);
 	let loadError = $derived(
-		localLoadError ||
-			(configQuery.isError && !configQuery.data
-				? configQuery.error instanceof Error
-					? configQuery.error.message
-					: m.image_editor_public_load_failed()
-				: '') ||
+		(configQuery.isError && !configQuery.data
+			? configQuery.error instanceof Error
+				? configQuery.error.message
+				: m.image_editor_public_load_failed()
+			: '') ||
 			(templatesQuery.isError && !templatesQuery.data
 				? templatesQuery.error instanceof Error
 					? templatesQuery.error.message
@@ -88,23 +166,55 @@
 				: '')
 	);
 
+	let localDesignListMounted = false;
+	let localDesignLoadSequence = 0;
+	const heldLocalDesignIDs = new Set<string>();
 	onMount(() => {
+		localDesignListMounted = true;
 		void loadLocalDesigns();
+		return () => {
+			localDesignListMounted = false;
+			for (const id of heldLocalDesignIDs) releaseLocalImageEditorMediaForDesign(id);
+			heldLocalDesignIDs.clear();
+		};
 	});
 
 	async function loadLocalDesigns(): Promise<void> {
+		const sequence = ++localDesignLoadSequence;
 		localLoading = true;
 		localLoadError = '';
 		try {
-			const localDesigns = await listGuestImageEditorDesigns();
+			const localDesigns = await listGuestImageEditorDesigns(localLimit);
+			if (!localDesignListMounted || sequence !== localDesignLoadSequence) {
+				for (const design of localDesigns)
+					releaseUnretainedLocalImageEditorMediaForDesign(design.id);
+				return;
+			}
+			const nextIDs = new Set(localDesigns.map((design) => design.id));
+			for (const id of heldLocalDesignIDs) {
+				if (!nextIDs.has(id)) {
+					releaseLocalImageEditorMediaForDesign(id);
+					heldLocalDesignIDs.delete(id);
+				}
+			}
+			for (const id of nextIDs) {
+				if (heldLocalDesignIDs.has(id)) continue;
+				retainLocalImageEditorMediaForDesign(id);
+				heldLocalDesignIDs.add(id);
+			}
+			await Promise.all(
+				localDesigns.map((record) => warmGuestImageEditorPreviewMedia(record.document))
+			);
+			if (!localDesignListMounted || sequence !== localDesignLoadSequence) return;
 			recentDesigns = localDesigns;
 			trackPublicImageEditorEvent('image_editor_public_view', {
 				returning_guest: localDesigns.length > 0
 			});
 		} catch (cause) {
-			localLoadError = cause instanceof Error ? cause.message : m.image_editor_public_load_failed();
+			if (sequence === localDesignLoadSequence)
+				localLoadError = imageEditorErrorMessage(cause) ?? m.image_editor_public_load_failed();
 		} finally {
-			localLoading = false;
+			if (sequence === localDesignLoadSequence) localLoading = false;
 		}
 	}
 
@@ -118,14 +228,24 @@
 		error = '';
 		try {
 			void requestGuestImageEditorPersistence();
-			const design = await createGuestImageEditorDesign(preset, m.image_editor_untitled_design());
+			const targetWorkspace = storageMode === 'cloud' ? workspaceID : '';
+			const design = targetWorkspace
+				? await createImageEditorDesign(targetWorkspace, {
+						preset_key: preset.key,
+						title: m.image_editor_untitled_design(),
+						width_px: preset.width_px,
+						height_px: preset.height_px
+					})
+				: await createGuestImageEditorDesign(preset, m.image_editor_untitled_design());
+			if (targetWorkspace && workspaceID !== targetWorkspace) return;
 			trackPublicImageEditorEvent('image_editor_design_started', {
 				entry: 'preset',
 				preset: preset.key
 			});
 			await goto(resolveAppPath(`/image-editor/${design.id}`));
 		} catch (cause) {
-			error = cause instanceof Error ? cause.message : m.image_editor_create_failed();
+			error = imageEditorErrorMessage(cause) ?? m.image_editor_create_failed();
+		} finally {
 			creating = '';
 		}
 	}
@@ -152,22 +272,24 @@
 	}
 
 	async function startTemplate(template: ImageEditorTemplate): Promise<void> {
-		if (creating) return;
+		if (creating || (!template.built_in && !workspaceID)) return;
 		creating = template.id;
 		error = '';
 		try {
 			void requestGuestImageEditorPersistence();
-			const design = await createGuestImageEditorDesignFromTemplate(
-				template,
-				templateName(template)
-			);
+			const targetWorkspace = !template.built_in || storageMode === 'cloud' ? workspaceID : '';
+			const design = targetWorkspace
+				? await instantiateImageEditorTemplate(template.id, targetWorkspace, templateName(template))
+				: await createGuestImageEditorDesignFromTemplate(template, templateName(template));
+			if (targetWorkspace && workspaceID !== targetWorkspace) return;
 			trackPublicImageEditorEvent('image_editor_design_started', {
 				entry: 'template',
 				template: template.id
 			});
 			await goto(resolveAppPath(`/image-editor/${design.id}`));
 		} catch (cause) {
-			error = cause instanceof Error ? cause.message : m.image_editor_template_use_failed();
+			error = imageEditorErrorMessage(cause) ?? m.image_editor_template_use_failed();
+		} finally {
 			creating = '';
 		}
 	}
@@ -181,31 +303,46 @@
 		creating = 'image';
 		error = '';
 		try {
+			const targetWorkspace = storageMode === 'cloud' ? workspaceID : '';
 			void requestGuestImageEditorPersistence();
-			const design = await createGuestImageEditorDesignFromImage(
+			const local = await createGuestImageEditorDesignFromImage(
 				file,
 				file.name.replace(/\.[^.]+$/u, '') || m.image_editor_untitled_design()
 			);
+			const design = targetWorkspace
+				? await migrateGuestImageEditorDesign(local.id, targetWorkspace)
+				: local;
+			if (targetWorkspace && workspaceID !== targetWorkspace) return;
 			trackPublicImageEditorEvent('image_editor_design_started', { entry: 'image' });
 			await goto(resolveAppPath(`/image-editor/${design.id}`));
 		} catch (cause) {
-			error = cause instanceof Error ? cause.message : m.image_editor_media_open_failed();
+			error = imageEditorErrorMessage(cause) ?? m.image_editor_media_open_failed();
+		} finally {
 			creating = '';
 		}
 	}
 
-	function requestDelete(design: LocalImageEditorDesign): void {
-		pendingDelete = design;
+	function requestDelete(design: { id: string }, designWorkspaceID = ''): void {
+		pendingDelete = { id: design.id, workspaceID: designWorkspaceID };
 		deleteReturnFocus = recentDesigns.length > 1 ? recentHeading : pageHeading;
 		deleteDialogOpen = true;
 	}
 
 	async function deleteDesign(): Promise<DestructiveActionOutcome> {
 		if (!pendingDelete) return { ok: false };
-		await deleteGuestImageEditorDesign(pendingDelete.id);
-		recentDesigns = recentDesigns.filter((design) => design.id !== pendingDelete?.id);
+		const target = pendingDelete;
+		if (target.workspaceID) {
+			await deleteImageEditorDesign(target.workspaceID, target.id);
+			if (workspaceID === target.workspaceID) await reloadTrashedDesigns();
+		} else {
+			await deleteGuestImageEditorDesign(target.id);
+			recentDesigns = recentDesigns.filter((design) => design.id !== target.id);
+		}
 		pendingDelete = null;
-		showToast(m.image_editor_public_deleted(), 'success');
+		showToast(
+			target.workspaceID ? m.image_editor_design_deleted() : m.image_editor_public_deleted(),
+			'success'
+		);
 		return { ok: true };
 	}
 
@@ -268,30 +405,91 @@
 	}
 </script>
 
+{#snippet templateCard(template: ImageEditorTemplate)}
+	<button
+		type="button"
+		class="min-w-0 overflow-hidden rounded-xl border bg-card text-left transition-colors hover:border-primary/40 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:opacity-60"
+		onclick={() => startTemplate(template)}
+		aria-label={template.built_in
+			? templateName(template)
+			: `${templateName(template)}: ${m.media_create_design()}, ${m.video_editor_saved_cloud()}`}
+		disabled={Boolean(creating)}
+	>
+		<div class="aspect-square overflow-hidden border-b">
+			<TemplatePreview document={template.document} label={templateName(template)} compact cached />
+		</div>
+		<div class="flex min-h-16 items-center gap-2 p-3">
+			<div class="min-w-0 flex-1">
+				<span class="block text-sm leading-snug font-medium">{templateName(template)}</span>
+				{#if !template.built_in}<span class="mt-1 block text-xs text-muted-foreground"
+						>{m.media_create_design()} · {m.video_editor_saved_cloud()}</span
+					>{/if}
+			</div>
+			{#if creating === template.id}<ProtectedIcon
+					icon="loading"
+					class="size-4 animate-spin motion-reduce:animate-none"
+				/>{/if}
+		</div>
+	</button>
+{/snippet}
+
 <svelte:head>
-	<title>{m.image_editor_public_meta_title()}</title>
+	<title>{appBranding.title(m.image_editor_public_meta_title())}</title>
 	<meta name="description" content={m.image_editor_public_meta_description()} />
+	<link rel="canonical" href="https://app.openpo.st/image-editor" />
+	<meta property="og:site_name" content="OpenPost" />
+	<meta property="og:type" content="website" />
+	<meta property="og:title" content="Free social media image editor - OpenPost Image Editor" />
+	<meta
+		property="og:description"
+		content="Create posts, carousel pages, Story slides, and thumbnails in your browser."
+	/>
+	<meta property="og:url" content="https://app.openpo.st/image-editor" />
+	<meta property="og:image" content="https://app.openpo.st/og/app-image-editor.png" />
+	<meta property="og:image:secure_url" content="https://app.openpo.st/og/app-image-editor.png" />
+	<meta property="og:image:type" content="image/png" />
+	<meta property="og:image:width" content="1200" />
+	<meta property="og:image:height" content="630" />
+	<meta property="og:image:alt" content="Image Editor OpenPost editor social preview." />
+	<meta name="twitter:card" content="summary_large_image" />
+	<meta name="twitter:title" content="Free social media image editor - OpenPost Image Editor" />
+	<meta
+		name="twitter:description"
+		content="Create posts, carousel pages, Story slides, and thumbnails in your browser."
+	/>
+	<meta name="twitter:image" content="https://app.openpo.st/og/app-image-editor.png" />
+	<meta name="twitter:image:alt" content="Image Editor OpenPost editor social preview." />
 </svelte:head>
 
 <div class="image-editor-theme min-h-dvh bg-background text-foreground">
 	<EditorStart
-		kind="image"
 		title={m.editor_start_image_title()}
 		description={m.editor_start_image_description()}
 		bind:heading={pageHeading}
 	>
 		{#snippet utility()}
-			{#if authState.isAuthenticated}
-				<Button href="/image-editor/new" variant="ghost" size="sm"
-					>{m.image_editor_workspace_category()}</Button
+			{#if authState.isAuthenticated}<Button
+					href={resolveAppPath('/studio')}
+					variant="ghost"
+					size="sm"
 				>
-			{:else}
-				<Button href="/login?redirect=%2Fimage-editor" variant="ghost" size="sm"
+					<ThemeIcon role="chevron-left" class="size-4" />
+					{m.editor_back_to_studio()}
+				</Button>{:else}<Button href="/login?redirect=%2Fimage-editor" variant="ghost" size="sm"
 					>{m.landing_sign_in()}</Button
-				>
-			{/if}
+				>{/if}
 		{/snippet}
 		{#snippet actions()}
+			{#if workspaceID}<AppSelect
+					value={storageMode}
+					ariaLabel={m.editor_storage_destination()}
+					onValueChange={(value) => (storageChoice = value as 'cloud' | 'local')}
+					options={[
+						{ value: 'cloud', label: m.editor_storage_choice_cloud() },
+						{ value: 'local', label: m.editor_storage_choice_local() }
+					]}
+					class="h-8 w-36 text-xs"
+				/>{/if}
 			<Button
 				onclick={() => blankPreset && startPreset(blankPreset)}
 				disabled={Boolean(creating) || !enabled || !blankPreset}
@@ -312,7 +510,7 @@
 			<Input
 				bind:ref={fileInput}
 				type="file"
-				accept="image/png,image/jpeg,image/webp"
+				accept="image/png,image/jpeg,image/webp,image/gif"
 				aria-label={m.image_editor_public_open_image()}
 				class="hidden"
 				onchange={() => void openImage()}
@@ -321,6 +519,183 @@
 
 		{#if error}
 			<InlineNotice tone="error" message={error} class="mt-6 max-w-3xl" />
+		{/if}
+
+		{#if recentDesigns.length > 0 || workspaceID || localLoading || localLoadError}
+			<section class="mt-10 mb-10" aria-labelledby="recent-designs-heading">
+				<div class="mb-4 flex items-end justify-between gap-4">
+					<div>
+						<h2
+							bind:this={recentHeading}
+							id="recent-designs-heading"
+							tabindex="-1"
+							class="text-lg font-semibold outline-none"
+						>
+							{m.media_your_designs()}
+						</h2>
+					</div>
+				</div>
+				{#if localLoadError}<div class="mb-3" role="alert">
+						<p class="text-sm text-destructive">{m.video_editor_local_only()}: {localLoadError}</p>
+						<Button variant="ghost" onclick={() => void loadLocalDesigns()}
+							>{m.common_retry()}</Button
+						>
+					</div>{:else if localLoading}<p role="status" class="mb-3 text-sm text-muted-foreground">
+						{m.common_loading()}
+					</p>{/if}
+				<div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+					{#each cloudDesigns as design (design.id)}
+						<div class="group relative overflow-hidden rounded-xl border bg-card">
+							<a
+								href={resolveAppPath(`/image-editor/${design.id}`)}
+								class="block focus-visible:outline-2 focus-visible:outline-ring"
+							>
+								<div class="flex aspect-[4/3] items-center justify-center bg-muted">
+									{#if design.cover_preview_media_id}<img
+											src={getAuthenticatedMediaURL(`/media/${design.cover_preview_media_id}`)}
+											alt={design.title}
+											class="size-full object-contain"
+											loading="lazy"
+										/>{:else}<ThemeIcon role="image" class="size-8 text-muted-foreground" />{/if}
+								</div>
+								<div class="border-t px-3 py-2.5">
+									<p class="mb-1 truncate text-sm font-medium">{design.title}</p>
+									<ProjectStorageStatus storage="cloud" />
+								</div>
+							</a>
+							{#if workspaceCtx.currentWorkspace?.can_edit}
+								<Button
+									variant="ghost"
+									size="icon-sm"
+									class="absolute top-2 right-2 bg-background/90"
+									onclick={() => requestDelete(design, workspaceID)}
+									aria-label={m.image_editor_public_delete_design({ title: design.title })}
+								>
+									<ThemeIcon role="delete" />
+								</Button>
+							{/if}
+						</div>
+					{/each}
+
+					{#each recentDesigns as design (design.id)}
+						<div class="group relative overflow-hidden rounded-xl border bg-card">
+							<a
+								href={resolveAppPath(`/image-editor/${design.id}`)}
+								class="block focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+							>
+								<div class="aspect-[4/3] bg-neutral-800">
+									<TemplatePreview
+										document={design.document}
+										label={design.document.title}
+										compact
+										cached
+									/>
+								</div>
+								<div class="flex min-h-16 items-center gap-3 border-t px-3 py-2.5">
+									<div class="min-w-0 flex-1">
+										<p class="truncate text-sm font-medium">{design.document.title}</p>
+										<ProjectStorageStatus storage="local" />
+										<p class="mt-0.5 text-xs text-muted-foreground">
+											{new Date(design.updated_at).toLocaleString()}
+										</p>
+									</div>
+									<ThemeIcon role="arrow-right" class="size-4 text-muted-foreground" />
+								</div>
+							</a>
+							<Button
+								variant="ghost"
+								size="icon-sm"
+								class="absolute top-2 right-2 bg-background/90"
+								onclick={() => requestDelete(design)}
+								aria-label={m.image_editor_public_delete_design({ title: design.document.title })}
+							>
+								<ThemeIcon role="delete" />
+							</Button>
+						</div>
+					{/each}
+				</div>
+				{#if workspaceID && cloudDesignsQuery.isPending}<p
+						class="mt-3 text-sm text-muted-foreground"
+						role="status"
+					>
+						{m.common_loading()}
+					</p>{/if}
+				{#if workspaceID && cloudDesignsQuery.isError}<div class="mt-3" role="alert">
+						<p class="text-sm text-destructive">{m.image_editor_public_load_failed()}</p>
+						<Button variant="ghost" onclick={() => cloudDesignsQuery.refetch()}
+							>{m.common_retry()}</Button
+						>
+					</div>{/if}
+				{#if cloudDesignsQuery.hasNextPage || recentDesigns.length === localLimit}<Button
+						class="mt-4"
+						variant="outline"
+						disabled={cloudDesignsQuery.isFetchingNextPage || localLoading}
+						onclick={() => {
+							if (cloudDesignsQuery.hasNextPage) void cloudDesignsQuery.fetchNextPage();
+							localLimit += 12;
+							void loadLocalDesigns();
+						}}>{m.editors_load_more_designs()}</Button
+					>{/if}
+			</section>
+		{/if}
+		{#if workspaceID}
+			<section class="mt-10 mb-10" aria-label={m.media_lifecycle_trash()}>
+				<Button
+					variant="ghost"
+					size="sm"
+					class="-ml-2"
+					aria-expanded={trashOpen}
+					onclick={() => {
+						trashOpen = !trashOpen;
+						if (trashOpen && workspaceID) void reloadTrashedDesigns();
+					}}
+				>
+					<ThemeIcon
+						role="chevron-right"
+						class="size-4 transition-transform {trashOpen ? 'rotate-90' : ''}"
+					/>
+					{m.media_lifecycle_trash()}
+				</Button>
+				{#if trashOpen}
+					<p class="mt-1 text-sm text-muted-foreground">
+						{m.image_editor_trash_restore_independent()}
+					</p>
+					{#if trashedDesignsQuery.isPending}<p
+							role="status"
+							class="mt-3 text-sm text-muted-foreground"
+						>
+							{m.common_loading()}
+						</p>{/if}
+					{#if trashedDesignsQuery.isError}<InlineNotice
+							tone="error"
+							message={m.image_editor_public_load_failed()}
+						>
+							{#snippet actions()}<Button
+									variant="outline"
+									onclick={() => void trashedDesignsQuery.refetch()}>{m.common_retry()}</Button
+								>{/snippet}
+						</InlineNotice>{/if}
+					<div class="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+						{#each trashedDesigns as design (design.id)}
+							<div class="flex min-w-0 items-center gap-3 rounded-xl border bg-card p-3">
+								<p class="min-w-0 flex-1 text-sm font-medium break-words">{design.title}</p>
+								{#if workspaceCtx.currentWorkspace?.can_edit}<Button
+										variant="outline"
+										disabled={Boolean(restoring)}
+										onclick={() => void restoreDesign(design.id)}>{m.image_editor_restore()}</Button
+									>{/if}
+							</div>
+						{/each}
+					</div>
+					{#if trashedDesignsQuery.hasNextPage}<Button
+							class="mt-3"
+							variant="outline"
+							disabled={trashedDesignsQuery.isFetchingNextPage}
+							onclick={() => void trashedDesignsQuery.fetchNextPage()}
+							>{m.editors_load_more_designs()}</Button
+						>{/if}
+				{/if}
+			</section>
 		{/if}
 
 		{#if loading}
@@ -352,9 +727,9 @@
 				</InlineNotice>
 			{/if}
 			<section aria-labelledby="formats-heading">
-				<h2 id="formats-heading" class="mb-3 text-base font-semibold">
+				<SectionHeading level={2} size="section" id="formats-heading" class="mb-3">
 					{m.image_editor_choose_format()}
-				</h2>
+				</SectionHeading>
 				<div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
 					{#each presets as preset (preset.key)}
 						<EditorFormatButton
@@ -376,9 +751,9 @@
 				<section class="pt-3" aria-labelledby="custom-heading">
 					<div class="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(22rem,32rem)] lg:items-end">
 						<div>
-							<h2 id="custom-heading" class="text-base font-semibold">
+							<SectionHeading level={2} size="section" id="custom-heading">
 								{m.image_editor_custom_size()}
-							</h2>
+							</SectionHeading>
 							<p class="mt-1 text-sm text-muted-foreground">{m.image_editor_custom_limits()}</p>
 						</div>
 						<div class="grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
@@ -402,96 +777,50 @@
 					</div>
 				</section>
 			</details>
-			{#if recentDesigns.length > 0}
-				<section class="mt-12" aria-labelledby="recent-designs-heading">
-					<div class="mb-4 flex items-end justify-between gap-4">
-						<div>
-							<h2
-								bind:this={recentHeading}
-								id="recent-designs-heading"
-								tabindex="-1"
-								class="text-lg font-semibold outline-none"
-							>
-								{m.image_editor_public_recent()}
-							</h2>
-							<p class="mt-1 text-sm text-muted-foreground">
-								{m.image_editor_public_recent_description()}
-							</p>
-						</div>
+
+			{#if workspaceID && (workspaceTemplates.length > 0 || workspaceTemplatesQuery.isPending || workspaceTemplatesQuery.isError)}
+				<section class="mt-12" aria-labelledby="workspace-templates-heading">
+					<div class="mb-4">
+						<SectionHeading level={2} size="section" id="workspace-templates-heading">
+							{m.image_editor_workspace_templates()}
+						</SectionHeading>
+						<p class="mt-1 text-sm text-muted-foreground">
+							{m.image_editor_workspace_templates_body()}
+						</p>
 					</div>
-					<div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-						{#each recentDesigns as design (design.id)}
-							<div class="group relative overflow-hidden rounded-xl border bg-card">
-								<a
-									href={resolveAppPath(`/image-editor/${design.id}`)}
-									class="block focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-								>
-									<div class="aspect-[4/3] bg-neutral-800">
-										<TemplatePreview
-											document={design.document}
-											label={design.document.title}
-											compact
-										/>
-									</div>
-									<div class="flex min-h-16 items-center gap-3 border-t px-3 py-2.5">
-										<div class="min-w-0 flex-1">
-											<p class="truncate text-sm font-medium">{design.document.title}</p>
-											<p class="mt-0.5 text-xs text-muted-foreground">
-												{new Date(design.updated_at).toLocaleString()}
-											</p>
-										</div>
-										<ThemeIcon role="arrow-right" class="size-4 text-muted-foreground" />
-									</div>
-								</a>
-								<Button
-									variant="ghost"
-									size="icon-sm"
-									class="absolute top-2 right-2 bg-background/90"
-									onclick={() => requestDelete(design)}
-									aria-label={m.image_editor_public_delete_design({ title: design.document.title })}
-								>
-									<ThemeIcon role="delete" />
-								</Button>
-							</div>
-						{/each}
-					</div>
+					{#if workspaceTemplatesQuery.isError}
+						<InlineNotice tone="error" message={m.image_editor_templates_load_failed()}>
+							{#snippet actions()}<Button
+									size="sm"
+									variant="outline"
+									onclick={() => void workspaceTemplatesQuery.refetch()}>{m.common_retry()}</Button
+								>{/snippet}
+						</InlineNotice>
+					{:else if workspaceTemplatesQuery.isPending && !workspaceTemplatesQuery.data}
+						<p role="status" class="text-sm text-muted-foreground">{m.media_loading_templates()}</p>
+					{/if}
+					{#if workspaceTemplates.length > 0}<div
+							class="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4"
+						>
+							{#each workspaceTemplates as template (template.id)}{@render templateCard(
+									template
+								)}{/each}
+						</div>{/if}
 				</section>
 			{/if}
 
 			<section class="mt-12" aria-labelledby="templates-heading">
 				<div class="mb-4">
-					<h2 id="templates-heading" class="text-lg font-semibold">
+					<SectionHeading level={2} size="section" id="templates-heading">
 						{m.image_editor_starter_templates()}
-					</h2>
+					</SectionHeading>
 					<p class="mt-1 text-sm text-muted-foreground">
 						{m.image_editor_public_templates_description()}
 					</p>
 				</div>
 				<div class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
 					{#each templates as template (template.id)}
-						<button
-							type="button"
-							class="min-w-0 overflow-hidden rounded-xl border bg-card text-left transition-colors hover:border-primary/40 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:opacity-60"
-							onclick={() => startTemplate(template)}
-							disabled={Boolean(creating)}
-						>
-							<div class="aspect-square overflow-hidden border-b">
-								<TemplatePreview
-									document={template.document}
-									label={templateName(template)}
-									compact
-								/>
-							</div>
-							<div class="flex min-h-16 items-center gap-2 p-3">
-								<span class="min-w-0 flex-1 text-sm leading-snug font-medium">
-									{templateName(template)}
-								</span>
-								{#if creating === template.id}<ProtectedIcon
-										icon="loading"
-										class="size-4 animate-spin"
-									/>{/if}
-							</div>
-						</button>
+						{@render templateCard(template)}
 					{/each}
 				</div>
 			</section>
@@ -505,8 +834,12 @@
 
 <DestructiveConfirmDialog
 	bind:open={deleteDialogOpen}
-	title={m.image_editor_public_delete_title()}
-	description={m.image_editor_public_delete_description()}
+	title={pendingDelete?.workspaceID
+		? m.image_editor_design_delete_title()
+		: m.image_editor_public_delete_title()}
+	description={pendingDelete?.workspaceID
+		? m.image_editor_design_delete_body()
+		: m.image_editor_public_delete_description()}
 	onConfirm={deleteDesign}
 	returnFocus={deleteReturnFocus}
 />

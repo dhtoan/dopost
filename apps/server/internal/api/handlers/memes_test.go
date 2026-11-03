@@ -9,6 +9,9 @@ import (
 	"errors"
 	"fmt"
 	"hash/crc32"
+	"image"
+	"image/jpeg"
+	"image/png"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -20,15 +23,60 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humaecho"
 	"github.com/labstack/echo/v4"
+	"github.com/openpost/backend/internal/ai"
 	"github.com/openpost/backend/internal/memes"
 	"github.com/openpost/backend/internal/models"
 	"github.com/openpost/backend/internal/services/medialifecycle"
 	"github.com/openpost/backend/internal/services/mediastore"
 	"github.com/openpost/backend/internal/services/memegeneration"
 	"github.com/openpost/backend/internal/services/publicurl"
+	"github.com/openpost/backend/internal/services/voiceprofiles"
 	"github.com/stretchr/testify/require"
 	"github.com/uptrace/bun"
 )
+
+type memeSuggestionGeneratorFunc func(context.Context, ai.GenerateRequest) (ai.GenerateResult, error)
+
+func (f memeSuggestionGeneratorFunc) Generate(ctx context.Context, request ai.GenerateRequest) (ai.GenerateResult, error) {
+	return f(ctx, request)
+}
+
+func TestMemeSuggestionsAcceptRichWorkspaceVoice(t *testing.T) {
+	examples := []voiceprofiles.Example{
+		{Text: "First approved example: " + strings.Repeat("a", 3000)},
+		{Text: "Second approved example: " + strings.Repeat("b", 3000)},
+		{Text: "Third approved example: " + strings.Repeat("c", 3000)},
+	}
+	var guidance string
+	service, err := memegeneration.New(memeSuggestionGeneratorFunc(func(_ context.Context, request ai.GenerateRequest) (ai.GenerateResult, error) {
+		guidance = request.UserPrompt
+		return ai.GenerateResult{Text: `{"candidates":[{"template_id":"drake","caption_lines":["more code","more features"],"rationale":"Prefer the result over extra code.","alt_text":"Drake rejects more code and approves more features."}]}`}, nil
+	}), memegeneration.DefaultModel)
+	require.NoError(t, err)
+	srv := newMemeHandlerTestServer(t, service)
+	_, err = srv.db.NewCreateTable().Model((*models.SocialAccount)(nil)).IfNotExists().Exec(t.Context())
+	require.NoError(t, err)
+	createVoiceProfileHandlerTables(t, srv.db)
+	profile, err := voiceprofiles.New(srv.db).Create(t.Context(), voiceprofiles.CreateInput{
+		WorkspaceID: "ws-1", CreatedByID: "user-1", Name: "Rich founder voice", IsDefault: true,
+		Definition: voiceprofiles.Definition{IdentitySummary: "Direct technical founder", PreferredLanguage: "en", Examples: examples},
+	})
+	require.NoError(t, err)
+	encoded, err := json.Marshal(profile.Definition)
+	require.NoError(t, err)
+	require.Greater(t, len(encoded), 8000)
+	response := srv.request(t, http.MethodPost, "/api/v1/memes/suggestions", map[string]any{
+		"workspace_id": "ws-1", "idea": "Less code, more features.", "count": 1,
+	})
+	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+	for _, example := range examples {
+		require.Contains(t, guidance, example.Text, "approved examples must reach generation intact")
+	}
+	var output GenerateMemeSuggestionsOutput
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &output.Body))
+	require.Len(t, output.Body.Candidates, 1)
+	require.Equal(t, "drake", output.Body.Candidates[0].TemplateID)
+}
 
 type memeProviderStub struct {
 	mu             sync.Mutex
@@ -201,6 +249,7 @@ func newMemeHandlerTestServer(t *testing.T, suggester memegeneration.Suggester) 
 		(*models.WorkspaceMember)(nil),
 		(*models.MediaAttachment)(nil),
 		(*models.MediaGenerationRecipe)(nil),
+		(*models.ScreenshotTemplateRecipeMediaReference)(nil),
 		(*models.UsageCounter)(nil),
 		(*models.RenditionMedia)(nil),
 	)
@@ -257,9 +306,9 @@ func newMemeHandlerTestServer(t *testing.T, suggester memegeneration.Suggester) 
 
 func validMemePNG(t *testing.T) []byte {
 	t.Helper()
-	data, err := base64.StdEncoding.DecodeString("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl2nWQAAAAASUVORK5CYII=")
-	require.NoError(t, err)
-	return data
+	var data bytes.Buffer
+	require.NoError(t, png.Encode(&data, image.NewNRGBA(image.Rect(0, 0, 1, 1))))
+	return data.Bytes()
 }
 
 func (s *memeHandlerTestServer) request(t *testing.T, method, path string, body any, token ...string) *httptest.ResponseRecorder {
@@ -358,6 +407,7 @@ func TestMemePreviewLoadsWorkspaceOverlayBytesWithoutPublicURLAndDoesNotPersist(
 	require.Len(t, requests, 1)
 	require.Empty(t, requests[0].OverlayURLs)
 	require.Len(t, requests[0].OverlayImages, 1)
+	require.Equal(t, memePreviewRenderHeight, requests[0].Height)
 	require.Equal(t, "image/png", requests[0].OverlayImages[0].MIMEType)
 	require.Equal(t, validMemePNG(t), requests[0].OverlayImages[0].Data)
 	count, err := srv.db.NewSelect().Model((*models.MediaGenerationRecipe)(nil)).Count(t.Context())
@@ -368,19 +418,47 @@ func TestMemePreviewLoadsWorkspaceOverlayBytesWithoutPublicURLAndDoesNotPersist(
 func TestMemePreviewRejectsOversizedOverlayBeforeCallingProvider(t *testing.T) {
 	t.Parallel()
 
-	srv := newMemeHandlerTestServer(t, nil)
-	_, err := srv.db.NewInsert().Model(&models.MediaAttachment{
-		ID: "overlay-large", WorkspaceID: "ws-1", FilePath: "overlay-large.png",
-		MimeType: "image/png", ProcessingStatus: mediaReadyStatus,
-		Size: maxMemeOverlayBytes + 1, Width: 1, Height: 1,
-	}).Exec(t.Context())
-	require.NoError(t, err)
-	response := srv.request(t, http.MethodPost, "/api/v1/memes/preview", map[string]any{
-		"workspace_id": "ws-1", "template_id": "3hd",
-		"captions": []string{"one", "two", "three"}, "overlay_media_ids": []string{"overlay-large"},
-	})
-	require.Equal(t, http.StatusBadRequest, response.Code, response.Body.String())
-	require.Empty(t, srv.provider.renderedRequests())
+	for _, testCase := range []struct {
+		name          string
+		size          int64
+		width, height int
+	}{
+		{name: "bytes", size: 10*1024*1024 + 1, width: 1, height: 1},
+		{name: "pixels", size: 100, width: 4000, height: 3250},
+		{name: "side", size: 100, width: 6001, height: 1},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			srv := newMemeHandlerTestServer(t, nil)
+			_, err := srv.db.NewInsert().Model(&models.MediaAttachment{
+				ID: "overlay-large", WorkspaceID: "ws-1", FilePath: "overlay-large.png",
+				MimeType: "image/png", ProcessingStatus: mediaReadyStatus,
+				Size: testCase.size, Width: testCase.width, Height: testCase.height,
+			}).Exec(t.Context())
+			require.NoError(t, err)
+			input := map[string]any{
+				"workspace_id": "ws-1", "template_id": "3hd",
+				"captions": []string{"one", "two", "three"}, "overlay_media_ids": []string{"overlay-large"},
+			}
+			response := srv.request(t, http.MethodPost, "/api/v1/memes/preview", input)
+			require.Equal(t, http.StatusBadRequest, response.Code, response.Body.String())
+			require.Contains(t, response.Body.String(), "at most 10 MiB, 6000 pixels per side, and 12 million pixels")
+			require.Contains(t, response.Body.String(), "Resize the image or choose a smaller one.")
+			require.Empty(t, srv.provider.renderedRequests())
+
+			data := validMemePNG(t)
+			_, err = srv.db.NewInsert().Model(&models.MediaAttachment{
+				ID: "overlay-small", WorkspaceID: "ws-1", FilePath: "overlay-small.png",
+				MimeType: "image/png", ProcessingStatus: mediaReadyStatus,
+				Size: int64(len(data)), Width: 1, Height: 1,
+			}).Exec(t.Context())
+			require.NoError(t, err)
+			srv.storage.objects["overlay-small.png"] = data
+			input["overlay_media_ids"] = []string{"overlay-small"}
+			response = srv.request(t, http.MethodPost, "/api/v1/memes/preview", input)
+			require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+			require.Len(t, srv.provider.renderedRequests(), 1)
+		})
+	}
 }
 
 func TestMemeRenderImportsMediaPersistsImmutableRecipeAndAllowsRecipeRead(t *testing.T) {
@@ -410,6 +488,9 @@ func TestMemeRenderImportsMediaPersistsImmutableRecipeAndAllowsRecipeRead(t *tes
 	var output RenderMemeOutput
 	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &output.Body))
 	require.NotEmpty(t, output.Body.Media.ID)
+	requests := srv.provider.renderedRequests()
+	require.Len(t, requests, 1)
+	require.Equal(t, memePublishRenderHeight, requests[0].Height)
 	require.Equal(t, "meme_generator", output.Body.Media.Source)
 	require.Equal(t, "parent-1", output.Body.Media.ParentMediaID)
 	require.Equal(t, output.Body.Media.ID, output.Body.Recipe.MediaID)
@@ -449,10 +530,64 @@ func TestMemeRenderImportsMediaPersistsImmutableRecipeAndAllowsRecipeRead(t *tes
 	mismatchedRecipe := srv.request(t, http.MethodGet, "/api/v1/memes/recipes/"+output.Body.Media.ID, nil)
 	require.Equal(t, http.StatusInternalServerError, mismatchedRecipe.Code, mismatchedRecipe.Body.String())
 
-	forbiddenPreview := srv.request(t, http.MethodPost, "/api/v1/memes/preview", map[string]any{
+	viewerPreview := srv.request(t, http.MethodPost, "/api/v1/memes/preview", map[string]any{
 		"workspace_id": "ws-1", "template_id": "drake", "captions": []string{"one", "two"},
 	})
-	require.Equal(t, http.StatusForbidden, forbiddenPreview.Code)
+	require.Equal(t, http.StatusOK, viewerPreview.Code, viewerPreview.Body.String())
+	forbiddenRender := srv.request(t, http.MethodPost, "/api/v1/memes/render", map[string]any{
+		"workspace_id": "ws-1", "template_id": "drake", "captions": []string{"one", "two"},
+	})
+	require.Equal(t, http.StatusForbidden, forbiddenRender.Code)
+}
+
+func TestMemeRenderPreservesRequestedFilenameAndRejectsInvalidNames(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name     string
+		filename string
+		format   string
+		want     string
+		status   int
+	}{
+		{name: "legacy", want: "meme-drake.png", status: http.StatusOK},
+		{name: "authored Unicode", filename: "Audit café named meme.png", want: "Audit café named meme.png", status: http.StatusOK},
+		{name: "extension inferred", filename: "Named meme", want: "Named meme.png", status: http.StatusOK},
+		{name: "JPEG canonical extension", filename: "Named meme.jpg", format: "jpeg", want: "Named meme.jpg", status: http.StatusOK},
+		{name: "JPEG noncanonical extension", filename: "Named meme.jpeg", format: "jpeg", status: http.StatusBadRequest},
+		{name: "path separator", filename: "../other.png", status: http.StatusBadRequest},
+		{name: "control character", filename: "bad\nname.png", status: http.StatusBadRequest},
+		{name: "wrong extension", filename: "named.gif", status: http.StatusBadRequest},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			srv := newMemeHandlerTestServer(t, nil)
+			body := map[string]any{"workspace_id": "ws-1", "template_id": "drake", "captions": []string{"A", "B"}}
+			if tc.format != "" {
+				body["format"] = tc.format
+				var data bytes.Buffer
+				require.NoError(t, jpeg.Encode(&data, image.NewNRGBA(image.Rect(0, 0, 1, 1)), nil))
+				srv.provider.renderedData = data.Bytes()
+			}
+			if tc.filename != "" {
+				body["filename"] = tc.filename
+			}
+			response := srv.request(t, http.MethodPost, "/api/v1/memes/render", body)
+			require.Equal(t, tc.status, response.Code, response.Body.String())
+			if tc.status != http.StatusOK {
+				require.Empty(t, srv.provider.renderRequests, "invalid names must fail before rendering")
+				count, err := srv.db.NewSelect().Model((*models.MediaAttachment)(nil)).Count(t.Context())
+				require.NoError(t, err)
+				require.Zero(t, count)
+				return
+			}
+			var output RenderMemeOutput
+			require.NoError(t, json.Unmarshal(response.Body.Bytes(), &output.Body))
+			require.Equal(t, tc.want, output.Body.Media.OriginalFilename)
+			var stored models.MediaAttachment
+			require.NoError(t, srv.db.NewSelect().Model(&stored).Where("id = ?", output.Body.Media.ID).Scan(t.Context()))
+			require.Equal(t, tc.want, stored.OriginalFilename)
+		})
+	}
 }
 
 func TestMemeRenderRollsBackImportedMediaWhenRecipeInsertFails(t *testing.T) {
@@ -725,3 +860,36 @@ func mustDecodeBase64(t *testing.T, value string) []byte {
 }
 
 var _ mediastore.BlobStorage = (*memeMemoryStorage)(nil)
+
+func TestMemeRenderRetainsGIFOverlayAndParent(t *testing.T) {
+	t.Parallel()
+	srv := newMemeHandlerTestServer(t, nil)
+	image, err := base64.StdEncoding.DecodeString("R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7")
+	require.NoError(t, err)
+	for _, id := range []string{"overlay-gif", "parent-gif"} {
+		_, err = srv.db.NewInsert().Model(&models.MediaAttachment{ID: id, WorkspaceID: "ws-1", FilePath: id + ".gif", MimeType: "image/gif", ProcessingStatus: mediaReadyStatus, Size: int64(len(image)), Width: 1, Height: 1}).Exec(t.Context())
+		require.NoError(t, err)
+		srv.storage.objects[id+".gif"] = image
+	}
+	response := srv.request(t, http.MethodPost, "/api/v1/memes/render", map[string]any{"workspace_id": "ws-1", "template_id": "3hd", "captions": []string{"One", "Two", "Three"}, "overlay_media_ids": []string{"overlay-gif"}, "parent_media_id": "parent-gif", "format": "png", "retention_class": "library"})
+	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+	var output RenderMemeOutput
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &output.Body))
+	require.Equal(t, "library", output.Body.Media.RetentionClass)
+	var refs []models.ScreenshotTemplateRecipeMediaReference
+	require.NoError(t, srv.db.NewSelect().Model(&refs).Where("export_media_id = ?", output.Body.Media.ID).Order("media_id ASC").Scan(t.Context()))
+	require.Len(t, refs, 2)
+	require.Equal(t, "overlay-gif", refs[0].MediaID)
+	require.Equal(t, "parent-gif", refs[1].MediaID)
+}
+
+func TestMemeRejectsProjectAssetOverlay(t *testing.T) {
+	t.Parallel()
+	srv := newMemeHandlerTestServer(t, nil)
+	data := validMemePNG(t)
+	_, err := srv.db.NewInsert().Model(&models.MediaAttachment{ID: "project-image", WorkspaceID: "ws-1", AssetKind: "project_asset", FilePath: "project.png", MimeType: "image/png", ProcessingStatus: mediaReadyStatus, Size: int64(len(data)), Width: 1, Height: 1}).Exec(t.Context())
+	require.NoError(t, err)
+	srv.storage.objects["project.png"] = data
+	response := srv.request(t, http.MethodPost, "/api/v1/memes/render", map[string]any{"workspace_id": "ws-1", "template_id": "3hd", "captions": []string{"One", "Two", "Three"}, "overlay_media_ids": []string{"project-image"}, "format": "png"})
+	require.Equal(t, http.StatusBadRequest, response.Code, response.Body.String())
+}

@@ -1,12 +1,16 @@
 <script lang="ts">
+	import '$lib/components/editor-density/editor-density.css';
 	import { m } from '$lib/paraglide/messages';
 	import { ProtectedIcon } from '$lib/themes/icons';
 	import { timelineStore } from '$lib/video-editor/timeline/stores/timeline-store.svelte';
+	import { resolveEditableColorTargetIds } from '$lib/video-editor/effects/color-targets';
 	import ColorMiniTimeline from './color-mini-timeline.svelte';
 	import ColorCurvesPanel from './color-curves-panel.svelte';
 	import ColorKeyframePanel from './color-keyframe-panel.svelte';
+	import ColorPaletteTabs, { type ColorPaletteOption } from './color-palette-tabs.svelte';
 	import ColorWorkspace from './color-workspace.svelte';
 	import EffectsPanel from './effects-panel.svelte';
+	import { editorSettings, type ColorPalette } from '../settings/editor-settings.svelte';
 
 	let {
 		itemId,
@@ -15,7 +19,11 @@
 		onselectitem = () => undefined,
 		oncreateadjustment,
 		oncreatesequencegrade,
-		onscopechange = () => undefined
+		onscopechange = () => undefined,
+		colorScope = 'clip',
+		scopesVisible = true,
+		ontogglescopes = () => undefined,
+		sequenceName
 	}: {
 		itemId: string | null;
 		itemIds?: string[];
@@ -24,80 +32,184 @@
 		oncreateadjustment?: () => void;
 		oncreatesequencegrade?: () => string | null;
 		onscopechange?: (scope: 'clip' | 'sequence') => void;
+		colorScope?: 'clip' | 'sequence';
+		scopesVisible?: boolean;
+		ontogglescopes?: () => void;
+		sequenceName: string;
 	} = $props();
 	let colorAutoKey = $state(false);
-	let colorScope = $state<'clip' | 'sequence'>('clip');
-	let sequenceGradeItemId = $derived<string | null>(
-		timelineStore.items.find((item) => item.type === 'adjustment' && item.sequenceColorGrade)?.id ??
-			null
+	const activePalette = $derived(editorSettings.value.colorPalette);
+	const keyframesVisible = $derived(editorSettings.value.colorKeyframesVisible);
+	const colorTarget = $derived.by(() => {
+		const sequenceGradeItemId =
+			timelineStore.items.find((item) => item.type === 'adjustment' && item.sequenceColorGrade)
+				?.id ?? null;
+		const clipItemIds = itemIds.length > 0 ? itemIds : itemId ? [itemId] : [];
+		const targetIds =
+			colorScope === 'sequence' ? (sequenceGradeItemId ? [sequenceGradeItemId] : []) : clipItemIds;
+		return {
+			sequenceGradeItemId,
+			itemIds: targetIds,
+			itemId: itemId && targetIds.includes(itemId) ? itemId : (targetIds[0] ?? null)
+		};
+	});
+	const editableTargetIds = $derived(
+		resolveEditableColorTargetIds(
+			colorTarget.itemId,
+			colorTarget.itemIds,
+			timelineStore.itemById,
+			timelineStore.tracks
+		)
 	);
-	const clipItemIds = $derived(itemIds.length > 0 ? itemIds : itemId ? [itemId] : []);
-	const scopedItemIds = $derived(
-		colorScope === 'sequence' ? (sequenceGradeItemId ? [sequenceGradeItemId] : []) : clipItemIds
+	const eligibilityLabel = $derived(
+		colorTarget.itemIds.length > editableTargetIds.length
+			? m.video_editor_color_editable_targets({
+					editable: editableTargetIds.length,
+					total: colorTarget.itemIds.length
+				})
+			: null
 	);
-	const scopedItemId = $derived(
-		colorScope === 'sequence'
-			? sequenceGradeItemId
-			: itemId && clipItemIds.includes(itemId)
-				? itemId
-				: (clipItemIds[0] ?? null)
+	const targetLabel = $derived.by(() => {
+		if (colorScope === 'sequence')
+			return m.video_editor_color_sequence_target({ name: sequenceName });
+		if (colorTarget.itemIds.length > 1) {
+			return m.video_editor_items_selected({ count: colorTarget.itemIds.length });
+		}
+		return m.video_editor_color_clip_target({
+			name:
+				(colorTarget.itemId && timelineStore.itemById.get(colorTarget.itemId)?.label) ||
+				m.video_editor_select_clip()
+		});
+	});
+	const palettes = $derived<readonly ColorPaletteOption<ColorPalette>[]>([
+		{ id: 'primaries', label: m.video_editor_color_primaries(), icon: 'editor-blend' },
+		{ id: 'curves', label: m['video_editor_gpu_effect_gpu-curves'](), icon: 'editor-path' },
+		{
+			id: 'qualifier',
+			label: m['video_editor_gpu_effect_gpu-secondary-qualifier'](),
+			icon: 'editor-eyedropper'
+		},
+		{ id: 'windows', label: m['video_editor_gpu_effect_gpu-power-window'](), icon: 'editor-mask' },
+		{ id: 'lut', label: m['video_editor_gpu_effect_gpu-lut'](), icon: 'editor-effects' },
+		{ id: 'effects', label: m.video_editor_effects(), icon: 'editor-layers' }
+	]);
+	const dedicatedEffectId = $derived.by((): string | undefined => {
+		if (activePalette === 'qualifier') return 'gpu-secondary-qualifier';
+		if (activePalette === 'windows') return 'gpu-power-window';
+		if (activePalette === 'lut') return 'gpu-lut';
+		return undefined;
+	});
+	const visibleEffectIds = $derived(
+		dedicatedEffectId === undefined ? undefined : [dedicatedEffectId]
+	);
+	const shortScrollablePalette = $derived(
+		activePalette !== 'primaries' && activePalette !== 'curves'
 	);
 
 	function setColorScope(next: 'clip' | 'sequence'): void {
-		colorScope = next;
 		onscopechange(next);
 	}
 
 	function createSequenceGrade(): void {
-		sequenceGradeItemId = oncreatesequencegrade?.() ?? null;
+		oncreatesequencegrade?.();
 	}
 </script>
 
 <section
-	class="flex size-full min-h-0 shrink-0 flex-col overflow-hidden border-t border-[var(--video-editor-border)] bg-[var(--video-editor-panel)]"
+	class="editor-density flex size-full min-h-0 shrink-0 flex-col overflow-hidden border-t border-[var(--video-editor-border)] bg-[var(--video-editor-panel)] text-[var(--video-editor-text)]"
 	aria-label={m.video_editor_color_dock()}
-	data-sequence-grade-item-id={sequenceGradeItemId ?? undefined}
+	data-sequence-grade-item-id={colorTarget.sequenceGradeItemId ?? undefined}
 >
 	<div
-		class="flex h-9 shrink-0 items-center justify-between gap-2 border-b border-[var(--video-editor-border)] px-2"
+		class="color-dock-header flex shrink-0 flex-wrap items-center gap-x-2 gap-y-0.5 border-b border-[var(--video-editor-border)] px-2 py-1 lg:h-[30px] lg:flex-nowrap lg:py-0 [@media(pointer:coarse)]:min-h-11"
 	>
-		<span class="text-[10px] tracking-wide text-[var(--video-editor-muted)] uppercase">
-			{m.video_editor_color_workspace()}
-		</span>
 		<div
-			class="grid grid-cols-2 overflow-hidden rounded border border-[var(--video-editor-border)]"
-			role="group"
-			aria-label={`${m.video_editor_color_workspace()} ${m.video_editor_clip()}`}
+			class="color-target-summary flex min-w-0 flex-1 items-center gap-1.5 lg:flex-none {eligibilityLabel
+				? 'max-lg:w-full max-lg:flex-none'
+				: ''}"
 		>
+			<span
+				class="max-w-40 truncate text-[11px] font-medium"
+				title={targetLabel}
+				data-color-target-label>{targetLabel}</span
+			>
+			{#if eligibilityLabel}
+				<span
+					class="shrink-0 text-[10px] text-[var(--video-editor-muted)]"
+					data-color-target-eligibility
+				>
+					{eligibilityLabel}
+				</span>
+			{/if}
+		</div>
+		<div class="color-palette-slot order-3 w-full min-w-0 lg:order-none lg:w-auto">
+			<ColorPaletteTabs
+				{palettes}
+				active={activePalette}
+				label={m.video_editor_color_workspace()}
+				onselect={(palette) => {
+					editorSettings.set('colorKeyframesVisible', false);
+					editorSettings.set('colorPalette', palette);
+				}}
+			/>
+		</div>
+		<div class="ml-auto flex shrink-0 items-center gap-1">
 			<button
 				type="button"
-				class="h-7 px-3 text-[10px] [@media(pointer:coarse)]:h-11 {colorScope === 'clip'
-					? 'bg-[var(--video-editor-primary)] text-[var(--video-editor-primary-text)]'
-					: 'hover:bg-[var(--video-editor-control)]'}"
-				aria-pressed={colorScope === 'clip'}
-				onclick={() => setColorScope('clip')}
+				class="dock-tool editor-tool"
+				class:dock-tool-active={keyframesVisible}
+				aria-pressed={keyframesVisible}
+				aria-label={m.video_editor_keyframes()}
+				title={m.video_editor_keyframes()}
+				onclick={() => editorSettings.set('colorKeyframesVisible', !keyframesVisible)}
 			>
-				{m.video_editor_clip()}
+				<ProtectedIcon icon="editor-keyframe" class="size-3.5" />
+				<span class="sr-only sm:not-sr-only">{m.video_editor_keyframes()}</span>
 			</button>
 			<button
 				type="button"
-				class="h-7 border-l border-[var(--video-editor-border)] px-3 text-[10px] [@media(pointer:coarse)]:h-11 {colorScope ===
-				'sequence'
-					? 'bg-[var(--video-editor-primary)] text-[var(--video-editor-primary-text)]'
-					: 'hover:bg-[var(--video-editor-control)]'}"
-				aria-pressed={colorScope === 'sequence'}
-				onclick={() => setColorScope('sequence')}
+				class="dock-tool editor-tool"
+				class:dock-tool-active={scopesVisible}
+				aria-pressed={scopesVisible}
+				onclick={ontogglescopes}
 			>
-				{m.video_editor_sequences()}
+				{m.video_editor_scopes()}
 			</button>
+			<div
+				class="grid grid-cols-2 overflow-hidden rounded border border-[var(--video-editor-border)]"
+				role="group"
+				aria-label={m.video_editor_color_workspace()}
+			>
+				<button
+					type="button"
+					class="scope-button editor-tool"
+					class:scope-button-active={colorScope === 'clip'}
+					aria-pressed={colorScope === 'clip'}
+					onclick={() => setColorScope('clip')}
+				>
+					{m.video_editor_clip()}
+				</button>
+				<button
+					type="button"
+					class="scope-button editor-tool border-l border-[var(--video-editor-border)]"
+					class:scope-button-active={colorScope === 'sequence'}
+					aria-pressed={colorScope === 'sequence'}
+					onclick={() => setColorScope('sequence')}
+				>
+					{m.video_editor_color_sequence()}
+				</button>
+			</div>
 		</div>
 	</div>
-	<ColorMiniTimeline selectedItemIds={scopedItemIds} {onselectitem} />
-	{#key sequenceGradeItemId}
-		{#if colorScope === 'sequence' && !sequenceGradeItemId}
-			<div class="flex min-h-0 flex-1 items-center justify-center p-6 text-center">
-				<div class="max-w-72 space-y-3">
-					<p class="text-xs text-[var(--video-editor-muted)]">
+	<ColorMiniTimeline compact selectedItemIds={colorTarget.itemIds} {onselectitem} />
+	{#key `${colorScope}:${colorTarget.itemId ?? ''}`}
+		{#if colorScope === 'sequence' && !colorTarget.sequenceGradeItemId}
+			<div class="flex min-h-0 flex-1 items-center justify-center p-4 text-center">
+				<div class="max-w-72 space-y-2">
+					<p
+						class="truncate text-[11px] text-[var(--video-editor-muted)]"
+						title={m.video_editor_adjustment_layer_hint()}
+					>
 						{m.video_editor_adjustment_layer_hint()}
 					</p>
 					<button
@@ -112,64 +224,112 @@
 			</div>
 		{:else}
 			<div
-				class="grid min-h-0 flex-1 grid-cols-1 gap-1.5 overflow-y-auto p-1.5 lg:grid-cols-[minmax(0,10fr)_minmax(0,3fr)_minmax(0,7fr)] lg:overflow-hidden"
-				data-color-dock-panels
+				class="min-h-0 flex-1 overflow-hidden {shortScrollablePalette ? 'short-scroll-panel' : ''}"
+				role="tabpanel"
+				aria-label={keyframesVisible
+					? m.video_editor_keyframes()
+					: palettes.find((palette) => palette.id === activePalette)?.label}
+				data-color-active-palette={activePalette}
 			>
-				<div
-					class="grid min-h-[520px] min-w-0 grid-cols-1 overflow-hidden border border-[var(--video-editor-border)] bg-[var(--video-editor-panel)] lg:min-h-0 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,0.5fr)]"
+				<ColorWorkspace
+					compact
+					primaryActive={!keyframesVisible && activePalette === 'primaries'}
+					scrollCompactBody={shortScrollablePalette}
+					itemId={colorTarget.itemId}
+					itemIds={colorTarget.itemIds}
+					{onedit}
+					{oncreateadjustment}
+					autoKey={colorAutoKey}
+					onAutoKeyChange={(enabled) => (colorAutoKey = enabled)}
 				>
-					<div
-						class="min-h-0 min-w-0 overflow-hidden lg:border-r lg:border-[var(--video-editor-border)]"
-					>
-						<ColorWorkspace
-							itemId={scopedItemId}
-							itemIds={scopedItemIds}
-							{onedit}
-							{oncreateadjustment}
-							autoKey={colorAutoKey}
-							onAutoKeyChange={(enabled) => (colorAutoKey = enabled)}
-						/>
-					</div>
-					<div
-						class="min-h-0 min-w-0 overflow-hidden border-t border-[var(--video-editor-border)] lg:border-t-0"
-					>
+					{#if keyframesVisible}
+						<ColorKeyframePanel itemId={colorTarget.itemId} {onedit} />
+					{:else if activePalette === 'curves'}
 						<ColorCurvesPanel
-							itemId={scopedItemId}
-							itemIds={scopedItemIds}
+							itemId={colorTarget.itemId}
+							itemIds={colorTarget.itemIds}
 							{onedit}
 							forceAutoKey={colorAutoKey}
 						/>
-					</div>
-				</div>
-				<div
-					class="flex min-h-[280px] min-w-0 flex-col overflow-hidden border border-[var(--video-editor-border)] bg-[var(--video-editor-panel)] lg:min-h-0"
-				>
-					<h3
-						class="flex h-8 shrink-0 items-center border-b border-[var(--video-editor-border)] bg-[var(--video-editor-control)] px-2 text-xs font-medium text-[var(--video-editor-text)]"
-					>
-						{m.video_editor_effects()}
-					</h3>
-					<div class="min-h-0 flex-1 overflow-y-auto">
-						<EffectsPanel
-							itemId={scopedItemId}
-							itemIds={scopedItemIds}
-							{onedit}
-							gpuOnly={colorScope === 'sequence'}
-							hiddenGpuEffectIds={['gpu-color-wheels', 'gpu-curves']}
-						/>
-					</div>
-				</div>
-				<div
-					class="min-h-[300px] min-w-0 overflow-hidden border border-[var(--video-editor-border)] bg-[var(--video-editor-panel)] lg:min-h-0"
-				>
-					<ColorKeyframePanel itemId={scopedItemId} {onedit} />
-				</div>
+					{:else if activePalette !== 'primaries'}
+						{#key activePalette}
+							<div
+								class="min-h-0 flex-1 overflow-hidden {shortScrollablePalette
+									? 'short-scroll-effects'
+									: ''}"
+							>
+								<EffectsPanel
+									itemId={colorTarget.itemId}
+									itemIds={colorTarget.itemIds}
+									{onedit}
+									gpuOnly={colorScope === 'sequence'}
+									hiddenGpuEffectIds={['gpu-color-wheels', 'gpu-curves']}
+									visibleGpuEffectIds={visibleEffectIds}
+									dedicatedGpuEffectId={dedicatedEffectId}
+									scrollWithParent={shortScrollablePalette}
+								/>
+							</div>
+						{/key}
+					{/if}
+				</ColorWorkspace>
 			</div>
 		{/if}
 	{/key}
 </section>
 
 <style>
+	@media (max-height: 600px) {
+		.color-dock-header {
+			height: 1.875rem;
+			min-height: 1.875rem;
+			flex-wrap: nowrap;
+			padding-block: 0;
+		}
+
+		.color-target-summary {
+			display: none;
+		}
+
+		.color-palette-slot {
+			order: initial;
+			width: auto;
+			flex: 1;
+		}
+
+		.short-scroll-panel {
+			overflow-y: auto;
+		}
+
+		.short-scroll-panel .short-scroll-effects {
+			min-height: 100%;
+			overflow: visible;
+		}
+	}
+
+	@media (max-height: 600px) and (pointer: coarse) {
+		.color-dock-header {
+			height: 3rem;
+			min-height: 3rem;
+		}
+	}
+
+	/* Base tool metrics live in editor-density.css (.editor-tool); these are
+	   the dock-specific paddings, text colors, and pressed states. Compound
+	   selectors keep these wins deterministic over the shared utilities. */
+	.dock-tool.editor-tool,
+	.scope-button.editor-tool {
+		padding-inline: 0.625rem;
+		color: var(--video-editor-muted);
+	}
+	.dock-tool.editor-tool:hover:not(:disabled),
+	.scope-button.editor-tool:hover:not(:disabled) {
+		color: var(--video-editor-text);
+	}
+	.dock-tool-active,
+	.scope-button-active {
+		background: var(--video-editor-selection);
+		color: var(--video-editor-selection-text);
+	}
 	.color-sequence-create {
 		display: inline-flex;
 		height: 1.75rem;

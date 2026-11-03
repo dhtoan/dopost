@@ -1,10 +1,11 @@
 <script lang="ts">
+	import ProjectStorageStatus from '$lib/components/project-storage-status.svelte';
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
 	import { m } from '$lib/paraglide/messages';
 	import { ProtectedIcon, ThemeIcon } from '$lib/themes/icons';
 	import type { Project } from '$lib/video-editor/project/types';
-	import type { CloudVideoProject } from '$lib/video-editor/cloud/project-repository';
+	import type { CloudVideoProjectSummary } from '$lib/video-editor/cloud/project-repository';
 
 	let {
 		projects,
@@ -24,25 +25,26 @@
 		ontoggleoffline,
 		onrefresh
 	}: {
-		projects: CloudVideoProject<Project>[];
-		trashedProjects: CloudVideoProject<Project>[];
+		projects: CloudVideoProjectSummary[];
+		trashedProjects: CloudVideoProjectSummary[];
 		loading: boolean;
 		error: string;
-		onopen: (project: CloudVideoProject<Project>) => Promise<void>;
-		ontrash: (project: CloudVideoProject<Project>) => Promise<void>;
-		onrestore: (project: CloudVideoProject<Project>) => Promise<void>;
+		onopen: (project: CloudVideoProjectSummary) => Promise<void>;
+		ontrash: (project: CloudVideoProjectSummary) => Promise<void>;
+		onrestore: (project: CloudVideoProjectSummary) => Promise<void>;
 		localProjects: Project[];
 		importingId: string | null;
 		onimportlocal: (project: Project) => Promise<void>;
 		exportingId: string | null;
-		onexport: (project: CloudVideoProject<Project>) => Promise<void>;
+		onexport: (project: CloudVideoProjectSummary) => Promise<void>;
 		offlineProjectIds: string[];
 		offlineBusyId: string | null;
-		ontoggleoffline: (project: CloudVideoProject<Project>) => Promise<void>;
+		ontoggleoffline: (project: CloudVideoProjectSummary) => Promise<void>;
 		onrefresh: () => Promise<void>;
 	} = $props();
 
 	let query = $state('');
+	let searchInput = $state<HTMLInputElement | null>(null);
 	let busyProjectId = $state<string | null>(null);
 	const visible = $derived(
 		projects.filter((project) =>
@@ -50,7 +52,7 @@
 		)
 	);
 
-	async function trash(project: CloudVideoProject<Project>): Promise<void> {
+	async function trash(project: CloudVideoProjectSummary): Promise<void> {
 		busyProjectId = project.id;
 		try {
 			await ontrash(project);
@@ -59,20 +61,13 @@
 		}
 	}
 
-	async function restore(project: CloudVideoProject<Project>): Promise<void> {
+	async function restore(project: CloudVideoProjectSummary): Promise<void> {
 		busyProjectId = project.id;
 		try {
 			await onrestore(project);
 		} finally {
 			busyProjectId = null;
 		}
-	}
-
-	function syncStatus(project: CloudVideoProject<Project>): string {
-		if (project.syncStatus === 'needs_attention' && project.attentionReason) {
-			return `${m.compose_needs_attention()}: ${project.attentionReason}`;
-		}
-		return project.syncStatus.replaceAll('_', ' ');
 	}
 </script>
 
@@ -92,6 +87,7 @@
 		<div class="mt-4">
 			<Input
 				bind:value={query}
+				bind:ref={searchInput}
 				aria-label={m.video_editor_project_search()}
 				placeholder={m.video_editor_project_search()}
 			/>
@@ -109,27 +105,39 @@
 				>{m.common_retry()}</Button
 			>
 		</div>
-	{:else if visible.length === 0}
+	{:else if projects.length === 0}
 		<p class="mt-8 text-center text-sm text-[var(--video-editor-muted)]">
 			{m.video_editor_cloud_empty()}
 		</p>
+	{:else if visible.length === 0}
+		<div class="mt-8 text-center">
+			<p class="text-sm text-[var(--video-editor-muted)]" role="status">
+				{m.video_editor_projects_no_match()}
+			</p>
+			<Button
+				class="mt-3"
+				variant="outline"
+				onclick={() => {
+					query = '';
+					searchInput?.focus();
+				}}>{m.media_clear_search()}</Button
+			>
+		</div>
 	{:else}
 		<div class="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
 			{#each visible as project (project.id)}
 				<article
-					class="rounded-xl border border-[var(--video-editor-border)] bg-[var(--video-editor-panel)] p-4"
+					class="rounded-xl border border-[var(--video-editor-border)] bg-[var(--video-editor-panel)] p-3"
 				>
 					<h2 class="truncate text-sm font-semibold" title={project.name}>
 						{project.name}
 					</h2>
-					<p class="mt-1 text-xs text-[var(--video-editor-muted)] first-letter:uppercase">
-						{syncStatus(project)}
-					</p>
-					{#if offlineProjectIds.includes(project.id)}
-						<p class="mt-1 text-xs text-[var(--video-editor-muted)]">
-							{m.video_editor_available_offline()}
-						</p>
-					{/if}
+					<ProjectStorageStatus
+						storage="cloud"
+						syncStatus={project.syncStatus}
+						offline={offlineProjectIds.includes(project.id)}
+						reason={project.attentionReason}
+					/>
 					<div class="mt-4 flex flex-wrap justify-between gap-2">
 						<Button size="sm" onclick={() => void onopen(project)}
 							>{m.video_editor_project_open()}</Button
@@ -187,13 +195,16 @@
 	{/if}
 
 	{#if localProjects.length > 0}
-		<section
+		<details
 			class="mt-8 border-t border-[var(--video-editor-border)] pt-4"
 			aria-labelledby="cloud-video-local-import-title"
 		>
-			<h2 id="cloud-video-local-import-title" class="text-sm font-semibold">
+			<summary
+				id="cloud-video-local-import-title"
+				class="cursor-pointer py-2 text-sm font-semibold"
+			>
 				{m.video_editor_cloud_title()}
-			</h2>
+			</summary>
 			<p class="mt-1 text-xs text-[var(--video-editor-muted)]">
 				{m.video_editor_cloud_description()}
 			</p>
@@ -220,7 +231,7 @@
 					</li>
 				{/each}
 			</ul>
-		</section>
+		</details>
 	{/if}
 
 	{#if trashedProjects.length > 0}

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import ProjectStorageStatus from '$lib/components/project-storage-status.svelte';
 	import { projectPresetName } from '$lib/video-editor/project/preset-label';
 	import DestructiveConfirmDialog from '$lib/components/destructive-confirm-dialog.svelte';
 	import InlineNotice from '$lib/components/inline-notice.svelte';
@@ -11,7 +12,6 @@
 	import * as Select from '$lib/components/ui/select';
 	import { m } from '$lib/paraglide/messages';
 	import { ProtectedIcon, ThemeIcon } from '$lib/themes/icons';
-	import type { BundleProgress } from '$lib/video-editor/project-bundle/bundle-types';
 	import type { ProjectDetailsUpdate } from '$lib/video-editor/project/project-details';
 	import type { Project } from '$lib/video-editor/project/types';
 	import {
@@ -28,6 +28,7 @@
 		type ProjectPresetId
 	} from '$lib/video-editor/project/project-presets';
 	import type { TrashedProjectEntry } from '$lib/video-editor/workspace-fs/trash';
+	import { formatMediaDuration } from '$lib/media-duration';
 	import { onMount } from 'svelte';
 
 	let {
@@ -44,9 +45,7 @@
 		duplicatingId,
 		exportingId,
 		exportingKind,
-		bundleProgress,
 		bundleOperation,
-		bundleCanceling,
 		oncreate,
 		onimportjson,
 		onimportbundle,
@@ -55,7 +54,6 @@
 		onduplicate,
 		onexportjson,
 		onexportbundle,
-		oncancelbundle,
 		ondelete,
 		ondeletebatch,
 		onrestore,
@@ -75,9 +73,7 @@
 		duplicatingId: string | null;
 		exportingId: string | null;
 		exportingKind: 'json' | 'bundle' | null;
-		bundleProgress: BundleProgress | null;
 		bundleOperation: 'import' | 'export' | null;
-		bundleCanceling: boolean;
 		oncreate: (name: string, settings: ProjectCreationSettings) => Promise<boolean>;
 		onimportjson: (file: File) => Promise<void>;
 		onimportbundle: (file: File) => Promise<void>;
@@ -86,7 +82,6 @@
 		onduplicate: (project: Project) => Promise<void>;
 		onexportjson: (project: Project) => Promise<void>;
 		onexportbundle: (project: Project) => Promise<void>;
-		oncancelbundle: () => void;
 		ondelete: (project: Project) => Promise<void>;
 		ondeletebatch: (projects: Project[]) => Promise<string[]>;
 		onrestore: (projectId: string, projectName: string) => Promise<void>;
@@ -190,16 +185,6 @@
 		if (Math.abs(ratio - 1) < 0.01) return '1:1';
 		if (Math.abs(ratio - 21 / 9) < 0.01) return '21:9';
 		return `${width}:${height}`;
-	}
-
-	function formatDuration(seconds: number): string {
-		const rounded = Math.max(0, Math.round(seconds));
-		const hours = Math.floor(rounded / 3600);
-		const minutes = Math.floor((rounded % 3600) / 60);
-		const remainingSeconds = rounded % 60;
-		return hours > 0
-			? `${hours}:${String(minutes).padStart(2, '0')}:${String(remainingSeconds).padStart(2, '0')}`
-			: `${minutes}:${String(remainingSeconds).padStart(2, '0')}`;
 	}
 
 	async function createProject(): Promise<void> {
@@ -365,61 +350,6 @@
 			</Button>
 		</div>
 	</div>
-
-	{#if bundleProgress && bundleOperation}
-		<div
-			class="mt-4 rounded-lg border border-[var(--video-editor-border)] bg-[var(--video-editor-panel)] px-3 py-2"
-			role="status"
-			aria-live="polite"
-		>
-			<div class="flex items-center justify-between gap-3 text-xs">
-				<span class="font-medium">
-					{bundleOperation === 'import'
-						? m.video_editor_project_bundle_importing()
-						: m.video_editor_project_bundle_exporting()}
-				</span>
-				<div class="flex items-center gap-2">
-					<span>{Math.round(bundleProgress.percent)}%</span>
-					<Button variant="ghost" size="xs" disabled={bundleCanceling} onclick={oncancelbundle}>
-						{#if bundleCanceling}
-							<ProtectedIcon
-								icon="loading"
-								class="size-3.5 animate-spin motion-reduce:animate-none"
-							/>
-						{:else}
-							<ThemeIcon role="close" class="size-3.5" />
-						{/if}
-						{bundleCanceling
-							? m.video_editor_project_bundle_canceling()
-							: m.video_editor_project_bundle_cancel()}
-					</Button>
-				</div>
-			</div>
-			<div
-				class="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-[var(--video-editor-control)]"
-				role="progressbar"
-				aria-valuemin="0"
-				aria-valuemax="100"
-				aria-valuenow={Math.round(bundleProgress.percent)}
-				aria-label={bundleOperation === 'import'
-					? m.video_editor_project_bundle_importing()
-					: m.video_editor_project_bundle_exporting()}
-			>
-				<div
-					class="h-full rounded-full bg-primary transition-[width] motion-reduce:transition-none"
-					style:width={`${Math.max(0, Math.min(100, bundleProgress.percent))}%`}
-				></div>
-			</div>
-			{#if bundleProgress.currentFile}
-				<p
-					class="mt-1 truncate text-xs text-[var(--video-editor-muted)]"
-					title={bundleProgress.currentFile}
-				>
-					{bundleProgress.currentFile}
-				</p>
-			{/if}
-		</div>
-	{/if}
 
 	{#if showNewProject}
 		<form
@@ -731,7 +661,7 @@
 							>
 								<button
 									type="button"
-									class="absolute top-2 left-2 z-10 flex size-11 items-center justify-center rounded-full border border-[var(--video-editor-border)] bg-[var(--video-editor-panel)] text-[var(--video-editor-text)] opacity-70 backdrop-blur-sm transition-opacity hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--video-editor-focus)] data-[selected=true]:border-[var(--video-editor-focus)] data-[selected=true]:bg-primary data-[selected=true]:text-primary-foreground data-[selected=true]:opacity-100"
+									class="absolute top-2 left-2 z-10 flex size-8 items-center justify-center rounded-full border border-[var(--video-editor-border)] bg-[var(--video-editor-panel)] text-[var(--video-editor-text)] opacity-70 backdrop-blur-sm transition-opacity hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--video-editor-focus)] data-[selected=true]:border-[var(--video-editor-focus)] data-[selected=true]:bg-primary data-[selected=true]:text-primary-foreground data-[selected=true]:opacity-100 [@media(pointer:coarse)]:size-11"
 									data-selected={selectedIds.has(project.id)}
 									role="checkbox"
 									aria-checked={selectedIds.has(project.id)}
@@ -768,7 +698,7 @@
 											<span
 												class="flex size-full items-center justify-center text-[var(--video-editor-muted)]"
 											>
-												<ProtectedIcon icon="play" class="size-11" />
+												<ProtectedIcon icon="play" class="size-8" />
 											</span>
 										{/if}
 										<span
@@ -777,8 +707,9 @@
 											{projectAspectRatio(project)}
 										</span>
 									</span>
-									<span class="block p-4 pr-12">
+									<span class="block p-3 pr-12">
 										<span class="block truncate font-medium">{project.name}</span>
+										<ProjectStorageStatus storage="local" />
 										{#if project.description.trim()}
 											<span
 												class="mt-1 line-clamp-2 block text-xs text-[var(--video-editor-muted)]"
@@ -793,7 +724,7 @@
 											<span>{project.metadata.fps} fps</span>
 											<span
 												>{m.video_editor_project_duration({
-													duration: formatDuration(project.duration)
+													duration: formatMediaDuration(project.duration)
 												})}</span
 											>
 										</span>
@@ -930,7 +861,7 @@
 			<div class="flex items-center justify-between gap-3">
 				<button
 					type="button"
-					class="flex min-h-11 items-center gap-2 rounded-md text-sm text-[var(--video-editor-muted)] hover:text-[var(--video-editor-text)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--video-editor-focus)]"
+					class="flex min-h-8 items-center gap-2 rounded-md text-sm text-[var(--video-editor-muted)] hover:text-[var(--video-editor-text)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--video-editor-focus)] [@media(pointer:coarse)]:min-h-11"
 					aria-expanded={trashOpen}
 					aria-controls="video-editor-trash-list"
 					onclick={() => (trashOpen = !trashOpen)}

@@ -7,6 +7,11 @@ export type NotificationTopicDefinition = components['schemas']['TopicDefinition
 export type NotificationEmailFrequency = 'off' | 'immediate' | 'daily';
 
 const notificationPresentation = {
+	post_review: {
+		label: m.notifications_event_post_review,
+		description: m.notifications_event_post_review_description,
+		icon: { kind: 'theme', role: 'feedback' }
+	},
 	post_published: {
 		label: m.notifications_event_post_published,
 		description: m.notifications_event_post_published_description,
@@ -21,6 +26,11 @@ const notificationPresentation = {
 		label: m.notifications_event_account_needs_attention,
 		description: m.notifications_event_account_needs_attention_description,
 		icon: { kind: 'theme', role: 'user' }
+	},
+	workflow_approval: {
+		label: m.notifications_event_workflow_approval,
+		description: m.notifications_event_workflow_approval_description,
+		icon: { kind: 'theme', role: 'feedback' }
 	},
 	new_engagement: {
 		label: m.notifications_event_new_engagement,

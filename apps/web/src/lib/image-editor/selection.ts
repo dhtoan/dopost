@@ -248,6 +248,15 @@ export function polygonPixelMask(
 	return mask;
 }
 
+export interface PixelMaskRegion extends SelectionBounds {
+	data: Uint8Array;
+}
+
+interface PixelMaskTranslation {
+	data: Uint8Array;
+	bounds: SelectionBounds | null;
+}
+
 export function strokePixelMask(
 	width: number,
 	height: number,
@@ -255,19 +264,67 @@ export function strokePixelMask(
 	size: number,
 	roughness = 0
 ): Uint8Array {
+	return rasterizeStrokeMask(width, height, points, size, roughness, {
+		x: 0,
+		y: 0
+	});
+}
+
+export function strokePixelMaskRegion(
+	width: number,
+	height: number,
+	points: SelectionPoint[],
+	size: number,
+	roughness = 0
+): PixelMaskRegion | null {
+	if (points.length === 0) return null;
+	// The full brush radius also contains every interpolated pressure sample.
+	const radius = Math.max(0.5, size / 2);
+	let minX = width;
+	let minY = height;
+	let maxX = 0;
+	let maxY = 0;
+	for (const point of points) {
+		minX = Math.min(minX, point.x - radius);
+		minY = Math.min(minY, point.y - radius);
+		maxX = Math.max(maxX, point.x + radius);
+		maxY = Math.max(maxY, point.y + radius);
+	}
+	const x = clampInteger(Math.floor(minX), 0, width);
+	const y = clampInteger(Math.floor(minY), 0, height);
+	const regionWidth = clampInteger(Math.ceil(maxX), 0, width) - x;
+	const regionHeight = clampInteger(Math.ceil(maxY), 0, height) - y;
+	if (regionWidth <= 0 || regionHeight <= 0) return null;
+	return {
+		x,
+		y,
+		width: regionWidth,
+		height: regionHeight,
+		data: rasterizeStrokeMask(regionWidth, regionHeight, points, size, roughness, { x, y })
+	};
+}
+
+function rasterizeStrokeMask(
+	width: number,
+	height: number,
+	points: SelectionPoint[],
+	size: number,
+	roughness: number,
+	origin: SelectionPoint
+): Uint8Array {
 	const mask = new Uint8Array(width * height);
 	if (points.length === 0) return mask;
 	const radiusForPoint = (point: SelectionPoint): number =>
 		Math.max(0.5, (size / 2) * Math.max(0.1, Math.min(1, point.pressure ?? 1)));
 	const stamp = (point: SelectionPoint): void => {
 		const radius = radiusForPoint(point);
-		const startX = clampInteger(Math.floor(point.x - radius), 0, width);
-		const endX = clampInteger(Math.ceil(point.x + radius), 0, width);
-		const startY = clampInteger(Math.floor(point.y - radius), 0, height);
-		const endY = clampInteger(Math.ceil(point.y + radius), 0, height);
+		const startX = clampInteger(Math.floor(point.x - radius) - origin.x, 0, width);
+		const endX = clampInteger(Math.ceil(point.x + radius) - origin.x, 0, width);
+		const startY = clampInteger(Math.floor(point.y - radius) - origin.y, 0, height);
+		const endY = clampInteger(Math.ceil(point.y + radius) - origin.y, 0, height);
 		for (let y = startY; y < endY; y++) {
 			for (let x = startX; x < endX; x++) {
-				if (Math.hypot(x + 0.5 - point.x, y + 0.5 - point.y) <= radius) {
+				if (Math.hypot(origin.x + x + 0.5 - point.x, origin.y + y + 0.5 - point.y) <= radius) {
 					mask[y * width + x] = 1;
 				}
 			}
@@ -305,7 +362,7 @@ export function strokePixelMask(
 					!hardMask[index + 1] ||
 					!hardMask[index - width] ||
 					!hardMask[index + width];
-				if (edge && pixelNoise(x, y) < texture * 0.72) mask[index] = 0;
+				if (edge && pixelNoise(origin.x + x, origin.y + y) < texture * 0.72) mask[index] = 0;
 			}
 		}
 	}
@@ -348,100 +405,51 @@ export function translatePixelMask(
 	deltaX: number,
 	deltaY: number
 ): Uint8Array {
+	return translatePixelMaskRegion(
+		mask,
+		width,
+		height,
+		pixelMaskBounds(mask, width, height),
+		deltaX,
+		deltaY
+	).data;
+}
+
+export function translatePixelMaskRegion(
+	mask: Uint8Array,
+	width: number,
+	height: number,
+	bounds: SelectionBounds | null,
+	deltaX: number,
+	deltaY: number
+): PixelMaskTranslation {
 	const translated = new Uint8Array(width * height);
 	const offsetX = Math.round(deltaX);
 	const offsetY = Math.round(deltaY);
-	for (let y = 0; y < height; y++) {
+	if (!bounds) return { data: translated, bounds: null };
+	let minX = width;
+	let minY = height;
+	let maxX = -1;
+	let maxY = -1;
+	for (let y = bounds.y; y < bounds.y + bounds.height; y++) {
 		const targetY = y + offsetY;
 		if (targetY < 0 || targetY >= height) continue;
-		for (let x = 0; x < width; x++) {
+		for (let x = bounds.x; x < bounds.x + bounds.width; x++) {
 			if (!mask[y * width + x]) continue;
 			const targetX = x + offsetX;
-			if (targetX >= 0 && targetX < width) translated[targetY * width + targetX] = 1;
+			if (targetX < 0 || targetX >= width) continue;
+			translated[targetY * width + targetX] = 1;
+			minX = Math.min(minX, targetX);
+			minY = Math.min(minY, targetY);
+			maxX = Math.max(maxX, targetX);
+			maxY = Math.max(maxY, targetY);
 		}
 	}
-	return translated;
-}
-
-export function magicPixelMask(
-	image: { width: number; height: number; data: Uint8ClampedArray },
-	point: SelectionPoint,
-	tolerance: number,
-	contiguous = true
-): Uint8Array {
-	const { width, height, data } = image;
-	const mask = new Uint8Array(width * height);
-	const startX = clampInteger(Math.floor(point.x), 0, width - 1);
-	const startY = clampInteger(Math.floor(point.y), 0, height - 1);
-	const startIndex = startY * width + startX;
-	const sampleOffset = startIndex * 4;
-	const sample = [
-		data[sampleOffset],
-		data[sampleOffset + 1],
-		data[sampleOffset + 2],
-		data[sampleOffset + 3]
-	];
-	const threshold = Math.max(0, Math.min(255, tolerance));
-	const matches = (index: number): boolean => {
-		const offset = index * 4;
-		return (
-			Math.max(
-				Math.abs(data[offset] - sample[0]),
-				Math.abs(data[offset + 1] - sample[1]),
-				Math.abs(data[offset + 2] - sample[2]),
-				Math.abs(data[offset + 3] - sample[3])
-			) <= threshold
-		);
+	return {
+		data: translated,
+		bounds:
+			maxX < minX ? null : { x: minX, y: minY, width: maxX - minX + 1, height: maxY - minY + 1 }
 	};
-	if (!contiguous) {
-		for (let index = 0; index < mask.length; index++) {
-			if (matches(index)) mask[index] = 1;
-		}
-		return mask;
-	}
-	const matchesAndMark = (index: number): boolean => {
-		if (mask[index] === 1 || mask[index] === 3 || mask[index] === 4) return true;
-		if (mask[index] === 2) return false;
-		mask[index] = matches(index) ? 1 : 2;
-		return mask[index] === 1;
-	};
-	const stack = [startX, startY];
-	mask[startIndex] = 4;
-	while (stack.length > 0) {
-		const y = stack.pop()!;
-		const seedX = stack.pop()!;
-		if (mask[y * width + seedX] === 3) continue;
-		let x = seedX;
-		while (x >= 0 && matchesAndMark(y * width + x)) x--;
-		x++;
-		let spanUp = false;
-		let spanDown = false;
-		for (; x < width && matchesAndMark(y * width + x); x++) {
-			mask[y * width + x] = 3;
-			if (y > 0) {
-				const upIndex = (y - 1) * width + x;
-				const matchesUp = matchesAndMark(upIndex);
-				if (matchesUp && !spanUp && mask[upIndex] === 1) {
-					mask[upIndex] = 4;
-					stack.push(x, y - 1);
-				}
-				spanUp = matchesUp;
-			}
-			if (y + 1 < height) {
-				const downIndex = (y + 1) * width + x;
-				const matchesDown = matchesAndMark(downIndex);
-				if (matchesDown && !spanDown && mask[downIndex] === 1) {
-					mask[downIndex] = 4;
-					stack.push(x, y + 1);
-				}
-				spanDown = matchesDown;
-			}
-		}
-	}
-	for (let index = 0; index < mask.length; index++) {
-		mask[index] = mask[index] === 3 ? 1 : 0;
-	}
-	return mask;
 }
 
 export function combinePixelMasks(
@@ -460,6 +468,30 @@ export function combinePixelMasks(
 		else combined[index] = Boolean(current[index]) !== Boolean(incoming[index]) ? 1 : 0;
 	}
 	return combined;
+}
+
+export function invertPixelMask(mask: Uint8Array): Uint8Array {
+	const inverted = new Uint8Array(mask.length);
+	for (let index = 0; index < mask.length; index++) inverted[index] = mask[index] ? 0 : 1;
+	return inverted;
+}
+
+export function expandPixelMask(
+	mask: Uint8Array,
+	width: number,
+	height: number,
+	amount = 1
+): Uint8Array {
+	return morphPixelMask(mask, width, height, amount, 'expand');
+}
+
+export function contractPixelMask(
+	mask: Uint8Array,
+	width: number,
+	height: number,
+	amount = 1
+): Uint8Array {
+	return morphPixelMask(mask, width, height, amount, 'contract');
 }
 
 export function intersectPixelMasks(left: Uint8Array, right: Uint8Array): Uint8Array {
@@ -492,6 +524,62 @@ export function pixelSpansToMask(
 		if (end > start) mask.fill(1, y * width + start, y * width + end);
 	}
 	return mask;
+}
+
+export function subtractPixelMaskRegionFromSpans(
+	spans: Array<{ x: number; y: number; width: number }>,
+	width: number,
+	height: number,
+	region: PixelMaskRegion
+): Array<{ x: number; y: number; width: number }> {
+	const rows = new Map<number, Array<{ start: number; end: number }>>();
+	for (const span of spans) {
+		const y = Math.floor(span.y);
+		if (y < 0 || y >= height) continue;
+		const start = clampInteger(Math.floor(span.x), 0, width);
+		const end = clampInteger(Math.ceil(span.x + span.width), 0, width);
+		if (end <= start) continue;
+		const intervals = rows.get(y) ?? [];
+		intervals.push({ start, end });
+		rows.set(y, intervals);
+	}
+	const result: Array<{ x: number; y: number; width: number }> = [];
+	const emit = (x: number, end: number, y: number): void => {
+		if (end > x) result.push({ x, y, width: end - x });
+	};
+	for (const y of [...rows.keys()].sort((left, right) => left - right)) {
+		const intervals = rows.get(y)!;
+		intervals.sort((left, right) => left.start - right.start);
+		let start = intervals[0].start;
+		let end = intervals[0].end;
+		const subtract = (): void => {
+			if (y < region.y || y >= region.y + region.height) {
+				emit(start, end, y);
+				return;
+			}
+			let runStart = start;
+			const overlapStart = Math.max(start, region.x);
+			const overlapEnd = Math.min(end, region.x + region.width);
+			for (let x = overlapStart; x < overlapEnd; x++) {
+				if (!region.data[(y - region.y) * region.width + x - region.x]) continue;
+				emit(runStart, x, y);
+				runStart = x + 1;
+			}
+			emit(runStart, end, y);
+		};
+		for (let index = 1; index < intervals.length; index++) {
+			const next = intervals[index];
+			if (next.start <= end) {
+				end = Math.max(end, next.end);
+				continue;
+			}
+			subtract();
+			start = next.start;
+			end = next.end;
+		}
+		subtract();
+	}
+	return result;
 }
 
 export function pixelMaskBounds(
@@ -555,6 +643,47 @@ export function colorsWithinTolerance(
 
 function clampInteger(value: number, min: number, max: number): number {
 	return Math.max(min, Math.min(max, Math.trunc(value)));
+}
+
+function morphPixelMask(
+	mask: Uint8Array,
+	width: number,
+	height: number,
+	amount: number,
+	operation: 'expand' | 'contract'
+): Uint8Array {
+	const expectedLength = Math.max(0, width) * Math.max(0, height);
+	if (mask.length !== expectedLength || width <= 0 || height <= 0)
+		return new Uint8Array(expectedLength);
+	let current = mask.slice();
+	const iterations = Math.max(0, Math.trunc(amount));
+	for (let iteration = 0; iteration < iterations; iteration++) {
+		const horizontal = new Uint8Array(current.length);
+		for (let y = 0; y < height; y++) {
+			for (let x = 0; x < width; x++) {
+				const index = y * width + x;
+				const center = Boolean(current[index]);
+				const left = x > 0 && Boolean(current[index - 1]);
+				const right = x + 1 < width && Boolean(current[index + 1]);
+				const selected = operation === 'expand' ? left || center || right : left && center && right;
+				horizontal[index] = selected ? 1 : 0;
+			}
+		}
+		const next = new Uint8Array(current.length);
+		for (let y = 0; y < height; y++) {
+			for (let x = 0; x < width; x++) {
+				const index = y * width + x;
+				const center = Boolean(horizontal[index]);
+				const above = y > 0 && Boolean(horizontal[index - width]);
+				const below = y + 1 < height && Boolean(horizontal[index + width]);
+				const selected =
+					operation === 'expand' ? above || center || below : above && center && below;
+				next[index] = selected ? 1 : 0;
+			}
+		}
+		current = next;
+	}
+	return current;
 }
 
 function pixelNoise(x: number, y: number): number {

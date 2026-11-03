@@ -1,6 +1,6 @@
 <script lang="ts">
 	import AppSelect from '$lib/components/app-select.svelte';
-	import { Slider } from '$lib/components/ui/slider';
+	import { Disclosure as EditorDisclosure, SliderRow } from '$lib/components/editor-density';
 	import { m } from '$lib/paraglide/messages';
 	import type {
 		TextMotionEffect,
@@ -148,116 +148,12 @@
 
 {#if selectedTextItems.length > 0}
 	<section class="text-motion-panel" aria-labelledby="text-motion-title">
-		<header>
+		<header title={m.video_editor_text_motion_description()}>
 			<div>
 				<h2 id="text-motion-title">{m.video_editor_text_motion_title()}</h2>
-				<p>{m.video_editor_text_motion_description()}</p>
 			</div>
 			<span>{m.video_editor_motion_selected({ count: String(selectedTextItems.length) })}</span>
 		</header>
-		{#each slots as slot}
-			{@const effect = activeEffect(slot)}
-			<div class="slot-row" data-slot={slot}>
-				<h3>{slotLabels[slot]}</h3>
-				<div class="preset-grid">
-					{#each catalog[slot] as preset}
-						{@const active = effect?.presetId === preset.id}
-						<button
-							type="button"
-							class:active
-							aria-pressed={active}
-							aria-label={active
-								? m.video_editor_text_motion_remove({ name: presetLabels[preset.id] })
-								: presetLabels[preset.id]}
-							onclick={() => togglePreset(slot, preset)}
-							>{presetLabels[preset.id]}{active ? ' ×' : ''}</button
-						>
-					{/each}
-				</div>
-				{#if effect}
-					<div class="controls">
-						<label
-							><span
-								>{m.video_editor_text_motion_duration()}
-								<output>{effect.durationFrames}f</output></span
-							><Slider
-								min={1}
-								max={90}
-								step={1}
-								value={effect.durationFrames}
-								ariaLabel={m.video_editor_text_motion_duration()}
-								onValueChange={(value) => liveEdit(slot, { durationFrames: value })}
-								onValueCommit={(value) => commitEdit(slot, { durationFrames: value })}
-							/></label
-						>
-						{#if slot !== 'loop'}
-							<label
-								><span
-									>{m.video_editor_text_motion_offset()}
-									<output>{effect.offsetFrames ?? 0}f</output></span
-								><Slider
-									min={0}
-									max={Math.max(0, maxOffsetFor(slot))}
-									step={1}
-									value={effect.offsetFrames ?? 0}
-									ariaLabel={m.video_editor_text_motion_offset()}
-									onValueChange={(value) => liveEdit(slot, { offsetFrames: value })}
-									onValueCommit={(value) => commitEdit(slot, { offsetFrames: value })}
-								/></label
-							>
-						{/if}
-						<label
-							><span
-								>{m.video_editor_text_motion_stagger()}
-								<output>{effect.staggerFrames}f</output></span
-							><Slider
-								min={0}
-								max={30}
-								step={1}
-								value={effect.staggerFrames}
-								ariaLabel={m.video_editor_text_motion_stagger()}
-								onValueChange={(value) => liveEdit(slot, { staggerFrames: value })}
-								onValueCommit={(value) => commitEdit(slot, { staggerFrames: value })}
-							/></label
-						>
-						<label
-							><span
-								>{m.video_editor_text_motion_intensity()}
-								<output>{Math.round(effect.intensity * 100)}%</output></span
-							><Slider
-								min={0}
-								max={2}
-								step={0.05}
-								value={effect.intensity}
-								ariaLabel={m.video_editor_text_motion_intensity()}
-								onValueChange={(value) => liveEdit(slot, { intensity: value })}
-								onValueCommit={(value) => commitEdit(slot, { intensity: value })}
-							/></label
-						>
-						<div class="select-row">
-							<label
-								>{m.video_editor_text_motion_unit()}<AppSelect
-									value={effect.unit ?? getTextMotionPreset(effect.presetId).unit}
-									options={units.map((unit) => ({ value: unit, label: unitLabels[unit] }))}
-									ariaLabel={m.video_editor_text_motion_unit()}
-									onValueChange={(value) => commitEdit(slot, { unit: value as TextMotionUnit })}
-									class="h-7 text-xs"
-								/></label
-							>
-							<label
-								>{m.video_editor_text_motion_order()}<AppSelect
-									value={effect.order}
-									options={orders.map((order) => ({ value: order, label: orderLabels[order] }))}
-									ariaLabel={m.video_editor_text_motion_order()}
-									onValueChange={(value) => commitEdit(slot, { order: value as TextMotionOrder })}
-									class="h-7 text-xs"
-								/></label
-							>
-						</div>
-					</div>
-				{/if}
-			</div>
-		{/each}
 		{#if appliedBands.length > 0}
 			<div class="applied-row" data-testid="text-motion-applied">
 				<h3>{m.video_editor_text_motion_applied()}</h3>
@@ -266,12 +162,8 @@
 						<li>
 							<button
 								type="button"
-								aria-label={m.video_editor_text_motion_seek_band({
-									name: slotLabels[band.slot]
-								})}
-								title={m.video_editor_text_motion_seek_band({
-									name: slotLabels[band.slot]
-								})}
+								aria-label={m.video_editor_text_motion_seek_band({ name: slotLabels[band.slot] })}
+								title={m.video_editor_text_motion_seek_band({ name: slotLabels[band.slot] })}
 								onclick={() => seekToBand(band.slot)}
 								>{slotLabels[band.slot]} · {presetLabels[band.presetId]} · {band.durationFrames}f{#if band.offsetFrames}
 									· +{band.offsetFrames}f{/if}</button
@@ -281,6 +173,104 @@
 				</ul>
 			</div>
 		{/if}
+		{#each slots as slot}
+			{@const effect = activeEffect(slot)}
+			<div class="slot-row" data-slot={slot}>
+				<h3>{slotLabels[slot]}</h3>
+				{#if effect}
+					<div class="controls">
+						<SliderRow
+							label={m.video_editor_text_motion_duration()}
+							value={effect.durationFrames}
+							min={1}
+							max={90}
+							step={1}
+							precision={0}
+							suffix="f"
+							onValueChange={(value) => liveEdit(slot, { durationFrames: value })}
+							onValueCommit={(value) => commitEdit(slot, { durationFrames: value })}
+						/>
+						{#if slot !== 'loop'}
+							<SliderRow
+								label={m.video_editor_text_motion_offset()}
+								value={effect.offsetFrames ?? 0}
+								min={0}
+								max={Math.max(0, maxOffsetFor(slot))}
+								step={1}
+								precision={0}
+								suffix="f"
+								onValueChange={(value) => liveEdit(slot, { offsetFrames: value })}
+								onValueCommit={(value) => commitEdit(slot, { offsetFrames: value })}
+							/>
+						{/if}
+						<SliderRow
+							label={m.video_editor_text_motion_stagger()}
+							value={effect.staggerFrames}
+							min={0}
+							max={30}
+							step={1}
+							precision={0}
+							suffix="f"
+							onValueChange={(value) => liveEdit(slot, { staggerFrames: value })}
+							onValueCommit={(value) => commitEdit(slot, { staggerFrames: value })}
+						/>
+						<SliderRow
+							label={m.video_editor_text_motion_intensity()}
+							value={effect.intensity}
+							min={0}
+							max={2}
+							step={0.05}
+							precision={0}
+							displayScale={100}
+							suffix="%"
+							onValueChange={(value) => liveEdit(slot, { intensity: value })}
+							onValueCommit={(value) => commitEdit(slot, { intensity: value })}
+						/>
+						<div class="select-row">
+							<label
+								>{m.video_editor_text_motion_unit()}<AppSelect
+									value={effect.unit ?? getTextMotionPreset(effect.presetId).unit}
+									options={units.map((unit) => ({ value: unit, label: unitLabels[unit] }))}
+									ariaLabel={m.video_editor_text_motion_unit()}
+									onValueChange={(value) => commitEdit(slot, { unit: value as TextMotionUnit })}
+									class="h-[25px] text-xs"
+								/></label
+							>
+							<label
+								>{m.video_editor_text_motion_order()}<AppSelect
+									value={effect.order}
+									options={orders.map((order) => ({ value: order, label: orderLabels[order] }))}
+									ariaLabel={m.video_editor_text_motion_order()}
+									onValueChange={(value) => commitEdit(slot, { order: value as TextMotionOrder })}
+									class="h-[25px] text-xs"
+								/></label
+							>
+						</div>
+					</div>
+				{/if}
+				<EditorDisclosure
+					label={m.video_editor_motion_title()}
+					summary={effect ? presetLabels[effect.presetId] : undefined}
+					class="mt-1.5 rounded-md border border-[var(--video-editor-border)]"
+				>
+					<div class="preset-grid border-t border-[var(--video-editor-border)] p-1.5">
+						{#each catalog[slot] as preset}
+							{@const active = effect?.presetId === preset.id}
+							<button
+								type="button"
+								class:active
+								aria-pressed={active}
+								aria-label={active
+									? m.video_editor_text_motion_remove({ name: presetLabels[preset.id] })
+									: presetLabels[preset.id]}
+								onclick={() => togglePreset(slot, preset)}
+								>{presetLabels[preset.id]}{active ? ' ×' : ''}</button
+							>
+						{/each}
+					</div>
+				</EditorDisclosure>
+			</div>
+		{/each}
 	</section>
 {/if}
 
@@ -298,19 +288,12 @@
 		align-items: flex-start;
 	}
 	h2,
-	h3,
-	p {
+	h3 {
 		margin: 0;
 	}
 	h2 {
 		font-size: 0.75rem;
 		font-weight: 650;
-	}
-	header p {
-		margin-top: 0.2rem;
-		color: var(--video-editor-muted);
-		font-size: 0.625rem;
-		line-height: 1.4;
 	}
 	header > span {
 		flex: none;
@@ -362,7 +345,7 @@
 		gap: 0.25rem;
 	}
 	.preset-grid button {
-		min-height: 2rem;
+		min-height: 25px;
 		overflow: hidden;
 		border: 1px solid var(--video-editor-border);
 		border-radius: 0.35rem;
@@ -385,11 +368,11 @@
 	}
 	.controls {
 		display: grid;
-		gap: 0.55rem;
+		gap: 0.375rem;
 		margin-top: 0.4rem;
 		border: 1px solid var(--video-editor-border);
 		border-radius: 0.4rem;
-		padding: 0.55rem;
+		padding: 0.375rem;
 		background: var(--video-editor-panel);
 	}
 	.controls label {
@@ -397,15 +380,6 @@
 		gap: 0.2rem;
 		color: var(--video-editor-muted);
 		font-size: 0.5625rem;
-	}
-	.controls label > span {
-		display: flex;
-		justify-content: space-between;
-		gap: 0.5rem;
-	}
-	output {
-		color: var(--video-editor-text);
-		font-variant-numeric: tabular-nums;
 	}
 	.select-row {
 		display: grid;

@@ -101,3 +101,169 @@ test("rejects empty and malformed release preparation", () => {
     /stable release tag/u,
   );
 });
+
+test("carries a dated unshipped failed-candidate section into the replacement release", () => {
+  // Real-world shape: prepare always stamps a date, so a failed candidate
+  // looks shipped even though its GitHub release was never published.
+  const withFailedCandidate = [
+    "# Changelog",
+    "",
+    "## [Unreleased]",
+    "",
+    "## [6.0.0] - 2026-09-21",
+    "",
+    "### Changed",
+    "",
+    "- Big v6 change.",
+    "",
+    "### Removed",
+    "",
+    "- Dropped legacy reads.",
+    "",
+    "## [5.2.2] - 2026-09-20",
+    "",
+    "### Fixed",
+    "",
+    "- Old fix.",
+    "",
+  ].join("\n");
+  const carried = prepareReleaseChangelog(withFailedCandidate, "v6.0.1", "2026-09-21", {
+    publishedTag: "v5.2.2",
+  });
+  assert.doesNotMatch(carried, /^## \[6\.0\.0\]/mu);
+  assert.match(carried, /^## \[6\.0\.1\] - 2026-09-21$/mu);
+  assert.equal(
+    releaseNotesForTag(carried, "v6.0.1"),
+    ["## Changed", "", "- Big v6 change.", "", "## Removed", "", "- Dropped legacy reads."].join(
+      "\n",
+    ),
+  );
+  assert.deepEqual(validateChangelog(carried), []);
+  assert.equal(
+    prepareReleaseChangelog(carried, "v6.0.1", "2026-09-21", { publishedTag: "v5.2.2" }),
+    carried,
+  );
+});
+
+test("merges Unreleased fixes with a dated unshipped failed-candidate section", () => {
+  const withFailedCandidate = [
+    "# Changelog",
+    "",
+    "## [Unreleased]",
+    "",
+    "### Fixed",
+    "",
+    "- New patch fix.",
+    "",
+    "## [6.0.0] - 2026-09-21",
+    "",
+    "### Changed",
+    "",
+    "- Big v6 change.",
+    "",
+    "### Fixed",
+    "",
+    "- V6 fix.",
+    "",
+    "## [5.2.2] - 2026-09-20",
+    "",
+    "### Fixed",
+    "",
+    "- Old fix.",
+    "",
+  ].join("\n");
+  const carried = prepareReleaseChangelog(withFailedCandidate, "v6.0.1", "2026-09-21", {
+    publishedTag: "v5.2.2",
+  });
+  assert.doesNotMatch(carried, /^## \[6\.0\.0\]/mu);
+  assert.equal(
+    releaseNotesForTag(carried, "v6.0.1"),
+    [
+      "## Changed",
+      "",
+      "- Big v6 change.",
+      "",
+      "## Fixed",
+      "",
+      "- New patch fix.",
+      "- V6 fix.",
+    ].join("\n"),
+  );
+  assert.deepEqual(validateChangelog(carried), []);
+});
+
+test("leaves already-shipped sections alone", () => {
+  const shipped = [
+    "# Changelog",
+    "",
+    "## [Unreleased]",
+    "",
+    "### Fixed",
+    "",
+    "- New patch fix.",
+    "",
+    "## [6.0.0] - 2026-09-21",
+    "",
+    "### Changed",
+    "",
+    "- Big v6 change.",
+    "",
+    "## [5.2.2] - 2026-09-20",
+    "",
+    "### Fixed",
+    "",
+    "- Old fix.",
+    "",
+  ].join("\n");
+  const prepared = prepareReleaseChangelog(shipped, "v6.0.1", "2026-09-21", {
+    publishedTag: "v6.0.0",
+  });
+  assert.match(prepared, /^## \[6\.0\.0\] - 2026-09-21$/mu);
+  assert.equal(releaseNotesForTag(prepared, "v6.0.1"), "## Fixed\n\n- New patch fix.");
+  assert.deepEqual(validateChangelog(prepared), []);
+});
+
+test("merges stacked unshipped sections without duplicating groups", () => {
+  const stacked = [
+    "# Changelog",
+    "",
+    "## [Unreleased]",
+    "",
+    "## [10.0.0] - 2026-09-21",
+    "",
+    "### Fixed",
+    "",
+    "- V6 fix.",
+    "",
+    "## [9.9.10] - 2026-09-19",
+    "",
+    "### Fixed",
+    "",
+    "- Old browser fix.",
+    "",
+    "## [9.9.9] - 2026-09-19",
+    "",
+    "### Fixed",
+    "",
+    "- Older fix.",
+    "",
+    "## [Archive]",
+    "",
+    "### Fixed",
+    "",
+    "- Historical non-version entry.",
+    "",
+  ].join("\n");
+  const carried = prepareReleaseChangelog(stacked, "v10.0.1", "2026-09-21", {
+    publishedTag: "v9.9.9",
+  });
+  assert.doesNotMatch(carried, /^## \[10\.0\.0\]/mu);
+  assert.doesNotMatch(carried, /^## \[9\.9\.10\]/mu);
+  assert.match(carried, /^## \[9\.9\.9\] - 2026-09-19$/mu);
+  assert.match(carried, /^## \[Archive\]\n\n### Fixed\n\n- Historical non-version entry\.$/mu);
+  assert.equal(
+    releaseNotesForTag(carried, "v10.0.1"),
+    ["## Fixed", "", "- V6 fix.", "- Old browser fix."].join("\n"),
+  );
+  assert.deepEqual(validateChangelog(carried), []);
+});

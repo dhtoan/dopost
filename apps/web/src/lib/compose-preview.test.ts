@@ -34,25 +34,42 @@ describe('social preview model', () => {
 		).toBe(true);
 	});
 
-	it('stays in sync with the backend provider registry', () => {
+	it('can preview every built-in backend provider, including gated providers', () => {
 		const backendCatalog = readFileSync(
 			new URL('../../../server/internal/capabilities/capabilities.go', import.meta.url),
 			'utf8'
 		);
-		const providerValues = new Map(
-			[...backendCatalog.matchAll(/(Provider[A-Za-z]+)\s+=\s+"([^"]+)"/gu)].map((match) => [
-				match[1],
-				match[2]
-			])
-		);
-		const backendProviders = [
-			...backendCatalog.matchAll(/Capability\{Provider:\s+(Provider[A-Za-z]+)[^\n]*\}/gu)
-		]
-			.filter((match) => !match[0].includes('UnavailableReason:'))
-			.map((match) => providerValues.get(match[1]))
-			.filter((provider): provider is string => Boolean(provider));
-
-		expect([...new Set(backendProviders)].sort()).toEqual([...previewPlatforms].sort());
+		function providersIn(source: string): string[] {
+			const constants = new Map(
+				[...source.matchAll(/^\s*(?:const\s+)?([A-Za-z_]\w*)\s*=\s*"([^"\n]+)"/gmu)].map(
+					(match) => [match[1], match[2]]
+				)
+			);
+			// The field is the publishing contract; Go type and constant names may change.
+			const catalogue = [...source.matchAll(/return\s+\[\][A-Za-z_]\w*\s*\{([\s\S]*?)^\s*\}/gmu)]
+				.map((match) => match[1])
+				.filter((block) => /\{\s*Provider:/u.test(block))
+				.join('\n');
+			if (!catalogue) throw new Error('No publishing providers found');
+			const providers = [
+				...catalogue.matchAll(/\{\s*Provider:\s*(?:"([^"\n]+)"|([A-Za-z_]\w*))/gu)
+			].map((match) => {
+				const provider = match[1] ?? constants.get(match[2]);
+				if (!provider) throw new Error(`Unresolved provider constant: ${match[2]}`);
+				return provider;
+			});
+			if (providers.length === 0) throw new Error('No publishing providers found');
+			return [...new Set(providers)];
+		}
+		expect(
+			providersIn(
+				'const renamed = "x"\nreturn []RenamedType{\n {Provider: renamed}, {Provider: "mastodon"}\n}'
+			)
+		).toEqual(['x', 'mastodon']);
+		expect(() => providersIn('package renamed')).toThrow('No publishing providers found');
+		const backendProviders = providersIn(backendCatalog);
+		expect(backendProviders.length).toBeGreaterThan(0);
+		expect(previewPlatforms).toEqual(expect.arrayContaining(backendProviders));
 	});
 
 	it('normalizes instance-qualified platforms and safe defaults', () => {
@@ -68,7 +85,10 @@ describe('social preview model', () => {
 			segments: [{ id: 'one', text: 'A destination-aware post.' }]
 		});
 
-		expect(model.identity).toMatchObject({ displayName: 'Your name', handle: 'creator' });
+		expect(model.identity).toMatchObject({
+			displayName: 'Your name',
+			handle: 'creator'
+		});
 		expect(model.segments[0]?.text).toBe('A destination-aware post.');
 		expect(supportsPreviewFormat('x', 'thread')).toBe(true);
 		expect(supportsPreviewFormat('instagram', 'thread')).toBe(false);
@@ -76,6 +96,89 @@ describe('social preview model', () => {
 });
 
 describe('composer preview mapping', () => {
+	it('keeps an explicit feed format when the post contains video', () => {
+		const model = buildComposerPreview({
+			account: { ...account, platform: 'facebook' },
+			mode: 'post',
+			outputProfile: 'facebook.post',
+			segments: [
+				{
+					id: 'one',
+					text: 'Feed video',
+					media: [{ id: 'clip', mimeType: 'video/mp4' }]
+				}
+			]
+		});
+		expect(model.format).toBe('post');
+	});
+
+	it('preserves a cleared first-segment attachment override', () => {
+		const model = buildComposerPreview({
+			account,
+			mode: 'post',
+			segments: [{ id: 'one', text: 'Text only', media: [] }],
+			media: [{ id: 'shared-image', mimeType: 'image/jpeg' }]
+		});
+		expect(model.media).toEqual([]);
+	});
+
+	it('joins destination segments when the publishing contract joins them', () => {
+		const model = buildComposerPreview({
+			account: { ...account, platform: 'linkedin' },
+			mode: 'thread',
+			outputProfile: 'linkedin.post',
+			segmentStrategy: 'join',
+			segments: [
+				{ id: 'one', text: 'First paragraph' },
+				{ id: 'two', text: 'Second paragraph' }
+			]
+		});
+		expect(model.segments.map((segment) => segment.text)).toEqual([
+			'First paragraph\n\nSecond paragraph'
+		]);
+	});
+
+	it('maps Pin and business post settings to visible content', () => {
+		const pin = buildComposerPreview({
+			account: { ...account, platform: 'pinterest' },
+			mode: 'post',
+			segments: [{ id: 'one', text: 'Description' }],
+			destinationSettings: {
+				pin_title: 'Launch board',
+				destination_link: 'https://example.com/launch'
+			}
+		});
+		expect(pin).toMatchObject({
+			platform: 'pinterest',
+			title: 'Launch board',
+			card: { domain: 'example.com' }
+		});
+		const business = buildComposerPreview({
+			account: { ...account, platform: 'googlebusiness' },
+			mode: 'post',
+			segments: [{ id: 'one', text: 'Join us' }],
+			destinationSettings: {
+				topic_type: 'event',
+				event_title: 'Open studio',
+				event_start_date: '2026-10-03',
+				event_end_date: '2026-10-04',
+				call_to_action: 'book',
+				action_url: 'https://example.com/book'
+			}
+		});
+		expect(business).toMatchObject({
+			platform: 'googlebusiness',
+			title: 'Open studio',
+			business: {
+				topic: 'event',
+				startDate: '2026-10-03',
+				endDate: '2026-10-04',
+				action: 'book',
+				actionUrl: 'https://example.com/book'
+			}
+		});
+	});
+
 	it('maps resolved destination profiles to native-looking preview formats', () => {
 		expect(previewFormat('x', 'thread', [], 'x.thread')).toBe('thread');
 		expect(previewFormat('instagram', 'post', [], 'instagram.reel')).toBe('reel');
@@ -102,7 +205,28 @@ describe('composer preview mapping', () => {
 		).toBe('photo');
 	});
 
-	it('maps destination settings without exposing them in the preview URL', () => {
+	it('preserves commas in poll answers on each thread segment', () => {
+		const model = buildComposerPreview({
+			account,
+			mode: 'thread',
+			segments: [
+				{
+					id: 'one',
+					text: 'First',
+					settings: { poll_options: 'Yes, sometimes\nNever' }
+				},
+				{
+					id: 'two',
+					text: 'Second',
+					settings: { poll_options: 'Red, green\nBlue' }
+				}
+			]
+		});
+		expect(model.segments?.[0].poll?.options).toEqual(['Yes, sometimes', 'Never']);
+		expect(model.segments?.[1].poll?.options).toEqual(['Red, green', 'Blue']);
+	});
+
+	it('maps destination settings into the preview model', () => {
 		const model = buildComposerPreview({
 			account,
 			mode: 'post',
@@ -170,4 +294,135 @@ describe('composer preview mapping', () => {
 		});
 		expect(tiktokModel).toMatchObject({ platform: 'tiktok', format: 'photo' });
 	});
+});
+
+describe('account link previews', () => {
+	it.each(['bluesky', 'linkedin', 'facebook', 'x'])(
+		'uses the URL in %s account text before the shared fallback',
+		(platform) => {
+			const model = buildComposerPreview({
+				account: { ...account, platform },
+				mode: 'post',
+				segments: [{ id: 'one', text: 'A separate update https://account.example/new' }],
+				linkUrl: 'https://shared.example/old'
+			});
+			expect(model.card?.domain).toBe('account.example');
+			expect(model.segments[0].card?.domain).toBe('account.example');
+		}
+	);
+
+	it('renders LinkedIn article overrides inside the card rather than as another post heading', () => {
+		const model = buildComposerPreview({
+			account: { ...account, platform: 'linkedin' },
+			mode: 'post',
+			segments: [{ id: 'one', text: 'The introduction. https://example.com/article' }],
+			destinationSettings: {
+				article_title: 'A separate article headline',
+				article_description: 'The article summary.'
+			}
+		});
+		expect(model.card).toMatchObject({
+			title: 'A separate article headline',
+			description: 'The article summary.'
+		});
+		expect(model.title).toBe('');
+		expect(model.subtitle).toBe('');
+	});
+});
+
+describe('selected media presentation', () => {
+	it.each(['instagram.feed', 'instagram.carousel', 'linkedin.multi_image', 'linkedin.article'])(
+		'keeps the selected %s presentation while attachments change',
+		(outputProfile) => {
+			const model = buildComposerPreview({
+				account: { ...account, platform: outputProfile.split('.')[0] },
+				mode: 'post',
+				outputProfile,
+				segments: [
+					{ id: 'source', text: 'Caption', media: [{ id: 'clip', mimeType: 'video/mp4' }] }
+				]
+			});
+			expect(model.format).toBe('post');
+		}
+	);
+	it('uses the authored account cover instead of the default video poster', () => {
+		const model = buildComposerPreview({
+			account: { ...account, platform: 'youtube' },
+			mode: 'post',
+			outputProfile: 'youtube.video',
+			destinationSettings: { thumbnail_media_id: 'authored-cover' },
+			segments: [
+				{
+					id: 'source',
+					text: 'Caption',
+					media: [
+						{ id: 'video', mimeType: 'video/mp4', poster: 'https://default.example/poster.jpg' }
+					]
+				}
+			]
+		});
+		expect(model.media[0].poster).toContain('authored-cover');
+	});
+	it('deduplicates joined media in source order while keeping the first authored item', () => {
+		const model = buildComposerPreview({
+			account: { ...account, platform: 'linkedin' },
+			mode: 'thread',
+			outputProfile: 'linkedin.multi_image',
+			segmentStrategy: 'join',
+			segments: [
+				{
+					id: 'first',
+					text: 'First',
+					media: [{ id: 'same', mimeType: 'image/jpeg', altText: 'First alt' }]
+				},
+				{
+					id: 'second',
+					text: 'Second',
+					media: [
+						{ id: 'same', mimeType: 'image/jpeg', altText: 'Second alt' },
+						{ id: 'other', mimeType: 'image/jpeg' }
+					]
+				}
+			]
+		});
+		expect(model.media.map((item) => [item.id, item.alt])).toEqual([
+			['same', 'First alt'],
+			['other', undefined]
+		]);
+	});
+});
+
+it('projects an account-specific cover frame and Mastodon focal point without changing media order', () => {
+	const reel = buildComposerPreview({
+		account: { ...account, platform: 'instagram' },
+		mode: 'post',
+		outputProfile: 'instagram.reel',
+		destinationSettings: { thumbnail_timestamp_ms: 1250 },
+		segments: [
+			{
+				id: 'one',
+				text: 'Reel',
+				media: [{ id: 'clip', mimeType: 'video/mp4', poster: 'https://default.example/poster' }]
+			}
+		]
+	});
+	expect(reel.media[0]).toMatchObject({ id: 'clip', previewFrameSeconds: 1.25 });
+	expect(reel.media[0].poster).toBeUndefined();
+	const feed = buildComposerPreview({
+		account,
+		mode: 'post',
+		segments: [
+			{
+				id: 'one',
+				text: 'Photos',
+				media: [
+					{ id: 'left', mimeType: 'image/jpeg', settings: { focal_point: '-1,1' } },
+					{ id: 'center', mimeType: 'image/jpeg' }
+				]
+			}
+		]
+	});
+	expect(feed.media.map((item) => item.id)).toEqual(['left', 'center']);
+	expect(feed.media[0].focalPoint).toEqual({ x: -1, y: 1 });
+	expect(feed.media[1].focalPoint).toBeUndefined();
 });

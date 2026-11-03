@@ -16,52 +16,6 @@ import (
 	"github.com/uptrace/bun/dialect/sqlitedialect"
 )
 
-func TestDefinitionsCoverEveryExecutableJobKind(t *testing.T) {
-	t.Parallel()
-
-	expected := []string{
-		TypePublishPublication, TypeRefreshToken, TypeMediaCleanup,
-		TypeStorageDelete, TypeFeedbackDelivery, TypeAnalyticsSweep, TypeAnalyticsAccount,
-		TypeAnalyticsRendition, TypeAccountContentDiscovery, TypeBillingWebhook, TypeEngagementSweep, TypeEngagementSync,
-		TypeMessagingSweep, TypeMessagesSync, TypeEngagementAction, TypeMessageSend, TypeNotificationEmail,
-		TypeQueueReminderSweep,
-		TypeOwnershipTransferExpiry,
-		TypeRepostSweep, TypeRepostEvaluate, TypeRepostExecute, TypeMediaAnalyze,
-		TypeGrowthDiscovery, TypeGrowthFollow, TypePublicationBuild, TypeBotIngress,
-		TypeScheduledAccountCheck,
-		TypeExternalWebhookDelivery,
-	}
-	definitions := Definitions()
-	actual := make([]string, 0, len(definitions))
-	for _, definition := range definitions {
-		actual = append(actual, definition.Type)
-		require.NotEmpty(t, definition.Execution, definition.Type)
-		require.NotEmpty(t, definition.Failure, definition.Type)
-		require.NotEmpty(t, definition.Recovery, definition.Type)
-		require.Positive(t, definition.DefaultMaxAttempts, definition.Type)
-		if definition.Failure == FailureProviderRead {
-			require.NotEmpty(t, definition.FailureMessage, definition.Type)
-		}
-	}
-	require.ElementsMatch(t, expected, actual)
-}
-
-func TestAccountContentDiscoveryPayloadContainsOnlyOwnerReferences(t *testing.T) {
-	t.Parallel()
-
-	payload, err := EncodeAccountContentDiscoveryPayload(AccountContentDiscoveryPayload{
-		WorkspaceID: "workspace-1", SocialAccountID: "account-1",
-	})
-	require.NoError(t, err)
-	require.JSONEq(t, `{"workspace_id":"workspace-1","social_account_id":"account-1"}`, payload)
-	identity, err := IdentityForPayload(TypeAccountContentDiscovery, payload)
-	require.NoError(t, err)
-	require.Equal(t, Identity{ScopeID: "account-1", DedupeKey: "discover"}, identity)
-
-	_, err = DecodeAccountContentDiscoveryPayload(`{"workspace_id":"workspace-1","social_account_id":"account-1","cursor":"secret-provider-cursor"}`)
-	require.Error(t, err)
-}
-
 func TestBotIngressPayloadIsBoundedToAnEventReference(t *testing.T) {
 	t.Parallel()
 

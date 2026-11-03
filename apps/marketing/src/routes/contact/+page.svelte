@@ -6,7 +6,7 @@
 
 <section class="contact marketing-shell">
 	<header>
-		<h1>Let’s <HeroAccent>talk.</HeroAccent></h1>
+		<h1 class="marketing-title">Let’s <HeroAccent>talk.</HeroAccent></h1>
 		<p>A question, an idea, or something not working?<br />We’d like to hear from you.</p>
 	</header>
 	<div class="contact-options">
@@ -37,7 +37,9 @@
 				The help centre covers your first post, editing images and videos, and planning your
 				schedule.
 			</p>
-			<a href={docsUrl} class="focus-ring">Open the help centre <ArrowUpRight size={16} /></a>
+			<a href={docsUrl} class="focus-ring" data-sveltekit-reload
+				>Open the help centre <ArrowUpRight size={16} /></a
+			>
 		</div>
 		<div>
 			<h2>Found a security issue?</h2>
@@ -57,16 +59,13 @@
 		text-align: center;
 	}
 	h1 {
-		font-size: clamp(48px, 6vw, 80px);
-		line-height: 1.1;
-		font-weight: 550;
-		letter-spacing: -0.04em;
+		max-width: none;
 	}
 	header p {
 		font-size: 18px;
 		line-height: 1.7;
 		color: var(--muted-foreground);
-		margin-top: 28px;
+		margin: 28px auto 0;
 	}
 	.contact-options {
 		display: grid;
@@ -114,6 +113,7 @@
 	small {
 		display: block;
 		margin-top: 12px;
+		font-size: 13px;
 		line-height: 1.6;
 	}
 	.contact-more {

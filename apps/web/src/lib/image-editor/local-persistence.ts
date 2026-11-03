@@ -8,11 +8,14 @@ import {
 } from './document';
 import {
 	isLocalImageEditorMediaID,
+	localImageEditorMediaGeneration,
 	localImageEditorMediaURL,
 	registerLocalImageEditorMedia,
 	releaseLocalImageEditorMedia
 } from './local-media-url';
 import { m } from '$lib/paraglide/messages';
+import { loadImageEditorTextFont } from './fonts';
+import { readImageEditorGif } from './gif-client';
 import type { StockMediaProvenance } from '$lib/stock-media';
 import { IMAGE_COLOR_GRADE_VERSION } from '$lib/editor-color-grade/model';
 import type {
@@ -32,6 +35,7 @@ const IMAGE_EDITOR_DB_NAME = 'openpost-studio';
 const DB_VERSION = 2;
 const OPFS_DIRECTORY = 'openpost-image-editor-media';
 const LOCAL_DESIGN_PREFIX = 'local_design_';
+const MAX_LOCAL_FONT_BYTES = 10 * 1024 * 1024;
 
 export interface LocalImageEditorDesign {
 	id: string;
@@ -54,6 +58,7 @@ interface LocalImageEditorMedia {
 	storage: 'opfs' | 'indexeddb';
 	blob?: Blob;
 	provenance?: StockMediaProvenance;
+	asset_kind?: 'brand_font';
 }
 
 interface PixelSize {
@@ -174,7 +179,9 @@ export async function createGuestImageEditorDesignFromImage(
 	title: string
 ): Promise<ImageEditorDocumentResponse> {
 	assertSupportedGuestImage(file);
-	const dimensions = await imageDimensions(file);
+	const gif = file.type === 'image/gif' ? await readImageEditorGif(file, false) : undefined;
+	const dimensions = gif ?? (await imageDimensions(file));
+	const animation = gif?.animation;
 	const canvasSize = fitSourceSize(dimensions.width, dimensions.height);
 	const preset: ImageEditorPreset = {
 		key: 'custom',
@@ -198,6 +205,7 @@ export async function createGuestImageEditorDesignFromImage(
 			transform: defaultTransform(document.width_px, document.height_px),
 			image: {
 				media_id: media.id,
+				animation,
 				source_width: dimensions.width,
 				source_height: dimensions.height,
 				fit: 'stretch',
@@ -241,21 +249,50 @@ export async function saveGuestImageEditorDesign(
 }
 
 export async function listGuestImageEditorDesigns(limit = 12): Promise<LocalImageEditorDesign[]> {
+	if (limit === 0) return [];
 	const db = await openImageEditorDatabase();
-	const records = await new Promise<LocalImageEditorDesign[]>((resolve, reject) => {
-		const request: IDBRequest<LocalImageEditorDesign[]> = db
-			.transaction(GUEST_DESIGN_STORE)
-			.objectStore(GUEST_DESIGN_STORE)
-			.getAll();
-		request.onsuccess = () => resolve(request.result ?? []);
-		request.onerror = () => reject(request.error);
-	});
-	db.close();
-	const result = records
-		.sort((left, right) => right.updated_at.localeCompare(left.updated_at))
-		.slice(0, limit);
-	await Promise.all(result.map((record) => warmGuestImageEditorMedia(record.document)));
-	return result;
+	try {
+		const records = await new Promise<LocalImageEditorDesign[]>((resolve, reject) => {
+			const index = db
+				.transaction(GUEST_DESIGN_STORE)
+				.objectStore(GUEST_DESIGN_STORE)
+				.index('updated_at');
+			const read = (oldestKey?: IDBValidKey) => {
+				const request: IDBRequest<LocalImageEditorDesign[]> = index.getAll(
+					oldestKey === undefined ? undefined : IDBKeyRange.lowerBound(oldestKey)
+				);
+				request.onsuccess = () => resolve(request.result ?? []);
+				request.onerror = () => reject(request.error);
+			};
+			if (!Number.isInteger(limit) || limit < 1 || limit > 0xffffffff) {
+				read();
+				return;
+			}
+			const cursor = index.openKeyCursor(null, 'prev');
+			let advanced = false;
+			cursor.onerror = () => reject(cursor.error);
+			cursor.onsuccess = () => {
+				if (cursor.result && !advanced && limit > 1) {
+					advanced = true;
+					cursor.result.advance(limit - 1);
+					return;
+				}
+				// Include the whole boundary timestamp so tied designs retain primary-key order.
+				read(cursor.result?.key);
+			};
+		});
+		return records
+			.sort((left, right) => right.updated_at.localeCompare(left.updated_at))
+			.slice(0, limit);
+	} finally {
+		db.close();
+	}
+}
+
+export async function warmGuestImageEditorPreviewMedia(
+	document: ImageEditorDocument
+): Promise<string[]> {
+	return await warmGuestImageEditorMedia({ ...document, pages: document.pages.slice(0, 1) });
 }
 
 export async function deleteGuestImageEditorDesign(id: string): Promise<void> {
@@ -281,7 +318,9 @@ export async function listGuestImageEditorMedia(
 	designID: string,
 	search = ''
 ): Promise<ImageEditorMediaItem[]> {
-	const records = await listGuestMediaRecords(designID);
+	const records = (await listGuestMediaRecords(designID)).filter(
+		(record) => record.asset_kind !== 'brand_font'
+	);
 	const query = search.trim().toLocaleLowerCase();
 	const filtered = query
 		? records.filter((record) => record.name.toLocaleLowerCase().includes(query))
@@ -292,13 +331,84 @@ export async function listGuestImageEditorMedia(
 		.map(guestMediaItem);
 }
 
+export async function storeGuestImageEditorProjectMedia(
+	designID: string,
+	document: ImageEditorDocument,
+	entry: { id: string; file: File }
+): Promise<ImageEditorMediaItem> {
+	const isFont = document.pages.some((page) =>
+		page.layers.some((layer) => layer.text?.font_asset_id === entry.id)
+	);
+	if (isFont) return await storeGuestImageEditorFont(designID, entry.file);
+	return await storeGuestImageEditorMedia(designID, entry.file);
+}
+
 export async function storeGuestImageEditorMedia(
 	designID: string,
 	file: File,
-	options: { provenance?: StockMediaProvenance } = {}
+	options: { provenance?: StockMediaProvenance; signal?: AbortSignal } = {}
 ): Promise<ImageEditorMediaItem> {
+	const mediaGeneration = localImageEditorMediaGeneration(designID);
 	assertSupportedGuestImage(file);
-	const dimensions = await imageDimensions(file);
+	options.signal?.throwIfAborted();
+	const dimensions = await imageDimensions(file, options.signal);
+	options.signal?.throwIfAborted();
+	return await storeGuestAsset(designID, file, dimensions, options, mediaGeneration);
+}
+
+async function storeGuestImageEditorFont(
+	designID: string,
+	file: File
+): Promise<ImageEditorMediaItem> {
+	const mediaGeneration = localImageEditorMediaGeneration(designID);
+	if (!file.size || file.size > MAX_LOCAL_FONT_BYTES)
+		throw new Error(m.brand_font_missing_recovery());
+	const bytes = await file.arrayBuffer();
+	const signature = new DataView(bytes).byteLength >= 4 ? new DataView(bytes).getUint32(0) : 0;
+	const formats = [
+		{ signatures: [0x774f4632], type: 'font/woff2', extension: 'woff2', declared: ['font/woff2'] },
+		{
+			signatures: [0x00010000, 0x74727565],
+			type: 'font/ttf',
+			extension: 'ttf',
+			declared: ['font/ttf', 'font/sfnt', 'application/x-font-ttf', 'application/font-sfnt']
+		},
+		{
+			signatures: [0x4f54544f],
+			type: 'font/otf',
+			extension: 'otf',
+			declared: ['font/otf', 'font/sfnt', 'application/x-font-opentype', 'application/font-sfnt']
+		}
+	];
+	const format = formats.find((candidate) => candidate.signatures.includes(signature));
+	if (!format || !format.declared.includes(file.type.toLowerCase()))
+		throw new Error(m.brand_font_missing_recovery());
+	try {
+		await new FontFace(`OpenPostFontCheck_${crypto.randomUUID()}`, bytes).load();
+	} catch {
+		throw new Error(m.brand_font_missing_recovery());
+	}
+	const name = `${file.name.replace(/\.[^.]+$/u, '') || 'font'}.${format.extension}`;
+	const normalized = new File([bytes], name, {
+		type: format.type,
+		lastModified: file.lastModified
+	});
+	return await storeGuestAsset(
+		designID,
+		normalized,
+		{ width: 0, height: 0 },
+		{ assetKind: 'brand_font' },
+		mediaGeneration
+	);
+}
+
+async function storeGuestAsset(
+	designID: string,
+	file: File,
+	dimensions: PixelSize,
+	options: { provenance?: StockMediaProvenance; assetKind?: 'brand_font' },
+	mediaGeneration: number
+): Promise<ImageEditorMediaItem> {
 	const id = `local_media_${crypto.randomUUID()}`;
 	const record: LocalImageEditorMedia = {
 		id,
@@ -311,7 +421,8 @@ export async function storeGuestImageEditorMedia(
 		created_at: new Date().toISOString(),
 		storage: 'indexeddb',
 		blob: file,
-		provenance: options.provenance
+		provenance: options.provenance,
+		asset_kind: options.assetKind
 	};
 	if (await writeOPFSFile(id, file)) {
 		record.storage = 'opfs';
@@ -331,16 +442,22 @@ export async function storeGuestImageEditorMedia(
 	} finally {
 		db.close();
 	}
-	registerLocalImageEditorMedia(id, file);
+	if (mediaGeneration === localImageEditorMediaGeneration(designID))
+		registerLocalImageEditorMedia(id, file, designID);
 	return guestMediaItem(record);
 }
 
 export async function getGuestImageEditorMediaBlob(mediaID: string): Promise<Blob> {
 	const record = await getGuestMediaRecord(mediaID);
 	if (!record) throw new Error(m.image_editor_public_image_missing());
+	const mediaGeneration = localImageEditorMediaGeneration(record.design_id);
 	const blob = await guestMediaBlob(record);
 	if (!blob) throw new Error(m.image_editor_public_image_missing());
-	if (!localImageEditorMediaURL(mediaID)) registerLocalImageEditorMedia(mediaID, blob);
+	if (
+		mediaGeneration === localImageEditorMediaGeneration(record.design_id) &&
+		!localImageEditorMediaURL(mediaID)
+	)
+		registerLocalImageEditorMedia(mediaID, blob, record.design_id);
 	return blob;
 }
 
@@ -349,6 +466,7 @@ export async function getGuestImageEditorMediaForMigration(mediaID: string): Pro
 	name: string;
 	mimeType: string;
 	provenance?: StockMediaProvenance;
+	assetKind: 'brand_font' | 'library';
 }> {
 	const record = await getGuestMediaRecord(mediaID);
 	if (!record) throw new Error(m.image_editor_public_image_missing());
@@ -356,7 +474,8 @@ export async function getGuestImageEditorMediaForMigration(mediaID: string): Pro
 		blob: await getGuestImageEditorMediaBlob(mediaID),
 		name: record.name,
 		mimeType: record.mime_type,
-		provenance: record.provenance
+		provenance: record.provenance,
+		assetKind: record.asset_kind ?? 'library'
 	};
 }
 
@@ -484,13 +603,31 @@ async function warmGuestImageEditorMedia(document: ImageEditorDocument): Promise
 			}
 		})
 	);
-	return results.filter(Boolean);
+	const missing = new Set(results.filter(Boolean));
+	for (const layer of document.pages.flatMap((page) => page.layers)) {
+		const text = layer.text;
+		if (
+			!text?.font_asset_id ||
+			!isLocalImageEditorMediaID(text.font_asset_id) ||
+			missing.has(text.font_asset_id)
+		)
+			continue;
+		try {
+			const blob = await getGuestImageEditorMediaBlob(text.font_asset_id);
+			await loadImageEditorTextFont(text, blob);
+		} catch {
+			missing.add(text.font_asset_id);
+		}
+	}
+	return [...missing];
 }
 
 async function warmGuestMediaRecord(record: LocalImageEditorMedia): Promise<void> {
 	if (localImageEditorMediaURL(record.id)) return;
+	const mediaGeneration = localImageEditorMediaGeneration(record.design_id);
 	const blob = await guestMediaBlob(record);
-	if (blob) registerLocalImageEditorMedia(record.id, blob);
+	if (blob && mediaGeneration === localImageEditorMediaGeneration(record.design_id))
+		registerLocalImageEditorMedia(record.id, blob, record.design_id);
 }
 
 async function guestMediaBlob(record: LocalImageEditorMedia): Promise<Blob | null> {
@@ -534,19 +671,23 @@ function guestMediaItem(record: LocalImageEditorMedia): ImageEditorMediaItem {
 		duration_ms: 0,
 		frame_rate: 0,
 		source: 'local',
-		asset_kind: 'library',
+		asset_kind: record.asset_kind ?? 'library',
 		provenance: record.provenance,
 		tags: []
 	};
 }
 
 function assertSupportedGuestImage(file: File): void {
-	if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+	if (!['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(file.type)) {
 		throw new Error(m.image_editor_public_image_type());
 	}
 }
 
-async function imageDimensions(blob: Blob): Promise<PixelSize> {
+async function imageDimensions(blob: Blob, signal?: AbortSignal): Promise<PixelSize> {
+	if (blob.type === 'image/gif') {
+		const { width, height } = await readImageEditorGif(blob, false, signal);
+		return { width, height };
+	}
 	try {
 		const bitmap = await createImageBitmap(blob);
 		const dimensions = { width: bitmap.width, height: bitmap.height };

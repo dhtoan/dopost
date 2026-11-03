@@ -14,7 +14,9 @@
 		type LottieBrowseCategory,
 		type LottieFilesAnimation
 	} from '$lib/video-editor/lottie/lottiefiles-api';
+	import { clearLottieDragData, writeLottieDragData } from '$lib/video-editor/lottie/lottie-drag';
 	import { ProtectedIcon, ThemeIcon } from '$lib/themes/icons';
+	import type { ProjectAssetImporter } from '$lib/video-editor/media/types';
 
 	const PAGE_SIZE = 24;
 	const categories: LottieBrowseCategory[] = ['featured', 'popular', 'recent'];
@@ -23,12 +25,14 @@
 		oninserted?: (itemId: string) => void;
 		fetchAnimations?: typeof fetchLottieAnimations;
 		importAnimation?: typeof importRemoteLottie;
+		importProjectAsset?: ProjectAssetImporter;
 	};
 	let {
 		projectId,
 		oninserted,
 		fetchAnimations = fetchLottieAnimations,
-		importAnimation = importRemoteLottie
+		importAnimation = importRemoteLottie,
+		importProjectAsset
 	}: LottieBrowserPanelProps = $props();
 	let category = $state<LottieBrowseCategory>('featured');
 	let inputValue = $state('');
@@ -98,6 +102,11 @@
 
 	onDestroy(() => controller?.abort());
 
+	function startDrag(event: DragEvent, animation: LottieFilesAnimation): void {
+		if (!event.dataTransfer) return;
+		writeLottieDragData(event.dataTransfer, animation);
+	}
+
 	async function addAnimation(animation: LottieFilesAnimation): Promise<void> {
 		if (importingIds.has(animation.id) || (importedIds.has(animation.id) && !oninserted)) return;
 		const insertionFrame = timelineStore.currentFrame;
@@ -110,7 +119,8 @@
 					projectId,
 					url: animation.lottieUrl,
 					fileName: animation.name,
-					attribution: lottieFilesAttribution(animation)
+					attribution: lottieFilesAttribution(animation),
+					importAsset: importProjectAsset
 				}));
 			importedMediaIds = { ...importedMediaIds, [animation.id]: mediaId };
 			const media = mediaPool.get(mediaId);
@@ -134,7 +144,7 @@
 	}
 </script>
 
-<div class="flex min-h-0 flex-1 flex-col" aria-label={m.video_editor_lottiefiles()}>
+<div class="flex min-h-0 flex-1 flex-col" role="group" aria-label={m.video_editor_lottiefiles()}>
 	<div class="flex flex-col gap-2 border-b border-[var(--video-editor-border)] p-2">
 		<label class="relative block">
 			<span class="sr-only">{m.video_editor_lottiefiles_search()}</span>
@@ -143,7 +153,7 @@
 				class="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-[var(--video-editor-muted)]"
 			/>
 			<Input
-				class="h-8 w-full rounded bg-[var(--video-editor-panel)] pr-8 pl-7 text-xs"
+				class="h-[var(--editor-22,22px)] w-full rounded bg-[var(--video-editor-panel)] pr-8 pl-7 text-[11px] [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:text-base"
 				placeholder={m.video_editor_lottiefiles_search()}
 				bind:value={inputValue}
 			/>
@@ -164,7 +174,7 @@
 					<button
 						type="button"
 						class:active={category === value}
-						class="rounded px-1 py-1 text-[10px] font-medium text-[var(--video-editor-muted)] hover:bg-[var(--video-editor-control-hover)] focus-visible:outline-2 focus-visible:outline-[var(--video-editor-focus)] [&.active]:bg-[var(--video-editor-primary)] [&.active]:text-[var(--video-editor-primary-text)]"
+						class="h-[25px] rounded px-1 text-[10px] font-medium text-[var(--video-editor-muted)] hover:bg-[var(--video-editor-control-hover)] focus-visible:outline-2 focus-visible:outline-[var(--video-editor-focus)] [&.active]:bg-[var(--video-editor-primary)] [&.active]:text-[var(--video-editor-primary-text)] [@media(pointer:coarse)]:h-11"
 						onclick={() => (category = value)}
 					>
 						{value === 'featured'
@@ -208,7 +218,8 @@
 					<li class="group min-w-0">
 						<button
 							type="button"
-							class="relative aspect-square w-full overflow-hidden rounded-md border border-[var(--video-editor-border)] bg-[var(--video-editor-panel)] hover:border-[var(--video-editor-focus-border)] focus-visible:outline-2 focus-visible:outline-[var(--video-editor-focus)] disabled:cursor-default"
+							class="relative aspect-square w-full cursor-grab overflow-hidden rounded-md border border-[var(--video-editor-border)] bg-[var(--video-editor-panel)] hover:border-[var(--video-editor-focus-border)] focus-visible:outline-2 focus-visible:outline-[var(--video-editor-focus)] active:cursor-grabbing disabled:cursor-default"
+							draggable="true"
 							style:background-color={animation.bgColor ?? undefined}
 							disabled={isImporting || (isImported && !oninserted)}
 							aria-label={`${
@@ -221,6 +232,8 @@
 											: m.video_editor_lottiefiles_add()
 							}: ${animation.name}`}
 							onclick={() => void addAnimation(animation)}
+							ondragstart={(event) => startDrag(event, animation)}
+							ondragend={clearLottieDragData}
 						>
 							{#if animation.gifUrl && !previewFailedIds.has(animation.id)}
 								<img
@@ -264,14 +277,12 @@
 								</span>
 							{/if}
 						</button>
-						<p class="mt-1 truncate px-0.5 text-[10px] font-medium" title={animation.name}>
+						<p
+							class="mt-1 truncate px-0.5 text-[10px] font-medium"
+							title={`${animation.name}${animation.author ? ` — ${animation.author}` : ''}`}
+						>
 							{animation.name}
 						</p>
-						{#if animation.author}
-							<p class="truncate px-0.5 text-[9px] text-[var(--video-editor-muted)]">
-								{m.video_editor_lottiefiles_by({ author: animation.author })}
-							</p>
-						{/if}
 					</li>
 				{/each}
 			</ul>
@@ -280,11 +291,11 @@
 
 	{#if totalPages > 1 && status !== 'error'}
 		<div
-			class="flex items-center justify-between border-t border-[var(--video-editor-border)] px-2 py-1.5"
+			class="flex h-[25px] items-center justify-between border-t border-[var(--video-editor-border)] px-2"
 		>
 			<button
 				type="button"
-				class="rounded p-1 text-[var(--video-editor-muted)] hover:bg-[var(--video-editor-control-hover)] disabled:opacity-30"
+				class="flex size-[22px] items-center justify-center rounded text-[var(--video-editor-muted)] hover:bg-[var(--video-editor-control-hover)] disabled:opacity-30 [@media(pointer:coarse)]:size-11"
 				disabled={page === 0 || status === 'loading'}
 				aria-label={m.video_editor_lottiefiles_previous()}
 				onclick={() => void loadPage(page - 1)}
@@ -296,7 +307,7 @@
 			</span>
 			<button
 				type="button"
-				class="rounded p-1 text-[var(--video-editor-muted)] hover:bg-[var(--video-editor-control-hover)] disabled:opacity-30"
+				class="flex size-[22px] items-center justify-center rounded text-[var(--video-editor-muted)] hover:bg-[var(--video-editor-control-hover)] disabled:opacity-30 [@media(pointer:coarse)]:size-11"
 				disabled={page >= totalPages - 1 || status === 'loading'}
 				aria-label={m.video_editor_lottiefiles_next()}
 				onclick={() => void loadPage(page + 1)}

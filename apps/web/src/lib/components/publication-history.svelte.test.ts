@@ -30,6 +30,8 @@ it('places the latest effective outcome at its attempt or reconciliation time', 
 					target_key: 'x',
 					platform: 'x',
 					label: '@openpost',
+					avatar_url:
+						'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="10" height="10"%3E%3Crect width="10" height="10" fill="blue"/%3E%3C/svg%3E',
 					status: 'failed'
 				},
 				delivery: {
@@ -61,6 +63,10 @@ it('places the latest effective outcome at its attempt or reconciliation time', 
 		}
 	);
 	await expect.element(screen.getByText('Latest effective destination outcome')).toBeVisible();
+
+	const photo = document.querySelector('img[src^="data:image/svg+xml"]');
+	expect(photo).not.toBeNull();
+	expect(photo?.getAttribute('src')).toContain('data:image/svg+xml');
 
 	const items = [...document.querySelectorAll('ol > li')].map((item) => item.textContent ?? '');
 	expect(items).toHaveLength(2);

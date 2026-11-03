@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { z } from 'zod';
-	import { client, type SocialAccount } from '$lib/api/client';
+	import { client, type SocialAccount as ConnectedAccount } from '$lib/api/client';
 	import { loadWorkspaceSocialSets } from '$lib/api/performance-cache';
 	import { openPostQueryKeys } from '@openpost/query-catalog';
 	import { queryClient } from '$lib/query/client';
@@ -29,7 +29,12 @@
 	import InlineNotice from './inline-notice.svelte';
 	import SocialAccountAvatar from './social-account-avatar.svelte';
 	import SocialAccountIdentity from './social-account-identity.svelte';
+	import AccountPickerRow from './account-picker/row.svelte';
+	import AccountPickerList from './account-picker/list.svelte';
+	import { matchesAccountSearch } from './account-picker/search';
+	import AccountPickerSelectAll from './account-picker/select-all.svelte';
 	import { Button } from '$lib/components/ui/button';
+	import * as Tabs from '$lib/components/ui/tabs';
 	import { Checkbox } from '$lib/components/ui/checkbox';
 	import * as Dialog from '$lib/components/ui/dialog';
 	import * as Popover from '$lib/components/ui/popover';
@@ -43,7 +48,12 @@
 		getPlatformName
 	} from '$lib/utils';
 	import { m } from '$lib/paraglide/messages';
+	import { supportsTextCards } from '$lib/text-cards';
 
+	type SocialAccount = Pick<
+		ConnectedAccount,
+		'id' | 'platform' | 'account_id' | 'account_username' | 'account_avatar_url' | 'slug' | 'alias'
+	>;
 	type SocialSet = components['schemas']['SocialSetResponse'];
 	type SocialSetAccountInput = components['schemas']['SocialSetAccountInput'];
 	type Capability = components['schemas']['Capability'];
@@ -65,6 +75,7 @@
 	}
 
 	interface Props {
+		mode?: 'destinations' | 'filter';
 		workspaceId: string;
 		accounts: SocialAccount[];
 		capabilities?: Capability[];
@@ -81,6 +92,7 @@
 	}
 
 	let {
+		mode = 'destinations',
 		workspaceId,
 		accounts,
 		capabilities = [],
@@ -99,6 +111,7 @@
 	let sets = $state<SocialSet[]>([]);
 	let loading = $state(false);
 	let error = $state('');
+	let loadError = $state('');
 	let manageOpen = $state(false);
 	let editorId = $state('');
 	let editorName = $state('');
@@ -127,6 +140,12 @@
 	let deleteOpen = $state(false);
 	let loadedWorkspaceId = '';
 	let pickerOpen = $state(false);
+	let pickerSearch = $state('');
+	let explicitDestinationChoice = false;
+	const visibleSets = $derived(sets.filter((set) => matchesAccountSearch(set.name, pickerSearch)));
+	$effect(() => {
+		if (!pickerOpen) pickerSearch = '';
+	});
 	let pendingCustomAccount = $state<SocialAccount | null>(null);
 	let customAccountConfirmOpen = $state(false);
 	let loadSequence = 0;
@@ -146,8 +165,15 @@
 			.filter((account): account is SocialAccount => Boolean(account))
 	);
 	const selectedSet = $derived(sets.find((set) => set.id === selectedSetId) ?? null);
+	// Read-only filter identities have no publishing configuration to edit.
+	function isConnectedAccount(account: SocialAccount): account is ConnectedAccount {
+		return 'is_active' in account;
+	}
 	const settingsEditorAccount = $derived(
-		accounts.find((account) => account.id === settingsEditorAccountId) ?? null
+		accounts.find(
+			(account): account is ConnectedAccount =>
+				account.id === settingsEditorAccountId && isConnectedAccount(account)
+		) ?? null
 	);
 	const settingsEditorFields = $derived(
 		settingsResolved?.account_id === settingsEditorAccountId
@@ -160,10 +186,16 @@
 			...(editorSegmentSettings[settingsEditorAccountId] ?? {})
 		})
 	);
-	const destinationLabel = $derived(
-		selectedSet?.name ||
-			(selectedAccountIds.length > 0 ? m.social_set_custom_selection() : m.social_set_select())
-	);
+	const destinationLabel = $derived.by(() => {
+		if (selectedSet) return selectedSet.name;
+		if (mode === 'filter') {
+			if (selectedAccountIds.length === 0) return m.analytics_all_accounts();
+			if (selectedAccountIds.length === 1 && selectedAccounts[0])
+				return accountLabel(selectedAccounts[0]);
+			return m.calendar_account_count({ count: selectedAccountIds.length });
+		}
+		return selectedAccountIds.length > 0 ? m.social_set_custom_selection() : m.social_set_select();
+	});
 	const destinationAccessibleValue = $derived.by(() => {
 		if (selectedSet) return selectedSet.name;
 		if (selectedAccounts.length === 0) return m.social_set_select();
@@ -198,6 +230,7 @@
 		deleting = false;
 		deleteOpen = false;
 		error = '';
+		loadError = '';
 	});
 
 	function captureSocialSetMutationView(): SocialSetMutationView {
@@ -221,17 +254,23 @@
 		const requestedWorkspace = workspaceId;
 		if (!requestedWorkspace) return;
 		const requestSequence = ++loadSequence;
-		if (loadedWorkspaceId !== requestedWorkspace) sets = [];
+		if (loadedWorkspaceId !== requestedWorkspace) {
+			sets = [];
+			explicitDestinationChoice = false;
+		}
 		loadedWorkspaceId = requestedWorkspace;
 		loading = true;
 		error = '';
+		loadError = '';
 		try {
 			const loadedSets = await loadWorkspaceSocialSets(requestedWorkspace, force);
 			if (requestSequence !== loadSequence || workspaceId !== requestedWorkspace) return;
 			sets = loadedSets;
 		} catch (cause) {
 			if (requestSequence !== loadSequence || workspaceId !== requestedWorkspace) return;
-			error = cause instanceof Error && cause.message ? cause.message : m.social_set_load_failed();
+			loadError =
+				cause instanceof Error && cause.message ? cause.message : m.social_set_load_failed();
+			error = loadError;
 			return;
 		} finally {
 			if (requestSequence === loadSequence && workspaceId === requestedWorkspace) loading = false;
@@ -242,7 +281,8 @@
 			// reusable set must never replace that snapshot with current membership.
 			return;
 		}
-		if (autoApplyDefault) {
+		// A delayed default must not replace an account or bulk choice made while loading.
+		if (autoApplyDefault && !explicitDestinationChoice) {
 			const defaultSet = sets.find((set) => set.is_default) ?? null;
 			if (defaultSet) {
 				selectedSetId = defaultSet.id;
@@ -252,6 +292,7 @@
 	}
 
 	function selectSet(id: string) {
+		explicitDestinationChoice = true;
 		selectedSetId = id;
 		onApply(sets.find((set) => set.id === id) ?? null);
 		pickerOpen = false;
@@ -373,6 +414,7 @@
 	}
 
 	function reusableDefaultField(field: SettingDefinition): boolean {
+		if (field.post_only) return false;
 		if (field.scope === 'media_item' || field.type === 'media') return false;
 		if (field.key.endsWith('_media_id')) return false;
 		if (
@@ -648,7 +690,7 @@
 
 	function accountLabel(account: SocialAccount) {
 		return (
-			formatSocialAccountName(account.account_username, account.platform) ||
+			formatSocialAccountName(account.account_username, account.platform, account.alias) ||
 			account.slug ||
 			account.account_id ||
 			getPlatformName(account.platform)
@@ -669,6 +711,7 @@
 	}
 
 	function requestAccountToggle(account: SocialAccount) {
+		explicitDestinationChoice = true;
 		if (selectedAccountIds.includes(account.id) && customAccountIds.includes(account.id)) {
 			pendingCustomAccount = account;
 			pickerOpen = false;
@@ -696,8 +739,8 @@
 					variant="outline"
 					size="sm"
 					class="h-11 max-w-[min(22rem,70vw)] gap-2 px-2.5 md:h-9"
-					aria-label={`${m.compose_destinations()}: ${destinationAccessibleValue}`}
-					disabled={disabled || loading}
+					aria-label={`${mode === 'filter' ? m.analytics_account_filter() : m.compose_destinations()}: ${mode === 'filter' ? destinationLabel : destinationAccessibleValue}`}
+					disabled={disabled || (loading && accounts.length === 0 && sets.length === 0)}
 					data-testid="composer-account-control"
 				>
 					<span class="isolate flex shrink-0 items-center -space-x-1" aria-hidden="true">
@@ -722,113 +765,169 @@
 				</Button>
 			{/snippet}
 		</Popover.Trigger>
-		<Popover.Content class="w-80 max-w-[calc(100vw-1rem)] p-1.5" align="start">
-			<div class="flex min-h-11 items-center justify-between px-2">
+		<Popover.Content
+			class="social-set-picker flex max-h-[min(40rem,var(--bits-popover-content-available-height,85dvh))] w-[36rem] max-w-[calc(100vw-1rem)] flex-col overflow-hidden p-1.5"
+			align="start"
+		>
+			<div class="shrink-0 space-y-2 px-2 py-1">
 				<div>
-					<p class="text-sm font-medium">{m.compose_destinations()}</p>
-					<p class="text-xs text-muted-foreground">
-						{m.social_set_picker_body()}
-					</p>
+					<div class="flex items-center justify-between gap-3">
+						<p class="text-sm font-medium">
+							{mode === 'filter' ? m.analytics_account_filter() : m.compose_destinations()}
+						</p>
+						<p class="text-xs text-muted-foreground" role="status">
+							{m.media_picker_selected_count({
+								selected: mode === 'filter' ? selectedAccountIds.length : selectedAccounts.length,
+								maximum: accounts.length
+							})}
+						</p>
+					</div>
+					{#if mode !== 'filter'}<p class="text-xs text-muted-foreground">
+							{m.social_set_picker_body()}
+						</p>{/if}
 				</div>
-				{#if onSelectAll && onClearAll}
-					<Button
-						type="button"
-						variant="ghost"
-						size="sm"
-						class="h-9 text-xs"
-						onclick={selectedAccountIds.length === accounts.length ? onClearAll : onSelectAll}
-					>
-						{selectedAccountIds.length === accounts.length ? m.compose_clear() : m.common_all()}
-					</Button>
+				{#if loading}<p class="text-xs text-muted-foreground" role="status">
+						{m.common_loading()}
+					</p>{/if}
+				{#if accounts.length + sets.length >= 8 || pickerSearch}
+					<Input
+						type="search"
+						bind:value={pickerSearch}
+						aria-label={m.account_picker_search_sets()}
+						placeholder={m.account_picker_search_sets()}
+					/>
+				{/if}
+				{#if mode === 'filter'}
+					<label class="flex min-h-11 cursor-pointer items-center gap-2 text-sm">
+						<Checkbox
+							checked={selectedAccountIds.length === 0}
+							aria-label={m.analytics_all_accounts()}
+							onCheckedChange={() => {
+								selectedSetId = '';
+								onClearAll?.();
+							}}
+							{disabled}
+						/>
+						{m.analytics_all_accounts()}
+					</label>
+				{:else if onSelectAll && onClearAll}
+					<!-- Composer destination list: all, subset, and none are distinct authored states. -->
+					<AccountPickerSelectAll
+						selectedCount={selectedAccounts.length}
+						totalCount={accounts.length}
+						onSelectAll={() => {
+							explicitDestinationChoice = true;
+							onSelectAll?.();
+						}}
+						onClearAll={() => {
+							explicitDestinationChoice = true;
+							onClearAll?.();
+						}}
+						{disabled}
+					/>
 				{/if}
 			</div>
 
-			{#if sets.length > 0}
-				<div class="border-t py-1" role="group" aria-label={m.social_set_select()}>
-					{#each sets as set (set.id)}
-						<button
-							type="button"
-							class="flex min-h-11 w-full items-center gap-2 rounded-md px-2 text-left text-sm hover:bg-accent"
-							onclick={() => selectSet(set.id)}
-						>
-							<span class="min-w-0 flex-1 truncate">{set.name}</span>
-							<span class="isolate flex shrink-0 items-center -space-x-1" aria-hidden="true">
-								{#each (set.accounts ?? []).slice(0, 4) as membership (membership.social_account_id)}
-									{@const account = accounts.find(
-										(candidate) => candidate.id === membership.social_account_id
-									)}
-									{#if account}
-										<SocialAccountAvatar
-											name={accountLabel(account)}
-											platform={account.platform}
-											avatarUrl={account.account_avatar_url}
-											size="sm"
-											class="ring-1 ring-popover"
-										/>
-									{/if}
-								{/each}
-								{#if (set.accounts ?? []).length > 4}
-									<span class="z-10 ml-2 text-xs font-medium text-muted-foreground"
-										>+{(set.accounts ?? []).length - 4}</span
-									>
-								{/if}
-							</span>
-							{#if selectedSetId === set.id}<ThemeIcon role="check" class="size-4" />{/if}
-						</button>
-					{/each}
-				</div>
-			{/if}
+			<div class="social-set-picker-body min-h-0 flex-1 overflow-y-auto overscroll-contain">
+				{#if loadError}
+					<InlineNotice tone="error" size="compact" message={loadError} class="mx-2 my-1">
+						{#snippet actions()}<Button
+								type="button"
+								variant="ghost"
+								size="sm"
+								disabled={loading}
+								onclick={() => void loadSets(true)}>{m.common_retry()}</Button
+							>{/snippet}
+					</InlineNotice>
+				{/if}
 
-			<div class="border-t py-1" role="group" aria-label={m.social_set_accounts()}>
-				{#each accounts as account (account.id)}
-					{@const issues = accountIssues[account.id] ?? []}
-					<label
-						class="flex min-h-12 cursor-pointer items-center gap-2.5 rounded-md px-2 py-1.5 text-sm hover:bg-accent"
-						data-testid="composer-account-row"
+				{#if visibleSets.length > 0}
+					<div class="border-t py-1" role="group" aria-label={m.social_set_select()}>
+						{#each visibleSets as set (set.id)}
+							<button
+								type="button"
+								class="flex min-h-11 w-full items-center gap-2 rounded-md px-2 text-left text-sm hover:bg-accent"
+								onclick={() => selectSet(set.id)}
+								aria-pressed={selectedSetId === set.id}
+								{disabled}
+							>
+								<span class="min-w-0 flex-1 truncate">{set.name}</span>
+								<span class="isolate flex shrink-0 items-center -space-x-1" aria-hidden="true">
+									{#each (set.accounts ?? []).slice(0, 4) as membership (membership.social_account_id)}
+										{@const account = accounts.find(
+											(candidate) => candidate.id === membership.social_account_id
+										)}
+										{#if account}
+											<SocialAccountAvatar
+												name={accountLabel(account)}
+												platform={account.platform}
+												avatarUrl={account.account_avatar_url}
+												size="sm"
+												class="ring-1 ring-popover"
+											/>
+										{/if}
+									{/each}
+									{#if (set.accounts ?? []).length > 4}
+										<span class="z-10 ml-2 text-xs font-medium text-muted-foreground"
+											>+{(set.accounts ?? []).length - 4}</span
+										>
+									{/if}
+								</span>
+								{#if selectedSetId === set.id}<ThemeIcon role="check" class="size-4" />{/if}
+							</button>
+						{/each}
+					</div>
+				{/if}
+
+				<div class="border-t py-1" role="group" aria-label={m.social_set_accounts()}>
+					<AccountPickerList
+						{accounts}
+						query={pickerSearch}
+						showSearch={false}
+						bounded={false}
+						searchText={(account) =>
+							`${accountLabel(account)} ${account.account_username} ${getPlatformName(account.platform)}`}
 					>
-						<div class="min-w-0 flex-1">
-							<SocialAccountIdentity
+						{#snippet children(account)}
+							{@const issues = accountIssues[account.id] ?? []}
+							<AccountPickerRow
 								name={accountLabel(account)}
 								platform={account.platform}
 								avatarUrl={account.account_avatar_url}
 								detail={issues.length ? m.compose_needs_attention() : ''}
+								selected={selectedAccountIds.includes(account.id)}
+								disabled={disabled || !onToggle}
+								{issues}
+								custom={customAccountIds.includes(account.id)}
+								customLabel={m.compose_custom_state()}
+								onToggle={() => requestAccountToggle(account)}
+								checkboxPosition="end"
+								class="gap-2.5 rounded-md px-2 py-1.5 hover:bg-accent"
+								data-testid="composer-account-row"
 							/>
-							{#if issues.length}
-								<ul class="mt-1 space-y-0.5 pl-10 text-xs leading-snug text-destructive">
-									{#each issues as issue (issue)}
-										<li>{issue}</li>
-									{/each}
-								</ul>
-							{/if}
-						</div>
-						{#if customAccountIds.includes(account.id)}<ThemeIcon
-								role="edit"
-								class="size-3.5 text-primary"
-								aria-label={m.compose_custom_state()}
-							/>{/if}
-						<Checkbox
-							checked={selectedAccountIds.includes(account.id)}
-							onCheckedChange={() => requestAccountToggle(account)}
-						/>
-					</label>
-				{/each}
+						{/snippet}
+					</AccountPickerList>
+				</div>
 			</div>
 
-			<button
-				type="button"
-				class="flex min-h-11 w-full items-center rounded-md border-t px-2 text-left text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
-				onclick={() => {
-					pickerOpen = false;
-					handleManageOpenChange(true);
-				}}
-			>
-				{m.social_set_manage()}
-			</button>
+			{#if mode !== 'filter'}
+				<button
+					type="button"
+					{disabled}
+					class="flex min-h-11 w-full shrink-0 items-center rounded-md border-t px-2 text-left text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
+					onclick={() => {
+						pickerOpen = false;
+						handleManageOpenChange(true);
+					}}
+				>
+					{m.social_set_manage()}
+				</button>
+			{/if}
 		</Popover.Content>
 	</Popover.Root>
 
 	<Dialog.Root bind:open={manageOpen} onOpenChange={handleManageOpenChange}>
-		<Dialog.Content class="max-h-[min(44rem,90dvh)] overflow-y-auto sm:max-w-2xl">
+		<Dialog.Content class="flex max-h-[min(44rem,90dvh)] flex-col overflow-hidden sm:max-w-2xl">
 			<Dialog.Header>
 				<Dialog.Title>{m.social_set_manage()}</Dialog.Title>
 				<Dialog.Description>{m.social_set_description()}</Dialog.Description>
@@ -838,25 +937,33 @@
 				<InlineNotice tone="error" message={error} />
 			{/if}
 
-			<div class="grid gap-5 md:grid-cols-[12rem_minmax(0,1fr)]">
-				<nav class="space-y-1" aria-label={m.social_set_manage()}>
-					{#each sets as set (set.id)}
-						<Button
-							type="button"
-							variant={editorId === set.id ? 'secondary' : 'ghost'}
-							class="h-auto min-h-11 w-full justify-start px-3 py-2 text-left"
-							onclick={() => startEditing(set)}
-						>
-							<span class="min-w-0 truncate">{set.name}</span>
-							{#if set.is_default}
-								<span class="ml-auto text-xs text-muted-foreground">{m.social_set_default()}</span>
-							{/if}
-						</Button>
-					{/each}
+			<div class="grid min-h-0 flex-1 gap-5 overflow-y-auto md:grid-cols-[12rem_minmax(0,1fr)]">
+				<div class="max-h-64 space-y-1 overflow-y-auto">
+					<Tabs.Root
+						orientation="vertical"
+						value={editorId}
+						onValueChange={(next) => {
+							const set = sets.find((item) => item.id === next);
+							if (set) startEditing(set);
+						}}
+					>
+						<Tabs.List class="gap-1" aria-label={m.social_set_manage()}>
+							{#each sets as set (set.id)}
+								<Tabs.Trigger value={set.id}>
+									<span class="min-w-0 flex-1 truncate">{set.name}</span>
+									{#if set.is_default}
+										<span class="shrink-0 text-xs text-muted-foreground"
+											>{m.social_set_default()}</span
+										>
+									{/if}
+								</Tabs.Trigger>
+							{/each}
+						</Tabs.List>
+					</Tabs.Root>
 					<Button type="button" variant="outline" class="mt-2 h-11 w-full" onclick={startNewSet}>
 						{m.social_set_new()}
 					</Button>
-				</nav>
+				</div>
 
 				<div class="min-w-0 space-y-5">
 					<div class="space-y-2">
@@ -873,74 +980,85 @@
 						<p class="text-xs text-muted-foreground">
 							{m.social_set_media_settings_on_post()}
 						</p>
-						{#each accounts as account (account.id)}
-							<div class="rounded-md border px-3 py-2.5">
-								<label class="flex min-h-11 items-center gap-3 text-sm">
-									<Checkbox
-										checked={editorAccountIds.includes(account.id)}
-										onCheckedChange={() => toggleEditorAccount(account.id)}
-									/>
-									<SocialAccountIdentity
-										class="min-w-0 flex-1"
-										name={accountLabel(account)}
-										platform={account.platform}
-										avatarUrl={account.account_avatar_url}
-									/>
-								</label>
-								{#if editorAccountIds.includes(account.id)}
-									<div
-										class="mt-2 grid gap-2 border-t pt-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end"
-									>
-										<div class="min-w-0 space-y-1">
-											<Label for="social-set-format-{account.id}"
-												>{m.compose_format_for_account({
-													account: accountLabel(account)
-												})}</Label
-											>
-											<AppSelect
-												id="social-set-format-{account.id}"
-												ariaLabel={m.compose_format_for_account({
-													account: accountLabel(account)
-												})}
-												value={editorOutputProfiles[account.id] || '__auto__'}
-												options={accountFormats(account)}
-												onValueChange={(value) => {
-													selectEditorOutputProfile(account.id, value === '__auto__' ? '' : value);
-												}}
-											/>
-										</div>
-										<Button
-											type="button"
-											variant="outline"
-											class="h-11"
-											disabled={!editorOutputProfiles[account.id] ||
-												(settingsResolveLoading && settingsEditorAccountId === account.id)}
-											onclick={() => openSettingsEditor(account)}
+						<AccountPickerList
+							{accounts}
+							columns="single"
+							searchText={(account) =>
+								`${accountLabel(account)} ${account.account_username} ${getPlatformName(account.platform)}`}
+						>
+							{#snippet children(account)}
+								<div class="rounded-md border px-3 py-2.5">
+									<label class="flex min-h-11 items-center gap-3 text-sm">
+										<Checkbox
+											checked={editorAccountIds.includes(account.id)}
+											onCheckedChange={() => toggleEditorAccount(account.id)}
+										/>
+										<SocialAccountIdentity
+											class="min-w-0 flex-1"
+											name={accountLabel(account)}
+											platform={account.platform}
+											avatarUrl={account.account_avatar_url}
+										/>
+									</label>
+									{#if editorAccountIds.includes(account.id)}
+										<div
+											class="mt-2 grid gap-2 border-t pt-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end"
 										>
-											{settingsResolveLoading && settingsEditorAccountId === account.id
-												? m.common_loading()
-												: m.social_set_edit_settings()}
-										</Button>
-									</div>
-									{#if !editorOutputProfiles[account.id]}
-										<p class="text-xs text-muted-foreground">
-											{m.compose_choose_format()}
-										</p>
+											<div class="min-w-0 space-y-1">
+												<Label for="social-set-format-{account.id}"
+													>{m.compose_format_for_account({
+														account: accountLabel(account)
+													})}</Label
+												>
+												<AppSelect
+													id="social-set-format-{account.id}"
+													ariaLabel={m.compose_format_for_account({
+														account: accountLabel(account)
+													})}
+													value={editorOutputProfiles[account.id] || '__auto__'}
+													options={accountFormats(account)}
+													onValueChange={(value) => {
+														selectEditorOutputProfile(
+															account.id,
+															value === '__auto__' ? '' : value
+														);
+													}}
+												/>
+											</div>
+											<Button
+												type="button"
+												variant="outline"
+												class="h-11"
+												disabled={(!editorOutputProfiles[account.id] &&
+													!supportsTextCards(account.platform)) ||
+													(settingsResolveLoading && settingsEditorAccountId === account.id)}
+												onclick={() => openSettingsEditor(account)}
+											>
+												{settingsResolveLoading && settingsEditorAccountId === account.id
+													? m.common_loading()
+													: m.social_set_edit_settings()}
+											</Button>
+										</div>
+										{#if !editorOutputProfiles[account.id]}
+											<p class="text-xs text-muted-foreground">
+												{m.compose_choose_format()}
+											</p>
+										{/if}
+										{#if settingsResolveError && settingsEditorAccountId === account.id}
+											<InlineNotice tone="error" message={settingsResolveError} />
+										{/if}
+										{#if settingsResolveInfo && settingsEditorAccountId === account.id}
+											<InlineNotice tone="info" message={settingsResolveInfo} />
+										{/if}
 									{/if}
-									{#if settingsResolveError && settingsEditorAccountId === account.id}
-										<InlineNotice tone="error" message={settingsResolveError} />
-									{/if}
-									{#if settingsResolveInfo && settingsEditorAccountId === account.id}
-										<InlineNotice tone="info" message={settingsResolveInfo} />
-									{/if}
-								{/if}
-							</div>
-						{/each}
+								</div>
+							{/snippet}
+						</AccountPickerList>
 					</fieldset>
 				</div>
 			</div>
 
-			<Dialog.Footer class="gap-2 sm:justify-between">
+			<Dialog.Footer class="shrink-0 gap-2 border-t pt-4 sm:justify-between">
 				<div>
 					{#if editorId}
 						<Button
@@ -969,6 +1087,7 @@
 
 <DestinationSettingsDialog
 	bind:open={settingsEditorOpen}
+	formatValue={editorOutputProfiles[settingsEditorAccountId] ?? ''}
 	account={settingsEditorAccount}
 	settings={settingsEditorFields}
 	values={settingsEditorValues}
@@ -1014,3 +1133,14 @@
 	confirmLabel={m.common_delete()}
 	onConfirm={deleteSet}
 />
+
+<style>
+	@media (max-height: 28rem) {
+		:global(.social-set-picker) {
+			overflow-y: auto;
+		}
+		.social-set-picker-body {
+			min-height: 3rem;
+		}
+	}
+</style>

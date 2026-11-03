@@ -5,6 +5,9 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { assetSurfaceManifest } from "./asset-surfaces.ts";
+import { browserExtensions } from "../packages/social-images/src/extensions.js";
+import { marketingGuides } from "../packages/social-images/src/guides.js";
+import { reportProblems } from "./report-problems.mjs";
 
 export const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -21,6 +24,7 @@ const surfaceSourceDirectories = Object.freeze({
   docs: [path.join(repositoryRoot, "apps/docs")],
   marketing: [
     path.join(repositoryRoot, "apps/marketing", "src"),
+    path.join(repositoryRoot, "apps/marketing", "scripts"),
     path.join(repositoryRoot, "apps/marketing", "functions"),
   ],
 });
@@ -69,7 +73,7 @@ async function listFiles(directory, { sourceTree = false } = {}) {
 export function directAssetReferences(contents) {
   const references = new Set();
   const patterns = [
-    /(?:^|[^A-Za-z0-9_./-])\/assets\/([A-Za-z0-9_.@/-]+\.[A-Za-z0-9]+)(?=[?#"'`\s),}:]|$)/gmu,
+    /(?:^|[^A-Za-z0-9_./-])\/(?:docs\/)?assets\/([A-Za-z0-9_.@/-]+\.[A-Za-z0-9]+)(?=[?#"'`\s),}:]|$)/gmu,
     /\$\{[^}]+\}assets\/([A-Za-z0-9_.@/-]+\.[A-Za-z0-9]+)(?=[?#"'`\s),}:]|$)/gmu,
   ];
   for (const pattern of patterns) {
@@ -109,6 +113,15 @@ async function dynamicMarketingReferences(root = repositoryRoot) {
       (file) => `postiz-socials/${file}`,
     ),
   );
+  for (const extension of browserExtensions) {
+    references.add(extension.screenshot.replace(/^\/assets\//u, ""));
+    for (const screenshot of extension.screenshots) {
+      references.add(screenshot.src.replace(/^\/assets\//u, ""));
+    }
+  }
+  for (const guide of marketingGuides) {
+    if (guide.comparison) references.add(guide.comparison.logo.replace(/^\/assets\//u, ""));
+  }
   return references;
 }
 
@@ -237,12 +250,7 @@ export async function assetSizeReport(manifest = assetSurfaceManifest, root = re
 
 async function main() {
   const problems = await validateAssetSurfaceManifest();
-  if (problems.length > 0) {
-    console.error(
-      `Asset surface manifest check failed:\n${problems.map((problem) => `- ${problem}`).join("\n")}`,
-    );
-    process.exit(1);
-  }
+  reportProblems("Asset surface manifest check failed", problems);
   const report = await assetSizeReport();
   if (report.copiedBytes >= report.previousCopiedBytes) {
     console.error("Per-surface asset copies do not reduce shipped bytes.");

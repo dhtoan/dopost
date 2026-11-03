@@ -12,6 +12,7 @@
 	import SettingsFormFooter from '$lib/components/settings-form-footer.svelte';
 	import { Badge } from '$lib/components/ui/badge';
 	import { Button } from '$lib/components/ui/button';
+	import * as Tabs from '$lib/components/ui/tabs';
 	import { Checkbox } from '$lib/components/ui/checkbox';
 	import { Input } from '$lib/components/ui/input';
 	import { Label } from '$lib/components/ui/label';
@@ -51,16 +52,17 @@
 		active: boolean;
 	}
 
-	const providerDefinitions = [
+	const providerDefinitions = $derived([
 		{ value: 'x', label: 'X' },
 		{ value: 'linkedin', label: 'LinkedIn' },
 		{ value: 'threads', label: 'Threads' },
 		{ value: 'facebook', label: 'Facebook Pages' },
 		{ value: 'instagram', label: 'Instagram' },
+		{ value: 'instagram:instagram_login', label: m.accounts_instagram_direct_app() },
 		{ value: 'youtube', label: 'YouTube' },
 		{ value: 'tiktok', label: 'TikTok' },
 		{ value: 'mastodon', label: 'Mastodon' }
-	];
+	]);
 
 	let { active }: Props = $props();
 	const unsavedChanges = getOptionalUnsavedChanges();
@@ -134,7 +136,7 @@
 			disabled:
 				definition.value !== 'mastodon' &&
 				providerApps.some(
-					(app) => app.provider === definition.value && app.id !== editingProviderID
+					(app) => providerDefinitionValue(app) === definition.value && app.id !== editingProviderID
 				)
 		}))
 	);
@@ -239,6 +241,7 @@
 		return !destroyed && generation === operationGeneration && actorIsCurrent(identity);
 	}
 
+	// fallow-ignore-next-line complexity -- pre-existing hotspot, untouched by this change; flagged because the file was edited.
 	async function saveSettings() {
 		const generation = operationGeneration;
 		const identity = auth.captureIdentity();
@@ -289,6 +292,12 @@
 		return providerDefinitions.find((definition) => definition.value === value)?.label ?? value;
 	}
 
+	function providerDefinitionValue(app: ProviderApp) {
+		return app.provider === 'instagram' && app.connection_mode === 'instagram_login'
+			? 'instagram:instagram_login'
+			: app.provider;
+	}
+
 	function providerFormSnapshot() {
 		return JSON.stringify({
 			provider,
@@ -307,7 +316,7 @@
 			providerDefinitions.find(
 				(definition) =>
 					definition.value === 'mastodon' ||
-					!providerApps.some((app) => app.provider === definition.value)
+					!providerApps.some((app) => providerDefinitionValue(app) === definition.value)
 			)?.value ?? 'mastodon';
 		providerName = '';
 		providerClientID = '';
@@ -322,7 +331,7 @@
 
 	function editProvider(app: ProviderApp) {
 		if (!app.editable) return;
-		provider = app.provider;
+		provider = providerDefinitionValue(app);
 		providerName = app.name ?? '';
 		providerClientID = app.client_id;
 		providerClientSecret = '';
@@ -353,6 +362,7 @@
 		});
 	}
 
+	// fallow-ignore-next-line complexity -- pre-existing hotspot, untouched by this change; flagged because the file was edited.
 	async function saveProvider(event: SubmitEvent) {
 		event.preventDefault();
 		const generation = operationGeneration;
@@ -363,7 +373,8 @@
 		try {
 			const { data, error: saveError } = await client.POST('/admin/provider-apps', {
 				body: {
-					provider,
+					provider: provider.split(':')[0],
+					connection_mode: provider === 'instagram:instagram_login' ? 'instagram_login' : undefined,
 					name: provider === 'mastodon' ? providerName.trim() : undefined,
 					client_id: providerClientID.trim(),
 					client_secret: providerClientSecret.trim() || undefined,
@@ -502,22 +513,20 @@
 	</div>
 {:else}
 	<div class="space-y-6" data-testid="instance-configuration">
-		<div
-			class="flex max-w-full gap-2 overflow-x-auto pb-1"
-			aria-label={m.settings_configuration_sections()}
+		<Tabs.Root
+			value={activeSection}
+			onValueChange={(next) => (activeSection = next as SectionID)}
+			class="max-w-full"
 		>
-			{#each sections as section (section.id)}
-				<Button
-					variant={activeSection === section.id ? 'secondary' : 'ghost'}
-					size="sm"
-					class="shrink-0"
-					aria-pressed={activeSection === section.id}
-					onclick={() => (activeSection = section.id)}
-				>
-					{section.label}
-				</Button>
-			{/each}
-		</div>
+			<Tabs.List
+				class="max-w-full overflow-x-auto"
+				aria-label={m.settings_configuration_sections()}
+			>
+				{#each sections as section (section.id)}
+					<Tabs.Trigger value={section.id}>{section.label}</Tabs.Trigger>
+				{/each}
+			</Tabs.List>
+		</Tabs.Root>
 
 		{#if error}
 			<InlineNotice
@@ -561,20 +570,18 @@
 									<Label for={'instance-setting-' + setting.key} class="font-medium">
 										{copy.label}
 									</Label>
-									<Badge
-										class={setting.source === 'environment' ? 'border-border bg-background' : ''}
-									>
+									<Badge>
 										{sourceLabel(setting)}
 									</Badge>
 									{#if setting.managed_by && !unsets[setting.key] && (setting.database_override_configured || hasDraftOverride(setting))}
-										<Badge class="bg-amber-500/15 text-amber-900 dark:text-amber-100">
+										<Badge tone="warning">
 											{setting.database_override_configured && !setting.requires_restart
 												? m.settings_configuration_overrides_environment()
 												: m.settings_configuration_will_override_environment()}
 										</Badge>
 									{/if}
 									{#if setting.requires_restart}
-										<Badge class="bg-amber-500/15 text-amber-900 dark:text-amber-100">
+										<Badge tone="warning">
 											{m.settings_configuration_pending()}
 										</Badge>
 									{/if}
@@ -747,14 +754,14 @@
 								<div class="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
 									<div class="min-w-0">
 										<div class="flex flex-wrap items-center gap-2">
-											<p class="font-medium">{providerLabel(app.provider)}</p>
+											<p class="font-medium">{providerLabel(providerDefinitionValue(app))}</p>
 											<Badge>
 												{app.source === 'environment'
 													? m.settings_configuration_source_environment()
 													: m.settings_configuration_source_admin()}
 											</Badge>
 											{#if !app.is_active}
-												<Badge class="bg-muted text-muted-foreground">
+												<Badge>
 													{m.settings_configuration_disabled()}
 												</Badge>
 											{/if}
@@ -768,7 +775,7 @@
 											</p>
 										{/if}
 										{#if app.shadowed_by_environment}
-											<Badge class="bg-amber-500/15 text-amber-900 dark:text-amber-100">
+											<Badge tone="warning">
 												{m.settings_configuration_database_fallback()}
 											</Badge>
 										{/if}
@@ -822,6 +829,19 @@
 							</Button>
 						{/if}
 					</div>
+					{#if provider === 'tiktok'}
+						<InlineNotice tone="warning">
+							{m.settings_configuration_tiktok_approval_notice()}
+							<a
+								class="mt-1 flex min-h-11 w-fit items-center underline underline-offset-4"
+								href="https://developers.tiktok.com/doc/content-sharing-guidelines/"
+								target="_blank"
+								rel="noopener noreferrer"
+							>
+								{m.settings_configuration_tiktok_approval_link()}
+							</a>
+						</InlineNotice>
+					{/if}
 					<div class="grid gap-4 sm:grid-cols-2">
 						<div class="space-y-2">
 							<Label for="provider-app-provider">{m.settings_configuration_provider()}</Label>
@@ -881,7 +901,10 @@
 					</label>
 					<div class="flex justify-end">
 						<Button type="submit" disabled={providerSaving || !providerClientID.trim()}>
-							{#if providerSaving}<ProtectedIcon icon="loading" class="size-4 animate-spin" />{/if}
+							{#if providerSaving}<ProtectedIcon
+									icon="loading"
+									class="size-4 animate-spin motion-reduce:animate-none"
+								/>{/if}
 							{editingProviderID
 								? m.settings_configuration_save_provider()
 								: m.settings_configuration_add_provider_action()}

@@ -1,7 +1,9 @@
 <script lang="ts">
+	import { recorderErrorMessage } from '$lib/video-editor/recorder/error-message';
 	import { onMount, untrack } from 'svelte';
 	import { m } from '$lib/paraglide/messages';
 	import AppSelect from '$lib/components/app-select.svelte';
+	import { Disclosure } from '$lib/components/editor-density';
 	import { Button } from '$lib/components/ui/button';
 	import { Checkbox } from '$lib/components/ui/checkbox';
 	import Logo from '$lib/components/Logo.svelte';
@@ -47,6 +49,9 @@
 	let storageMode = $state<'cloud' | 'local'>('cloud');
 	let storageModeChosen = $state(false);
 	let savingRecovery = $state(false);
+	let savingRecording = $state(false);
+	let handoffError = $state<string | null>(null);
+	const handoffBusy = $derived(savingRecording || savingRecovery);
 	const cloudWorkspaceId = $derived(workspaceCtx.currentWorkspace?.id ?? '');
 	const cloudRepository = $derived(
 		cloudWorkspaceId ? recorderCloudRepository(cloudWorkspaceId) : null
@@ -69,25 +74,6 @@
 	function chooseStorage(mode: 'cloud' | 'local'): void {
 		storageModeChosen = true;
 		storageMode = mode;
-	}
-
-	function localizedRecorderError(): string {
-		switch (recorder.error) {
-			case 'permission-denied':
-				return m.video_editor_recording_error_permission();
-			case 'no-device':
-				return m.video_editor_recording_error_device_missing();
-			case 'device-busy':
-				return m.video_editor_recording_error_device_busy();
-			case 'storage-full':
-				return m.video_editor_recording_storage_stopped();
-			case 'unsupported':
-				return m.video_editor_recording_error_unsupported();
-			case 'stop-timeout':
-				return m.video_editor_recording_error_stop_timeout();
-			default:
-				return m.video_editor_recording_error_start();
-		}
 	}
 
 	function sourceLabel(kind: RecorderKind): string {
@@ -173,6 +159,8 @@
 	});
 
 	async function handleStart(): Promise<void> {
+		if (handoffBusy) return;
+		handoffError = null;
 		if (!hasSelection) {
 			showToast(m.video_editor_recording_select_source(), 'error');
 			return;
@@ -197,11 +185,16 @@
 				}
 			);
 		} catch {
-			showToast(localizedRecorderError(), 'error');
+			showToast(recorderErrorMessage(recorder.error), 'error');
 		}
 	}
 
 	async function handleStop(): Promise<void> {
+		if (handoffBusy) return;
+		const repository = cloudRepository;
+		const destination = storageMode;
+		savingRecording = true;
+		handoffError = null;
 		try {
 			const artifacts = await recorder.stop();
 			if (artifacts.length === 0) {
@@ -216,8 +209,7 @@
 				return { url, name, kind: a.kind, size: a.blob.size, scratchId: a.scratchId };
 			});
 			lastDownloads = [...lastDownloads, ...downloads];
-			const repository = cloudRepository;
-			if (storageMode === 'cloud' && repository) {
+			if (destination === 'cloud' && repository) {
 				const saved = await saveRecorderArtifactsToCloud(repository, artifacts);
 				lastCloudProject = { id: saved.projectId, name: saved.name };
 				for (const download of downloads) URL.revokeObjectURL(download.url);
@@ -243,8 +235,11 @@
 			);
 			await recorder.discardArtifacts(artifacts);
 			showToast(m.record_saved(), 'success');
-		} catch {
-			showToast(localizedRecorderError(), 'error');
+		} catch (error) {
+			handoffError = error instanceof Error ? error.message : recorderErrorMessage(recorder.error);
+			showToast(handoffError, 'error');
+		} finally {
+			savingRecording = false;
 		}
 	}
 
@@ -254,6 +249,8 @@
 	}
 
 	async function handleDiscardRecovery(): Promise<void> {
+		if (handoffBusy) return;
+		handoffError = null;
 		await recorder.clearRecoverableAndDiscard();
 		for (const download of lastDownloads) {
 			if (download.scratchId) URL.revokeObjectURL(download.url);
@@ -264,8 +261,9 @@
 	async function handleSaveRecoveryToCloud(): Promise<void> {
 		const repository = cloudRepository;
 		const artifacts = recorder.lastArtifacts;
-		if (!repository || artifacts.length === 0 || savingRecovery) return;
+		if (!repository || artifacts.length === 0 || handoffBusy) return;
 		savingRecovery = true;
+		handoffError = null;
 		try {
 			const saved = await saveRecorderArtifactsToCloud(repository, artifacts);
 			lastCloudProject = { id: saved.projectId, name: saved.name };
@@ -281,10 +279,8 @@
 			await recorder.discardArtifacts(artifacts);
 			showToast(m.video_editor_saved_cloud(), 'success');
 		} catch (error) {
-			showToast(
-				error instanceof Error ? error.message : m.video_editor_recording_failed(),
-				'error'
-			);
+			handoffError = error instanceof Error ? error.message : m.video_editor_recording_failed();
+			showToast(handoffError, 'error');
 		} finally {
 			savingRecovery = false;
 		}
@@ -294,7 +290,7 @@
 	const isCountdown = $derived(recorder.status === 'countdown');
 	const isStopping = $derived(recorder.status === 'stopping');
 	const captureBusy = $derived(
-		recorder.status === 'recording' || isCountdown || isRequesting || isStopping
+		recorder.status === 'recording' || isCountdown || isRequesting || isStopping || handoffBusy
 	);
 	const perMin = $derived(
 		estimateBytesPerMinute(
@@ -326,30 +322,13 @@
 		class="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-[var(--video-editor-border)] px-3 py-2"
 	>
 		<a
-			href="/editors"
+			href="/"
+			aria-label={m.sidebar_openpost_home()}
 			class="flex min-h-11 items-center gap-2 rounded-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--video-editor-focus)]"
 		>
 			<Logo class="h-5 w-auto" />
 			<span class="text-sm font-semibold">{m.record_title()}</span>
 		</a>
-		{#if cloudWorkspaceId && !captureBusy}
-			<div
-				class="flex items-center gap-1 rounded-lg border border-[var(--video-editor-border)] p-1"
-			>
-				<Button
-					size="sm"
-					variant={storageMode === 'cloud' ? 'secondary' : 'ghost'}
-					aria-pressed={storageMode === 'cloud'}
-					onclick={() => chooseStorage('cloud')}>{m.video_editor_saved_cloud()}</Button
-				>
-				<Button
-					size="sm"
-					variant={storageMode === 'local' ? 'secondary' : 'ghost'}
-					aria-pressed={storageMode === 'local'}
-					onclick={() => chooseStorage('local')}>{m.video_editor_local_only()}</Button
-				>
-			</div>
-		{/if}
 	</header>
 
 	<main class="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-4 p-4">
@@ -359,7 +338,11 @@
 			data-editor-protected="capture-preview"
 			aria-label={m.record_preview_empty()}
 		>
-			{#if recorder.screenStream || recorder.cameraStream}
+			{#if handoffBusy}
+				<div role="status" aria-live="polite" class="p-4 text-center text-sm">
+					{m.video_editor_saving()}
+				</div>
+			{:else if recorder.screenStream || recorder.cameraStream}
 				<div class="grid w-full gap-3 sm:grid-cols-2">
 					{#if recorder.screenStream}
 						<!-- svelte-ignore a11y_media_has_caption -->
@@ -388,7 +371,7 @@
 					<p class="font-medium">{m.video_editor_saved_cloud()}</p>
 					<p class="mt-1 text-[var(--video-editor-muted)]">{lastCloudProject.name}</p>
 					<a
-						href={`/video-editor/${lastCloudProject.id}?storage=cloud`}
+						href={`/video-editor/${lastCloudProject.id}?storage=cloud&workspace=edit`}
 						class="mt-3 inline-flex min-h-11 items-center rounded border px-3 py-1.5 text-xs underline"
 					>
 						{m.editors_open_video()}
@@ -455,27 +438,26 @@
 				</p>
 			{/if}
 
-			{#if recorder.error}
+			{#if handoffError || recorder.error}
 				<div
 					role="alert"
 					class="w-full rounded-md border border-destructive/30 bg-destructive/10 p-2 text-xs text-destructive"
 				>
-					{localizedRecorderError()}
+					{handoffError ?? recorderErrorMessage(recorder.error)}
 				</div>
 			{/if}
 		</section>
 
 		{#if !captureBusy}
 			<!-- Selection -->
-			<fieldset class="space-y-3 rounded-lg border border-[var(--video-editor-border)] p-3">
-				<legend
-					class="px-1 text-xs font-semibold tracking-widest text-[var(--video-editor-muted)] uppercase"
-					>{m.video_editor_recording_sources_description()}</legend
-				>
-				<div class="grid gap-2 sm:grid-cols-3">
+			<fieldset
+				class="mx-auto w-full max-w-xl space-y-3 rounded-xl border border-[var(--video-editor-border)] bg-[var(--video-editor-panel)] p-4"
+			>
+				<legend class="sr-only">{m.record_source_label()}</legend>
+				<div class="grid grid-cols-3 gap-2">
 					<label
 						data-state={includeScreen ? 'checked' : 'unchecked'}
-						class="flex min-h-11 cursor-pointer items-center gap-2 rounded-md border px-3 py-2 data-[state=checked]:border-[var(--video-editor-focus)] data-[state=checked]:bg-[color-mix(in_oklch,var(--video-editor-focus)_18%,var(--video-editor-control))]"
+						class="flex min-h-11 min-w-0 cursor-pointer items-center gap-2 rounded-md border border-field-border px-3 py-2 data-[state=checked]:border-navigation-active data-[state=checked]:bg-navigation-active data-[state=checked]:text-navigation-active-foreground"
 					>
 						<Checkbox
 							bind:checked={includeScreen}
@@ -483,11 +465,11 @@
 								recorderPreferences.set('includeScreen', checked === true)}
 							aria-label={m.record_source_screen()}
 						/>
-						<span class="text-sm">{m.record_source_screen()}</span>
+						<span class="truncate text-sm">{m.record_source_screen()}</span>
 					</label>
 					<label
 						data-state={includeCamera ? 'checked' : 'unchecked'}
-						class="flex min-h-11 cursor-pointer items-center gap-2 rounded-md border px-3 py-2 data-[state=checked]:border-[var(--video-editor-focus)] data-[state=checked]:bg-[color-mix(in_oklch,var(--video-editor-focus)_18%,var(--video-editor-control))]"
+						class="flex min-h-11 min-w-0 cursor-pointer items-center gap-2 rounded-md border border-field-border px-3 py-2 data-[state=checked]:border-navigation-active data-[state=checked]:bg-navigation-active data-[state=checked]:text-navigation-active-foreground"
 					>
 						<Checkbox
 							bind:checked={includeCamera}
@@ -495,11 +477,11 @@
 								recorderPreferences.set('includeCamera', checked === true)}
 							aria-label={m.record_source_camera()}
 						/>
-						<span class="text-sm">{m.record_source_camera()}</span>
+						<span class="truncate text-sm">{m.record_source_camera()}</span>
 					</label>
 					<label
 						data-state={includeMic ? 'checked' : 'unchecked'}
-						class="flex min-h-11 cursor-pointer items-center gap-2 rounded-md border px-3 py-2 data-[state=checked]:border-[var(--video-editor-focus)] data-[state=checked]:bg-[color-mix(in_oklch,var(--video-editor-focus)_18%,var(--video-editor-control))]"
+						class="flex min-h-11 min-w-0 cursor-pointer items-center gap-2 rounded-md border border-field-border px-3 py-2 data-[state=checked]:border-navigation-active data-[state=checked]:bg-navigation-active data-[state=checked]:text-navigation-active-foreground"
 					>
 						<Checkbox
 							bind:checked={includeMic}
@@ -507,7 +489,7 @@
 								recorderPreferences.set('includeMicrophone', checked === true)}
 							aria-label={m.record_source_audio()}
 						/>
-						<span class="text-sm">{m.record_source_audio()}</span>
+						<span class="truncate text-sm">{m.record_source_audio()}</span>
 					</label>
 				</div>
 
@@ -556,8 +538,41 @@
 					{/if}
 				</div>
 
-				{#if includeScreen || includeCamera}
-					<div class="grid gap-3 sm:grid-cols-3">
+				<Disclosure label={m.record_more_options()} class="border-t border-b-0 pt-1">
+					{#if cloudWorkspaceId}
+						<div
+							class="flex flex-wrap items-center gap-2 pb-2"
+							role="group"
+							aria-label={m.editor_storage_destination()}
+						>
+							<span class="text-xs">{m.editor_storage_destination()}</span>
+							<div
+								class="flex items-center gap-1 rounded-lg border border-[var(--video-editor-border)] p-1"
+							>
+								<Button
+									size="sm"
+									variant="ghost"
+									class={storageMode === 'cloud'
+										? 'bg-navigation-active text-navigation-active-foreground hover:bg-navigation-active'
+										: ''}
+									aria-pressed={storageMode === 'cloud'}
+									disabled={captureBusy}
+									onclick={() => chooseStorage('cloud')}>{m.editor_storage_choice_cloud()}</Button
+								>
+								<Button
+									size="sm"
+									variant="ghost"
+									class={storageMode === 'local'
+										? 'bg-navigation-active text-navigation-active-foreground hover:bg-navigation-active'
+										: ''}
+									aria-pressed={storageMode === 'local'}
+									disabled={captureBusy}
+									onclick={() => chooseStorage('local')}>{m.editor_storage_choice_local()}</Button
+								>
+							</div>
+						</div>
+					{/if}
+					<div class="grid gap-3 pt-2 sm:grid-cols-3">
 						<div class="flex flex-col gap-1 text-xs">
 							<span>{m.video_editor_export_resolution()}</span>
 							<AppSelect
@@ -606,90 +621,90 @@
 							</div>
 						{/if}
 					</div>
-				{/if}
 
-				{#if includeScreen}
-					<label class="flex min-h-11 items-center gap-1.5 text-sm">
-						<Checkbox
-							bind:checked={includeSystemAudio}
-							onCheckedChange={(checked) =>
-								recorderPreferences.set('includeSystemAudio', checked === true)}
-						/>
-						{m.record_system_audio()}
-						<span class="text-xs text-[var(--video-editor-muted)]"
-							>({m.video_editor_system_audio_caveat()})</span
-						>
-					</label>
-				{/if}
+					{#if includeScreen}
+						<label class="flex min-h-11 items-center gap-1.5 text-sm">
+							<Checkbox
+								bind:checked={includeSystemAudio}
+								onCheckedChange={(checked) =>
+									recorderPreferences.set('includeSystemAudio', checked === true)}
+							/>
+							{m.record_system_audio()}
+							<span class="text-xs text-[var(--video-editor-muted)]"
+								>({m.video_editor_system_audio_caveat()})</span
+							>
+						</label>
+					{/if}
 
-				<div class="grid gap-3 sm:grid-cols-2">
-					<div class="flex flex-col gap-1 text-xs">
-						<span>{m.video_editor_record_countdown()}</span>
-						<AppSelect
-							value={countdown}
-							ariaLabel={m.video_editor_record_countdown()}
-							options={[
-								{ value: '0', label: m.video_editor_record_countdown_off() },
-								{
-									value: '3',
-									label: m.video_editor_record_seconds({ seconds: 3 })
-								},
-								{
-									value: '5',
-									label: m.video_editor_record_seconds({ seconds: 5 })
-								},
-								{
-									value: '10',
-									label: m.video_editor_record_seconds({ seconds: 10 })
-								}
-							]}
-							onValueChange={(value) => {
-								countdown = value;
-								recorderPreferences.set(
-									'countdownSeconds',
-									value === '10' ? 10 : value === '5' ? 5 : value === '3' ? 3 : 0
-								);
-							}}
-							class="h-11"
-						/>
+					<div class="grid gap-3 sm:grid-cols-2">
+						<div class="flex flex-col gap-1 text-xs">
+							<span>{m.video_editor_record_countdown()}</span>
+							<AppSelect
+								value={countdown}
+								ariaLabel={m.video_editor_record_countdown()}
+								options={[
+									{ value: '0', label: m.video_editor_record_countdown_off() },
+									{
+										value: '3',
+										label: m.video_editor_record_seconds({ seconds: 3 })
+									},
+									{
+										value: '5',
+										label: m.video_editor_record_seconds({ seconds: 5 })
+									},
+									{
+										value: '10',
+										label: m.video_editor_record_seconds({ seconds: 10 })
+									}
+								]}
+								onValueChange={(value) => {
+									countdown = value;
+									recorderPreferences.set(
+										'countdownSeconds',
+										value === '10' ? 10 : value === '5' ? 5 : value === '3' ? 3 : 0
+									);
+								}}
+								class="h-11"
+							/>
+						</div>
+						<div class="flex flex-col gap-1 text-xs">
+							<span>{m.video_editor_record_planned()}</span>
+							<AppSelect
+								value={plannedMinutes}
+								ariaLabel={m.video_editor_record_planned()}
+								options={[
+									{
+										value: '2',
+										label: m.video_editor_record_minutes({ minutes: 2 })
+									},
+									{
+										value: '5',
+										label: m.video_editor_record_minutes({ minutes: 5 })
+									},
+									{
+										value: '15',
+										label: m.video_editor_record_minutes({ minutes: 15 })
+									},
+									{
+										value: '30',
+										label: m.video_editor_record_minutes({ minutes: 30 })
+									}
+								]}
+								onValueChange={(value) => {
+									plannedMinutes = value;
+									recorderPreferences.set(
+										'plannedMinutes',
+										value === '30' ? 30 : value === '15' ? 15 : value === '2' ? 2 : 5
+									);
+								}}
+								class="h-11"
+							/>
+						</div>
 					</div>
-					<div class="flex flex-col gap-1 text-xs">
-						<span>{m.video_editor_record_planned()}</span>
-						<AppSelect
-							value={plannedMinutes}
-							ariaLabel={m.video_editor_record_planned()}
-							options={[
-								{
-									value: '2',
-									label: m.video_editor_record_minutes({ minutes: 2 })
-								},
-								{
-									value: '5',
-									label: m.video_editor_record_minutes({ minutes: 5 })
-								},
-								{
-									value: '15',
-									label: m.video_editor_record_minutes({ minutes: 15 })
-								},
-								{
-									value: '30',
-									label: m.video_editor_record_minutes({ minutes: 30 })
-								}
-							]}
-							onValueChange={(value) => {
-								plannedMinutes = value;
-								recorderPreferences.set(
-									'plannedMinutes',
-									value === '30' ? 30 : value === '15' ? 15 : value === '2' ? 2 : 5
-								);
-							}}
-							class="h-11"
-						/>
-					</div>
-				</div>
-				<p class="text-xs text-[var(--video-editor-muted)]">
-					{m.video_editor_record_estimate({ size: plannedEstimate })}
-				</p>
+					<p class="text-xs text-[var(--video-editor-muted)]">
+						{m.video_editor_record_estimate({ size: plannedEstimate })}
+					</p>
+				</Disclosure>
 			</fieldset>
 
 			<Button class="mx-auto min-h-11 min-w-36" disabled={!hasSelection} onclick={handleStart}>
@@ -701,7 +716,7 @@
 					{m.common_cancel()}
 				</Button>
 			</div>
-		{:else}
+		{:else if !handoffBusy}
 			<div class="space-y-3 rounded-lg border border-[var(--video-editor-border)] p-3">
 				<div class="grid gap-2 text-xs">
 					{#if includeScreen}
@@ -767,11 +782,13 @@
 										style:width={`${micMeterWidth}%`}
 									></div>
 								</div>
-								<span class="font-mono tabular-nums"
-									>{m.video_editor_recording_chunks({
-										count: recorder.counters.microphone.chunks
-									})} · {formatBytes(recorder.counters.microphone.bytes)}</span
-								>
+								{#if !includeScreen && !includeCamera}
+									<span class="font-mono tabular-nums"
+										>{m.video_editor_recording_chunks({
+											count: recorder.counters.microphone.chunks
+										})} · {formatBytes(recorder.counters.microphone.bytes)}</span
+									>
+								{/if}
 							</div>
 						</div>
 					{/if}

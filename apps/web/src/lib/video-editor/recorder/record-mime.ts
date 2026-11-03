@@ -1,5 +1,8 @@
 // Pure MIME and estimate helpers for recorder - no Svelte runes, safe for node tests
+import { formatBytes as formatByteSize } from '../../byte-size';
 export const VIDEO_MIME_CANDIDATES = [
+	// Prefer the native H.264 path to forcing VP9 software encoding during capture.
+	'video/mp4;codecs=avc1,mp4a.40.2',
 	'video/webm;codecs=vp9,opus',
 	'video/webm;codecs=vp8,opus',
 	'video/webm',
@@ -83,13 +86,21 @@ export function estimateBytesPerMinute(
 	return bytes;
 }
 
-export function formatBytes(bytes: number): string {
-	if (bytes < 1024) return `${bytes} B`;
-	if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-	return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+/**
+ * Binary-base (1024) byte display for recorder estimates.
+ * Delegates to the shared byte-size owner (issue #376); the signature stays
+ * `(bytes) => string` because message-arg callers pass the result directly.
+ * Non-finite input renders as an em dash, never "Infinity MB".
+ */
+export function formatBytes(
+	bytes: number,
+	opts?: { locale?: string; maximumFractionDigits?: number }
+): string {
+	return formatByteSize(bytes, { ...opts, base: 'iec' }) ?? '—';
 }
 
 export type RecorderErrorCode =
+	| 'screen-share-not-started'
 	| 'permission-denied'
 	| 'no-device'
 	| 'device-busy'

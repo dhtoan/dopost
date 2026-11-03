@@ -57,8 +57,8 @@ test("reduced motion keeps the tour still and manual choices remain available @d
     "true",
   );
   await expect(tour.getByRole("button", { name: /screenshot tour/ })).toHaveCount(0);
-  await tour.getByRole("button", { name: "Accounts", exact: true }).press("Enter");
-  await expect(tour.getByRole("link", { name: "Enlarge Accounts screenshot" })).toBeVisible();
+  await tour.getByRole("button", { name: "Workflows", exact: true }).press("Enter");
+  await expect(tour.getByRole("link", { name: "Enlarge Workflows screenshot" })).toBeVisible();
 });
 
 test("Features navigation opens the landing section from another page", async ({ page }) => {
@@ -176,8 +176,8 @@ test("retired pages redirect readers to their replacement @desktop", async ({ re
   for (const [oldPath, replacement] of [
     ["/features", "/#features"],
     ["/features.md", "/index.md"],
-    ["/developers", "https://docs.openpo.st/guides/automation"],
-    ["/self-hosting", "https://docs.openpo.st/self-hosting"],
+    ["/developers", "https://openpo.st/docs/automate"],
+    ["/self-hosting", "https://openpo.st/docs/self-hosting"],
   ]) {
     const response = await request.get(oldPath, { maxRedirects: 0 });
     expect(response.status()).toBe(301);

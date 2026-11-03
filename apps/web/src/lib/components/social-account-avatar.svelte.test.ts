@@ -1,33 +1,18 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { render } from 'vitest-browser-svelte';
 import SocialAccountAvatar from './social-account-avatar.svelte';
 
-const browserImage = window.Image;
-
-class RejectingPreloader {
-	onerror: ((event: Event) => void) | null = null;
-
-	set src(_value: string) {
-		queueMicrotask(() => this.onerror?.(new Event('error')));
-	}
-}
-
-afterEach(() => {
-	Object.defineProperty(window, 'Image', {
-		configurable: true,
-		writable: true,
-		value: browserImage
-	});
-});
-
 describe('social account avatar', () => {
-	it('shows an image that loads in the page when the avatar preloader rejects it', async () => {
-		Object.defineProperty(window, 'Image', {
-			configurable: true,
-			writable: true,
-			value: RejectingPreloader
+	it('keeps the account identity without an undersized YouTube badge', () => {
+		const screen = render(SocialAccountAvatar, {
+			name: 'Channel',
+			platform: 'youtube',
+			size: 'sm'
 		});
-
+		expect(screen.container.querySelector('svg')).toBeNull();
+		expect(screen.container.textContent).toContain('CH');
+	});
+	it('loads the provider photo lazily without sending a referrer', async () => {
 		const screen = await render(SocialAccountAvatar, {
 			name: 'Rodrigo',
 			platform: 'linkedin',
@@ -36,12 +21,7 @@ describe('social account avatar', () => {
 		});
 		const image = screen.container.querySelector('img');
 		if (!image) throw new Error('Expected a provider avatar image.');
-
-		await vi.waitFor(() => expect(getComputedStyle(image).opacity).toBe('1'));
-		await vi.waitFor(() =>
-			expect(screen.container.querySelector('[data-slot="avatar-fallback"]')).toHaveClass(
-				'invisible'
-			)
-		);
+		expect(image.getAttribute('loading')).toBe('lazy');
+		expect(image.getAttribute('referrerpolicy')).toBe('no-referrer');
 	});
 });

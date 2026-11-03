@@ -16,7 +16,9 @@ import (
 	"time"
 
 	"github.com/openpost/backend/internal/netguard"
+	"github.com/openpost/backend/internal/posttext"
 	"github.com/openpost/backend/internal/providerlimits"
+	"github.com/rivo/uniseg"
 )
 
 type BlueskyAdapter struct {
@@ -231,11 +233,6 @@ func blueskyJWTExpiresIn(token string) (int, error) {
 }
 
 func (b *BlueskyAdapter) GetProfile(ctx context.Context, accessToken string) (*UserProfile, error) {
-	type blueskySession struct {
-		Did    string `json:"did"`
-		Handle string `json:"handle"`
-	}
-
 	session, err := blueskyDoBearerJSON[blueskySession](ctx, b, "GET", b.pdsURL+"/xrpc/com.atproto.server.getSession", accessToken, nil, "bluesky session")
 	if err != nil {
 		return nil, err
@@ -261,10 +258,11 @@ func (b *BlueskyAdapter) GetProfile(ctx context.Context, accessToken string) (*U
 	}
 
 	return &UserProfile{
-		ID:          firstNonEmptyString(profile.Did, session.Did),
-		Username:    firstNonEmptyString(profile.Handle, session.Handle),
-		DisplayName: profile.DisplayName,
-		AvatarURL:   profile.Avatar,
+		ID:              firstNonEmptyString(profile.Did, session.Did),
+		Username:        firstNonEmptyString(profile.Handle, session.Handle),
+		DisplayName:     profile.DisplayName,
+		AvatarURL:       profile.Avatar,
+		CapabilityState: blueskyEmailCapabilityState(session.EmailConfirmed),
 	}, nil
 }
 
@@ -304,6 +302,9 @@ func (b *BlueskyAdapter) UploadMedia(ctx context.Context, accessToken, accountID
 }
 
 func (b *BlueskyAdapter) uploadVideo(ctx context.Context, accessToken, did, mimeType string, reader io.Reader) (string, error) {
+	if err := b.checkVideoEmail(ctx, accessToken); err != nil {
+		return "", err
+	}
 	data, err := io.ReadAll(reader)
 	if err != nil {
 		return "", fmt.Errorf("reading video data: %w", err)
@@ -331,7 +332,7 @@ func (b *BlueskyAdapter) uploadVideo(ctx context.Context, accessToken, did, mime
 		"Content-Length":    strconv.Itoa(len(data)),
 	})
 	if err != nil {
-		return "", fmt.Errorf("bluesky video upload: %w", err)
+		return "", fmt.Errorf("bluesky video upload: %w", normalizeBlueskyVideoError(err))
 	}
 
 	jobStatus, err := decodeBlueskyVideoJobStatus(jobResp)
@@ -339,6 +340,9 @@ func (b *BlueskyAdapter) uploadVideo(ctx context.Context, accessToken, did, mime
 		return "", fmt.Errorf("decoding bluesky video job: %w", err)
 	}
 	if jobStatus.State == "JOB_STATE_FAILED" {
+		if jobStatus.Error == "unconfirmed_email" {
+			return "", blueskyUnconfirmedEmailError()
+		}
 		return "", fmt.Errorf("bluesky video processing failed: %s", jobStatus.failureMessage())
 	}
 
@@ -689,6 +693,9 @@ func (b *BlueskyAdapter) pollVideoJob(ctx context.Context, serviceToken, jobID s
 				return jobStatus.Blob, nil
 			}
 		case "JOB_STATE_FAILED":
+			if jobStatus.Error == "unconfirmed_email" {
+				return nil, blueskyUnconfirmedEmailError()
+			}
 			return nil, fmt.Errorf("bluesky video processing failed: %s", jobStatus.failureMessage())
 		}
 
@@ -822,6 +829,9 @@ func extractBlueskyRecordKey(externalID string) string {
 }
 
 func (b *BlueskyAdapter) buildPostRecord(_ string, req *PublishRequest, createdAt time.Time) (map[string]interface{}, error) {
+	if err := validateBlueskyText(req.Content); err != nil {
+		return nil, err
+	}
 	record := map[string]interface{}{
 		bskyRecordTypeField: "app.bsky.feed.post",
 		jsonFieldText:       req.Content,
@@ -860,9 +870,16 @@ func (b *BlueskyAdapter) resolveBlueskyComposerReferences(ctx context.Context, a
 		req.Settings["quote_uri"] = uri
 		req.Settings["quote_cid"] = cid
 	}
+	projection, err := posttext.ReadProjection(req.Content, "bluesky", "", req.Settings)
+	if err != nil {
+		return err
+	}
 	mentions := map[string]string{}
-	for _, match := range blueskyMentionPattern.FindAllString(req.Content, -1) {
-		handle := strings.ToLower(strings.TrimPrefix(strings.TrimSpace(match), "@"))
+	for _, match := range blueskyMentionPattern.FindAllStringIndex(req.Content, -1) {
+		if !posttext.LegacyMentionAllowed(projection, match[0], match[1]) {
+			continue
+		}
+		handle := strings.ToLower(strings.TrimPrefix(strings.TrimSpace(req.Content[match[0]:match[1]]), "@"))
 		if handle == "" {
 			continue
 		}
@@ -989,45 +1006,150 @@ func copyPlatformSettings(source map[string]interface{}) map[string]interface{} 
 }
 
 var (
-	blueskyURLPattern     = regexp.MustCompile(`https?://[-A-Za-z0-9@:%._+~#=]{1,256}\.[A-Za-z0-9()]{1,6}\b[-A-Za-z0-9()@:%_+.~#?&/=]*`)
+	// blueskyURLPattern runs a link to the first character a URL cannot hold
+	// unencoded: RFC 3986's unreserved, reserved and "%" characters, less "*"
+	// so Markdown-style emphasis around a link stays outside it.
+	blueskyURLPattern     = regexp.MustCompile(`https?://[-A-Za-z0-9._~!$&'()+,;=:/?#\[\]@%]+`)
 	blueskyMentionPattern = regexp.MustCompile(`@([A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?`)
 	blueskyHandlePattern  = regexp.MustCompile(`(?i)^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*\.[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?$`)
-	blueskyTagPattern     = regexp.MustCompile(`#[A-Za-z0-9_]+`)
+	blueskyDIDPattern     = regexp.MustCompile(`^did:[a-z0-9]+:[A-Za-z0-9._:%-]+$`)
+	// blueskyTagPattern follows TAG_REGEX in @atproto/api's rich-text
+	// detection: a hashtag starts the text or follows whitespace, runs to the
+	// next space or zero-width character, and holds at least one character
+	// that is neither a digit nor punctuation. Group 1 is the hash sign and
+	// group 2 the tag.
+	blueskyTagPattern          = regexp.MustCompile(`(?:^|[\s\v\p{Z}\x{FEFF}])([#＃])([^` + blueskyTagBreaks + `]*[^\d\p{P}` + blueskyTagBreaks + `]+[^` + blueskyTagBreaks + `]*)`)
+	blueskyTrailingPunctuation = regexp.MustCompile(`\p{P}+$`)
 )
 
+const (
+	// blueskyTagBreaks ends a hashtag: JavaScript's \s plus the zero-width
+	// characters @atproto/api excludes.
+	blueskyTagBreaks = `\s\v\p{Z}\x{FEFF}\x{00AD}\x{2060}\x{200B}\x{200C}\x{200D}\x{20E2}`
+	// blueskyMaxTagGraphemes and blueskyMaxTagBytes are the
+	// app.bsky.richtext.facet#tag limits.
+	blueskyMaxTagGraphemes = 64
+	blueskyMaxTagBytes     = 640
+)
+
+const (
+	blueskyPostGraphemeLimit = providerlimits.BlueskyPostMaxGraphemes
+	blueskyPostByteLimit     = providerlimits.BlueskyPostMaxBytes
+)
+
+// validateBlueskyText enforces the post length the relay enforces: 300
+// graphemes and 3000 UTF-8 bytes. Grapheme counting delegates to the shared
+// server counter (providerlimits.TextLength, the implementation behind
+// capabilities.TextLength) so delivery-side validation cannot drift from
+// capability validation. The byte ceiling stays here as the explicit provider
+// limit. It fails before any record is built so oversized text never reaches
+// the PDS.
+func validateBlueskyText(text string) error {
+	if len(text) > blueskyPostByteLimit {
+		return fmt.Errorf("bluesky post text exceeds %d bytes", blueskyPostByteLimit)
+	}
+	if graphemes := providerlimits.TextLength(providerBluesky, text); graphemes > blueskyPostGraphemeLimit {
+		return fmt.Errorf("bluesky post text exceeds %d characters", blueskyPostGraphemeLimit)
+	}
+	return nil
+}
+
+type blueskyFacetCandidate struct {
+	start int
+	end   int
+	facet map[string]interface{}
+}
+
 func buildBlueskyFacets(text string, settings map[string]interface{}) []map[string]interface{} {
-	facets := []map[string]interface{}{}
+	candidates := []blueskyFacetCandidate{}
+	projection, err := posttext.ReadProjection(text, "bluesky", "", settings)
+	if err != nil {
+		return nil
+	}
+	if projection != nil {
+		for _, span := range projection.Spans {
+			candidates = append(candidates, blueskyFacetCandidate{start: span.Start, end: span.End, facet: blueskyFacet(span.Start, span.End, map[string]string{bskyRecordTypeField: "app.bsky.richtext.facet#mention", "did": span.Target.ID})})
+		}
+	}
 	for _, match := range blueskyURLPattern.FindAllStringIndex(text, -1) {
 		start, end := match[0], match[1]
-		uri := text[start:end]
-		facets = append(facets, blueskyFacet(start, end, map[string]string{
-			bskyRecordTypeField: "app.bsky.richtext.facet#link",
-			"uri":               uri,
-		}))
+		uri := strings.TrimRight(text[start:end], ".,;:!?\")']}")
+		// A link needs a host: "https:///path" or a bare "https://" is not a
+		// URI the post record accepts.
+		if _, rest, _ := strings.Cut(uri, "://"); rest == "" || strings.IndexAny(rest, "/?#") == 0 {
+			continue
+		}
+		end = start + len(uri)
+		candidates = append(candidates, blueskyFacetCandidate{
+			start: start,
+			end:   end,
+			facet: blueskyFacet(start, end, map[string]string{
+				bskyRecordTypeField: "app.bsky.richtext.facet#link",
+				"uri":               uri,
+			}),
+		})
 	}
 
-	for _, match := range blueskyTagPattern.FindAllStringIndex(text, -1) {
-		start, end := match[0], match[1]
-		facets = append(facets, blueskyFacet(start, end, map[string]string{
-			bskyRecordTypeField: "app.bsky.richtext.facet#tag",
-			"tag":               text[start+1 : end],
-		}))
+	for _, match := range blueskyTagPattern.FindAllStringSubmatchIndex(text, -1) {
+		start := match[2]
+		tag := blueskyTrailingPunctuation.ReplaceAllString(text[match[4]:match[5]], "")
+		// "#" followed by U+FE0F is the keycap emoji, not a hashtag.
+		if strings.HasPrefix(tag, "\uFE0F") || len(tag) > blueskyMaxTagBytes || uniseg.GraphemeClusterCount(tag) > blueskyMaxTagGraphemes {
+			continue
+		}
+		end := match[4] + len(tag)
+		candidates = append(candidates, blueskyFacetCandidate{
+			start: start,
+			end:   end,
+			facet: blueskyFacet(start, end, map[string]string{
+				bskyRecordTypeField: "app.bsky.richtext.facet#tag",
+				"tag":               tag,
+			}),
+		})
 	}
 
 	mentionDIDs := blueskyMentionDIDs(settings)
 	for _, match := range blueskyMentionPattern.FindAllStringIndex(text, -1) {
 		start, end := match[0], match[1]
-		handle := strings.ToLower(strings.TrimPrefix(text[start:end], "@"))
-		did := mentionDIDs[handle]
-		if did == "" {
+		if !posttext.LegacyMentionAllowed(projection, start, end) {
 			continue
 		}
-		facets = append(facets, blueskyFacet(start, end, map[string]string{
-			bskyRecordTypeField: "app.bsky.richtext.facet#mention",
-			"did":               did,
-		}))
+		handle := strings.ToLower(strings.TrimPrefix(text[start:end], "@"))
+		did := mentionDIDs[handle]
+		if did == "" || !blueskyDIDPattern.MatchString(did) {
+			continue
+		}
+		candidates = append(candidates, blueskyFacetCandidate{
+			start: start,
+			end:   end,
+			facet: blueskyFacet(start, end, map[string]string{
+				bskyRecordTypeField: "app.bsky.richtext.facet#mention",
+				"did":               did,
+			}),
+		})
 	}
 
+	return nonOverlappingBlueskyFacets(candidates)
+}
+
+func nonOverlappingBlueskyFacets(candidates []blueskyFacetCandidate) []map[string]interface{} {
+	// The relay rejects overlapping facets. Candidates arrive ordered by
+	// kind (links, then tags, then mentions), so keep the first span that
+	// claims a byte range and drop later overlaps.
+	facets := []map[string]interface{}{}
+	for _, candidate := range candidates {
+		overlaps := false
+		for _, kept := range facets {
+			index := kept["index"].(map[string]int)
+			if candidate.start < index["byteEnd"] && index["byteStart"] < candidate.end {
+				overlaps = true
+				break
+			}
+		}
+		if !overlaps {
+			facets = append(facets, candidate.facet)
+		}
+	}
 	return facets
 }
 
@@ -1161,11 +1283,15 @@ func (b *BlueskyAdapter) attachVideoToRecord(record map[string]interface{}, req 
 	if len(req.MediaAltTexts) > 0 {
 		altText = req.MediaAltTexts[0]
 	}
-	record["embed"] = map[string]interface{}{
+	embed := map[string]interface{}{
 		bskyRecordTypeField: "app.bsky.embed.video",
 		jsonFieldVideo:      blob,
 		"alt":               altText,
 	}
+	if ratio := blueskyMediaAspectRatio(req.Media, 0); ratio != nil {
+		embed["aspectRatio"] = ratio
+	}
+	record["embed"] = embed
 	return nil
 }
 
@@ -1180,10 +1306,14 @@ func (b *BlueskyAdapter) attachImagesToRecord(record map[string]interface{}, req
 		if i < len(req.MediaAltTexts) {
 			altText = req.MediaAltTexts[i]
 		}
-		images = append(images, map[string]interface{}{
+		image := map[string]interface{}{
 			"alt":   altText,
 			"image": blob,
-		})
+		}
+		if ratio := blueskyMediaAspectRatio(req.Media, i); ratio != nil {
+			image["aspectRatio"] = ratio
+		}
+		images = append(images, image)
 	}
 	if len(images) > 0 {
 		record["embed"] = map[string]interface{}{
@@ -1192,6 +1322,13 @@ func (b *BlueskyAdapter) attachImagesToRecord(record map[string]interface{}, req
 		}
 	}
 	return nil
+}
+
+func blueskyMediaAspectRatio(media []MediaItem, index int) map[string]int {
+	if index >= len(media) || media[index].Width <= 0 || media[index].Height <= 0 {
+		return nil
+	}
+	return map[string]int{"width": media[index].Width, "height": media[index].Height}
 }
 
 func attachReplyToRecord(record map[string]interface{}, replyToID string) {
@@ -1293,4 +1430,61 @@ func getParentRoot(replyToID string) interface{} {
 		return parent["_root"]
 	}
 	return parent
+}
+
+type blueskySession struct {
+	Did            string `json:"did"`
+	Handle         string `json:"handle"`
+	EmailConfirmed *bool  `json:"emailConfirmed"`
+}
+
+func blueskyEmailCapabilityState(confirmed *bool) map[string]string {
+	if confirmed == nil {
+		return map[string]string{"bluesky_email_confirmation": "unknown"}
+	}
+	state := "unconfirmed"
+	if *confirmed {
+		state = "confirmed"
+	}
+	return map[string]string{"bluesky_email_confirmation": state}
+}
+func blueskyUnconfirmedEmailError() error {
+	return &HTTPError{StatusCode: http.StatusForbidden, Code: "bluesky:unconfirmed_email"}
+}
+func normalizeBlueskyVideoError(err error) error {
+	var providerErr *HTTPError
+	if errors.As(err, &providerErr) && providerErr.Code == "unconfirmed_email" {
+		return blueskyUnconfirmedEmailError()
+	}
+	return err
+}
+func (b *BlueskyAdapter) AccountCapabilityKeyInput(input AccountCapabilityInput) string {
+	return strings.Join([]string{input.OutputProfile, input.Intent, input.MediaShape}, "\x1f")
+}
+
+func (b *BlueskyAdapter) ResolveAccountPublishingCapabilities(ctx context.Context, token string, input AccountCapabilityInput) (AccountCapabilityResult, error) {
+	result := AccountCapabilityResult{Revision: "bluesky-video-email-v1"}
+	if !strings.Contains(input.MediaShape, "video") && input.Intent != "short_video" && input.OutputProfile != "bluesky.video" {
+		return result, nil
+	}
+	session, err := blueskyDoBearerJSON[blueskySession](ctx, b, http.MethodGet, b.pdsURL+"/xrpc/com.atproto.server.getSession", token, nil, "bluesky session")
+	if err != nil {
+		return result, err
+	}
+	result.State = blueskyEmailCapabilityState(session.EmailConfirmed)
+	if session.EmailConfirmed != nil && !*session.EmailConfirmed {
+		result.UnavailableReason = "Verify your email in Bluesky before publishing videos. Text and image posts remain available."
+	}
+	return result, nil
+}
+
+func (b *BlueskyAdapter) checkVideoEmail(ctx context.Context, accessToken string) error {
+	session, err := blueskyDoBearerJSON[blueskySession](ctx, b, http.MethodGet, b.pdsURL+"/xrpc/com.atproto.server.getSession", accessToken, nil, "bluesky session")
+	if err != nil {
+		return err
+	}
+	if session.EmailConfirmed != nil && !*session.EmailConfirmed {
+		return blueskyUnconfirmedEmailError()
+	}
+	return nil
 }

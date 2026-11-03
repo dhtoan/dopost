@@ -147,11 +147,31 @@
 						Boolean(canvas)
 					);
 		if (canvases.length === 0 || !globalThis.ResizeObserver) return;
-		const observer = new globalThis.ResizeObserver(() => {
-			canvasRevision++;
+		// The observer watches the canvases it re-renders: only bump the revision
+		// when a canvas size actually changed, coalesced into one frame, or the
+		// redraw loop re-notifies itself (ResizeObserver loop).
+		const lastSizes = new Map<Element, string>();
+		let scopeFrame = 0;
+		const observer = new globalThis.ResizeObserver((entries) => {
+			if (scopeFrame) return;
+			scopeFrame = requestAnimationFrame(() => {
+				scopeFrame = 0;
+				let changed = false;
+				for (const entry of entries) {
+					const size = `${Math.round(entry.contentRect.width)}x${Math.round(entry.contentRect.height)}`;
+					if (lastSizes.get(entry.target) !== size) {
+						lastSizes.set(entry.target, size);
+						changed = true;
+					}
+				}
+				if (changed) canvasRevision++;
+			});
 		});
 		for (const canvas of canvases) observer.observe(canvas);
-		return () => observer.disconnect();
+		return () => {
+			cancelAnimationFrame(scopeFrame);
+			observer.disconnect();
+		};
 	});
 
 	$effect(() => {
@@ -159,7 +179,9 @@
 		void cpuRenderRevision;
 		if (!active) {
 			clearCpuCanvas(cpuCanvas);
-			for (const canvas of gridCanvases) clearCpuCanvas(canvas);
+			if (!gpuReady) {
+				for (const canvas of gridCanvases) clearCpuCanvas(canvas);
+			}
 			clearCpuRenderTimer();
 			return;
 		}
@@ -233,7 +255,9 @@
 		ensureCanvasSize(cpuCanvas, selectedScope);
 		const context = cpuCanvas.getContext('2d');
 		if (!context) return;
-		drawCpuScope(context, image, selectedScope, cpuCanvas.width, cpuCanvas.height);
+		drawCpuScope(context, image, selectedScope, cpuCanvas.width, cpuCanvas.height, {
+			guideOwner: 'external'
+		});
 	}
 
 	function registerGridCanvas(node: HTMLCanvasElement, index: number) {
@@ -291,7 +315,11 @@
 			if (!canvas) continue;
 			ensureCanvasSize(canvas, selectedScope);
 			const context = canvas.getContext('2d');
-			if (context) drawCpuScope(context, image, selectedScope, canvas.width, canvas.height);
+			if (context) {
+				drawCpuScope(context, image, selectedScope, canvas.width, canvas.height, {
+					guideOwner: 'external'
+				});
+			}
 		}
 	}
 
@@ -404,6 +432,7 @@
 	{#if layout === 'single' && showViewModes}
 		<div
 			class="mb-1 flex items-center justify-end gap-0.5"
+			role="group"
 			aria-label={m.video_editor_scope_live()}
 		>
 			{#each VIEW_MODES as option (option.value)}
@@ -422,17 +451,19 @@
 
 	{#if layout === 'grid'}
 		<div class="grid min-h-0 flex-1 grid-cols-2 gap-1" data-editor-protected="scopes">
-			{#each SCOPE_OPTIONS as gridScope, index (gridScope)}
-				<div class="relative min-h-24 overflow-hidden rounded border border-white/10 bg-black/80">
-					<canvas
-						use:registerGridCanvas={index}
-						data-color-scope-canvas={gridScope}
-						class="size-full object-contain"
-						aria-label={`${m.video_editor_scope_live()}: ${scopeLabel(gridScope)}`}
-					></canvas>
-					<ColorScopeOverlay scope={gridScope} />
-				</div>
-			{/each}
+			{#key gpuReady}
+				{#each SCOPE_OPTIONS as gridScope, index (gridScope)}
+					<div class="relative min-h-24 overflow-hidden rounded border border-white/10 bg-black/80">
+						<canvas
+							use:registerGridCanvas={index}
+							data-color-scope-canvas={gridScope}
+							class="size-full object-contain"
+							aria-label={`${m.video_editor_scope_live()}: ${scopeLabel(gridScope)}`}
+						></canvas>
+						<ColorScopeOverlay scope={gridScope} />
+					</div>
+				{/each}
+			{/key}
 		</div>
 	{:else}
 		<div
@@ -491,8 +522,13 @@
 	}
 
 	.scope-layout {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		flex-shrink: 0;
 		height: 1.75rem;
-		min-width: 1.75rem;
+		width: 1.75rem;
+		padding: 0;
 		border-radius: 0.25rem;
 		font-size: 0.625rem;
 		font-weight: 650;
@@ -539,7 +575,7 @@
 		}
 
 		.scope-layout {
-			min-width: 2.75rem;
+			width: 2.75rem;
 			height: 2.75rem;
 		}
 	}

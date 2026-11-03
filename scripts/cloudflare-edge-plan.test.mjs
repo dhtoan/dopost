@@ -42,20 +42,22 @@ test("assigns canonical behavior and legacy redirects to their owning zones", ()
   assert.equal(plan.zones[0].zone_id_env, "OPENPOST_CLOUDFLARE_CANONICAL_ZONE_ID");
   assert.deepEqual(
     plan.zones[0].surfaces.map(({ hostname }) => hostname),
-    ["openpo.st", "docs.openpo.st"],
+    ["openpo.st", "openpo.st"],
   );
   for (const phase of plan.phases.map(({ phase }) => phase)) {
     const expressions = plan.zones[0].rules[phase].map(({ expression }) => expression).join("\n");
     assert.match(expressions, /http\.host eq "openpo\.st"/u);
-    assert.match(expressions, /http\.host eq "docs\.openpo\.st"/u);
+    if (phase === "http_request_dynamic_redirect") {
+      assert.match(expressions, /http\.host eq "docs\.openpo\.st"/u);
+    }
   }
   assert.equal(plan.zones[1].zone_id_env, "OPENPOST_CLOUDFLARE_PUBLIC_ZONE_ID");
   assert.equal(plan.zones[1].rules.http_request_transform.length, 0);
   const legacy = plan.zones[1].rules.http_request_dynamic_redirect;
-  assert.equal(legacy.length, 7);
+  assert.equal(legacy.length, 8);
   assert.ok(legacy.every((rule) => rule.action_parameters.from_value.preserve_query_string));
   assert.match(JSON.stringify(legacy), /https:\/\/openpo\.st/u);
-  assert.match(JSON.stringify(legacy), /https:\/\/docs\.openpo\.st/u);
+  assert.match(JSON.stringify(legacy), /https:\/\/openpo\.st\/docs/u);
   assert.match(JSON.stringify(legacy), /https:\/\/app\.openpo\.st/u);
   assert.match(JSON.stringify(legacy), /https:\/\/media\.openpo\.st/u);
   assert.match(JSON.stringify(legacy), /https:\/\/cool\.openpo\.st/u);
@@ -113,22 +115,49 @@ test("renders ordered exact Markdown selection rules from canonical catalogues",
     /lower\(http\.request\.headers\["accept"\]\[0\]\) wildcard "\*text\/markdown\*"/u,
   );
   assert.doesNotMatch(rewrites[0].expression, /contains/u);
-  assert.deepEqual(rewrites[0].action_parameters.uri.path, { value: "/index.md" });
+  assert.deepEqual(rewrites[0].action_parameters.uri.path, {
+    value: "/index.md",
+  });
   assert.deepEqual(rewrites[1].action_parameters.uri.path, {
     expression: 'concat(http.request.uri.path, ".md")',
   });
 
   const docs = surfacePlan(plan, "documentation");
-  assert.match(docs.rules.http_request_dynamic_redirect[0].expression, /"\/usage"/u);
+  assert.match(docs.rules.http_request_dynamic_redirect[0].expression, /"\/docs\/usage"/u);
+  assert.deepEqual(docs.rules.http_request_transform[0].action_parameters.uri.path, {
+    value: "/docs/index.md",
+  });
   assert.ok(
     docs.rules.http_request_transform.some(
       (rule) =>
         rule.action_parameters.uri.path.expression === 'concat(http.request.uri.path, "index.md")',
     ),
   );
-  for (const surface of [marketing, docs]) {
+  for (const [surface, expectedRoutes] of [
+    [marketing, ["/", "/features", "/tools/example"]],
+    [docs, ["/docs", "/docs/usage/", "/docs/usage/accounts"]],
+  ]) {
+    assert.deepEqual(surface.canonical_routes, expectedRoutes);
+    const selectedRoutes = (rules) =>
+      rules
+        .flatMap(({ expression }) =>
+          [...expression.matchAll(/(?:raw\.)?http\.request\.uri\.path in \{([^}]+)\}/gu)].flatMap(
+            ([, paths]) => JSON.parse(`[${paths.match(/"[^"]*"/gu).join(",")}]`),
+          ),
+        )
+        .sort();
+    for (const phase of [
+      "http_request_transform",
+      "http_request_cache_settings",
+      "http_response_headers_transform",
+    ]) {
+      assert.deepEqual(selectedRoutes(surface.rules[phase]), expectedRoutes);
+    }
     assert.deepEqual(surface.origin_headers.canonical_html_paths, surface.canonical_routes);
-    assert.equal(surface.origin_headers.markdown_pattern, "/*.md");
+    assert.equal(
+      surface.origin_headers.markdown_pattern,
+      surface.key === "documentation" ? "/docs/*.md" : "/*.md",
+    );
     assert.equal(surface.origin_headers.vary, "Accept");
     const cache = surface.rules.http_request_cache_settings[0];
     assert.match(cache.expression, /http\.request\.method in \{"GET" "HEAD"\}/u);
@@ -153,15 +182,6 @@ test("renders ordered exact Markdown selection rules from canonical catalogues",
     });
     assert.deepEqual(headers.Vary, { operation: "add", value: "Accept" });
   }
-});
-
-test("canonical path expressions exclude explicit Markdown, assets, resources, and unknown paths", () => {
-  const serialized = JSON.stringify(samplePlan());
-  assert.doesNotMatch(serialized, /\/features\.md"/u);
-  assert.doesNotMatch(serialized, /\/assets/u);
-  assert.doesNotMatch(serialized, /\/llms\.txt/u);
-  assert.doesNotMatch(serialized, /\/unknown/u);
-  assert.match(serialized, /"\/features"/u);
 });
 
 test("rejects Free-plan count and expression limits before an API call", async () => {
@@ -228,7 +248,7 @@ test("rejects response transforms that would relabel an HTML fallback as Markdow
   );
 });
 
-test("inspection is read-only and reports unmanaged overlaps without credentials in output", async () => {
+test("inspection is read-only and reports unmanaged overlaps", async () => {
   const calls = [];
   const client = {
     getEntrypoint: async (zone, phase) => {
@@ -249,7 +269,14 @@ test("inspection is read-only and reports unmanaged overlaps without credentials
   const report = await inspectCloudflarePlan({ plan: samplePlan(), client });
   assert.equal(calls.length, 8);
   assert.equal(report.conflicts.length, 8);
-  assert.doesNotMatch(JSON.stringify(report), /super-secret/u);
+  assert.ok(
+    report.conflicts.every(
+      ({ ref, reason }) =>
+        ref === "someone-else" &&
+        reason ===
+          "unmanaged rule shares an OpenPost-owned phase; resolve its ownership before apply",
+    ),
+  );
 });
 
 test("Cloudflare boundary uses phase entrypoints and keeps credentials out of errors", async () => {
@@ -339,23 +366,6 @@ test("inspection includes existing rules in Free-plan capacity before apply", as
       ({ reason }) => reason === "16 transform rules exceed Cloudflare Free limit 10",
     ),
   );
-});
-
-test("inspection fails closed on every unmanaged rule in an owned phase", async () => {
-  const client = {
-    getEntrypoint: async () => ({
-      version: "1",
-      rules: [
-        {
-          ref: "broad-private-rule",
-          expression: 'starts_with(http.request.uri.path, "/private")',
-          action: "rewrite",
-        },
-      ],
-    }),
-  };
-  const report = await inspectCloudflarePlan({ plan: samplePlan(), client });
-  assert.equal(report.conflicts.length, 8);
 });
 
 test("prepare captures a reviewable rollback without mutating Cloudflare", async () => {

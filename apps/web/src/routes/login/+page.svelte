@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { appBranding } from '$lib/app-branding.svelte';
 	import { readQueryErrorMessage } from '$lib/query/error-message';
 	import { auth } from '$lib/stores/auth';
 	import { ThemeIcon, ProtectedIcon } from '$lib/themes/icons';
@@ -8,6 +9,7 @@
 	import { Input } from '$lib/components/ui/input';
 	import { Label } from '$lib/components/ui/label';
 	import PasswordField from '$lib/components/password-field.svelte';
+	import Disclosure from '$lib/components/disclosure.svelte';
 	import InlineNotice from '$lib/components/inline-notice.svelte';
 	import StandaloneShell from '$lib/components/standalone-shell.svelte';
 	import { m } from '$lib/paraglide/messages';
@@ -154,6 +156,7 @@
 
 	async function handleVerifyTOTP(e: Event) {
 		e.preventDefault();
+		if (totpCode.trim().length !== 6) return;
 		const requestSequence = ++authenticationRequestSequence;
 		const route = `${window.location.pathname}${window.location.search}`;
 		const target = loginTarget();
@@ -249,7 +252,7 @@
 </script>
 
 <svelte:head>
-	<title>{m.auth_login_title()}</title>
+	<title>{appBranding.title(m.auth_login_title())}</title>
 </svelte:head>
 
 <StandaloneShell
@@ -286,7 +289,7 @@
 					disabled={isLoading}
 				>
 					{#if isLoading}
-						<ProtectedIcon icon="loading" class="h-4 w-4 animate-spin" />
+						<ProtectedIcon icon="loading" class="h-4 w-4 animate-spin motion-reduce:animate-none" />
 						{m.auth_login_passkey_loading()}
 					{:else}
 						<ThemeIcon role="key" class="h-4 w-4" />
@@ -311,9 +314,16 @@
 						/>
 					</div>
 
-					<Button type="submit" disabled={isLoading} class="w-full gap-2">
+					<Button
+						type="submit"
+						disabled={isLoading || totpCode.trim().length !== 6}
+						class="w-full gap-2"
+					>
 						{#if isLoading}
-							<ProtectedIcon icon="loading" class="h-4 w-4 animate-spin" />
+							<ProtectedIcon
+								icon="loading"
+								class="h-4 w-4 animate-spin motion-reduce:animate-none"
+							/>
 							{m.auth_login_verifying()}
 						{:else}
 							<ThemeIcon role="security" class="h-4 w-4" />
@@ -346,7 +356,10 @@
 						class="w-full gap-2"
 					>
 						{#if isLoading}
-							<ProtectedIcon icon="loading" class="h-4 w-4 animate-spin" />
+							<ProtectedIcon
+								icon="loading"
+								class="h-4 w-4 animate-spin motion-reduce:animate-none"
+							/>
 							{m.auth_login_verifying()}
 						{:else}
 							<ThemeIcon role="security" class="h-4 w-4" />
@@ -420,10 +433,6 @@
 				placeholder="••••••••"
 			/>
 
-			<p class="text-sm leading-6 text-muted-foreground">
-				{m.auth_login_session_notice()}
-			</p>
-
 			{#if authConfiguration?.password_reset_enabled}
 				<div class="-mt-2 text-right">
 					<a
@@ -436,7 +445,7 @@
 
 			<Button type="submit" disabled={isLoading} class="w-full gap-2">
 				{#if isLoading}
-					<ProtectedIcon icon="loading" class="h-4 w-4 animate-spin" />
+					<ProtectedIcon icon="loading" class="h-4 w-4 animate-spin motion-reduce:animate-none" />
 					{m.auth_login_loading()}
 				{:else}
 					{m.auth_login_submit()}
@@ -444,9 +453,8 @@
 			</Button>
 		</form>
 
-		<details class="mt-5 rounded-lg border border-border/70 px-4 py-3">
-			<summary class="cursor-pointer text-sm font-medium">{m.auth_sso_work_account()}</summary>
-			<form onsubmit={discoverSSO} class="mt-3 space-y-3">
+		<Disclosure summary={m.auth_sso_work_account()} boxed class="mt-5 border-border/70">
+			<form onsubmit={discoverSSO} class="mt-3 space-y-3 px-4 pb-4">
 				<div class="space-y-2">
 					<Label for="sso-email">{m.auth_sso_work_email()}</Label>
 					<Input
@@ -460,21 +468,21 @@
 				</div>
 				<Button type="submit" variant="outline" class="w-full gap-2" disabled={Boolean(ssoLoading)}>
 					{#if ssoLoading === 'discover'}
-						<ProtectedIcon icon="loading" class="size-4 animate-spin" />
+						<ProtectedIcon icon="loading" class="size-4 animate-spin motion-reduce:animate-none" />
 					{:else}
 						<ThemeIcon role="organization" class="size-4" />
 					{/if}
 					{m.auth_sso_find_provider()}
 				</Button>
 			</form>
-		</details>
+		</Disclosure>
 
 		<p class="mt-6 text-center text-sm text-muted-foreground">
 			{m.auth_login_no_account()}
 			<a
 				href={resolveAppPath(registrationTarget())}
 				class="inline-flex min-h-11 items-center px-1 font-medium text-primary hover:underline"
-				>{m.auth_login_create_one()}</a
+				>{authConfiguration?.waitlist_enabled ? m.waitlist_submit() : m.auth_login_create_one()}</a
 			>
 		</p>
 

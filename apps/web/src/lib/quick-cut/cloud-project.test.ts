@@ -4,6 +4,7 @@ import { createNewProject } from './project';
 import type { QuickCutSource } from './types';
 import {
 	quickCutCloudDocument,
+	listQuickCutCloudProjects,
 	quickCutProjectFromCloudDocument,
 	loadQuickCutCloudProject,
 	quickCutCloudRepository,
@@ -51,6 +52,27 @@ function remote(document: QuickCutCloudDocument): CloudVideoProject<QuickCutClou
 }
 
 describe('Quick Cut cloud projects', () => {
+	it('lists only Quick Cut summaries without needing authored documents', async () => {
+		const metadata = {
+			id: 'quick',
+			workspaceId: 'workspace-1',
+			name: 'Quick Cut',
+			headRevision: 1,
+			syncStatus: 'synced' as const,
+			attentionReason: '',
+			trashedAt: '',
+			updatedAt: '2026-10-13T20:00:00Z'
+		};
+		const summaries = [
+			{ ...metadata, schemaFamily: 'quick-cut' },
+			{ ...metadata, id: 'video', schemaFamily: 'openpost' },
+			{ ...metadata, id: 'legacy', schemaFamily: '' }
+		];
+		const result = await listQuickCutCloudProjects({ listSummaries: async () => summaries });
+		expect(result.map((project) => project.id)).toEqual(['quick']);
+		expect(result[0]).not.toHaveProperty('document');
+	});
+
 	it('constructs the concrete cloud repository used by the route', () => {
 		expect(quickCutCloudRepository('workspace-1').workspaceId).toBe('workspace-1');
 	});
@@ -59,6 +81,7 @@ describe('Quick Cut cloud projects', () => {
 		const project = createNewProject([source('source-1')]);
 		project.segments = [{ id: 'intro', sourceId: 'source-1', start: 0, end: 2 }];
 		project.merge = true;
+		project.markers = [{ id: 'marker', sourceId: 'source-1', time: 1, name: 'Note' }];
 
 		const document = quickCutCloudDocument(project);
 		expect(document).toMatchObject({
@@ -77,6 +100,10 @@ describe('Quick Cut cloud projects', () => {
 	it('creates once, uploads only missing source assets, and saves later edits', async () => {
 		const first = source('source-1', new File(['first'], 'source-1.mp4', { type: 'video/mp4' }));
 		const second = source('source-2', new File(['second'], 'source-2.mp4', { type: 'video/mp4' }));
+		first.transcript = {
+			audioTrackIndex: 0,
+			words: [{ text: 'Private source words', start: 0, end: 0.5 }]
+		};
 		const project = createNewProject([first, second]);
 		const initialDocument = quickCutCloudDocument(project);
 		const cloudProject = remote(initialDocument);
@@ -97,6 +124,8 @@ describe('Quick Cut cloud projects', () => {
 			upload
 		});
 		expect(createWithId).toHaveBeenCalledOnce();
+		expect(createWithId.mock.calls[0]![2].timeline.sources[0]).not.toHaveProperty('transcript');
+		expect(first.transcript.words[0].text).toBe('Private source words');
 		expect(reserveAsset).toHaveBeenCalledWith(project.id, {
 			stableMediaId: 'source-2',
 			fileName: 'source-2.mp4',
@@ -113,6 +142,7 @@ describe('Quick Cut cloud projects', () => {
 		});
 		expect(createWithId).toHaveBeenCalledOnce();
 		expect(upload).toHaveBeenCalledOnce();
+		expect(save.mock.calls.at(-1)![1].timeline.sources[0]).not.toHaveProperty('transcript');
 		expect(save).toHaveBeenLastCalledWith(
 			cloudProject,
 			expect.objectContaining({
@@ -127,7 +157,7 @@ describe('Quick Cut cloud projects', () => {
 		const download = vi.fn().mockResolvedValue(new Blob(['video'], { type: 'video/mp4' }));
 		const repository = {
 			workspaceId: 'workspace-1',
-			list: vi.fn(),
+			listSummaries: vi.fn(),
 			get: vi.fn().mockResolvedValue(cloudProject),
 			createWithId: vi.fn(),
 			save: vi.fn(),
@@ -153,7 +183,7 @@ describe('Quick Cut cloud projects', () => {
 		const cloudProject = remote(quickCutCloudDocument(project));
 		const repository = {
 			workspaceId: 'workspace-1',
-			list: vi.fn(),
+			listSummaries: vi.fn(),
 			get: vi.fn().mockResolvedValue(cloudProject),
 			createWithId: vi.fn(),
 			save: vi.fn(),

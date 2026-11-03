@@ -1,11 +1,12 @@
 import { z } from 'zod';
 import {
 	readJson,
+	readDirectoryFiles,
 	writeJsonAtomic,
 	removeEntry
-} from '$lib/video-editor/workspace-fs/fs-primitives';
-import { requireWorkspaceRoot, getWorkspaceRoot } from '$lib/video-editor/workspace-fs/root';
-import { saveHandle, getHandle } from '$lib/video-editor/workspace-fs/handles-db';
+} from '@openpost/editor-shared/workspace';
+import { requireWorkspaceRoot, getWorkspaceRoot } from '@openpost/editor-shared/workspace';
+import { saveHandle, getHandle } from '@openpost/editor-shared/workspace';
 import { quickCutProjectPath } from './paths';
 import type {
 	QuickCutProject,
@@ -14,10 +15,10 @@ import type {
 	QuickCutVideoStream
 } from './types';
 import type { QuickCutSource } from './types';
-import { createHash } from './fingerprint';
+import { matchFingerprint } from './fingerprint';
 
 const MAX_SOURCES = 64;
-const MAX_SEGMENTS = 200;
+const MAX_SEGMENTS = 10000;
 const MAX_KEYFRAMES = 20000;
 const MAX_NAME_LENGTH = 100;
 const rotationSchema = z.union([z.literal(0), z.literal(90), z.literal(180), z.literal(270)]);
@@ -40,7 +41,24 @@ const audioStreamSchema = z.object({
 	channels: z.number().nullable()
 });
 
+export const quickCutTranscriptSchema = z.object({
+	audioTrackIndex: z.number().int().nonnegative(),
+	words: z
+		.array(
+			z
+				.object({
+					text: z.string().max(10000),
+					start: z.number().nonnegative(),
+					end: z.number().nonnegative(),
+					confidence: z.number().optional()
+				})
+				.refine((word) => word.end > word.start, 'Transcript word must have a positive duration')
+		)
+		.max(200000)
+});
+
 const sourceMetaSchema = z.object({
+	transcript: quickCutTranscriptSchema.optional(),
 	id: z.string().min(1).max(64),
 	name: z.string().min(1).max(MAX_NAME_LENGTH),
 	size: z
@@ -81,6 +99,17 @@ const segmentSchema = z.object({
 });
 
 const projectSchema = z.object({
+	markers: z
+		.array(
+			z.object({
+				id: z.string().min(1),
+				sourceId: z.string().min(1),
+				time: z.number().nonnegative(),
+				name: z.string().max(MAX_NAME_LENGTH)
+			})
+		)
+		.max(10000)
+		.optional(),
 	version: z.literal(1),
 	id: z.string().min(1),
 	name: z.string().min(1).max(MAX_NAME_LENGTH),
@@ -174,6 +203,12 @@ function normalizeSourceStreams(source: z.infer<typeof sourceMetaSchema>): Quick
 
 function validateProject(data: QuickCutProject): QuickCutProject {
 	const sourceIds = new Set(data.sources.map((s) => s.id));
+	for (const marker of data.markers ?? []) {
+		const source = data.sources.find((source) => source.id === marker.sourceId);
+		if (!source || marker.time > source.duration) throw new Error('Marker is outside its source');
+	}
+	if (new Set(data.markers?.map((marker) => marker.id)).size !== (data.markers?.length ?? 0))
+		throw new Error('Duplicate marker id');
 	for (const seg of data.segments) {
 		if (!sourceIds.has(seg.sourceId))
 			throw new Error(`Segment ${seg.id} references missing source`);
@@ -430,6 +465,29 @@ export async function saveProjectToWorkspace(project: QuickCutProject): Promise<
 	await writeJsonAtomic(root, quickCutProjectPath(project.id), project);
 }
 
+export async function listProjectsFromWorkspace(): Promise<{
+	projects: QuickCutProject[];
+	failures: string[];
+}> {
+	const root = getWorkspaceRoot();
+	if (!root) return { projects: [], failures: [] };
+	const files = await readDirectoryFiles(
+		root,
+		['quick-cut', 'projects'],
+		(entry) => entry.kind === 'file' && entry.name.endsWith('.json')
+	);
+	const results = await Promise.allSettled(
+		files.map(async ({ blob }) => parseProject(await blob.text()))
+	);
+	const projects: QuickCutProject[] = [];
+	const failures: string[] = [];
+	results.forEach((result, index) => {
+		if (result.status === 'fulfilled') projects.push(result.value);
+		else failures.push(files[index].name);
+	});
+	return { projects: projects.sort((a, b) => b.updatedAt - a.updatedAt), failures };
+}
+
 export async function loadProjectFromWorkspace(id: string): Promise<QuickCutProject | null> {
 	const root = getWorkspaceRoot();
 	if (!root) return null;
@@ -440,6 +498,29 @@ export async function loadProjectFromWorkspace(id: string): Promise<QuickCutProj
 	} catch {
 		return null;
 	}
+}
+
+export async function loadProjectSessionFromWorkspace(
+	id: string
+): Promise<{ project: QuickCutProject; sources: QuickCutSource[] } | null> {
+	const project = await loadProjectFromWorkspace(id);
+	if (!project) return null;
+	const handles = await restoreSourceHandles(project.sources);
+	const sources = await Promise.all(
+		project.sources.map(async (metadata) => {
+			const handle = handles.get(metadata.id) ?? undefined;
+			let file: File | undefined;
+			if (handle) {
+				try {
+					file = await handle.getFile();
+				} catch {
+					file = undefined;
+				}
+			}
+			return { ...metadata, handle, file };
+		})
+	);
+	return { project, sources };
 }
 
 export async function deleteProjectFromWorkspace(id: string): Promise<void> {
@@ -467,6 +548,12 @@ export async function restoreSourceHandles(
 ): Promise<Map<string, FileSystemFileHandle | null>> {
 	const map = new Map<string, FileSystemFileHandle | null>();
 	for (const m of metas) {
+		// Preserve saved words until an explicit Reconnect establishes their source.
+		// Legacy samples cannot prove that the unsampled bytes still match.
+		if (m.transcript && !m.contentFingerprint?.startsWith('sha256:')) {
+			map.set(m.id, null);
+			continue;
+		}
 		const rec = await getHandle('media', `quick-cut:${m.id}`);
 		if (rec) {
 			// SAFETY: handle was saved as FileSystemFileHandle for quick-cut source via saveHandle with kind 'media'
@@ -476,15 +563,19 @@ export async function restoreSourceHandles(
 				const sizeOk = file.size === m.size;
 				const nameOk = file.name === m.name;
 				const lastModifiedOk = m.lastModified === undefined || file.lastModified === m.lastModified;
-				let fingerprintOk = true;
-				if (m.contentFingerprint) {
-					const fp = await createHash(file);
-					fingerprintOk = fp === m.contentFingerprint;
-				}
-				if (!sizeOk || !nameOk || !lastModifiedOk || !fingerprintOk) {
+				if (!sizeOk || !nameOk || !lastModifiedOk) {
 					map.set(m.id, null);
 					continue;
 				}
+				const fingerprint = m.contentFingerprint
+					? await matchFingerprint(file, m.contentFingerprint)
+					: undefined;
+				const fingerprintOk = fingerprint !== null;
+				if (!fingerprintOk) {
+					map.set(m.id, null);
+					continue;
+				}
+				if (fingerprint) m.contentFingerprint = fingerprint;
 				map.set(m.id, handle);
 			} catch {
 				map.set(m.id, null);

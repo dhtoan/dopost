@@ -38,7 +38,7 @@ async function createVideoProject(page: Page, name = "Shared editor chrome"): Pr
     });
   });
   await page.goto("/video-editor");
-  await page.getByRole("button", { name: "Local only" }).click();
+  await page.getByRole("button", { name: "This device" }).click();
   await page.getByRole("button", { name: "Choose folder" }).click();
   await page.getByRole("button", { name: "Custom project" }).click();
   await page.getByRole("textbox", { name: "Project name" }).fill(name);
@@ -50,8 +50,8 @@ async function createVideoProject(page: Page, name = "Shared editor chrome"): Pr
 }
 
 async function verifySequenceAutoBalance(page: Page, errors: string[]): Promise<void> {
-  await page.getByRole("button", { name: "Add layer" }).click();
-  await page.getByRole("menuitem", { name: "Add text" }).click();
+  await page.getByRole("banner").getByRole("button", { name: "More actions", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Add text", exact: true }).click();
   await expect(page.getByRole("application", { name: "Program" }).getByRole("img")).toBeVisible();
   const editTab = page.getByRole("tab", { name: "Edit", exact: true });
   const colorTab = page.getByRole("tab", { name: "Color", exact: true });
@@ -72,22 +72,26 @@ async function verifySequenceAutoBalance(page: Page, errors: string[]): Promise<
   await liftWheel.focus();
   await page.keyboard.press("ArrowRight");
   await expect(liftWheel).toHaveAttribute("aria-valuetext", /^1 degrees/);
+  await page.getByRole("tab", { name: "Curves", exact: true }).click();
   const curve = page.locator('[role="group"][aria-label="Master curve editor"]:visible');
   const initialCurvePointCount = await curve.locator("[data-curve-point]").count();
   expect(initialCurvePointCount).toBeGreaterThanOrEqual(2);
   await curve.click({ position: { x: 75, y: 35 } });
   await expect(curve.locator("[data-curve-point]")).toHaveCount(initialCurvePointCount + 1);
+  await page.getByRole("tab", { name: "Primaries", exact: true }).click();
 
   await editTab.click();
-  await page.getByRole("button", { name: "Add layer" }).click();
-  await page.getByRole("menuitem", { name: "Add text" }).click();
+  await page.getByRole("banner").getByRole("button", { name: "More actions", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Add text", exact: true }).click();
   const timelineItems = page.locator("[data-timeline-item-id]");
   await expect(timelineItems).toHaveCount(2);
   await timelineItems
+    .locator('button[aria-pressed="false"]')
     .first()
-    .locator("button")
-    .first()
-    .click({ modifiers: ["ControlOrMeta"] });
+    .click({
+      modifiers: ["ControlOrMeta"],
+    });
+  await expect(timelineItems.locator('button[aria-pressed="true"]')).toHaveCount(2);
   await colorTab.click();
   await expect(page.getByRole("slider", { name: "Lift color wheel" })).toHaveAttribute(
     "aria-valuetext",
@@ -99,9 +103,13 @@ async function verifySequenceAutoBalance(page: Page, errors: string[]): Promise<
     "Mixed",
   );
   await page
-    .getByRole("group", { name: "Color workspace Clip" })
-    .getByRole("button", { name: "Sequences" })
+    .getByRole("group", { name: "Color workspace", exact: true })
+    .getByRole("button", { name: "Sequence" })
     .click();
+  await expect(page.locator("[data-color-target-label]")).toHaveText("Sequence: Main");
+  await editTab.click();
+  await colorTab.click();
+  await expect(page.locator("[data-color-target-label]")).toHaveText("Sequence: Main");
   await page.getByRole("button", { name: "Add adjustment layer" }).click();
   await expect(page.getByRole("region", { name: "Color grading" })).toHaveAttribute(
     "data-sequence-grade-item-id",
@@ -126,7 +134,12 @@ async function createImageDesign(page: Page): Promise<string> {
     timeout: 20_000,
   });
   const fileChooser = page.waitForEvent("filechooser");
-  await page.getByRole("button", { name: "Upload or camera" }).click();
+  await page.getByRole("button", { name: "Add", exact: true }).click();
+  await page.getByRole("button", { name: "Device", exact: true }).click();
+  await page
+    .getByRole("dialog", { name: "Add an image" })
+    .getByRole("button", { name: /Drop files here or choose from your device/ })
+    .click();
   await (
     await fileChooser
   ).setFiles({
@@ -134,13 +147,18 @@ async function createImageDesign(page: Page): Promise<string> {
     mimeType: "image/png",
     buffer: colorPhoto,
   });
-  await expect(page.getByRole("textbox", { name: "Layer name" })).toHaveValue("color-source.png");
+  await page.getByRole("button", { name: "Upload 1 file", exact: true }).click();
+  await expect(
+    page.getByRole("treeitem", { name: "color-source.png, image", exact: true }),
+  ).toHaveAttribute("aria-selected", "true");
   const saveIndicator = page.getByTestId("image-editor-save-indicator");
-  await expect(saveIndicator).toHaveAttribute("data-state", "idle");
   await expect(saveIndicator).toHaveAttribute("data-state", "saved", {
     timeout: 10_000,
   });
   await page.reload();
+  await expect(page.getByRole("application", { name: "Design canvas" })).toBeVisible({
+    timeout: 20_000,
+  });
   await expect(page.getByRole("tree", { name: "Layers" })).toContainText("color-source.png");
   return page.url();
 }
@@ -182,7 +200,10 @@ test("Sequence Auto Balance samples the composed frame without changing clip sel
   test.setTimeout(60_000);
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.stack ?? String(error)));
-  const { token } = await registerUser(request, "sequence-color-sampling@example.com");
+  const { token } = await registerUser(
+    request,
+    `sequence-color-sampling-${randomUUID()}@example.com`,
+  );
   await createWorkspace(request, token, "Sequence color sampling");
   await authenticatePage(page, token);
   await createVideoProject(page, "Sequence color sampling");
@@ -193,7 +214,7 @@ test("Sequence Auto Balance samples the composed frame without changing clip sel
 test("shared editor chrome and Color workspaces fit desktop and narrow phones", async ({
   page,
   request,
-}, testInfo) => {
+}) => {
   test.setTimeout(240_000);
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(String(error).slice(0, 300)));
@@ -203,10 +224,7 @@ test("shared editor chrome and Color workspaces fit desktop and narrow phones", 
     }
   });
 
-  const { token } = await registerUser(
-    request,
-    `editor-chrome-color-${testInfo.repeatEachIndex}-${testInfo.retry}@example.com`,
-  );
+  const { token } = await registerUser(request, `editor-chrome-color-${randomUUID()}@example.com`);
   const workspace = await createWorkspace(request, token, "Shared editor chrome");
   await authenticatePage(page, token);
   const videoURL = await createVideoProject(page);
@@ -225,7 +243,6 @@ test("shared editor chrome and Color workspaces fit desktop and narrow phones", 
       if (width === 320) {
         await page.getByRole("banner").getByRole("button", { name: "More actions" }).click();
         await expect(page.getByRole("textbox", { name: "Project name" })).toBeVisible();
-        await expect(page.getByRole("menuitem", { name: /Split/ })).toBeVisible();
         await expect(page.getByRole("menuitem", { name: "New sequence" })).toBeVisible();
         await expect(page.getByRole("menuitem", { name: "Settings" })).toBeVisible();
         await page.keyboard.press("Escape");
@@ -234,7 +251,7 @@ test("shared editor chrome and Color workspaces fit desktop and narrow phones", 
       const videoWorkspaces = page.getByRole("tablist", {
         name: "Editor workspaces",
       });
-      await expect(videoWorkspaces).toBeVisible();
+      await expect(videoWorkspaces).toBeVisible({ timeout: 20_000 });
       const videoColorTab = videoWorkspaces.getByRole("tab", {
         name: "Color",
         exact: true,
@@ -250,26 +267,32 @@ test("shared editor chrome and Color workspaces fit desktop and narrow phones", 
         timeout: 20_000,
       });
       await expect(
-        page.getByRole("group", { name: "Color workspace Clip" }).getByRole("button", {
+        page.getByRole("group", { name: "Color workspace", exact: true }).getByRole("button", {
           name: "Clip",
           exact: true,
         }),
       ).toHaveAttribute("aria-pressed", "true");
       if (width === 1440) {
         await page
-          .getByRole("group", { name: "Color workspace Clip" })
-          .getByRole("button", { name: "Sequences" })
+          .getByRole("group", { name: "Color workspace", exact: true })
+          .getByRole("button", { name: "Sequence" })
           .click();
         const addSequenceGrade = page.getByRole("button", {
           name: "Add adjustment layer",
         });
         if (await addSequenceGrade.isVisible()) await addSequenceGrade.click();
         await expect(page.getByRole("region", { name: "Color workspace" })).toBeVisible();
+        await expect(page.getByRole("slider", { name: "Lift color wheel" })).toBeEnabled();
+        const scope = page.getByRole("group", { name: "Color workspace", exact: true });
+        await scope.getByRole("button", { name: "Clip", exact: true }).click();
+        await expect(page.locator("[data-color-target-label]")).toContainText("Select a clip");
+        await scope.getByRole("button", { name: "Sequence", exact: true }).click();
+        await expect(page.getByRole("slider", { name: "Lift color wheel" })).toBeVisible();
         await expect(page.getByRole("button", { name: "Show all scopes" })).toBeVisible();
+        await expect(page.locator("[data-scope-backend]")).toHaveCount(1);
         await page.getByRole("button", { name: "Show all scopes" }).click();
         await expect(page.locator("[data-color-scope-canvas]")).toHaveCount(4);
         await page.getByRole("banner").getByRole("button", { name: "More actions" }).click();
-        await expect(page.getByRole("menuitem", { name: /Split/ })).toBeVisible();
         await expect(page.getByRole("menuitem", { name: "New sequence" })).toBeVisible();
         await page.keyboard.press("Escape");
         await expect(page.getByRole("menu")).toHaveCount(0);
@@ -285,7 +308,9 @@ test("shared editor chrome and Color workspaces fit desktop and narrow phones", 
         height: element.getBoundingClientRect().height,
       }));
       await page.goto(imageURL);
-      await expect(page.getByRole("application", { name: "Design canvas" })).toBeVisible();
+      await expect(page.getByRole("application", { name: "Design canvas" })).toBeVisible({
+        timeout: 20_000,
+      });
       await expect(page.getByText("Preparing canvas…", { exact: true })).toBeHidden();
       await expect
         .poll(() =>
@@ -331,14 +356,25 @@ test("shared editor chrome and Color workspaces fit desktop and narrow phones", 
         "color",
       );
       await expect(page.locator("[data-image-color-workspace]:visible")).toBeVisible();
-      await expect(page.locator("[data-editor-color-control]:visible")).toHaveCount(14);
+      await expect(
+        page.locator("[data-image-color-workspace] [data-editor-slider-row]:visible"),
+      ).toHaveCount(10);
+      await expect(page.getByRole("tab", { name: "Curves", exact: true })).toBeVisible();
+      await expect(page.getByRole("tab", { name: "Color Wheels", exact: true })).toBeVisible();
+      await expect(page.getByRole("tab", { name: "Scopes", exact: true })).toBeVisible();
       if (width === 1440) {
-        const scope = page.getByRole("group", { name: "Color Layers" });
+        const scope = page.getByRole("group", { name: "Color", exact: true });
         await page.getByRole("tree", { name: "Layers" }).getByText("color-source.png").click();
-        await scope.getByRole("button", { name: "Layer", exact: true }).click();
-        await expect(page.locator("[data-editor-color-control]:visible")).toHaveCount(15);
-        await scope.getByRole("button", { name: "Pages" }).click();
+        await scope.getByRole("button", { name: "Layers", exact: true }).click();
+        await expect(
+          page.locator("[data-image-color-workspace] [data-editor-slider-row]:visible"),
+        ).toHaveCount(11);
+        await scope.getByRole("button", { name: "Page", exact: true }).click();
         if (theme.id === "workshop") {
+          await page.getByRole("tab", { name: "Color Wheels", exact: true }).click();
+          await expect(
+            page.locator("[data-image-color-workspace] [data-editor-slider-row]:visible"),
+          ).toHaveCount(4);
           const originalPixel = await designCanvasCenterPixel(page);
           const offset = page.getByRole("slider", { name: "Offset color wheel" });
           await offset.press("End");
@@ -346,6 +382,7 @@ test("shared editor chrome and Color workspaces fit desktop and narrow phones", 
           await expect.poll(() => designCanvasCenterPixel(page)).not.toEqual(originalPixel);
           await page.getByRole("button", { name: /^Undo/ }).click();
           await expect.poll(() => designCanvasCenterPixel(page)).toEqual(originalPixel);
+          await page.getByRole("tab", { name: "Curves", exact: true }).click();
           const curve = page.getByRole("group", { name: "Master curve editor", exact: true });
           const points = await curve.locator("[data-curve-point]").count();
           const curveBounds = await curve.boundingBox();
@@ -360,6 +397,7 @@ test("shared editor chrome and Color workspaces fit desktop and narrow phones", 
           await page.getByRole("button", { name: /^Redo/ }).click();
           await expect.poll(() => designCanvasCenterPixel(page)).not.toEqual(originalPixel);
           const curvedPixel = await designCanvasCenterPixel(page);
+          await page.getByRole("tab", { name: "Color Wheels", exact: true }).click();
           await offset.press("End");
           await expect.poll(() => designCanvasCenterPixel(page)).not.toEqual(curvedPixel);
           const advancedPixel = await designCanvasCenterPixel(page);
@@ -369,14 +407,31 @@ test("shared editor chrome and Color workspaces fit desktop and narrow phones", 
             { timeout: 10_000 },
           );
           await page.reload();
-          await expect(page.getByRole("application", { name: "Design canvas" })).toBeVisible();
+          await expect(page.getByRole("application", { name: "Design canvas" })).toBeVisible({
+            timeout: 20_000,
+          });
           await page.locator("#image-editor-workspace-tab-color").click();
+          await page.getByRole("tab", { name: "Color Wheels", exact: true }).click();
           await expect(offset).toHaveAttribute("aria-valuetext", "0 degrees, 100 percent");
+          await page.getByRole("tab", { name: "Curves", exact: true }).click();
           await expect(curve.locator("[data-curve-point]")).toHaveCount(points + 1);
           await expect.poll(() => designCanvasCenterPixel(page)).toEqual(advancedPixel);
+          await page.getByRole("tab", { name: "Adjustments", exact: true }).click();
           await page.getByRole("button", { name: "Original", exact: true }).click();
+          await page.getByRole("tab", { name: "Scopes", exact: true }).click();
+          await expect(page.locator("[data-scope-backend]")).toHaveCount(1);
           await page.getByRole("button", { name: "Show all scopes" }).click();
           await expect(page.locator("[data-color-scope-canvas]")).toHaveCount(4);
+          await page.setViewportSize({ width: 390, height: 844 });
+          await page.getByRole("banner").getByRole("button", { name: "More actions" }).click();
+          await page.getByRole("menuitem", { name: "Properties", exact: true }).click();
+          await expect(page.getByRole("dialog")).toHaveCount(0);
+          await expect(page.getByRole("tab", { name: "Scopes", exact: true })).toBeFocused();
+          await expect(page.locator("[data-scope-backend]")).toHaveCount(1);
+          await expect(page.locator("[data-color-scope-canvas]")).toHaveCount(4);
+          await page.setViewportSize({ width, height: 900 });
+          await expect(page.locator("[data-color-scope-canvas]")).toHaveCount(4);
+          await page.getByRole("tab", { name: "Adjustments", exact: true }).click();
           await page.getByRole("button", { name: "Warm", exact: true }).click();
           await expect.poll(() => designCanvasCenterPixel(page)).not.toEqual(originalPixel);
           const gradedPixel = await designCanvasCenterPixel(page);
@@ -391,7 +446,9 @@ test("shared editor chrome and Color workspaces fit desktop and narrow phones", 
             timeout: 10_000,
           });
           await page.reload();
-          await expect(page.getByRole("application", { name: "Design canvas" })).toBeVisible();
+          await expect(page.getByRole("application", { name: "Design canvas" })).toBeVisible({
+            timeout: 20_000,
+          });
           await expect.poll(() => designCanvasCenterPixel(page)).toEqual(gradedPixel);
           await page.locator("#image-editor-workspace-tab-color").click();
         }
@@ -399,6 +456,21 @@ test("shared editor chrome and Color workspaces fit desktop and narrow phones", 
         const gradedPixel = await designCanvasCenterPixel(page);
         await page.getByRole("button", { name: "Before", exact: true }).click();
         await expect.poll(() => designCanvasCenterPixel(page)).not.toEqual(gradedPixel);
+        if (width === 1440) {
+          const beforePixel = await designCanvasCenterPixel(page);
+          await page.setViewportSize({ width: 390, height: 844 });
+          await expect(page.getByRole("button", { name: "Before", exact: true })).toHaveAttribute(
+            "aria-pressed",
+            "true",
+          );
+          await expect.poll(() => designCanvasCenterPixel(page)).toEqual(beforePixel);
+          await page.setViewportSize({ width, height: 900 });
+          await expect(page.getByRole("button", { name: "Before", exact: true })).toHaveAttribute(
+            "aria-pressed",
+            "true",
+          );
+          await expect.poll(() => designCanvasCenterPixel(page)).toEqual(beforePixel);
+        }
       }
       await expectNoHorizontalOverflow(page);
       await page.screenshot({
@@ -451,7 +523,7 @@ test.describe("touch editor headers", () => {
         const home = header.getByRole("button", { name: /Image Editor/u });
         await expect(home).toHaveCount(1);
         await home.click();
-        await expect(page).toHaveURL(/\/image-editor$/u);
+        await expect(page).toHaveURL(/\/media$/u);
       }
     }
   });

@@ -1,5 +1,27 @@
-import type { APIRequestContext, Page } from "@playwright/test";
+import type { APIRequestContext, Locator, Page } from "@playwright/test";
 import { expect } from "@playwright/test";
+
+export async function expectPostText(
+  editor: Locator,
+  text: string,
+  options: { timeout?: number } = {},
+) {
+  await expect
+    .poll(
+      () =>
+        editor.evaluate((element) => {
+          function read(node: Node): string {
+            if (node.nodeType === Node.TEXT_NODE) return node.textContent ?? "";
+            if (node instanceof HTMLBRElement)
+              return node.classList.contains("ProseMirror-trailingBreak") ? "" : "\n";
+            return Array.from(node.childNodes, read).join("");
+          }
+          return Array.from(element.children, read).join("\n");
+        }),
+      options,
+    )
+    .toBe(text);
+}
 
 export const password = "password-1234";
 
@@ -126,6 +148,13 @@ export async function authenticatePage(page: Page, token: string) {
       sameSite: "Lax",
     },
   ]);
+  // Most suites exercise the composer at `/`. Home entry has its own coverage.
+  await page.addInitScript(() => localStorage.setItem("openpost-landing", "compose"));
+}
+
+/** The composer destination row is a labelled region of destination tabs. */
+export function composerDestinations(page: Page) {
+  return page.getByRole("region", { name: "Destinations", exact: true });
 }
 
 export async function clickComposerDeliveryAction(page: Page, name: string) {
@@ -151,4 +180,12 @@ export async function routeBrowserRegistration(page: Page, seed: string) {
       },
     });
   });
+}
+
+export async function openComposerPlatformSettings(page: Page): Promise<void> {
+  await page
+    .getByTestId("composer-variant-toolbar")
+    .getByRole("button", { name: "More", exact: true })
+    .click();
+  await page.getByRole("menuitem", { name: "Platform settings", exact: true }).click();
 }

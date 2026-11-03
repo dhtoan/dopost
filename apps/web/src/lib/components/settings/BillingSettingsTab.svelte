@@ -8,6 +8,7 @@
 	import { client } from '$lib/api/client';
 	import type { components } from '$lib/api/types';
 	import { getLocaleTag } from '$lib/i18n';
+	import { formatBytes as formatByteSize } from '$lib/byte-size';
 	import { checkoutPathForPlan, hostedPlanFromSearchParams } from '$lib/billing';
 	import {
 		billingPortalBody,
@@ -23,6 +24,8 @@
 	import InlineNotice from '$lib/components/inline-notice.svelte';
 	import PageLoading from '$lib/components/page-loading.svelte';
 	import SectionHeader from '$lib/components/section-header.svelte';
+	import AsyncActionButton from '$lib/components/async-action-button.svelte';
+	import Disclosure from '$lib/components/disclosure.svelte';
 	import { m } from '$lib/paraglide/messages';
 	import { ProtectedIcon, ThemeIcon } from '$lib/themes/icons';
 	import { resolveAppPath } from '$lib/app-path';
@@ -145,6 +148,8 @@
 	}
 
 	function providerCostOperationLabel(operation: string) {
+		if (operation === 'post_read') return m.analytics_content_title();
+		if (operation === 'user_read') return m.analytics_accounts_title();
 		if (operation === 'post_create') return m.settings_provider_cost_post_create();
 		if (operation === 'post_create_with_url') {
 			return m.settings_provider_cost_post_create_with_url();
@@ -292,13 +297,8 @@
 	}
 
 	function formatBytes(value: number): string {
-		if (value >= 1_000_000_000) {
-			return `${new Intl.NumberFormat(getLocaleTag(), { maximumFractionDigits: 1 }).format(value / 1_000_000_000)} GB`;
-		}
-		if (value >= 1_000_000) {
-			return `${new Intl.NumberFormat(getLocaleTag(), { maximumFractionDigits: 1 }).format(value / 1_000_000)} MB`;
-		}
-		return `${new Intl.NumberFormat(getLocaleTag()).format(value)} B`;
+		// Billing surfaces quote decimal (SI) sizes, matching plan catalog limits.
+		return formatByteSize(value, { locale: getLocaleTag(), base: 'si' }) ?? '—';
 	}
 
 	function formatDate(value: string): string {
@@ -375,18 +375,15 @@
 >
 	{#snippet actions()}
 		{#if billingStatus?.can_manage_billing && hasBillingSubscription}
-			<Button
+			<AsyncActionButton
 				variant="outline"
-				onclick={() => void openBillingPortal()}
+				label={m.settings_customer_portal()}
+				pendingLabel={m.settings_customer_portal()}
+				icon="external-link"
+				state={billingPortalBusy ? 'pending' : 'idle'}
 				disabled={billingPortalBusy}
-			>
-				{#if billingPortalBusy}
-					<ProtectedIcon icon="loading" class="mr-2 h-4 w-4 animate-spin" />
-				{:else}
-					<ThemeIcon role="external-link" class="mr-2 h-4 w-4" />
-				{/if}
-				{m.settings_customer_portal()}
-			</Button>
+				onclick={() => void openBillingPortal()}
+			/>
 		{/if}
 	{/snippet}
 </SectionHeader>
@@ -429,17 +426,15 @@
 							: m.billing_recovery_notice_member_action()}
 					</p>
 					{#if billingStatus.can_manage_billing}
-						<Button
+						<AsyncActionButton
 							variant="destructive"
 							class="mt-3 w-full sm:w-auto"
-							onclick={() => void openBillingPortal('update_payment_method')}
+							label={m.billing_recovery_update_payment_method()}
+							pendingLabel={m.billing_recovery_update_payment_method()}
+							state={billingPortalBusy ? 'pending' : 'idle'}
 							disabled={billingPortalBusy}
-						>
-							{#if billingPortalBusy}
-								<ProtectedIcon icon="loading" class="mr-2 h-4 w-4 animate-spin" />
-							{/if}
-							{m.billing_recovery_update_payment_method()}
-						</Button>
+							onclick={() => void openBillingPortal('update_payment_method')}
+						/>
 					{/if}
 				</div>
 			</InlineNotice>
@@ -512,7 +507,7 @@
 
 		<div class="mb-4 grid gap-3 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
 			<div class="rounded-lg border bg-muted/20 p-4">
-				<p class="text-xs font-medium tracking-wide text-muted-foreground uppercase">
+				<p class="text-xs font-medium text-muted-foreground">
 					{m.settings_current_plan()}
 				</p>
 				<div class="mt-2 flex flex-wrap items-end gap-x-3 gap-y-1">
@@ -544,7 +539,7 @@
 			</div>
 
 			<div class="rounded-lg border bg-muted/20 p-4">
-				<p class="text-xs font-medium tracking-wide text-muted-foreground uppercase">
+				<p class="text-xs font-medium text-muted-foreground">
 					{m.settings_usage_month()}
 				</p>
 				{#if monthlyBillingUsageRows.length}
@@ -686,17 +681,22 @@
 	{/if}
 {/if}
 
-<details class="border-t pt-4" open={!hasActiveBillingPlan}>
-	<summary
-		class="cursor-pointer text-sm font-medium focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-	>
-		{hasActiveBillingPlan ? m.settings_compare_plan() : m.settings_choose_plan()}
-	</summary>
+<Disclosure
+	class="border-t pt-4"
+	open={!hasActiveBillingPlan}
+	summary={hasActiveBillingPlan ? m.settings_compare_plan() : m.settings_choose_plan()}
+>
 	<div class="mt-4 grid gap-3 lg:grid-cols-3">
 		<p class="text-sm text-muted-foreground lg:col-span-3">
 			{m.settings_plan_price_estimate_note()}
 		</p>
 		{#each billingPlans as plan (plan.id)}
+			{@const checkoutLabel =
+				hasActiveBillingPlan && billingStatus?.plan_id === plan.id
+					? m.settings_current_plan()
+					: hasActiveBillingPlan
+						? m.settings_use_portal()
+						: m.settings_choose_named_plan({ plan: plan.name })}
 			<article
 				class={`rounded-lg border p-4 ${plan.featured ? 'border-primary bg-primary/5 shadow-sm' : 'bg-background'}`}
 			>
@@ -721,30 +721,22 @@
 						<li>{limit}</li>
 					{/each}
 				</ul>
-				<Button
+				<AsyncActionButton
 					class="w-full"
 					variant={plan.featured ? 'default' : 'outline'}
-					onclick={() => startCheckout(plan.id)}
+					label={checkoutLabel}
+					pendingLabel={checkoutLabel}
+					state={billingBusyPlan === plan.id ? 'pending' : 'idle'}
 					disabled={Boolean(billingBusyPlan) ||
 						hasActiveBillingPlan ||
 						billingRecoveryRequired ||
 						Boolean(billingStatus && !billingStatus.can_manage_billing)}
-				>
-					{#if billingBusyPlan === plan.id}
-						<ProtectedIcon icon="loading" class="mr-2 h-4 w-4 animate-spin" />
-					{/if}
-					{#if hasActiveBillingPlan && billingStatus?.plan_id === plan.id}
-						{m.settings_current_plan()}
-					{:else if hasActiveBillingPlan}
-						{m.settings_use_portal()}
-					{:else}
-						{m.settings_choose_named_plan({ plan: plan.name })}
-					{/if}
-				</Button>
+					onclick={() => startCheckout(plan.id)}
+				/>
 			</article>
 		{/each}
 	</div>
-</details>
+</Disclosure>
 
 {#if billingError}
 	<InlineNotice tone="error" message={billingError} class="mt-4" />

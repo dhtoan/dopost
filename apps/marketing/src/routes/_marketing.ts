@@ -1,5 +1,6 @@
 import { planCatalog, purchaseTerms, selfHostedDeployment } from '@openpost/plan-catalog';
-import { PLATFORM_LIMITS } from '../../../web/src/lib/platform-limits';
+import { browserExtensions, mediaTools, previewTools } from '@openpost/social-images';
+import { PLATFORM_LIMITS, X_PREMIUM_CHAR_LIMIT } from '@openpost/platform-text';
 import publicClaimManifest from '../../../../config/provider-certification/public-claims.json';
 
 type PublicProviderClaim = {
@@ -12,25 +13,25 @@ type PublicProviderClaim = {
 export const appUrl = 'https://app.openpo.st';
 export const managedSignupUrl = `${appUrl}/register?plan=founder&billing_period=monthly`;
 export const billingSettingsUrl = `${appUrl}/settings?tab=billing#billing`;
-export const userDocsUrl = 'https://docs.openpo.st/guides/quickstart';
-export const selfHostingDocsUrl = 'https://docs.openpo.st/self-hosting/';
+export const userDocsUrl = 'https://openpo.st/docs/guides/quickstart';
+export const selfHostingDocsUrl = 'https://openpo.st/docs/self-hosting/';
 export const developerDocsUrl =
 	'https://github.com/getopenpost/openpost/blob/main/docs/development/index.md';
-export const apiGuideUrl = 'https://docs.openpo.st/api-reference';
-export const openApiUrl = 'https://docs.openpo.st/openapi.json';
-export const cliDocsUrl = 'https://docs.openpo.st/guides/automation';
-export const mcpDocsUrl = 'https://docs.openpo.st/guides/automation';
-export const apiTokenDocsUrl = 'https://docs.openpo.st/api-reference';
-export const agentPublishingDocsUrl = 'https://docs.openpo.st/guides/automation';
+export const apiGuideUrl = 'https://openpo.st/docs/api-reference';
+export const openApiUrl = 'https://openpo.st/docs/openapi.json';
+export const cliDocsUrl = 'https://openpo.st/docs/automate/cli';
+export const mcpDocsUrl = 'https://openpo.st/docs/mcp';
+export const apiTokenDocsUrl = 'https://openpo.st/docs/api-reference';
+export const agentPublishingDocsUrl = 'https://openpo.st/docs/automate';
 export const docsUrl = userDocsUrl;
 export const githubUrl = 'https://github.com/getopenpost/openpost';
 export const siteUrl = 'https://openpo.st';
 export const discordCommunityUrl = 'https://discord.com/invite/u2QwukmY4W';
 export const supportEmail = 'openpost@rgo.pt';
 export const supportMailUrl = `mailto:${supportEmail}`;
-export const demoVideoUrl = 'https://www.youtube.com/watch?v=_mZf3HzQaN8';
+export const demoVideoUrl = 'https://www.youtube.com/watch?v=eiwOnwxanTQ';
 export const demoVideoEmbedUrl =
-	'https://www.youtube-nocookie.com/embed/_mZf3HzQaN8?autoplay=1&rel=0';
+	'https://www.youtube-nocookie.com/embed/eiwOnwxanTQ?autoplay=1&rel=0';
 
 type NavigationSurface = 'primary' | 'resources' | 'mobile' | 'footer';
 type ResourceGroup = 'Learn' | 'OpenPost';
@@ -74,6 +75,12 @@ const navigationRegistry: readonly MarketingNavigationItem[] = [
 		surfaces: ['footer']
 	},
 	{
+		label: 'Workflows',
+		href: 'https://openpo.st/docs/workflows',
+		footerGroup: 'Product',
+		surfaces: ['footer']
+	},
+	{
 		label: 'Video editor',
 		href: '/tools/social-media-video-editor',
 		footerGroup: 'Product',
@@ -87,8 +94,15 @@ const navigationRegistry: readonly MarketingNavigationItem[] = [
 		surfaces: ['resources', 'mobile', 'footer']
 	},
 	{
-		label: 'Publishing guides',
+		label: 'Guides & comparisons',
 		href: '/guides',
+		group: 'Learn',
+		footerGroup: 'Resources',
+		surfaces: ['resources', 'mobile', 'footer']
+	},
+	{
+		label: 'Comparisons',
+		href: '/comparisons',
 		group: 'Learn',
 		footerGroup: 'Resources',
 		surfaces: ['resources', 'mobile', 'footer']
@@ -136,6 +150,19 @@ const navigationRegistry: readonly MarketingNavigationItem[] = [
 		surfaces: ['footer']
 	},
 	{ label: 'GitHub source', href: githubUrl, footerGroup: 'More', surfaces: ['footer'] },
+	{
+		label: 'YouTube',
+		href: 'https://www.youtube.com/@GetOpenPost',
+		footerGroup: 'More',
+		surfaces: ['footer']
+	},
+	{ label: 'X', href: 'https://x.com/GetOpenPost', footerGroup: 'More', surfaces: ['footer'] },
+	{
+		label: 'Bluesky',
+		href: 'https://bsky.app/profile/openpo.st',
+		footerGroup: 'More',
+		surfaces: ['footer']
+	},
 	{
 		label: 'Self-hosting guide',
 		href: selfHostingDocsUrl,
@@ -206,7 +233,7 @@ export const plans = planCatalog.plans.map((plan) => ({
 	limits: [
 		formatLimit(plan.limits.workspaces, 'workspace'),
 		formatLimit(plan.limits.social_accounts, 'social account'),
-		`${plan.limits.scheduled_posts_monthly.toLocaleString('en-US')} scheduled publications/month`,
+		`${plan.limits.scheduled_posts_monthly.toLocaleString('en-US')} scheduled posts/month`,
 		`${plan.limits.media_bytes_stored / 1_000_000_000} GB media`,
 		plan.limits.team_members === 1
 			? '1 seat'
@@ -214,6 +241,29 @@ export const plans = planCatalog.plans.map((plan) => ({
 	],
 	featured: plan.featured
 }));
+
+// Capability claim sources — start
+// Marketing text limits come from PLATFORM_LIMITS (@openpost/platform-text,
+// guarded by packages/platform-text/conformance/fixtures.json). The tiered
+// values below have no platform-text owner; each cites the enforcing server
+// owner and the provider documentation. Reviewed 2026-10-18.
+// Enforced by the LinkedIn thread capability (TextLimit: 1250 in
+// apps/server/internal/capabilities/capabilities.go).
+export const LINKEDIN_COMMENT_LIMIT = 1250;
+// Enforced by the TikTok photo-post capability (TextLimit: 4000 in
+// apps/server/internal/capabilities/capabilities.go); see
+// https://developers.tiktok.com/docs/en/content-posting-api-media-transfer-guide
+export const TIKTOK_PHOTO_CHAR_LIMIT = 4000;
+// Enforced by the Telegram media/video capabilities (TextLimit: 1024 in
+// apps/server/internal/capabilities/capabilities.go); see
+// https://core.telegram.org/bots/api#sending-files
+export const TELEGRAM_CAPTION_LIMIT = 1024;
+// Enforced by apps/server/internal/providerlimits/x.go for media_category=tweet_video;
+// see https://docs.x.com/x-api/media/introduction and
+// https://docs.x.com/x-api/media/quickstart/best-practices (verified there 2026-09-26).
+export const X_VIDEO_STANDARD = { minutes: 20, gib: 8 } as const;
+export const X_VIDEO_PREMIUM = { minutes: 125, gib: 16 } as const;
+// Capability claim sources — end
 
 const platformImplementations = [
 	{
@@ -230,7 +280,7 @@ const platformImplementations = [
 			label: 'Reply chain',
 			headline: 'Three connected posts',
 			body: 'Each part is reviewed and scheduled as its own X post.',
-			detail: '280 standard · up to 25,000 subscribed',
+			detail: `${PLATFORM_LIMITS.x.charLimit} standard · up to ${X_PREMIUM_CHAR_LIMIT.toLocaleString('en-US')} subscribed`,
 			chips: ['Post 1', 'Reply 2', 'Reply 3']
 		},
 		accountRequirement: 'An X developer app with OAuth 1.0a user authentication enabled.',
@@ -243,24 +293,24 @@ const platformImplementations = [
 		formats: [
 			{
 				name: 'Post, thread, or link',
-				text: '280 standard · up to 25,000 subscribed',
+				text: `${PLATFORM_LIMITS.x.charLimit} standard · up to ${X_PREMIUM_CHAR_LIMIT.toLocaleString('en-US')} subscribed`,
 				media: 'Text only'
 			},
 			{
 				name: 'Image post',
-				text: '280 standard · up to 25,000 subscribed',
+				text: `${PLATFORM_LIMITS.x.charLimit} standard · up to ${X_PREMIUM_CHAR_LIMIT.toLocaleString('en-US')} subscribed`,
 				media: '1-4 JPEG, PNG, WebP, or GIF images'
 			},
 			{
 				name: 'Video',
-				text: '280 standard · up to 25,000 subscribed',
+				text: `${PLATFORM_LIMITS.x.charLimit} standard · up to ${X_PREMIUM_CHAR_LIMIT.toLocaleString('en-US')} subscribed`,
 				media: '1 MP4 or QuickTime video'
 			}
 		],
 		limits: [
 			`${PLATFORM_LIMITS.x.charLimit} weighted characters for standard accounts`,
-			'Up to 25,000 weighted characters for verified Basic, Premium, or Premium+ accounts',
-			'Video: 140 seconds and 512 MiB standard; up to 4 hours and 16 GiB subscribed',
+			`Up to ${X_PREMIUM_CHAR_LIMIT.toLocaleString('en-US')} weighted characters for verified Basic, Premium, or Premium+ accounts`,
+			`Video: ${X_VIDEO_STANDARD.minutes} minutes and ${X_VIDEO_STANDARD.gib} GiB standard; up to ${X_VIDEO_PREMIUM.minutes} minutes and ${X_VIDEO_PREMIUM.gib} GiB subscribed`,
 			PLATFORM_LIMITS.x.media,
 			'Your X API plan and limits still apply'
 		],
@@ -270,7 +320,7 @@ const platformImplementations = [
 			'Polls, quote posts, and other format settings remain subject to the account API tier.'
 		],
 		verification: 'Check OAuth, account limits, and each post type you plan to use.',
-		docsUrl: 'https://docs.openpo.st/guides/accounts'
+		docsUrl: 'https://openpo.st/docs/guides/accounts'
 	},
 	{
 		slug: 'mastodon',
@@ -286,7 +336,7 @@ const platformImplementations = [
 			label: 'mastodon.social',
 			headline: 'Public post with a content warning option',
 			body: 'Each account keeps its visibility, language, sensitive media, and server rules.',
-			detail: '500 characters by default',
+			detail: `${PLATFORM_LIMITS.mastodon.charLimit} characters by default`,
 			chips: ['Public', 'English', 'Instance-aware']
 		},
 		accountRequirement: 'An account on a public HTTPS Mastodon instance that allows app access.',
@@ -299,12 +349,12 @@ const platformImplementations = [
 		formats: [
 			{
 				name: 'Post, thread, or link',
-				text: '500 characters by default',
+				text: `${PLATFORM_LIMITS.mastodon.charLimit} characters by default`,
 				media: 'Text only'
 			},
 			{
 				name: 'Media post',
-				text: '500 characters by default',
+				text: `${PLATFORM_LIMITS.mastodon.charLimit} characters by default`,
 				media: 'Up to 4 images, GIFs, or MP4 attachments'
 			}
 		],
@@ -321,7 +371,7 @@ const platformImplementations = [
 		],
 		verification:
 			'Check the server rules and publish one media test before you rely on a new server.',
-		docsUrl: 'https://docs.openpo.st/guides/accounts'
+		docsUrl: 'https://openpo.st/docs/guides/accounts'
 	},
 	{
 		slug: 'pixelfed',
@@ -350,12 +400,12 @@ const platformImplementations = [
 		formats: [
 			{
 				name: 'Photo post',
-				text: '500 characters by default',
+				text: `${PLATFORM_LIMITS.pixelfed.charLimit} characters by default`,
 				media: '1-4 JPEG, PNG, or WebP photos'
 			},
 			{
 				name: 'Album',
-				text: '500 characters by default',
+				text: `${PLATFORM_LIMITS.pixelfed.charLimit} characters by default`,
 				media: '2-4 photos with per-image alt text'
 			}
 		],
@@ -372,7 +422,7 @@ const platformImplementations = [
 		],
 		verification:
 			'Check the server rules and publish one photo test before you rely on a new server.',
-		docsUrl: 'https://docs.openpo.st/guides/accounts'
+		docsUrl: 'https://openpo.st/docs/guides/accounts'
 	},
 	{
 		slug: 'peertube',
@@ -417,7 +467,7 @@ const platformImplementations = [
 			'One adapter registration is maintained per PeerTube instance.'
 		],
 		verification: 'Upload one test video and confirm it finishes transcoding before scheduling.',
-		docsUrl: 'https://docs.openpo.st/guides/accounts'
+		docsUrl: 'https://openpo.st/docs/guides/accounts'
 	},
 	{
 		slug: 'lemmy',
@@ -432,7 +482,7 @@ const platformImplementations = [
 		preview: {
 			label: 'Community post',
 			headline: 'A discussion with title and body',
-			body: 'Each rendition targets one community with its own title, body, and validation.',
+			body: 'Each variant targets one community with its own title, body, and validation.',
 			detail: 'Community and title required',
 			chips: ['Community', 'Replies', 'Moderation-aware']
 		},
@@ -459,7 +509,7 @@ const platformImplementations = [
 			'A community and title are required for every post',
 			PLATFORM_LIMITS.lemmy.media,
 			'Communities can restrict posting to moderators',
-			'A publication with an unresolved community cannot be scheduled'
+			'A post with an unresolved community cannot be scheduled'
 		],
 		limitations: [
 			'Publishing uses the Lemmy v3 API; 1.x instances on API v4 are refused explicitly.',
@@ -467,7 +517,7 @@ const platformImplementations = [
 			'Removed remote posts are reported, never reposted automatically.'
 		],
 		verification: 'Post one test discussion and confirm it is visible in the target community.',
-		docsUrl: 'https://docs.openpo.st/guides/accounts'
+		docsUrl: 'https://openpo.st/docs/guides/accounts'
 	},
 	{
 		slug: 'piefed',
@@ -482,7 +532,7 @@ const platformImplementations = [
 		preview: {
 			label: 'Community post',
 			headline: 'A discussion with title and body',
-			body: 'Each rendition targets one community with its own title, body, and validation.',
+			body: 'Each variant targets one community with its own title, body, and validation.',
 			detail: 'Community and title required',
 			chips: ['Community', 'Replies', 'Native API']
 		},
@@ -509,7 +559,7 @@ const platformImplementations = [
 			'A community and title are required for every post',
 			PLATFORM_LIMITS.piefed.media,
 			'Communities can restrict posting to moderators',
-			'A publication with an unresolved community cannot be scheduled'
+			'A post with an unresolved community cannot be scheduled'
 		],
 		limitations: [
 			'Publishing uses the native PieFed alpha API through its own adapter.',
@@ -517,7 +567,7 @@ const platformImplementations = [
 			'Removed remote posts are reported, never reposted automatically.'
 		],
 		verification: 'Post one test discussion and confirm it is visible in the target community.',
-		docsUrl: 'https://docs.openpo.st/guides/accounts'
+		docsUrl: 'https://openpo.st/docs/guides/accounts'
 	},
 	{
 		slug: 'bluesky',
@@ -533,7 +583,7 @@ const platformImplementations = [
 			label: '@openpo.st',
 			headline: 'A short post with a rich link card',
 			body: "Rich text, link cards, replies, labels, and media use Bluesky's AT Protocol format.",
-			detail: '300 characters',
+			detail: `${PLATFORM_LIMITS.bluesky.charLimit} characters`,
 			chips: ['Rich text', 'Link card', 'AT Protocol']
 		},
 		accountRequirement: 'A Bluesky handle and a dedicated app password.',
@@ -546,17 +596,17 @@ const platformImplementations = [
 		formats: [
 			{
 				name: 'Post, thread, or link',
-				text: '300 characters',
+				text: `${PLATFORM_LIMITS.bluesky.charLimit} characters`,
 				media: 'Text or a rich link card'
 			},
 			{
 				name: 'Image post',
-				text: '300 characters',
+				text: `${PLATFORM_LIMITS.bluesky.charLimit} characters`,
 				media: '1-4 JPEG, PNG, or WebP images'
 			},
 			{
 				name: 'Video',
-				text: '300 characters',
+				text: `${PLATFORM_LIMITS.bluesky.charLimit} characters`,
 				media: '1 MP4 video, up to 100 MB'
 			}
 		],
@@ -573,7 +623,7 @@ const platformImplementations = [
 		],
 		verification:
 			'Text and image posts work in OpenPost. Test video with the account before a scheduled campaign.',
-		docsUrl: 'https://docs.openpo.st/guides/accounts'
+		docsUrl: 'https://openpo.st/docs/guides/accounts'
 	},
 	{
 		slug: 'linkedin',
@@ -589,7 +639,7 @@ const platformImplementations = [
 			label: 'Professional update',
 			headline: 'Quarterly field guide.pdf',
 			body: 'The document title, post text, and follow-up comments each have their own limit.',
-			detail: '3,000 post · 1,250 comment',
+			detail: `${PLATFORM_LIMITS.linkedin.charLimit.toLocaleString('en-US')} post · ${LINKEDIN_COMMENT_LIMIT.toLocaleString('en-US')} comment`,
 			chips: ['PDF document', 'Comment child', 'Organization-ready']
 		},
 		accountRequirement:
@@ -603,23 +653,23 @@ const platformImplementations = [
 		formats: [
 			{
 				name: 'Post or link',
-				text: '3,000 characters',
+				text: `${PLATFORM_LIMITS.linkedin.charLimit.toLocaleString('en-US')} characters`,
 				media: 'Text or a link card'
 			},
 			{
 				name: 'Comment thread',
-				text: '1,250 characters per child',
+				text: `${LINKEDIN_COMMENT_LIMIT.toLocaleString('en-US')} characters per child`,
 				media: 'Text only'
 			},
 			{
 				name: 'Image, document, or video',
-				text: '3,000 characters',
+				text: `${PLATFORM_LIMITS.linkedin.charLimit.toLocaleString('en-US')} characters`,
 				media: 'One image, PDF document, or video per account version'
 			}
 		],
 		limits: [
 			`${PLATFORM_LIMITS.linkedin.charLimit} characters for posts`,
-			'1,250 characters for thread comments',
+			`${LINKEDIN_COMMENT_LIMIT.toLocaleString('en-US')} characters for thread comments`,
 			PLATFORM_LIMITS.linkedin.media,
 			'Thread children publish as comments'
 		],
@@ -630,7 +680,7 @@ const platformImplementations = [
 		],
 		verification:
 			'OAuth success alone does not prove every publishing permission; test the formats your team will schedule.',
-		docsUrl: 'https://docs.openpo.st/guides/accounts'
+		docsUrl: 'https://openpo.st/docs/guides/accounts'
 	},
 	{
 		slug: 'threads',
@@ -659,22 +709,22 @@ const platformImplementations = [
 		formats: [
 			{
 				name: 'Post or reply thread',
-				text: '500 characters',
+				text: `${PLATFORM_LIMITS.threads.charLimit} characters`,
 				media: 'Text only'
 			},
 			{
 				name: 'Image or video',
-				text: '500 characters',
+				text: `${PLATFORM_LIMITS.threads.charLimit} characters`,
 				media: 'One public HTTPS media item'
 			},
 			{
 				name: 'Carousel',
-				text: '500 characters',
+				text: `${PLATFORM_LIMITS.threads.charLimit} characters`,
 				media: '2-20 public HTTPS images or videos'
 			}
 		],
 		limits: [
-			`${PLATFORM_LIMITS.threads.charLimit} characters`,
+			`${PLATFORM_LIMITS.threads.charLimit} UTF-8 bytes`,
 			PLATFORM_LIMITS.threads.media,
 			'Reply chains',
 			'Public media URL and approved Meta app access required'
@@ -686,7 +736,7 @@ const platformImplementations = [
 		],
 		verification:
 			'Verify that Meta can fetch the exact production media URL before scheduling media-heavy work.',
-		docsUrl: 'https://docs.openpo.st/guides/accounts'
+		docsUrl: 'https://openpo.st/docs/guides/accounts'
 	},
 	{
 		slug: 'facebook',
@@ -715,17 +765,17 @@ const platformImplementations = [
 		formats: [
 			{
 				name: 'Page post or link',
-				text: '63,206 characters',
+				text: `${PLATFORM_LIMITS.facebook.charLimit.toLocaleString('en-US')} characters`,
 				media: 'Text or a link card'
 			},
 			{
 				name: 'Photo or multi-photo',
-				text: '63,206 characters',
+				text: `${PLATFORM_LIMITS.facebook.charLimit.toLocaleString('en-US')} characters`,
 				media: '1 image or 2-10 public HTTPS photos'
 			},
 			{
 				name: 'Video or Story',
-				text: '63,206 characters for video',
+				text: `${PLATFORM_LIMITS.facebook.charLimit.toLocaleString('en-US')} characters for video`,
 				media: 'One public HTTPS video; Story accepts one image or video'
 			}
 		],
@@ -742,7 +792,7 @@ const platformImplementations = [
 		],
 		verification:
 			'Do not plan a launch around this integration until Page selection and every required format pass a live test.',
-		docsUrl: 'https://docs.openpo.st/guides/accounts'
+		docsUrl: 'https://openpo.st/docs/guides/accounts'
 	},
 	{
 		slug: 'instagram',
@@ -770,17 +820,17 @@ const platformImplementations = [
 		formats: [
 			{
 				name: 'Feed image',
-				text: '2,200 caption characters',
+				text: `${PLATFORM_LIMITS.instagram.charLimit.toLocaleString('en-US')} caption characters`,
 				media: 'One public HTTPS image'
 			},
 			{
 				name: 'Carousel',
-				text: '2,200 caption characters',
+				text: `${PLATFORM_LIMITS.instagram.charLimit.toLocaleString('en-US')} caption characters`,
 				media: '2-10 public HTTPS images or videos'
 			},
 			{
 				name: 'Story or Reel',
-				text: 'No Story caption; 2,200 for Reel',
+				text: `No Story caption; ${PLATFORM_LIMITS.instagram.charLimit.toLocaleString('en-US')} for Reel`,
 				media: 'Public HTTPS media required'
 			}
 		],
@@ -798,7 +848,7 @@ const platformImplementations = [
 		],
 		verification:
 			'Test each planned format—feed, carousel, Story, and Reel—because one successful format does not prove the others.',
-		docsUrl: 'https://docs.openpo.st/guides/accounts'
+		docsUrl: 'https://openpo.st/docs/guides/accounts'
 	},
 	{
 		slug: 'tiktok',
@@ -813,7 +863,7 @@ const platformImplementations = [
 			label: 'Two post types',
 			headline: 'Video or 1-35 photos',
 			body: 'Video and photo posts keep different captions, media rules, and app-review checks.',
-			detail: '2,200 video · 4,000 photo',
+			detail: `${PLATFORM_LIMITS.tiktok.charLimit.toLocaleString('en-US')} video · ${TIKTOK_PHOTO_CHAR_LIMIT.toLocaleString('en-US')} photo`,
 			chips: ['9:16 video', 'Photo post', 'App review']
 		},
 		accountRequirement:
@@ -827,18 +877,18 @@ const platformImplementations = [
 		formats: [
 			{
 				name: 'Video',
-				text: '2,200 caption characters',
+				text: `${PLATFORM_LIMITS.tiktok.charLimit.toLocaleString('en-US')} caption characters`,
 				media: 'One public HTTPS MP4 or QuickTime video'
 			},
 			{
 				name: 'Photo post',
-				text: '4,000 caption characters',
+				text: `${TIKTOK_PHOTO_CHAR_LIMIT.toLocaleString('en-US')} caption characters`,
 				media: '1-35 public HTTPS JPEG or WebP images'
 			}
 		],
 		limits: [
 			`${PLATFORM_LIMITS.tiktok.charLimit.toLocaleString()} characters for video captions`,
-			'4,000 characters for photo-post captions',
+			`${TIKTOK_PHOTO_CHAR_LIMIT.toLocaleString('en-US')} characters for photo-post captions`,
 			PLATFORM_LIMITS.tiktok.media,
 			'Photo posts support 1-35 JPEG or WebP images',
 			'App review and a live test are required'
@@ -850,7 +900,7 @@ const platformImplementations = [
 		],
 		verification:
 			'Do not use it for real posts until TikTok approves the app and your posting test works.',
-		docsUrl: 'https://docs.openpo.st/guides/accounts'
+		docsUrl: 'https://openpo.st/docs/guides/accounts'
 	},
 	{
 		slug: 'youtube',
@@ -879,12 +929,12 @@ const platformImplementations = [
 		formats: [
 			{
 				name: 'Short',
-				text: 'Required title; up to 5,000 description characters',
+				text: `Required title; up to ${PLATFORM_LIMITS.youtube.charLimit.toLocaleString('en-US')} description characters`,
 				media: 'Exactly one short video'
 			},
 			{
 				name: 'Video',
-				text: 'Required title; up to 5,000 description characters',
+				text: `Required title; up to ${PLATFORM_LIMITS.youtube.charLimit.toLocaleString('en-US')} description characters`,
 				media: 'Exactly one video, up to the long-video profile limit'
 			}
 		],
@@ -901,7 +951,7 @@ const platformImplementations = [
 		],
 		verification:
 			'Confirm upload, processing completion, thumbnail, playlist, and final privacy on the production channel.',
-		docsUrl: 'https://docs.openpo.st/guides/accounts'
+		docsUrl: 'https://openpo.st/docs/guides/accounts'
 	},
 	{
 		slug: 'pinterest',
@@ -947,31 +997,31 @@ const platformImplementations = [
 		],
 		verification:
 			'Do not connect or publish for public accounts until Standard access and every readiness gate pass with current live evidence.',
-		docsUrl: 'https://docs.openpo.st/guides/accounts'
+		docsUrl: 'https://openpo.st/docs/guides/accounts'
 	},
 	{
-		slug: 'telegram',
-		name: 'Telegram',
-		short: 'telegram',
-		tag: 'Bot mode unavailable pending certification',
-		requiresProviderApproval: false,
-		implementationDetail: 'Bot paths exist; public connections are intentionally unavailable',
+		slug: 'googlebusiness',
+		name: 'Google Business',
+		short: 'googlebusiness',
+		tag: 'Unavailable pending certification',
+		requiresProviderApproval: true,
+		implementationDetail: 'Adapter code exists; public connections are intentionally unavailable',
 		description:
-			'Telegram bot mode is not publicly available in OpenPost. It remains blocked until the exact bot configuration and operations have current live certification.',
-		heroTitle: 'Telegram bot mode remains behind the provider readiness gate.',
+			'Google Business Profile is not publicly available in OpenPost. Google API access and current live certification are required before connection or publishing can be claimed.',
+		heroTitle: 'Google Business Profile remains behind the provider readiness gate.',
 		preview: {
 			label: 'No public connection',
-			headline: 'Live bot certification required',
-			body: 'A configured bot token does not make Telegram available to public Hosted accounts.',
-			detail: 'Connect, publish, observation, and analytics gate separately',
-			chips: ['Unavailable', 'Instance bot', 'Live certification']
+			headline: 'Certification required',
+			body: 'Mocked tests and adapter code do not make Google Business Profile available to public Hosted accounts.',
+			detail: 'Google API access plus live evidence',
+			chips: ['Unavailable', 'Provider approval', 'Live certification']
 		},
 		accountRequirement:
-			'An instance-owned Telegram bot with a secret webhook and current live evidence for each enabled operation.',
-		auth: 'Instance-owned bot; publicly unavailable',
+			'A Google Cloud project with approved Business Profile API access, exact scopes, runtime controls, and current live certification.',
+		auth: 'Google OAuth 2.0 with location selection; publicly unavailable',
 		setup: [
-			'Operators may configure the instance bot only for controlled development or certification work.',
-			'Keep public connection, publishing, observation, and analytics operations disabled without current evidence.',
+			'Operators may configure a Google Business app only for controlled development or certification work.',
+			'Keep public connection, publishing, and analytics operations disabled without current evidence.',
 			'Use the provider readiness ledger before changing any public availability statement.'
 		],
 		formats: [
@@ -982,18 +1032,69 @@ const platformImplementations = [
 			}
 		],
 		limits: [
-			'Every bot operation has an independent readiness gate',
+			'Google API access approval is required for production use',
 			'Public Hosted availability requires current exact-subject live evidence',
-			'No Telegram bot operation is advertised as available today'
+			'No Google Business operation is advertised as available today'
 		],
 		limitations: [
-			'Bot credentials are instance-owned and never belong in workspace data.',
-			'An implementation path or configured token is not a readiness claim.',
-			'OpenPost exposes no public Telegram bot claim without a current certification projection.'
+			'Google enables the Local Posts surface only after an access request is approved.',
+			'An adapter, configured credential, or mocked test is not a readiness claim.',
+			'OpenPost exposes no public Google Business claim without a current certification projection.'
 		],
 		verification:
-			'Do not connect the bot to public accounts until every intended operation passes its readiness gate with current live evidence.',
-		docsUrl: 'https://docs.openpo.st/guides/accounts'
+			'Do not connect or publish for public accounts until Google API access and every readiness gate pass with current live evidence.',
+		docsUrl: 'https://openpo.st/docs/guides/accounts'
+	},
+	{
+		slug: 'telegram',
+		name: 'Telegram',
+		short: 'telegram',
+		tag: 'Bot connection',
+		requiresProviderApproval: false,
+		implementationDetail: 'Instance-owned bot connection',
+		description:
+			'Connect a Telegram channel or group through an instance-owned bot, then schedule text and media messages.',
+		heroTitle: 'Send your channel update through a connected Telegram chat.',
+		preview: {
+			label: 'Telegram chat',
+			headline: 'A scheduled channel update',
+			body: 'Text and media go through the verified chat connection.',
+			detail: `${PLATFORM_LIMITS.telegram.charLimit.toLocaleString('en-US')} characters`,
+			chips: ['Bot', 'Up to 10 media', 'No backfill']
+		},
+		accountRequirement:
+			'A channel or group where the instance bot is an administrator with permission to post.',
+		auth: 'One-time chat command',
+		setup: [
+			'Add the instance bot as an administrator with permission to post in the channel or group.',
+			'Generate the one-time command in OpenPost and post it inside that chat.',
+			'Refresh your accounts to confirm the chat, then send a small test message.'
+		],
+		formats: [
+			{
+				name: 'Message',
+				text: `${PLATFORM_LIMITS.telegram.charLimit.toLocaleString('en-US')} characters`,
+				media: 'Text only'
+			},
+			{
+				name: 'Message with media',
+				text: `${TELEGRAM_CAPTION_LIMIT.toLocaleString('en-US')}-character caption`,
+				media: 'Up to 10 media items in one group'
+			}
+		],
+		limits: [
+			`${PLATFORM_LIMITS.telegram.charLimit.toLocaleString()} characters`,
+			PLATFORM_LIMITS.telegram.media,
+			`Media captions allow up to ${TELEGRAM_CAPTION_LIMIT.toLocaleString('en-US')} characters`,
+			'Observation starts at installation; earlier messages are never backfilled'
+		],
+		limitations: [
+			'The bot must remain an administrator with posting permission.',
+			'The connection command works once for one chat and expires after 15 minutes.',
+			'Post the command inside the destination chat. A command sent anywhere else does nothing.'
+		],
+		verification: 'Send a test message to the exact chat and confirm it arrives before scheduling.',
+		docsUrl: 'https://openpo.st/docs/guides/accounts'
 	},
 	{
 		slug: 'discord',
@@ -1009,7 +1110,7 @@ const platformImplementations = [
 			label: 'Discord channel',
 			headline: 'A scheduled channel update',
 			body: 'Text, files, alt text, and reply links are sent through the channel webhook.',
-			detail: '2,000 characters',
+			detail: `${PLATFORM_LIMITS.discord.charLimit.toLocaleString('en-US')} characters`,
 			chips: ['Webhook', 'Up to 10 files', 'Reply links']
 		},
 		accountRequirement:
@@ -1023,12 +1124,12 @@ const platformImplementations = [
 		formats: [
 			{
 				name: 'Message',
-				text: '2,000 characters',
+				text: `${PLATFORM_LIMITS.discord.charLimit.toLocaleString('en-US')} characters`,
 				media: 'Text only'
 			},
 			{
 				name: 'Message with files',
-				text: '2,000 characters',
+				text: `${PLATFORM_LIMITS.discord.charLimit.toLocaleString('en-US')} characters`,
 				media: 'Up to 10 images or one video in the current post formats'
 			}
 		],
@@ -1045,7 +1146,64 @@ const platformImplementations = [
 		],
 		verification:
 			'Test the exact webhook and file type before you rely on it for scheduled messages.',
-		docsUrl: 'https://docs.openpo.st/guides/accounts'
+		docsUrl: 'https://openpo.st/docs/guides/accounts'
+	},
+	{
+		slug: 'devnull',
+		name: 'dev/null',
+		short: 'devnull',
+		tag: 'Commits, replies, images',
+		requiresProviderApproval: false,
+		implementationDetail: 'Built-in SSH key connection',
+		description:
+			'Connect your dev/null username and SSH key, then schedule commits, replies, and image posts.',
+		heroTitle: 'Schedule a commit without opening a terminal.',
+		preview: {
+			label: 'dev/null commit',
+			headline: 'A scheduled commit',
+			body: 'Each commit is signed with the key on your GitHub account before dev/null publishes it.',
+			detail: `${PLATFORM_LIMITS.devnull.charLimit.toLocaleString('en-US')} characters`,
+			chips: ['SSH key', 'Up to 3 images', 'Replies']
+		},
+		accountRequirement:
+			'A dev/null username and a dedicated SSH private key whose public half is on your GitHub account.',
+		auth: 'SSH private key',
+		setup: [
+			'Add the public half of an SSH key to your GitHub account, then sign in at dev-null.sh so it picks the key up.',
+			'Connect your dev/null username and private key from Social accounts in OpenPost.',
+			'Publish a test commit and open the resulting link from the post details.'
+		],
+		formats: [
+			{
+				name: 'Commit',
+				text: `3 to ${PLATFORM_LIMITS.devnull.charLimit.toLocaleString('en-US')} characters`,
+				media: 'Text only'
+			},
+			{
+				name: 'Commit with images',
+				text: `3 to ${PLATFORM_LIMITS.devnull.charLimit.toLocaleString('en-US')} characters`,
+				media: 'Up to 3 JPEG, PNG, or WebP images of 10 MB or less'
+			},
+			{
+				name: 'Reply',
+				text: `3 to ${PLATFORM_LIMITS.devnull.charLimit.toLocaleString('en-US')} characters`,
+				media: 'Text only'
+			}
+		],
+		limits: [
+			'3 to 4000 characters per commit',
+			'Up to 3 images, 10 MB each',
+			'10 commits a minute',
+			'New accounts need approval before commits go public'
+		],
+		limitations: [
+			'OpenPost stores your SSH private key encrypted and uses it only to sign commit payloads.',
+			'Polls, quotes, and image descriptions are not supported by the dev/null commit API.',
+			'Pending commits are visible only to you until dev/null approves the account.'
+		],
+		verification:
+			'Publish a test commit and confirm the link before you rely on scheduled commits.',
+		docsUrl: 'https://openpo.st/docs/self-hosting/integrations/devnull'
 	}
 ] as const;
 
@@ -1096,6 +1254,9 @@ export const landingPlatforms = landingPlatformSlugs.map((slug) => {
 });
 
 export const tools = [
+	...browserExtensions,
+	...previewTools,
+	...mediaTools,
 	{
 		slug: 'social-media-video-editor',
 		name: 'Social media video editor',
@@ -1145,6 +1306,15 @@ export const tools = [
 ] as const;
 
 export type MarketingToolSlug = (typeof tools)[number]['slug'];
+
+export function getToolCategory(slug: MarketingToolSlug) {
+	if (browserExtensions.some((extension) => extension.slug === slug)) return 'Extensions';
+	if (slug === 'post-preview-generator' || previewTools.some((tool) => tool.slug === slug))
+		return 'Previews';
+	if (slug === 'social-media-video-editor') return 'Video';
+	if (slug === 'social-media-image-editor') return 'Images';
+	return mediaTools.find((tool) => tool.slug === slug)?.category ?? 'Writing & planning';
+}
 
 export const faqs = [
 	{
@@ -1199,7 +1369,7 @@ export const faqs = [
 		category: 'publishing',
 		question: 'Which social channels can I use?',
 		answer:
-			'OpenPost includes integrations for major social networks, but posting options depend on your account. OpenPost Cloud posting has not completed its final live checks yet. Check the channel page or contact us before relying on it for an important launch. Pinterest and Telegram are unavailable.',
+			'OpenPost includes integrations for major social networks, but posting options depend on your account. OpenPost Cloud posting has not completed its final live checks yet. Check the channel page or contact us before relying on it for an important launch.',
 		learnMore: { label: 'Check your channels', href: '/platforms' }
 	},
 	{
@@ -1210,7 +1380,7 @@ export const faqs = [
 			'OpenPost shows which account failed and what went wrong. Review the error and retry the accounts that can be retried, without publishing the successful ones again.',
 		learnMore: {
 			label: 'Help with scheduled posts',
-			href: 'https://docs.openpo.st/guides/scheduling'
+			href: 'https://openpo.st/docs/guides/publishing#schedule-and-calendar'
 		}
 	},
 	{
@@ -1219,7 +1389,10 @@ export const faqs = [
 		question: 'Can I see how my posts perform?',
 		answer:
 			'Yes. See account growth and post results when your social network provides them. Available numbers, comments, and replies vary by connected account.',
-		learnMore: { label: 'Learn about results', href: 'https://docs.openpo.st/guides/results' }
+		learnMore: {
+			label: 'Learn about results',
+			href: 'https://openpo.st/docs/guides/analytics'
+		}
 	},
 	{
 		id: 'extra-charges',

@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { constants, createReadStream } from "node:fs";
+import { constants } from "node:fs";
 import { copyFile, cp, link, lstat, mkdir, readFile, readdir, rm } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -93,11 +93,11 @@ async function expectedImmutableFrontendAssets(sourceRoot) {
 
 async function sha256File(pathname) {
   const hash = createHash("sha256");
-  for await (const chunk of createReadStream(pathname)) hash.update(chunk);
+  hash.update(await readFile(pathname));
   return hash.digest("hex");
 }
 
-export function shouldCopyFrontendPath(sourceDirectory, pathname) {
+function shouldCopyFrontendPath(sourceDirectory, pathname) {
   const relative = path.relative(path.resolve(sourceDirectory), path.resolve(pathname));
   if (!relative || relative.startsWith(`..${path.sep}`) || relative === "..") return true;
   const [topLevelDirectory] = relative.split(path.sep);
@@ -202,6 +202,7 @@ export function frontendAssetOutputDirectories(surface, root = repositoryRoot) {
       path.join(root, "apps/web/build"),
     ];
   }
+  if (surface === "marketing") return [path.join(root, "apps/marketing/dist")];
   throw new Error(`Unsupported immutable frontend asset surface: ${surface}`);
 }
 
@@ -215,7 +216,7 @@ export async function materializeFrontendSurfaceAssets(surface, root = repositor
 if (import.meta.main) {
   const [surface, ...rest] = process.argv.slice(2);
   if (!surface || rest.length > 0) {
-    throw new Error("Usage: bun scripts/immutable-frontend-assets.mjs web");
+    throw new Error("Usage: bun scripts/immutable-frontend-assets.mjs <web|marketing>");
   }
   await materializeFrontendSurfaceAssets(surface);
 }

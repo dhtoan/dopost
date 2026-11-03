@@ -19,6 +19,8 @@ import { m } from '$lib/paraglide/messages';
 import { normalizeAudioEffects } from '../audio/audio-effects';
 import { convertFreeCutProjectDocument, isFreeCutProjectDocument } from './freecut-compat';
 import { isValidProjectCreationSettings, type ProjectCreationSettings } from './project-presets';
+import { createUUID } from '$lib/crypto-random-uuid';
+import { normalizeItemKeyframeOrder } from './keyframe-order';
 
 export { CURRENT_SCHEMA_VERSION } from './migrations';
 
@@ -32,7 +34,7 @@ export function createDefaultTracks(): TimelineTrack[] {
 			id: 'track-video-overlay',
 			name: m.video_editor_track_video_name({ number: 2 }),
 			kind: 'video',
-			height: 64,
+			height: 44,
 			locked: false,
 			visible: true,
 			muted: false,
@@ -43,7 +45,7 @@ export function createDefaultTracks(): TimelineTrack[] {
 			id: 'track-video-main',
 			name: m.video_editor_track_video_name({ number: 1 }),
 			kind: 'video',
-			height: 96,
+			height: 44,
 			locked: false,
 			visible: true,
 			muted: false,
@@ -54,7 +56,7 @@ export function createDefaultTracks(): TimelineTrack[] {
 			id: 'track-audio',
 			name: m.video_editor_property_audio(),
 			kind: 'audio',
-			height: 72,
+			height: 44,
 			locked: false,
 			visible: true,
 			muted: false,
@@ -84,7 +86,7 @@ export function createBlankProject(
 	}
 	const now = Date.now();
 	return {
-		id: crypto.randomUUID(),
+		id: createUUID(),
 		name,
 		description: '',
 		createdAt: now,
@@ -199,7 +201,7 @@ export function normalizeProject(project: Project): NormalizedProject {
 				shapeStylesRepaired = true;
 			}
 			if (normalized !== item) shapeStylesRepaired = true;
-			return normalized;
+			return normalizeItemKeyframeOrder(normalized);
 		});
 	const timeline = project.timeline ?? createEmptyTimeline();
 	if (!project.timeline) {
@@ -227,7 +229,7 @@ export function normalizeProject(project: Project): NormalizedProject {
 			id: 'track-video-main',
 			name: m.video_editor_track_video_name({ number: 1 }),
 			kind: 'video',
-			height: 96,
+			height: 44,
 			locked: false,
 			visible: true,
 			muted: false,

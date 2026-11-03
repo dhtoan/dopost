@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -29,6 +30,7 @@ type CapabilityResolverHandler struct {
 	db          *bun.DB
 	auth        middleware.Authenticator
 	providers   map[string]platform.Adapter
+	providersMu sync.RWMutex
 	tokenSource AccessTokenSource
 	publicMedia *publicurl.MediaVerifier
 	readiness   *providerreadiness.Service
@@ -36,11 +38,15 @@ type CapabilityResolverHandler struct {
 	store       *connectors.Store
 	cacheMu     sync.Mutex
 	cache       map[string]accountCapabilityCacheEntry
+	// resolveConcurrency bounds provider work per resolve request. Tests set it
+	// to 1 to compare the concurrent response with the sequential one.
+	resolveConcurrency int
 }
 
 type accountCapabilityCacheEntry struct {
 	result    platform.AccountCapabilityResult
 	expiresAt time.Time
+	storedAt  time.Time
 }
 
 func NewCapabilityResolverHandler(
@@ -50,11 +56,12 @@ func NewCapabilityResolverHandler(
 	tokenSource AccessTokenSource,
 ) *CapabilityResolverHandler {
 	return &CapabilityResolverHandler{
-		db:          db,
-		auth:        auth,
-		providers:   providers,
-		tokenSource: tokenSource,
-		cache:       map[string]accountCapabilityCacheEntry{},
+		db:                 db,
+		auth:               auth,
+		providers:          cloneProviderAdapters(providers),
+		tokenSource:        tokenSource,
+		cache:              map[string]accountCapabilityCacheEntry{},
+		resolveConcurrency: 4,
 	}
 }
 
@@ -87,6 +94,8 @@ func (h *CapabilityResolverHandler) publicationBuildAccountConstraints(
 	}
 	for _, key := range []string{
 		"media_max_count",
+		"max_image_size_bytes",
+		"max_image_pixels",
 		"max_video_duration_seconds",
 		"max_video_size_bytes",
 		"allowed_mimes",
@@ -106,6 +115,15 @@ func (h *CapabilityResolverHandler) SetProviderReadiness(service *providerreadin
 	h.readiness = service
 }
 
+func (h *CapabilityResolverHandler) SetProvider(name string, adapter platform.Adapter) {
+	h.providersMu.Lock()
+	defer h.providersMu.Unlock()
+	if h.providers == nil {
+		h.providers = map[string]platform.Adapter{}
+	}
+	h.providers[name] = adapter
+}
+
 func (h *CapabilityResolverHandler) SetConnectorRegistry(registry *connectors.Registry, store *connectors.Store) {
 	h.connectors = registry
 	h.store = store
@@ -123,19 +141,21 @@ type ResolveCapabilitySegmentInput struct {
 	Description string                        `json:"description,omitempty" doc:"Canonical segment description"`
 	URL         string                        `json:"url,omitempty" doc:"Canonical segment URL"`
 	Media       []ResolveCapabilityMediaInput `json:"media,omitempty" doc:"Ordered segment media"`
+	Settings    map[string]any                `json:"settings,omitempty" doc:"Authored segment settings, including attachment requirements"`
 }
 
 type ResolveCapabilitiesInput struct {
 	Body struct {
-		AccountIDs              []string                        `json:"account_ids" minItems:"1" uniqueItems:"true" doc:"Connected account IDs"`
-		Intent                  string                          `json:"intent,omitempty" enum:"post,thread,story,short_video,video" doc:"Deprecated compatibility alias for creation_preset"`
-		CreationPreset          string                          `json:"creation_preset,omitempty" enum:"post,thread,story,short_video,video" doc:"Starter preset used only to choose initial destination formats"`
-		RequestedOutputProfiles map[string]string               `json:"requested_output_profiles,omitempty" doc:"Explicit or saved output profiles keyed by connected account ID"`
-		SourceURL               string                          `json:"source_url,omitempty" doc:"Canonical source URL"`
-		Locale                  string                          `json:"locale,omitempty" doc:"BCP 47 locale for option labels"`
-		Region                  string                          `json:"region,omitempty" doc:"ISO 3166-1 alpha-2 region"`
-		Segments                []ResolveCapabilitySegmentInput `json:"segments" minItems:"1" doc:"Ordered canonical segments"`
-		Settings                map[string]map[string]any       `json:"account_settings,omitempty" doc:"Destination settings keyed by connected account ID"`
+		AccountIDs              []string                                   `json:"account_ids" minItems:"1" uniqueItems:"true" doc:"Connected account IDs"`
+		Intent                  string                                     `json:"intent,omitempty" enum:"post,thread,story,short_video,video" doc:"Deprecated compatibility alias for creation_preset"`
+		CreationPreset          string                                     `json:"creation_preset,omitempty" enum:"post,thread,story,short_video,video" doc:"Starter preset used only to choose initial destination formats"`
+		RequestedOutputProfiles map[string]string                          `json:"requested_output_profiles,omitempty" doc:"Explicit or saved output profiles keyed by connected account ID"`
+		SourceURL               string                                     `json:"source_url,omitempty" doc:"Canonical source URL"`
+		Locale                  string                                     `json:"locale,omitempty" doc:"BCP 47 locale for option labels"`
+		Region                  string                                     `json:"region,omitempty" doc:"ISO 3166-1 alpha-2 region"`
+		Segments                []ResolveCapabilitySegmentInput            `json:"segments" minItems:"1" doc:"Ordered canonical segments"`
+		AccountSegments         map[string][]ResolveCapabilitySegmentInput `json:"account_segments,omitempty" doc:"Effective segments for customized destinations, keyed by selected connected account ID"`
+		Settings                map[string]map[string]any                  `json:"account_settings,omitempty" doc:"Destination settings keyed by connected account ID"`
 	}
 }
 
@@ -175,37 +195,235 @@ func (h *CapabilityResolverHandler) RegisterRoutes(api huma.API) {
 		}
 
 		output := &ResolveCapabilitiesOutput{}
-		output.Body.Accounts = make([]ResolvedAccountCapability, 0, len(accounts))
-		for _, account := range accounts {
-			accountSegments := segmentsWithDestinationFields(segments, input.Body.Settings[account.ID])
-			resolveInput := capabilities.ResolveInput{
-				Intent:                 input.Body.Intent,
-				CreationPreset:         input.Body.CreationPreset,
-				RequestedOutputProfile: input.Body.RequestedOutputProfiles[account.ID],
-				SourceURL:              input.Body.SourceURL,
-				Segments:               accountSegments,
-				Settings:               input.Body.Settings[account.ID],
-			}
-			resolved, connectorBacked, err := h.resolveAccountCapability(ctx, account, input.Body.Locale, input.Body.Region, resolveInput)
-			if err != nil {
-				return nil, huma.Error502BadGateway("connector capability resolution failed")
-			}
-			satisfyCanonicalURLRequirement(&resolved, input.Body.SourceURL, segments)
-			immediate := h.publicationReadiness(ctx, account, resolved.Capability, providerreadiness.OperationPublishImmediate, input.Body.Settings[account.ID])
-			scheduled := h.publicationReadiness(ctx, account, resolved.Capability, providerreadiness.OperationPublishScheduled, input.Body.Settings[account.ID])
-			if connectorBacked {
-				immediate = connectorPublicationDecision(resolved.Compatible)
-				scheduled = connectorPublicationDecision(resolved.Compatible)
-			}
-			output.Body.Accounts = append(output.Body.Accounts, ResolvedAccountCapability{
-				AccountID:          account.ID,
-				ImmediateReadiness: immediate,
-				ScheduledReadiness: scheduled,
-				ResolvedCapability: resolved,
-			})
+		readiness := h.readiness
+		if readiness != nil {
+			// One request-scoped service shares provider facts across accounts
+			// without leaking them into scheduling or publishing.
+			readiness = readiness.RequestScoped()
 		}
+		entries, err := h.resolveAccounts(ctx, workspaceID, input, segments, accounts, readiness)
+		if err != nil {
+			return nil, err
+		}
+		output.Body.Accounts = entries
 		return output, nil
 	})
+}
+
+// resolveAccounts resolves every selected destination, bounded to a few
+// concurrent workers. Provider latency dominates this request, so running
+// destinations together turns the sum of their round trips into roughly one.
+// Response order and the first error in request order are preserved.
+func (h *CapabilityResolverHandler) resolveAccounts(
+	ctx context.Context,
+	workspaceID string,
+	input *ResolveCapabilitiesInput,
+	segments []capabilities.ResolveSegment,
+	accounts []models.SocialAccount,
+	readiness *providerreadiness.Service,
+) ([]ResolvedAccountCapability, error) {
+	limit := h.resolveConcurrency
+	if limit < 1 {
+		limit = 1
+	}
+	if limit > len(accounts) {
+		limit = len(accounts)
+	}
+	// Resolve destination segment payloads before fan-out. Each distinct payload
+	// refreshes public media once, so concurrent destinations cannot race on the
+	// same media row or repeat its verification.
+	segmentsByAccount, err := h.resolveAccountSegments(ctx, workspaceID, input, segments, accounts)
+	if err != nil {
+		return nil, err
+	}
+	if limit <= 1 {
+		return h.resolveAccountsSequential(ctx, input, segmentsByAccount, accounts, readiness)
+	}
+	return h.resolveAccountsParallel(ctx, input, segmentsByAccount, accounts, readiness, limit)
+}
+
+// resolveAccountsSequential resolves each destination in request order.
+func (h *CapabilityResolverHandler) resolveAccountsSequential(
+	ctx context.Context,
+	input *ResolveCapabilitiesInput,
+	segmentsByAccount map[string][]capabilities.ResolveSegment,
+	accounts []models.SocialAccount,
+	readiness *providerreadiness.Service,
+) ([]ResolvedAccountCapability, error) {
+	entries := make([]ResolvedAccountCapability, 0, len(accounts))
+	for _, account := range accounts {
+		entry, err := h.resolveAccountEntry(ctx, input, segmentsByAccount[account.ID], account, readiness)
+		if err != nil {
+			return nil, err
+		}
+		entries = append(entries, entry)
+	}
+	return entries, nil
+}
+
+// resolveAccountsParallel resolves a bounded number of destinations at once,
+// preserving response order and the first error in request order.
+func (h *CapabilityResolverHandler) resolveAccountsParallel(
+	ctx context.Context,
+	input *ResolveCapabilitiesInput,
+	segmentsByAccount map[string][]capabilities.ResolveSegment,
+	accounts []models.SocialAccount,
+	readiness *providerreadiness.Service,
+	limit int,
+) ([]ResolvedAccountCapability, error) {
+	entries := make([]ResolvedAccountCapability, len(accounts))
+	errs := make([]error, len(accounts))
+	panics := make([]any, len(accounts))
+	accountContexts := make([]context.Context, len(accounts))
+	cancels := make([]context.CancelFunc, len(accounts))
+	for index := range accounts {
+		accountContexts[index], cancels[index] = context.WithCancel(ctx)
+	}
+	defer func() {
+		for _, cancel := range cancels {
+			cancel()
+		}
+	}()
+
+	var (
+		mu sync.Mutex
+	)
+	fail := func(index int) {
+		mu.Lock()
+		defer mu.Unlock()
+		// Only later destinations can be cancelled: an earlier failure still
+		// owns the response error, so their outcome can never be reported.
+		for later := index + 1; later < len(accounts); later++ {
+			cancels[later]()
+		}
+	}
+
+	slots := make(chan struct{}, limit)
+	var wg sync.WaitGroup
+	started := 0
+dispatch:
+	for index := range accounts {
+		select {
+		case slots <- struct{}{}:
+		case <-ctx.Done():
+			break dispatch
+		}
+		started++
+		wg.Add(1)
+		go func(index int) {
+			defer wg.Done()
+			defer func() { <-slots }()
+			defer func() {
+				if recovered := recover(); recovered != nil {
+					log.Printf("capability resolve panic account=%s: %v\n%s",
+						accounts[index].ID, recovered, debug.Stack())
+					panics[index] = recovered
+					fail(index)
+				}
+			}()
+			entry, err := h.resolveAccountEntry(
+				accountContexts[index], input, segmentsByAccount[accounts[index].ID], accounts[index], readiness,
+			)
+			if err != nil {
+				errs[index] = err
+				fail(index)
+				return
+			}
+			entries[index] = entry
+		}(index)
+	}
+	wg.Wait()
+	for index := range accounts {
+		if panics[index] != nil {
+			panic(panics[index])
+		}
+		if errs[index] != nil {
+			return nil, errs[index]
+		}
+	}
+	if started < len(accounts) {
+		return nil, ctx.Err()
+	}
+	return entries, nil
+}
+
+// resolveAccountSegments resolves the shared segments once and each distinct
+// destination override once. Identical overrides reuse the same slice; entries
+// clone it before mutation.
+func (h *CapabilityResolverHandler) resolveAccountSegments(
+	ctx context.Context,
+	workspaceID string,
+	input *ResolveCapabilitiesInput,
+	segments []capabilities.ResolveSegment,
+	accounts []models.SocialAccount,
+) (map[string][]capabilities.ResolveSegment, error) {
+	byAccount := make(map[string][]capabilities.ResolveSegment, len(accounts))
+	resolvedPayloads := make(map[string][]capabilities.ResolveSegment)
+	for _, account := range accounts {
+		overrides, exists := input.Body.AccountSegments[account.ID]
+		if !exists {
+			byAccount[account.ID] = segments
+			continue
+		}
+		if len(overrides) == 0 {
+			return nil, huma.Error400BadRequest("destination segments must not be empty")
+		}
+		payload, err := json.Marshal(overrides)
+		if err != nil {
+			return nil, huma.Error400BadRequest("destination segments are invalid")
+		}
+		key := string(payload)
+		if resolved, ok := resolvedPayloads[key]; ok {
+			byAccount[account.ID] = resolved
+			continue
+		}
+		resolved, err := h.resolveSegments(ctx, workspaceID, overrides)
+		if err != nil {
+			return nil, err
+		}
+		resolvedPayloads[key] = resolved
+		byAccount[account.ID] = resolved
+	}
+	return byAccount, nil
+}
+
+func (h *CapabilityResolverHandler) resolveAccountEntry(
+	ctx context.Context,
+	input *ResolveCapabilitiesInput,
+	segments []capabilities.ResolveSegment,
+	account models.SocialAccount,
+	readiness *providerreadiness.Service,
+) (ResolvedAccountCapability, error) {
+	// Capability resolution rewrites segment media while projecting text cards.
+	// Every destination needs its own slice; identical overrides share one.
+	// projectTextCards owns the copy that keeps shared media safe.
+	accountSegments := append([]capabilities.ResolveSegment(nil), segments...)
+	accountSegments = segmentsWithDestinationFields(accountSegments, input.Body.Settings[account.ID])
+	resolveInput := capabilities.ResolveInput{
+		Intent:                 input.Body.Intent,
+		CreationPreset:         input.Body.CreationPreset,
+		RequestedOutputProfile: input.Body.RequestedOutputProfiles[account.ID],
+		SourceURL:              input.Body.SourceURL,
+		Segments:               accountSegments,
+		Settings:               input.Body.Settings[account.ID],
+	}
+	resolved, connectorBacked, err := h.resolveAccountCapability(ctx, account, input.Body.Locale, input.Body.Region, resolveInput)
+	if err != nil {
+		return ResolvedAccountCapability{}, huma.Error502BadGateway("connector capability resolution failed")
+	}
+	satisfyCanonicalURLRequirement(&resolved, input.Body.SourceURL, accountSegments)
+	immediate := h.publicationReadiness(ctx, readiness, account, resolved.Capability, providerreadiness.OperationPublishImmediate, input.Body.Settings[account.ID])
+	scheduled := h.publicationReadiness(ctx, readiness, account, resolved.Capability, providerreadiness.OperationPublishScheduled, input.Body.Settings[account.ID])
+	if connectorBacked {
+		immediate = connectorPublicationDecision(resolved.Compatible)
+		scheduled = connectorPublicationDecision(resolved.Compatible)
+	}
+	return ResolvedAccountCapability{
+		AccountID:          account.ID,
+		ImmediateReadiness: immediate,
+		ScheduledReadiness: scheduled,
+		ResolvedCapability: resolved,
+	}, nil
 }
 
 func (h *CapabilityResolverHandler) resolveAccountCapability(
@@ -312,12 +530,13 @@ func connectorPublicationDecision(compatible bool) providerreadiness.Decision {
 
 func (h *CapabilityResolverHandler) publicationReadiness(
 	ctx context.Context,
+	readiness *providerreadiness.Service,
 	account models.SocialAccount,
 	capability capabilities.Capability,
 	operation providerreadiness.Operation,
 	settings map[string]any,
 ) providerreadiness.Decision {
-	if h.readiness == nil {
+	if readiness == nil {
 		return providerreadiness.Decision{State: providerreadiness.EffectiveStateDegraded}
 	}
 	// Publication jobs certify the catalog contract; account limits only change preview validation.
@@ -326,7 +545,7 @@ func (h *CapabilityResolverHandler) publicationReadiness(
 	} else if canonical, found := capabilities.Find(account.Platform, capability.Profile); found {
 		capability = canonical
 	}
-	return h.readiness.DecideAccountPublication(
+	return readiness.DecideAccountPublication(
 		ctx,
 		account,
 		capability,
@@ -426,10 +645,12 @@ func (h *CapabilityResolverHandler) resolveSegments(
 	segments := make([]capabilities.ResolveSegment, 0, len(inputs))
 	for index, input := range inputs {
 		segment := capabilities.ResolveSegment{
-			ID:    publicationFirstNonEmpty(input.ID, fmt.Sprintf("segment-%d", index+1)),
-			Body:  input.Content,
-			Title: input.Title,
-			URL:   input.URL,
+			ID:          publicationFirstNonEmpty(input.ID, fmt.Sprintf("segment-%d", index+1)),
+			Body:        input.Content,
+			Title:       input.Title,
+			Description: input.Description,
+			Settings:    input.Settings,
+			URL:         input.URL,
 		}
 		for _, mediaInput := range input.Media {
 			media := mediaByID[mediaInput.MediaID]
@@ -477,14 +698,33 @@ func (h *CapabilityResolverHandler) mergeAccountCapability(
 	if !ok || h.tokenSource == nil {
 		return
 	}
+	capabilityInput := platform.AccountCapabilityInput{
+		Intent:        firstResolvedIntent(*resolved),
+		OutputProfile: resolved.OutputProfile,
+		MediaShape:    firstResolvedMediaShape(*resolved),
+		Locale:        locale,
+		RegionCode:    region,
+		Settings:      settings,
+	}
+	keyScope := ""
+	if keyer, narrow := adapter.(platform.AccountCapabilityKeyer); narrow {
+		// The adapter owns which inputs can change its provider answer. Without
+		// this, every destination setting edit re-fetches provider state.
+		keyScope = keyer.AccountCapabilityKeyInput(capabilityInput)
+	} else {
+		keyScope = strings.Join([]string{
+			resolved.OutputProfile,
+			firstResolvedIntent(*resolved),
+			firstResolvedMediaShape(*resolved),
+			strings.ToLower(strings.TrimSpace(locale)),
+			strings.ToUpper(strings.TrimSpace(region)),
+			accountCapabilitySettingsKey(settings),
+		}, "|")
+	}
 	cacheKey := strings.Join([]string{
 		account.ID,
-		resolved.OutputProfile,
-		firstResolvedIntent(*resolved),
-		firstResolvedMediaShape(*resolved),
-		strings.ToLower(strings.TrimSpace(locale)),
-		strings.ToUpper(strings.TrimSpace(region)),
-		accountCapabilitySettingsKey(settings),
+		accountCapabilityTenantKey(account),
+		keyScope,
 	}, "|")
 	result, expiresAt, ok := h.cachedAccountCapability(cacheKey)
 	if !ok {
@@ -493,20 +733,24 @@ func (h *CapabilityResolverHandler) mergeAccountCapability(
 			h.addDynamicCapabilityFailure(resolved, settings, "Account authorization could not be refreshed.")
 			return
 		}
-		result, err = provider.ResolveAccountPublishingCapabilities(ctx, accessToken, platform.AccountCapabilityInput{
-			Intent:        firstResolvedIntent(*resolved),
-			OutputProfile: resolved.OutputProfile,
-			MediaShape:    firstResolvedMediaShape(*resolved),
-			Locale:        locale,
-			RegionCode:    region,
-			Settings:      settings,
-		})
+		result, err = provider.ResolveAccountPublishingCapabilities(ctx, accessToken, capabilityInput)
 		if err != nil {
 			h.addDynamicCapabilityFailure(resolved, settings, err.Error())
 			return
 		}
 		if persistErr := persistAccountCapabilityState(ctx, h.db, account.ID, result); persistErr != nil {
-			h.addDynamicCapabilityFailure(resolved, settings, "Account limits were verified but could not be cached.")
+			// Persisted state is not authoritative for this resolution. Keep the
+			// verified answer, but tell the user that other surfaces may show
+			// stale account limits until the next successful write.
+			log.Printf("capability state persist failed account=%s: %v", account.ID, persistErr)
+			resolved.Issues = append(resolved.Issues, capabilities.ValidationIssue{
+				Severity:        "warning",
+				Code:            "account_capability_cache_failed",
+				Message:         "Account limits were verified but could not be cached.",
+				Provider:        account.Platform,
+				Field:           "capabilities",
+				FallbackMessage: "Account limits were verified but could not be cached.",
+			})
 		}
 		expiresAt = time.Now().UTC().Add(accountCapabilityTTL(account.Platform))
 		h.storeAccountCapability(cacheKey, result, expiresAt)
@@ -693,6 +937,21 @@ func (h *CapabilityResolverHandler) addDynamicCapabilityFailure(resolved *capabi
 	})
 }
 
+func accountCapabilityTenantKey(account models.SocialAccount) string {
+	// Credentials, instance identity, and the resolved adapter mode decide what
+	// the provider will answer. CapabilityState is deliberately not hashed whole:
+	// persisting it must not invalidate the entry that produced it.
+	payload := strings.Join([]string{
+		account.WorkspaceID,
+		account.OAuthGrantID,
+		account.GrantedScopes,
+		account.InstanceURL,
+		platform.AccountProviderKey(account.Platform, account.InstanceURL, account.CapabilityState),
+	}, "\x00")
+	digest := sha256.Sum256([]byte(payload))
+	return hex.EncodeToString(digest[:])
+}
+
 func accountCapabilitySettingsKey(settings map[string]any) string {
 	payload, err := json.Marshal(settings)
 	if err != nil {
@@ -749,7 +1008,10 @@ func capabilitySettingDependenciesMet(setting capabilities.SettingDefinition, se
 }
 
 func (h *CapabilityResolverHandler) adapterForResolveAccount(account models.SocialAccount) platform.Adapter {
-	return h.providers[platform.AccountProviderKey(account.Platform, account.InstanceURL, account.CapabilityState)]
+	key := platform.AccountProviderKey(account.Platform, account.InstanceURL, account.CapabilityState)
+	h.providersMu.RLock()
+	defer h.providersMu.RUnlock()
+	return h.providers[key]
 }
 
 func (h *CapabilityResolverHandler) cachedAccountCapability(key string) (platform.AccountCapabilityResult, time.Time, bool) {
@@ -763,10 +1025,36 @@ func (h *CapabilityResolverHandler) cachedAccountCapability(key string) (platfor
 	return entry.result, entry.expiresAt, true
 }
 
+const accountCapabilityCacheLimit = 512
+
 func (h *CapabilityResolverHandler) storeAccountCapability(key string, result platform.AccountCapabilityResult, expiresAt time.Time) {
 	h.cacheMu.Lock()
 	defer h.cacheMu.Unlock()
-	h.cache[key] = accountCapabilityCacheEntry{result: result, expiresAt: expiresAt}
+	if _, exists := h.cache[key]; !exists && len(h.cache) >= accountCapabilityCacheLimit {
+		now := time.Now().UTC()
+		for cachedKey, entry := range h.cache {
+			if !entry.expiresAt.After(now) {
+				delete(h.cache, cachedKey)
+			}
+		}
+		// The key contains provider inputs, so distinct permutations would grow
+		// the map without bound. Drop the oldest entries first.
+		for len(h.cache) >= accountCapabilityCacheLimit {
+			victim := ""
+			var victimStoredAt time.Time
+			for cachedKey, entry := range h.cache {
+				if victim == "" || entry.storedAt.Before(victimStoredAt) {
+					victim = cachedKey
+					victimStoredAt = entry.storedAt
+				}
+			}
+			if victim == "" {
+				break
+			}
+			delete(h.cache, victim)
+		}
+	}
+	h.cache[key] = accountCapabilityCacheEntry{result: result, expiresAt: expiresAt, storedAt: time.Now().UTC()}
 }
 
 func accountCapabilityTTL(provider string) time.Duration {

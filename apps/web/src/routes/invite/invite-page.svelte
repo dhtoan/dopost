@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { appBranding } from '$lib/app-branding.svelte';
 	import { onDestroy } from 'svelte';
 	import { ThemeIcon } from '$lib/themes/icons';
 	import { goto } from '$app/navigation';
@@ -65,6 +66,9 @@
 	let error = $state('');
 	let workspaceID = $state('');
 	let role = $state('');
+	// A client joins to connect the accounts they own, not to browse the
+	// workspace, so the acceptance screen offers that directly.
+	let isClientRole = $derived(role === 'client');
 	let workspaceRefreshError = $state('');
 	let workspaceRefreshPending = $state(false);
 	let acceptedWorkspaceRefreshContext = $state.raw<AcceptedWorkspaceRefreshContext | null>(null);
@@ -229,7 +233,7 @@
 </script>
 
 <svelte:head>
-	<title>{m.invite_title()}</title>
+	<title>{appBranding.title(m.invite_title())}</title>
 </svelte:head>
 
 {#snippet inviteIcon()}
@@ -241,14 +245,16 @@
 {/snippet}
 
 {#snippet retryInvitation()}
-	<Button
-		variant="outline"
-		size="sm"
-		onclick={() => acceptInvitation(invitationKey, true)}
-		disabled={!invitationKey || loading}
-	>
-		{m.common_retry()}
-	</Button>
+	{#if invitationKey}
+		<Button
+			variant="outline"
+			size="sm"
+			onclick={() => acceptInvitation(invitationKey, true)}
+			disabled={loading}>{m.common_retry()}</Button
+		>
+	{:else}
+		<Button variant="outline" size="sm" href={resolve('/')}>{m.auth_account_deleted_home()}</Button>
+	{/if}
 {/snippet}
 
 {#snippet retryWorkspaceRefresh()}
@@ -274,7 +280,12 @@
 >
 	{#if error}
 		<div data-testid="invite-error">
-			<InlineNotice tone="error" message={error} actions={retryInvitation} />
+			<InlineNotice
+				tone="error"
+				message={error}
+				actions={retryInvitation}
+				class={!invitationKey ? 'flex-col items-stretch sm:flex-row sm:items-center' : undefined}
+			/>
 		</div>
 	{/if}
 	{#if accepted}
@@ -296,9 +307,17 @@
 			{:else if workspaceRefreshPending}
 				<InlineNotice tone="info" message={m.invite_refreshing_workspaces()} />
 			{:else}
-				<Button class="w-full" href={resolve('/')}>
-					{m.invite_open_workspace()}
-				</Button>
+				{#if isClientRole}
+					<!-- The point of a client is to connect the accounts they own and
+					     decide what goes out. Land them where that happens. -->
+					<Button class="w-full" href={resolve('/settings?tab=accounts')}>
+						{m.invite_connect_accounts()}
+					</Button>
+				{:else}
+					<Button class="w-full" href={resolve('/')}>
+						{m.invite_open_workspace()}
+					</Button>
+				{/if}
 			{/if}
 		</div>
 	{/if}

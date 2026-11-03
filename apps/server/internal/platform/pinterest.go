@@ -29,7 +29,6 @@ const (
 	pinterestMediaPollMaxDelay           = 16 * time.Second
 	pinterestPinReconcileDelay           = 30 * time.Second
 	pinterestPinReferencePrefix          = "pin1:"
-	pinterestDiscoveryPageSize           = 1
 	pinterestAnalyticsMaxWindow          = 90 * 24 * time.Hour
 	pinterestAnalyticsSource             = "pinterest_analytics_api"
 )
@@ -512,7 +511,7 @@ func (p *PinterestAdapter) UploadMediaResumable(
 	}
 	state.TotalBytes = req.Size
 
-	session, err := p.ensurePinterestMediaRegistered(ctx, accessToken, &state, checkpoint)
+	session, err := p.ensurePinterestMediaRegistered(ctx, accessToken, req, &state, checkpoint)
 	if err != nil {
 		return "", err
 	}
@@ -529,6 +528,7 @@ func (p *PinterestAdapter) UploadMediaResumable(
 func (p *PinterestAdapter) ensurePinterestMediaRegistered(
 	ctx context.Context,
 	accessToken string,
+	req UploadMediaRequest,
 	state *ResumableMediaUploadState,
 	checkpoint MediaUploadCheckpoint,
 ) (pinterestUploadSession, error) {
@@ -541,6 +541,9 @@ func (p *PinterestAdapter) ensurePinterestMediaRegistered(
 			return pinterestUploadSession{}, &MediaUploadError{RetryClassification: MediaRetryTerminal, Err: errors.New("pinterest media registration returned an invalid id")}
 		}
 		return session, nil
+	}
+	if err := checkUploadWrite(ctx, req); err != nil {
+		return pinterestUploadSession{}, err
 	}
 	registration, err := p.registerPinterestVideo(ctx, accessToken)
 	if err != nil {
@@ -627,6 +630,10 @@ func uploadPinterestVideoIfNeeded(
 	reader, err := req.OpenReaderAt(0)
 	if err != nil {
 		return &MediaUploadError{RetryClassification: MediaRetrySafeResume, Err: fmt.Errorf("opening pinterest video: %w", err)}
+	}
+	if err := checkUploadWrite(ctx, req); err != nil {
+		_ = reader.Close()
+		return err
 	}
 	uploadErr := uploadPinterestVideo(ctx, session, req, reader)
 	_ = reader.Close()
@@ -742,11 +749,16 @@ func uploadPinterestVideo(ctx context.Context, session pinterestUploadSession, r
 	response, err := client.Do(request)
 	if err != nil {
 		_ = pipeReader.Close()
-		return fmt.Errorf("pinterest video upload failed: %w", err)
+		return fmt.Errorf("pinterest video upload failed: %w", sanitizeTransportError(err))
 	}
 	defer response.Body.Close()
-	body, readErr := io.ReadAll(response.Body)
+	// The S3 upload response is a small XML/JSON acknowledgement. Bound the
+	// read with the shared 16 MB cap.
+	body, readErr := readProviderBody(response)
 	if readErr != nil {
+		if isResponseTooLarge(readErr) {
+			return readErr
+		}
 		return fmt.Errorf("reading pinterest video upload response: %w", readErr)
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
@@ -911,7 +923,7 @@ func (p *PinterestAdapter) publishPinterestImages(ctx context.Context, accessTok
 	}
 	body, err := DoJSON(ctx, http.MethodPost, pinterestAPIBaseURL+"/pins", payload, bearerHeaders(accessToken))
 	if err != nil {
-		return prepared, fmt.Errorf("creating pinterest Pin: %w", err)
+		return prepared, fmt.Errorf("creating pinterest Pin: %w", normalizePinterestPinCreateError(err))
 	}
 	var response struct {
 		ID string `json:"id"`
@@ -952,7 +964,7 @@ func (p *PinterestAdapter) publishPinterestVideo(ctx context.Context, accessToke
 	}
 	body, err := DoJSON(ctx, http.MethodPost, pinterestAPIBaseURL+"/pins", payload, bearerHeaders(accessToken))
 	if err != nil {
-		return prepared, fmt.Errorf("pinterest create video Pin: %w", err)
+		return prepared, fmt.Errorf("pinterest create video Pin: %w", normalizePinterestPinCreateError(err))
 	}
 	var response struct {
 		ID string `json:"id"`
@@ -1299,101 +1311,6 @@ func validatePinterestMedia(media []MediaItem) []MediaValidationIssue {
 	return issues
 }
 
-func (p *PinterestAdapter) AccountContentDiscoverySupport(AnalyticsAccountContext) AccountContentDiscoverySupport {
-	return AccountContentDiscoverySupport{
-		Supported: true, RequiredScopes: []string{"pins:read"}, MaxPageSize: pinterestDiscoveryPageSize,
-	}
-}
-
-type pinterestPin struct {
-	ID          string `json:"id"`
-	CreatedAt   string `json:"created_at"`
-	Title       string `json:"title"`
-	Description string `json:"description"`
-	Media       struct {
-		MediaType string `json:"media_type"`
-	} `json:"media"`
-}
-
-func (p *PinterestAdapter) DiscoverAccountContent(ctx context.Context, accessToken string, input AccountContentDiscoveryRequest) (AccountContentPage, error) {
-	pageSize := min(max(1, input.PageSize), pinterestDiscoveryPageSize)
-	query := url.Values{"page_size": {strconv.Itoa(pageSize)}, "pin_filter": {"ORGANIC"}}
-	if bookmark := strings.TrimSpace(input.Cursor); bookmark != "" {
-		query.Set("bookmark", bookmark)
-	}
-	response, err := pinterestGetPage[pinterestPin](ctx, accessToken, pinterestAPIBaseURL+"/pins?"+query.Encode(), "Pins")
-	if err != nil {
-		return AccountContentPage{}, err
-	}
-	page := AccountContentPage{Coverage: AccountContentCoverage{
-		Status: AccountContentDiscoveryComplete, Description: "Pins in the requested account history window are complete.",
-	}}
-	reachedLowerBound := false
-	seen := map[string]struct{}{}
-	for _, pin := range response.Items {
-		publishedAt, parseErr := time.Parse(time.RFC3339, strings.TrimSpace(pin.CreatedAt))
-		if parseErr != nil || (!input.PublishedAfter.IsZero() && publishedAt.Before(input.PublishedAfter)) {
-			reachedLowerBound = reachedLowerBound || parseErr == nil
-			continue
-		}
-		if _, duplicate := seen[pin.ID]; duplicate {
-			continue
-		}
-		seen[pin.ID] = struct{}{}
-		item, normalizeErr := NormalizeAccountContentItem(providerPinterest, AccountContentItem{
-			ProviderContentID: pin.ID, ContentProfile: pinterestPinContentProfile(pin.Media.MediaType),
-			Title: pin.Title, Text: pin.Description, ExternalURL: pinterestPinURL(pin.ID), PublishedAt: publishedAt,
-			Origin: AccountContentOriginExternal, OriginConfidence: AccountContentOriginConfidenceExact,
-		})
-		if normalizeErr != nil {
-			continue
-		}
-		page.Items = append(page.Items, item)
-		if page.BackfillWatermark.IsZero() || publishedAt.Before(page.BackfillWatermark) {
-			page.BackfillWatermark = publishedAt
-		}
-	}
-	if reachedLowerBound || response.Bookmark == "" || response.Bookmark == input.Cursor {
-		return page, nil
-	}
-	page.NextCursor = response.Bookmark
-	page.Coverage.Status = AccountContentDiscoveryPartial
-	page.Coverage.Description = "More Pins remain within the requested account history window."
-	return page, nil
-}
-
-func pinterestPinContentProfile(mediaType string) string {
-	switch strings.ToLower(strings.TrimSpace(mediaType)) {
-	case "video":
-		return "short_video"
-	case "multiple_images", "multiple_image", "carousel":
-		return "carousel"
-	default:
-		return "image_post"
-	}
-}
-
-func (p *PinterestAdapter) FetchAccountContentBatchMeasurements(
-	ctx context.Context,
-	accessToken string,
-	input AccountContentBatchMeasurementRequest,
-) (AccountContentBatchMeasurements, error) {
-	result := AccountContentBatchMeasurements{}
-	for _, id := range uniqueNonEmpty(input.ProviderContentIDs) {
-		if !pinterestProviderID.MatchString(id) {
-			continue
-		}
-		measurements, err := p.fetchPinterestAnalytics(
-			ctx, accessToken, pinterestAPIBaseURL+"/pins/"+url.PathEscape(id)+"/analytics", input.PeriodStart, input.PeriodEnd,
-		)
-		if err != nil {
-			return nil, err
-		}
-		result[id] = measurements
-	}
-	return result, nil
-}
-
 type pinterestBoard struct {
 	ID      string `json:"id"`
 	Name    string `json:"name"`
@@ -1571,4 +1488,13 @@ func paginatePinterestOptions(options []DestinationOption, search, cursor string
 		page.NextCursor = strconv.Itoa(end)
 	}
 	return page
+}
+
+func normalizePinterestPinCreateError(err error) error {
+	var providerErr *HTTPError
+	if errors.As(err, &providerErr) && providerErr.Code == "29" {
+		providerErr.StatusCode = http.StatusForbidden
+		providerErr.Code = "pinterest:board_permission:29"
+	}
+	return err
 }

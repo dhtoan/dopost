@@ -3,6 +3,7 @@ package platform
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 const (
@@ -17,7 +19,14 @@ const (
 	facebookOAuthBaseURL        = "https://www.facebook.com"
 	facebookGraphBaseURL        = "https://graph.facebook.com"
 	metaBusinessManagementScope = "business_management"
+	facebookRuploadHost         = "rupload.facebook.com"
+	facebookVideoUploadMaxPolls = 60
 )
+
+var facebookVideoUploadPollDelay = 5 * time.Second
+
+// ErrNoFacebookPages reports that Meta returned no Page the user can publish to.
+var ErrNoFacebookPages = errors.New("facebook account has no manageable pages")
 
 type FacebookAdapter struct {
 	clientID     string
@@ -85,7 +94,7 @@ func exchangeMetaAuthCode(ctx context.Context, graphURL func(string) string, cli
 	params.Set(oauthParamCode, code)
 
 	label := providerName + " token exchange"
-	respBody, err := DoRequest(ctx, http.MethodGet, graphURL("oauth/access_token")+"?"+params.Encode(), nil, nil)
+	respBody, err := doMetaRequest(ctx, http.MethodPost, graphURL("oauth/access_token"), strings.NewReader(params.Encode()), map[string]string{headerContentType: contentTypeForm})
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", label, err)
 	}
@@ -110,7 +119,7 @@ func exchangeMetaLongLivedToken(ctx context.Context, graphURL func(string) strin
 	params.Set("fb_exchange_token", accessToken)
 
 	label := providerName + " long-lived token exchange"
-	respBody, err := DoRequest(ctx, http.MethodGet, graphURL("oauth/access_token")+"?"+params.Encode(), nil, nil)
+	respBody, err := doMetaRequest(ctx, http.MethodPost, graphURL("oauth/access_token"), strings.NewReader(params.Encode()), map[string]string{headerContentType: contentTypeForm})
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", label, err)
 	}
@@ -159,7 +168,7 @@ func fetchMetaGrantedScopes(ctx context.Context, graphURL func(string) string, a
 	endpoint := graphURL("me/permissions") + "?" + url.Values{
 		oauthParamAccessToken: {accessToken},
 	}.Encode()
-	body, err := DoRequest(ctx, http.MethodGet, endpoint, nil, nil)
+	body, err := doMetaRequest(ctx, http.MethodGet, endpoint, nil, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -190,7 +199,7 @@ func (f *FacebookAdapter) RefreshToken(_ context.Context, _ RefreshTokenInput) (
 }
 
 func (f *FacebookAdapter) GetProfile(ctx context.Context, accessToken string) (*UserProfile, error) {
-	respBody, err := DoRequest(ctx, http.MethodGet, f.graphURL("me?fields=id,name&access_token="+url.QueryEscape(accessToken)), nil, nil)
+	respBody, err := doMetaRequest(ctx, http.MethodGet, f.graphURL("me?fields=id,name&access_token="+url.QueryEscape(accessToken)), nil, nil)
 	if err != nil {
 		return nil, fmt.Errorf("facebook profile: %w", err)
 	}
@@ -221,7 +230,7 @@ func (f *FacebookAdapter) GetProfile(ctx context.Context, accessToken string) (*
 
 func (f *FacebookAdapter) RefreshAccountMetadata(ctx context.Context, accessToken string, _ AccountMetadataRequest) (*UserProfile, error) {
 	endpoint := f.graphURL("me?fields=id,name,username,picture.type(square)&access_token=" + url.QueryEscape(accessToken))
-	respBody, err := DoRequest(ctx, http.MethodGet, endpoint, nil, nil)
+	respBody, err := doMetaRequest(ctx, http.MethodGet, endpoint, nil, nil)
 	if err != nil {
 		return nil, fmt.Errorf("facebook page profile: %w", err)
 	}
@@ -299,7 +308,7 @@ func (f *FacebookAdapter) listPages(ctx context.Context, token *TokenResult) ([]
 		return nil, fmt.Errorf("facebook pages: %w", err)
 	}
 	if len(pages) == 0 {
-		return nil, fmt.Errorf("OpenPost could not find any Facebook Pages this profile can manage; create a Page or give this profile full control of one, then try again")
+		return nil, ErrNoFacebookPages
 	}
 	return pages, nil
 }
@@ -312,6 +321,14 @@ func (f *FacebookAdapter) Publish(ctx context.Context, accessToken, pageID strin
 	result, err := executePublishWrite(req, "publish_graph_object", func() (string, error) {
 		return f.publish(ctx, accessToken, pageID, req)
 	})
+	var pending *facebookPendingError
+	if errors.As(err, &pending) {
+		return pending.result, nil
+	}
+	var failure *facebookVideoFailure
+	if errors.As(err, &failure) {
+		return failure.result, failure.err
+	}
 	return result, normalizeMetaPublishError(err)
 }
 
@@ -348,68 +365,212 @@ func (f *FacebookAdapter) publish(ctx context.Context, accessToken, pageID strin
 }
 
 func (f *FacebookAdapter) publishReel(ctx context.Context, accessToken, pageID string, req *PublishRequest, mediaURL string) (string, error) {
-	startResponse, err := DoFormURLEncoded(ctx, http.MethodPost, f.graphURL(pageID+"/video_reels"), map[string]string{
+	edge, label, finishValues := facebookVideoFinishRequest(req)
+	return f.publishHostedVideo(ctx, accessToken, pageID, edge, label, mediaURL, finishValues, req)
+}
+
+func (f *FacebookAdapter) publishHostedVideo(
+	ctx context.Context,
+	accessToken string,
+	pageID string,
+	edge string,
+	label string,
+	mediaURL string,
+	finishValues map[string]string,
+	req *PublishRequest,
+) (string, error) {
+	startResponse, err := DoFormURLEncoded(ctx, http.MethodPost, f.graphURL(pageID+"/"+edge), map[string]string{
 		"upload_phase":        "start",
 		oauthParamAccessToken: accessToken,
 	}, nil)
 	if err != nil {
-		return "", fmt.Errorf("facebook reel upload start: %w", err)
+		return "", fmt.Errorf("%s upload start: %w", label, err)
 	}
 	var start struct {
 		VideoID   string `json:"video_id"`
 		UploadURL string `json:"upload_url"`
 	}
 	if err := json.Unmarshal(startResponse, &start); err != nil {
-		return "", fmt.Errorf("decoding facebook reel upload start: %w", err)
+		return "", fmt.Errorf("decoding %s upload start: %w", label, err)
 	}
 	if start.VideoID == "" || start.UploadURL == "" {
-		return "", fmt.Errorf("facebook reel upload start did not return a video id and upload URL")
+		return "", fmt.Errorf("%s upload start did not return a video id and upload URL", label)
 	}
-	if _, err := DoRequest(ctx, http.MethodPost, start.UploadURL, nil, map[string]string{
+	if err := validateFacebookUploadURL(start.UploadURL); err != nil {
+		return "", err
+	}
+	if err := req.Checkpoint(pendingFacebookVideo("transfer", start.VideoID)); err != nil {
+		return "", err
+	}
+	uploadResponse, err := DoRequestNoRedirect(ctx, http.MethodPost, start.UploadURL, nil, map[string]string{
 		headerAuthorization: "OAuth " + accessToken,
 		"file_url":          mediaURL,
-	}); err != nil {
-		return "", fmt.Errorf("facebook reel transfer: %w", err)
+	})
+	if err != nil {
+		return "", facebookVideoOutcomeError("transfer", start.VideoID, fmt.Errorf("%s transfer: %w", label, err))
 	}
-	finishValues := map[string]string{
-		"upload_phase":        "finish",
-		"video_id":            start.VideoID,
-		"video_state":         "PUBLISHED",
-		"description":         strings.TrimSpace(firstNonEmptyString(settingString(req.Settings, "video_description"), req.Description, req.Content)),
-		oauthParamAccessToken: accessToken,
+	var uploaded struct {
+		Success bool `json:"success"`
 	}
-	if title := firstNonEmptyString(settingString(req.Settings, "video_title"), req.Title); title != "" {
-		finishValues["title"] = title
+	if err := json.Unmarshal(uploadResponse, &uploaded); err != nil {
+		return "", err
 	}
-	if _, exists := req.Settings["share_to_feed"]; exists {
-		finishValues["share_to_feed"] = strconv.FormatBool(settingBool(req.Settings, "share_to_feed"))
+	if !uploaded.Success {
+		return "", facebookVideoOutcomeError("transfer", start.VideoID, &HTTPError{StatusCode: http.StatusBadRequest, Code: "facebook_video_transfer_rejected"})
 	}
-	if _, err := DoFormURLEncoded(ctx, http.MethodPost, f.graphURL(pageID+"/video_reels"), finishValues, nil); err != nil {
-		return "", fmt.Errorf("facebook reel publish: %w", err)
+	if err := req.Checkpoint(pendingFacebookVideo("processing", start.VideoID)); err != nil {
+		return "", err
 	}
-	return start.VideoID, nil
+	if err := f.waitForFacebookVideoUpload(ctx, accessToken, start.VideoID); err != nil {
+		return "", facebookVideoOutcomeError("processing", start.VideoID, fmt.Errorf("%s processing: %w", label, err))
+	}
+	return f.finishHostedVideo(ctx, accessToken, pageID, edge, label, start.VideoID, finishValues, req)
+}
+
+func (f *FacebookAdapter) finishHostedVideo(ctx context.Context, accessToken, pageID, edge, label, videoID string, finishValues map[string]string, req *PublishRequest) (string, error) {
+	if err := req.Checkpoint(pendingFacebookVideo("publishing", videoID)); err != nil {
+		return "", err
+	}
+	finishValues["upload_phase"] = "finish"
+	finishValues["video_id"] = videoID
+	finishValues[oauthParamAccessToken] = accessToken
+	finishResponse, err := DoFormURLEncoded(ctx, http.MethodPost, f.graphURL(pageID+"/"+edge), finishValues, nil)
+	if err != nil {
+		return "", facebookVideoOutcomeError("publishing", videoID, fmt.Errorf("%s publish: %w", label, err))
+	}
+	var acknowledgement struct {
+		Success *bool `json:"success"`
+	}
+	if json.Unmarshal(finishResponse, &acknowledgement) == nil && acknowledgement.Success != nil && !*acknowledgement.Success {
+		return "", facebookVideoOutcomeError("publishing", videoID, &HTTPError{StatusCode: http.StatusBadRequest, Code: "facebook_video_publish_rejected"})
+	}
+	finishedID, err := facebookPublishedID(label+" publish", finishResponse)
+	if err != nil && !strings.Contains(err.Error(), "missing published id") {
+		return "", facebookVideoOutcomeError("publishing", videoID, err)
+	}
+	pending := pendingFacebookVideo("publishing", videoID)
+	if finishedID != "" && finishedID != videoID {
+		pending.ProviderReference += ":" + finishedID
+	}
+	if err := req.Checkpoint(pending); err != nil {
+		return "", err
+	}
+	return "", &facebookPendingError{result: pending}
+}
+
+func validateFacebookUploadURL(rawURL string) error {
+	uploadURL, err := url.Parse(rawURL)
+	if err != nil || uploadURL.Scheme != "https" || uploadURL.Hostname() != facebookRuploadHost ||
+		uploadURL.Port() != "" || uploadURL.User != nil {
+		return fmt.Errorf("facebook returned an invalid upload URL")
+	}
+	return nil
+}
+
+func (f *FacebookAdapter) waitForFacebookVideoUpload(ctx context.Context, accessToken, videoID string) error {
+	for attempt := 0; attempt < facebookVideoUploadMaxPolls; attempt++ {
+		if attempt > 0 && facebookVideoUploadPollDelay > 0 {
+			timer := time.NewTimer(facebookVideoUploadPollDelay)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return ctx.Err()
+			case <-timer.C:
+			}
+		}
+		query := url.Values{
+			"fields":              {"status"},
+			oauthParamAccessToken: {accessToken},
+		}
+		response, err := doMetaRequest(ctx, http.MethodGet, f.graphURL(videoID)+"?"+query.Encode(), nil, nil)
+		if err != nil {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			if isTransientFacebookVideoPollError(err) {
+				continue
+			}
+			return err
+		}
+		var statusResponse struct {
+			Status facebookVideoStatus `json:"status"`
+		}
+		if err := json.Unmarshal(response, &statusResponse); err != nil {
+			return fmt.Errorf("decoding Facebook video status: %w", err)
+		}
+		if statusResponse.Status.failed() {
+			return &HTTPError{StatusCode: http.StatusBadRequest, Code: "facebook_video_processing_failed"}
+		}
+		if statusResponse.Status.uploadComplete() {
+			return nil
+		}
+	}
+	return fmt.Errorf("facebook timed out while processing the video")
+}
+
+type facebookVideoStatus struct {
+	VideoStatus     string             `json:"video_status"`
+	UploadingPhase  facebookVideoPhase `json:"uploading_phase"`
+	ProcessingPhase facebookVideoPhase `json:"processing_phase"`
+	PublishingPhase facebookVideoPhase `json:"publishing_phase"`
+}
+
+type facebookVideoPhase struct {
+	Status string `json:"status"`
+	Error  struct {
+		Message string `json:"message"`
+	} `json:"error"`
+}
+
+func (s facebookVideoStatus) failed() bool {
+	return s.UploadingPhase.Error.Message != "" || s.ProcessingPhase.Error.Message != "" || s.PublishingPhase.Error.Message != "" || s.PublishingPhase.Status == "error" ||
+		s.UploadingPhase.Status == "error" || s.ProcessingPhase.Status == "error" ||
+		s.VideoStatus == "error" || s.VideoStatus == "expired"
+}
+
+func (s facebookVideoStatus) uploadComplete() bool {
+	// Finish starts provider processing, so upload readiness cannot wait for it.
+	return !s.failed() && (s.UploadingPhase.Status == "complete" || s.VideoStatus == "upload_complete" || s.VideoStatus == "ready")
+}
+
+func isTransientFacebookVideoPollError(err error) bool {
+	var transportErr *TransportError
+	if errors.As(err, &transportErr) {
+		return transportErr.Kind != TransportFailureCanceled
+	}
+	var providerErr *HTTPError
+	return errors.As(err, &providerErr) && (providerErr.StatusCode == http.StatusRequestTimeout ||
+		providerErr.StatusCode == http.StatusTooManyRequests || providerErr.StatusCode >= http.StatusInternalServerError)
 }
 
 func (f *FacebookAdapter) publishFeedPost(ctx context.Context, accessToken, pageID string, req *PublishRequest) (string, error) {
-	values := map[string]string{
-		"message":             strings.TrimSpace(req.Content),
-		oauthParamAccessToken: accessToken,
+	linkURL := facebookFeedLink(req)
+	publish := func(link string) (string, error) {
+		values := map[string]string{
+			"message":             strings.TrimSpace(req.Content),
+			oauthParamAccessToken: accessToken,
+		}
+		if link != "" {
+			values["link"] = link
+		}
+		if preset := settingString(req.Settings, "text_format_preset_id"); preset != "" {
+			values["text_format_preset_id"] = preset
+		}
+		respBody, err := DoFormURLEncoded(ctx, http.MethodPost, f.graphURL(pageID+"/feed"), values, nil)
+		if err != nil {
+			return "", fmt.Errorf("facebook feed publish: %w", err)
+		}
+		id, err := facebookPublishedID("facebook feed publish", respBody)
+		if err != nil {
+			return "", err
+		}
+		return id, nil
 	}
-	if linkURL := settingString(req.Settings, "url"); linkURL != "" {
-		values["link"] = linkURL
+	id, err := publish(linkURL)
+	if err != nil && linkURL != "" && isFacebookLinkScrapeFailure(err) {
+		return publish("")
 	}
-	if preset := settingString(req.Settings, "text_format_preset_id"); preset != "" {
-		values["text_format_preset_id"] = preset
-	}
-	respBody, err := DoFormURLEncoded(ctx, http.MethodPost, f.graphURL(pageID+"/feed"), values, nil)
-	if err != nil {
-		return "", fmt.Errorf("facebook feed publish: %w", err)
-	}
-	id, err := facebookPublishedID("facebook feed publish", respBody)
-	if err != nil {
-		return "", err
-	}
-	return id, nil
+	return id, err
 }
 
 func (f *FacebookAdapter) publishPhoto(ctx context.Context, accessToken, pageID, caption, mediaURL string) (string, error) {
@@ -429,7 +590,7 @@ func (f *FacebookAdapter) publishPhoto(ctx context.Context, accessToken, pageID,
 func (f *FacebookAdapter) publishVideo(ctx context.Context, accessToken, pageID string, req *PublishRequest, mediaURL string) (string, error) {
 	values := map[string]string{
 		"file_url":            mediaURL,
-		"description":         strings.TrimSpace(firstNonEmptyString(settingString(req.Settings, "video_description"), req.Description, req.Content)),
+		"description":         facebookVideoDescription(req),
 		oauthParamAccessToken: accessToken,
 	}
 	if title := firstNonEmptyString(settingString(req.Settings, "video_title"), req.Title); title != "" {
@@ -440,6 +601,16 @@ func (f *FacebookAdapter) publishVideo(ctx context.Context, accessToken, pageID 
 		return "", fmt.Errorf("facebook video publish: %w", err)
 	}
 	return facebookPublishedID("facebook video publish", respBody)
+}
+
+func facebookVideoDescription(req *PublishRequest) string {
+	// Caption annotations distinguish an authored empty caption from legacy inheritance.
+	if req.Settings["caption_mentions"] != nil {
+		if caption, ok := req.Settings["video_description"].(string); ok {
+			return strings.TrimSpace(caption)
+		}
+	}
+	return strings.TrimSpace(firstNonEmptyString(settingString(req.Settings, "video_description"), req.Description, req.Content))
 }
 
 func (f *FacebookAdapter) publishMultiPhoto(ctx context.Context, accessToken, pageID, message string, mediaURLs []string) (string, error) {
@@ -487,13 +658,8 @@ func (f *FacebookAdapter) publishStory(ctx context.Context, accessToken, pageID 
 		return "", fmt.Errorf("facebook stories require a publicly-accessible HTTPS media URL")
 	}
 	if isVideoMime(req.Media[0].MimeType) {
-		respBody, err := DoFormURLEncoded(ctx, http.MethodPost, f.graphURL(pageID+"/video_stories"), map[string]string{
-			"file_url": mediaURL, oauthParamAccessToken: accessToken,
-		}, nil)
-		if err != nil {
-			return "", fmt.Errorf("facebook story publish: %w", err)
-		}
-		return facebookPublishedID("facebook story publish", respBody)
+		edge, label, values := facebookVideoFinishRequest(req)
+		return f.publishHostedVideo(ctx, accessToken, pageID, edge, label, mediaURL, values, req)
 	}
 	photoID, err := f.uploadUnpublishedPhoto(ctx, accessToken, pageID, mediaURL)
 	if err != nil {
@@ -520,52 +686,127 @@ func (f *FacebookAdapter) publishCommentReply(ctx context.Context, accessToken, 
 	return facebookPublishedID("facebook comment reply", respBody)
 }
 
+type facebookGraphComment struct {
+	ID          string `json:"id"`
+	Message     string `json:"message"`
+	CreatedTime string `json:"created_time"`
+	IsHidden    bool   `json:"is_hidden"`
+	CanHide     bool   `json:"can_hide"`
+	CanComment  bool   `json:"can_comment"`
+	From        struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	} `json:"from"`
+	Parent struct {
+		ID string `json:"id"`
+	} `json:"parent"`
+	Attachment struct {
+		Type   string `json:"type"`
+		Title  string `json:"title"`
+		URL    string `json:"url"`
+		Target struct {
+			URL string `json:"url"`
+		} `json:"target"`
+		Media struct {
+			Image struct {
+				Src string `json:"src"`
+			} `json:"image"`
+			Source string `json:"source"`
+		} `json:"media"`
+	} `json:"attachment"`
+	Comments metaGraphCollection[facebookGraphComment] `json:"comments"`
+}
+
+// facebookCommentAttachments keeps the media a comment carries. Graph returns
+// an image under attachment.media.image, while attachment.url is the stable
+// photo or video page that outlives the signed CDN image.
+func facebookCommentAttachments(item facebookGraphComment) []CommentAttachment {
+	attachment := item.Attachment
+	image := strings.TrimSpace(attachment.Media.Image.Src)
+	permalink := firstNonEmptyString(attachment.URL, attachment.Target.URL)
+	link := firstNonEmptyString(permalink, image, strings.TrimSpace(attachment.Media.Source))
+	if link == "" {
+		return nil
+	}
+	kind := strings.ToLower(strings.TrimSpace(attachment.Type))
+	switch kind {
+	case "photo":
+		kind = "image"
+	case "animated_image":
+		kind = "video"
+	case "", "share":
+		kind = "link"
+	}
+	return []CommentAttachment{{
+		Type:      kind,
+		URL:       link,
+		Name:      strings.TrimSpace(attachment.Title),
+		Thumbnail: image,
+	}}
+}
+
+func facebookCommentFromGraph(item facebookGraphComment, pageID, parentID string) Comment {
+	if parentID == "" {
+		parentID = item.Parent.ID
+	}
+	return Comment{
+		ID:          item.ID,
+		ParentID:    parentID,
+		AuthorID:    item.From.ID,
+		AuthorName:  item.From.Name,
+		Text:        item.Message,
+		CreatedAt:   item.CreatedTime,
+		Hidden:      item.IsHidden,
+		IsOurs:      pageID != "" && item.From.ID == pageID,
+		CanReply:    item.CanComment,
+		CanHide:     item.CanHide,
+		CanDelete:   true,
+		Attachments: facebookCommentAttachments(item),
+	}
+}
+
+func collectFacebookComments(ctx context.Context, origin string, items []facebookGraphComment, pageID, fallbackParent string, budget *metaGraphBudget) ([]Comment, error) {
+	comments := make([]Comment, 0, len(items))
+	for _, item := range items {
+		parentID := item.Parent.ID
+		if parentID == "" {
+			parentID = fallbackParent
+		}
+		comments = append(comments, facebookCommentFromGraph(item, pageID, parentID))
+		replies, err := fetchMetaGraphRemaining(ctx, origin, item.Comments, "facebook replies", budget)
+		if err != nil {
+			return nil, err
+		}
+		nested, err := collectFacebookComments(ctx, origin, replies, pageID, item.ID, budget)
+		if err != nil {
+			return nil, err
+		}
+		comments = append(comments, nested...)
+	}
+	return comments, nil
+}
+
+// Comments can carry their own attachment. The current Comment reference
+// omits the field, but Graph still returns it for photo, video, and link
+// comments.
+const facebookCommentFields = "id,from,message,created_time,is_hidden,can_hide,can_comment,attachment"
+
 func (f *FacebookAdapter) ListComments(ctx context.Context, accessToken, pageID string, externalID string) ([]Comment, error) {
-	fields := "id,from,message,created_time,is_hidden,can_hide,can_comment"
-	endpoint := f.graphURL(externalID+"/comments") + "?fields=" + url.QueryEscape(fields) + "&access_token=" + url.QueryEscape(accessToken)
-	respBody, err := DoRequest(ctx, http.MethodGet, endpoint, nil, nil)
-	if err != nil {
-		return nil, fmt.Errorf("facebook comments: %w", err)
+	// The comments edge lists top-level comments only. Replies live on each
+	// comment's comments edge; nest that expansion two levels so one poll
+	// also requests a reply-to-a-reply. Keep reverse_chronological so a busy
+	// post still shows its newest comments.
+	replyFields := facebookCommentFields + ",parent"
+	fields := facebookCommentFields + ",comments.order(reverse_chronological){" + replyFields + ",comments.order(reverse_chronological){" + replyFields + "}}"
+	endpoint := f.graphURL(externalID+"/comments") + "?fields=" + url.QueryEscape(fields) + "&order=reverse_chronological&access_token=" + url.QueryEscape(accessToken)
+	budget := &metaGraphBudget{}
+	items, err := fetchMetaGraphEdge[facebookGraphComment](ctx, endpoint, "facebook comments", budget)
+	if err = metaCommentReadError(err); err != nil {
+		return nil, err
 	}
-
-	var result struct {
-		Data []struct {
-			ID          string `json:"id"`
-			Message     string `json:"message"`
-			CreatedTime string `json:"created_time"`
-			IsHidden    bool   `json:"is_hidden"`
-			CanHide     bool   `json:"can_hide"`
-			CanComment  bool   `json:"can_comment"`
-			From        struct {
-				ID   string `json:"id"`
-				Name string `json:"name"`
-			} `json:"from"`
-		} `json:"data"`
-		Error struct {
-			Message string `json:"message"`
-		} `json:"error"`
-	}
-	if err := json.Unmarshal(respBody, &result); err != nil {
-		return nil, fmt.Errorf("decoding facebook comments: %w", err)
-	}
-	if result.Error.Message != "" {
-		return nil, fmt.Errorf("facebook comments: %s", result.Error.Message)
-	}
-
-	comments := make([]Comment, 0, len(result.Data))
-	for _, item := range result.Data {
-		comments = append(comments, Comment{
-			ID:         item.ID,
-			AuthorID:   item.From.ID,
-			AuthorName: item.From.Name,
-			Text:       item.Message,
-			CreatedAt:  item.CreatedTime,
-			Hidden:     item.IsHidden,
-			IsOurs:     pageID != "" && item.From.ID == pageID,
-			CanReply:   item.CanComment,
-			CanHide:    item.CanHide,
-			CanDelete:  true,
-		})
+	comments, err := collectFacebookComments(ctx, endpoint, items, pageID, "", budget)
+	if err = metaCommentReadError(err); err != nil {
+		return nil, err
 	}
 	return comments, nil
 }
@@ -582,7 +823,7 @@ func resolveMetaContentURL(
 		"fields":              {field},
 		oauthParamAccessToken: {accessToken},
 	}
-	body, err := DoRequest(ctx, http.MethodGet, graphURL(externalID)+"?"+query.Encode(), nil, nil)
+	body, err := doMetaRequest(ctx, http.MethodGet, graphURL(externalID)+"?"+query.Encode(), nil, nil)
 	if err != nil {
 		return "", fmt.Errorf("%s post permalink: %w", providerName, err)
 	}
@@ -618,7 +859,7 @@ func (f *FacebookAdapter) HideComment(ctx context.Context, accessToken, _ string
 
 func (f *FacebookAdapter) DeleteComment(ctx context.Context, accessToken, _ string, commentID string) error {
 	endpoint := f.graphURL(commentID) + "?access_token=" + url.QueryEscape(accessToken)
-	if _, err := DoRequest(ctx, http.MethodDelete, endpoint, nil, nil); err != nil {
+	if _, err := doMetaRequest(ctx, http.MethodDelete, endpoint, nil, nil); err != nil {
 		return fmt.Errorf("facebook delete comment: %w", err)
 	}
 	return nil
@@ -630,13 +871,25 @@ func facebookPublishedID(label string, respBody []byte) (string, error) {
 		PostID string `json:"post_id"`
 		Error  struct {
 			Message string `json:"message"`
+			Code    any    `json:"code"`
+			Subcode any    `json:"error_subcode"`
 		} `json:"error"`
 	}
 	if err := json.Unmarshal(respBody, &publishResp); err != nil {
 		return "", fmt.Errorf("decoding %s: %w", label, err)
 	}
-	if publishResp.Error.Message != "" {
-		return "", &HTTPError{StatusCode: http.StatusBadRequest, Code: "facebook_publish_error"}
+	if publishResp.Error.Message != "" || firstSafeProviderCode([]any{publishResp.Error.Code}) != "" {
+		// Same embedded-error handling as Instagram: classify the embedded
+		// {code, subcode} and never retain the message.
+		code := firstSafeProviderCode([]any{publishResp.Error.Code})
+		if code == "" {
+			code = "facebook_publish_error"
+		}
+		return "", normalizeMetaPublishError(&HTTPError{
+			StatusCode: http.StatusBadRequest,
+			Code:       code,
+			Subcode:    firstSafeProviderCode([]any{publishResp.Error.Subcode}),
+		})
 	}
 	id := firstNonEmptyString(publishResp.PostID, publishResp.ID)
 	if id == "" {
@@ -704,8 +957,137 @@ func facebookScopes() []string {
 		metaBusinessManagementScope,
 		"pages_show_list",
 		"pages_read_engagement",
+		"pages_read_user_content",
 		"pages_manage_engagement",
+		"pages_manage_metadata",
 		"pages_manage_posts",
 		"pages_messaging",
+	}
+}
+
+func pendingFacebookVideo(stage, videoID string) PublishResult {
+	return PublishResult{SubmissionState: PublishSubmissionPending, ProviderState: "facebook_video_" + stage, ProviderReference: "fb1:" + stage + ":" + videoID, RetrySafety: PublishRetryReconcileOnly, ReconcileAfter: time.Minute}
+}
+
+func (f *FacebookAdapter) ResumePublish(ctx context.Context, token, pageID string, req *PublishRequest, reference string) (PublishResult, error) {
+	if req == nil {
+		return PublishResult{SubmissionState: PublishSubmissionRejected, RetrySafety: PublishRetryNever}, fmt.Errorf("missing Facebook publish request")
+	}
+	stage, videoID, publishedID, err := parseFacebookVideoCheckpoint(reference)
+	if err != nil {
+		return PublishResult{SubmissionState: PublishSubmissionRejected, RetrySafety: PublishRetryNever}, err
+	}
+	pending := pendingFacebookVideo(stage, videoID)
+	pending.ProviderReference = reference
+	body, err := doMetaRequest(ctx, http.MethodGet, f.graphURL(videoID)+"?fields=status&access_token="+url.QueryEscape(token), nil, nil)
+	if err != nil {
+		failure := facebookVideoOutcomeError(stage, videoID, err)
+		var outcome *facebookVideoFailure
+		errors.As(failure, &outcome)
+		outcome.result.ProviderReference = reference
+		return outcome.result, outcome.err
+	}
+	var response struct {
+		Status facebookVideoStatus `json:"status"`
+	}
+	if err := json.Unmarshal(body, &response); err != nil {
+		return pending, err
+	}
+	status := response.Status
+	if status.failed() {
+		pending.SubmissionState = PublishSubmissionRejected
+		pending.RetrySafety = PublishRetryNever
+		return pending, &HTTPError{StatusCode: http.StatusBadRequest, Code: "facebook_video_processing_failed"}
+	}
+	if status.PublishingPhase.Status == "complete" || status.VideoStatus == "published" {
+		result := AcceptedPublishResult(publishedID)
+		result.ProviderReference = reference
+		return result, nil
+	}
+	if stage == "publishing" {
+		return pending, nil
+	}
+	if !status.uploadComplete() {
+		return pending, nil
+	}
+	edge, label, values := facebookVideoFinishRequest(req)
+	id, err := f.finishHostedVideo(ctx, token, pageID, edge, label, videoID, values, req)
+	var waiting *facebookPendingError
+	if errors.As(err, &waiting) {
+		return waiting.result, nil
+	}
+	if err != nil {
+		var failure *facebookVideoFailure
+		if errors.As(err, &failure) {
+			return failure.result, failure.err
+		}
+		return pendingFacebookVideo("publishing", videoID), err
+	}
+	result := AcceptedPublishResult(id)
+	result.ProviderReference = reference
+	return result, nil
+}
+
+type facebookPendingError struct{ result PublishResult }
+
+func (e *facebookPendingError) Error() string {
+	return "Facebook video publication is pending confirmation"
+}
+
+// Preserve accepted upload identity, but expose confirmed provider rejection.
+type facebookVideoFailure struct {
+	result PublishResult
+	err    error
+}
+
+func (e *facebookVideoFailure) Error() string { return e.err.Error() }
+func (e *facebookVideoFailure) Unwrap() error { return e.err }
+func facebookVideoOutcomeError(stage, videoID string, err error) error {
+	normalized := normalizeMetaPublishError(err)
+	result := pendingFacebookVideo(stage, videoID)
+	var providerErr *HTTPError
+	if errors.As(normalized, &providerErr) && providerErr.StatusCode >= 400 && providerErr.StatusCode < 500 && providerErr.StatusCode != 408 && providerErr.StatusCode != 429 {
+		result.SubmissionState = PublishSubmissionRejected
+		result.RetrySafety = PublishRetryNever
+	}
+	return &facebookVideoFailure{result: result, err: normalized}
+}
+
+func facebookVideoFinishRequest(req *PublishRequest) (string, string, map[string]string) {
+	if req.Profile == "story" || req.OutputProfile == "facebook.story" {
+		return "video_stories", "facebook story", map[string]string{}
+	}
+	finishValues := map[string]string{
+		"video_state": "PUBLISHED",
+		"description": facebookVideoDescription(req),
+	}
+	if title := firstNonEmptyString(settingString(req.Settings, "video_title"), req.Title); title != "" {
+		finishValues["title"] = title
+	}
+	if _, exists := req.Settings["share_to_feed"]; exists {
+		finishValues["share_to_feed"] = strconv.FormatBool(settingBool(req.Settings, "share_to_feed"))
+	}
+	return "video_reels", "facebook reel", finishValues
+}
+
+func parseFacebookVideoCheckpoint(reference string) (string, string, string, error) {
+	parts := strings.Split(reference, ":")
+	if (len(parts) != 3 && len(parts) != 4) || parts[0] != "fb1" || !safeContentID.MatchString(parts[2]) {
+		return "", "", "", fmt.Errorf("invalid Facebook video checkpoint")
+	}
+	stage, videoID := parts[1], parts[2]
+	publishedID := videoID
+	if len(parts) == 4 {
+		if !safeContentID.MatchString(parts[3]) {
+			return "", "", "", fmt.Errorf("invalid Facebook publication identity")
+		}
+		publishedID = parts[3]
+	}
+
+	switch stage {
+	case "transfer", "processing", "publishing":
+		return stage, videoID, publishedID, nil
+	default:
+		return "", "", "", fmt.Errorf("unsupported Facebook video checkpoint")
 	}
 }

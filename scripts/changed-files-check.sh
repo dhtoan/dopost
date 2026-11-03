@@ -17,16 +17,17 @@ case "$(basename "$0")" in
 esac
 
 if [ "$hook_mode" -eq 0 ] && [ "$#" -gt 1 ]; then
-  echo "Usage: scripts/changed-files-check.sh [--worktree|--staged|--pushed-range]" >&2
+  echo "Usage: scripts/changed-files-check.sh [--worktree|--staged|--pushed-range|--files0]" >&2
   exit 2
 fi
 if [ "$hook_mode" -eq 0 ] && [ "$#" -eq 1 ]; then
   case "$1" in
+    --files0) mode="files0" ;;
     --worktree) mode="worktree" ;;
     --staged) mode="staged" ;;
     --pushed-range) mode="pushed-range" ;;
     *)
-      echo "Usage: scripts/changed-files-check.sh [--worktree|--staged|--pushed-range]" >&2
+      echo "Usage: scripts/changed-files-check.sh [--worktree|--staged|--pushed-range|--files0]" >&2
       exit 2
       ;;
   esac
@@ -84,6 +85,23 @@ if [ "$mode" = "pushed-range" ]; then
 fi
 
 case "$mode" in
+  files0)
+    file=""
+    while IFS= read -r -d '' file; do
+      case "$file" in
+        "" | /* | .. | ../* | */../* | */..)
+          echo "changed-files-check: --files0 requires repository-relative paths" >&2
+          exit 2
+          ;;
+      esac
+      if [ -f "$file" ]; then add_file "$file"; fi
+      file=""
+    done
+    if [ -n "$file" ]; then
+      echo "changed-files-check: --files0 requires a terminating NUL" >&2
+      exit 2
+    fi
+    ;;
   worktree)
     while IFS= read -r -d '' file; do add_file "$file"; done < <(
       git diff --name-only --diff-filter=ACMR -z
@@ -122,7 +140,7 @@ if [ "${#files[@]}" -eq 0 ]; then
 fi
 
 case "$mode" in
-  worktree)
+  worktree | files0)
     git diff --check
     git diff --cached --check
     ;;
@@ -149,19 +167,19 @@ for file in "${files[@]}"; do
   case "$file" in
     apps/web/*)
       case "$file" in
-        *.js | *.mjs | *.cjs | *.ts | *.svelte | *.json | *.css | *.md | *.yml | *.yaml)
+        *.js | *.mjs | *.cjs | *.ts | *.tsx | *.jsx | *.svelte | *.json | *.jsonc | *.css | *.md | *.yml | *.yaml)
           frontend_format+=("${file#apps/web/}")
           ;;
       esac
       ;;
     apps/marketing/*)
       case "$file" in
-        *.js | *.mjs | *.cjs | *.ts | *.svelte | *.json | *.css | *.md | *.yml | *.yaml)
+        *.js | *.mjs | *.cjs | *.ts | *.tsx | *.jsx | *.svelte | *.json | *.css | *.md | *.yml | *.yaml)
           marketing_format+=("$file")
           ;;
       esac
       ;;
-    *.js | *.mjs | *.cjs | *.ts | *.svelte | *.json | *.css | *.md | *.yml | *.yaml)
+    *.js | *.mjs | *.cjs | *.ts | *.tsx | *.jsx | *.svelte | *.json | *.jsonc | *.css | *.md | *.yml | *.yaml)
       root_format+=("$file")
       ;;
   esac
@@ -181,7 +199,7 @@ if [ "${#nix_files[@]}" -gt 0 ]; then
   jobs+=("$!")
 fi
 if [ "${#root_format[@]}" -gt 0 ]; then
-  (bunx oxfmt --check "${root_format[@]}") &
+  (bunx oxfmt --check --no-error-on-unmatched-pattern "${root_format[@]}") &
   jobs+=("$!")
 fi
 if [ "${#frontend_format[@]}" -gt 0 ]; then
@@ -194,9 +212,11 @@ if [ "${#marketing_format[@]}" -gt 0 ]; then
 fi
 
 failed=0
-for job in "${jobs[@]}"; do
-  wait "$job" || failed=1
-done
+if [ "${#jobs[@]}" -gt 0 ]; then
+  for job in "${jobs[@]}"; do
+    wait "$job" || failed=1
+  done
+fi
 if [ "$failed" -ne 0 ]; then
   if [ "$mode" = "pushed-range" ]; then
     echo "" >&2

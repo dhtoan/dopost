@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"strings"
 	"time"
 )
 
@@ -85,6 +84,8 @@ func (p *PixelfedAdapter) GetProfile(ctx context.Context, accessToken string) (*
 	return compatUserProfile(profile, FediverseSoftwarePixelfed), nil
 }
 
+func (p *PixelfedAdapter) AccountCapabilityKeyInput(AccountCapabilityInput) string { return "" }
+
 func (p *PixelfedAdapter) ResolveAccountPublishingCapabilities(ctx context.Context, accessToken string, _ AccountCapabilityInput) (AccountCapabilityResult, error) {
 	return compatPublishingCapabilities(ctx, p.compat.instanceURL, accessToken, "Pixelfed", "pixelfed", false)
 }
@@ -155,19 +156,4 @@ func (p *PixelfedAdapter) FetchAccountAnalytics(ctx context.Context, accessToken
 
 func (p *PixelfedAdapter) FetchContentAnalytics(ctx context.Context, accessToken string, input ContentAnalyticsRequest) (AnalyticsValues, error) {
 	return compatFetchContentAnalytics(ctx, p.compat.instanceURL, accessToken, "pixelfed", input)
-}
-
-func (p *PixelfedAdapter) AccountContentDiscoverySupport(input AnalyticsAccountContext) AccountContentDiscoverySupport {
-	if strings.TrimSpace(input.AccountID) == "" {
-		return AccountContentDiscoverySupport{UnavailableReason: "Pixelfed account content discovery requires a stable account identity."}
-	}
-	if _, ok := canonicalProviderServerURL(p.compat.instanceURL); !ok {
-		return AccountContentDiscoverySupport{UnavailableReason: "Pixelfed account content discovery is unavailable for this instance configuration."}
-	}
-	return AccountContentDiscoverySupport{Supported: true, MaxPageSize: mastodonAccountContentPageSize}
-}
-
-func (p *PixelfedAdapter) DiscoverAccountContent(ctx context.Context, accessToken string, input AccountContentDiscoveryRequest) (AccountContentPage, error) {
-	return compatDiscoverAccountContent(ctx, p.compat.instanceURL, accessToken, input, providerPixelfed,
-		"Only public posts visible through the authenticated Pixelfed instance are included.")
 }

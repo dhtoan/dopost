@@ -1,5 +1,12 @@
 import { throwIfAborted } from "@openpost/query-catalog";
-import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from "expo-router";
+import {
+  ErrorBoundary as ExpoErrorBoundary,
+  type ErrorBoundaryProps,
+  DarkTheme,
+  DefaultTheme,
+  Stack,
+  ThemeProvider,
+} from "expo-router";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { BottomSheetProvider } from "@swmansion/react-native-bottom-sheet";
 import * as SplashScreen from "expo-splash-screen";
@@ -7,9 +14,12 @@ import { ShareIntentProvider } from "expo-share-intent";
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { KeyboardProvider } from "react-native-keyboard-controller";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { queryClient } from "@/lib/query-client";
+import { nativeTelemetry } from "@/lib/telemetry";
+import { NativeTelemetryRuntime } from "@/components/native-telemetry-runtime";
 import { configureNativeQueryLifecycle } from "@/lib/query-lifecycle";
 import { getQueryActorRevision, subscribeQueryActor } from "@/lib/query-session";
 import { getServer, loadServer, subscribeServer } from "@/lib/server";
@@ -32,6 +42,7 @@ import { readAppBootstrap } from "@/lib/app-bootstrap";
 import { registerSignedOutDeviceDataPurge } from "@/lib/auth";
 import { LaunchSessionProvider, type LaunchSessionState } from "@/lib/launch-session";
 import { loadSessionState, synchronizeSession } from "@/lib/session";
+import { purgeInboxDeviceData } from "@/lib/inbox/storage";
 import { purgeVideoProjectDeviceData } from "@/lib/video-projects";
 import {
   bindNativeThemeSession,
@@ -46,16 +57,29 @@ import {
   useNativeTheme,
 } from "@/theme";
 
+export function ErrorBoundary(props: ErrorBoundaryProps) {
+  useEffect(() => {
+    nativeTelemetry.exception(props.error, "/");
+  }, [props.error]);
+  return <ExpoErrorBoundary {...props} />;
+}
+
 SplashScreen.preventAutoHideAsync();
-registerSignedOutDeviceDataPurge(purgeVideoProjectDeviceData);
-registerUnauthorizedDeviceDataPurge(purgeVideoProjectDeviceData);
+const purgeDeviceData = async () => {
+  await Promise.all([purgeVideoProjectDeviceData(), purgeInboxDeviceData()]);
+};
+registerSignedOutDeviceDataPurge(purgeDeviceData);
+registerUnauthorizedDeviceDataPurge(purgeDeviceData);
 configureNativeQueryLifecycle();
 
 function useSessionReady() {
   const server = useSyncExternalStore(subscribeServer, getServer);
   const token = useSyncExternalStore(subscribeToken, getToken);
   const identity = `${server?.baseUrl ?? ""}\u0000${token ?? ""}`;
-  const [result, setResult] = useState<{ identity: string; state: LaunchSessionState }>(() => ({
+  const [result, setResult] = useState<{
+    identity: string;
+    state: LaunchSessionState;
+  }>(() => ({
     identity,
     state: { status: "loading" },
   }));
@@ -162,34 +186,39 @@ export default function RootLayout() {
   }, [launch.hydrated, sessionIdentity]);
 
   return (
-    <SafeAreaProvider>
-      <QueryClientProvider client={queryClient}>
-        <NativeThemeRuntime
-          contract={signedIn && activationMatchesSession ? activation.contract : null}
-          preference={preference}
-          stagedResources={signedIn && activationMatchesSession ? activation.resources : null}
-          workspaceId={signedIn ? workspaceId : null}
-        >
-          <LaunchSessionProvider
-            key={queryActorRevision}
-            value={{ state: launch.state, reload: launch.reload }}
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <SafeAreaProvider>
+        <QueryClientProvider client={queryClient}>
+          <NativeTelemetryRuntime
+            ready={launch.hydrated && (!token || launch.state.status === "ready")}
+          />
+          <NativeThemeRuntime
+            contract={signedIn && activationMatchesSession ? activation.contract : null}
+            preference={preference}
+            stagedResources={signedIn && activationMatchesSession ? activation.resources : null}
+            workspaceId={signedIn ? workspaceId : null}
           >
-            <KeyboardProvider
-              navigationBarTranslucent
-              preload={false}
-              preserveEdgeToEdge
-              statusBarTranslucent
+            <LaunchSessionProvider
+              key={queryActorRevision}
+              value={{ state: launch.state, reload: launch.reload }}
             >
-              <BottomSheetProvider>
-                <ShareIntentProvider>
-                  <ThemedApplication />
-                </ShareIntentProvider>
-              </BottomSheetProvider>
-            </KeyboardProvider>
-          </LaunchSessionProvider>
-        </NativeThemeRuntime>
-      </QueryClientProvider>
-    </SafeAreaProvider>
+              <KeyboardProvider
+                navigationBarTranslucent
+                preload={false}
+                preserveEdgeToEdge
+                statusBarTranslucent
+              >
+                <BottomSheetProvider>
+                  <ShareIntentProvider>
+                    <ThemedApplication />
+                  </ShareIntentProvider>
+                </BottomSheetProvider>
+              </KeyboardProvider>
+            </LaunchSessionProvider>
+          </NativeThemeRuntime>
+        </QueryClientProvider>
+      </SafeAreaProvider>
+    </GestureHandlerRootView>
   );
 }
 
@@ -216,7 +245,13 @@ function ThemedApplication() {
       <Stack>
         <Stack.Screen name="index" options={{ headerShown: false }} />
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        <Stack.Screen name="appearance" options={{ headerShown: false }} />
+        <Stack.Screen name="analytics" options={{ title: "Analytics", headerBackTitle: "Back" }} />
+        <Stack.Screen name="media" options={{ title: "Media", headerBackTitle: "Back" }} />
+        <Stack.Screen
+          name="appearance"
+          options={{ title: "Appearance", headerBackTitle: "Back" }}
+        />
+        <Stack.Screen name="ideate" options={{ title: "Ideate", headerBackTitle: "Back" }} />
         <Stack.Screen
           name="onboarding/server"
           options={{
@@ -233,11 +268,11 @@ function ThemedApplication() {
           name="publications/[id]/edit"
           options={{
             presentation: "modal",
-            title: "Edit publication",
+            title: "Edit post",
             headerShown: false,
           }}
         />
-        <Stack.Screen name="publications/[id]" options={{ title: "Publication" }} />
+        <Stack.Screen name="publications/[id]" options={{ title: "Post" }} />
       </Stack>
     </ThemeProvider>
   );

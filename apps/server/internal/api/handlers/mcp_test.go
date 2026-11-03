@@ -3,8 +3,10 @@ package handlers
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -18,7 +20,6 @@ import (
 	"github.com/openpost/backend/internal/models"
 	"github.com/openpost/backend/internal/platform"
 	"github.com/openpost/backend/internal/services/entitlements"
-	"github.com/openpost/backend/internal/services/lifecycle"
 	"github.com/openpost/backend/internal/services/mediastore"
 	"github.com/openpost/backend/internal/services/providerreadiness"
 	"github.com/stretchr/testify/require"
@@ -56,18 +57,31 @@ func newMCPTestServerWithEntitlement(t *testing.T, entitlement entitlements.Serv
 		(*models.UsageCounter)(nil),
 		(*models.PostingSchedule)(nil),
 		(*models.MediaAttachment)(nil),
+		(*models.ScreenshotTemplateDesign)(nil),
+		(*models.ScreenshotTemplateMediaReference)(nil),
+		(*models.ScreenshotTemplateRecipeMediaReference)(nil),
+		(*models.MediaGenerationRecipe)(nil),
 		(*models.DesignDocument)(nil),
+		(*models.DesignRevision)(nil),
+		(*models.DesignRevisionMediaReference)(nil),
+		(*models.DesignRevisionMediaIndexState)(nil),
+		(*models.VideoProject)(nil),
+		(*models.ProjectAsset)(nil),
+		(*models.RenditionMediaDelivery)(nil),
+		(*models.RenditionMediaDeliveryRelation)(nil),
 		(*models.DesignPage)(nil),
 		(*models.DesignMediaReference)(nil),
 		(*models.DesignTemplate)(nil),
 		(*models.DesignTemplateMediaReference)(nil),
 		(*models.BrandKit)(nil),
+		(*models.ImageEditorEffectPreset)(nil),
 		(*models.BrandFont)(nil),
 		(*models.MediaCollection)(nil),
 		(*models.MediaCollectionItem)(nil),
 		(*models.MediaTag)(nil),
 		(*models.MediaTagAssignment)(nil),
 		(*models.MCPToolCall)(nil),
+		(*models.MCPMediaUploadTicket)(nil),
 		(*models.ProviderApp)(nil),
 		(*models.Publication)(nil),
 		(*models.PublicationAsset)(nil),
@@ -146,7 +160,11 @@ func newMCPTestServerWithEntitlement(t *testing.T, entitlement entitlements.Serv
 	handler := NewMCPHandler(db, testAuthenticator{}, entitlement)
 	ensurePermissiveProviderReadinessFixture(t, db)
 	handler.SetProviderReadiness(mcpProviderReadiness(t))
-	handler.SetMediaStorage(mediastore.NewLocalStorage(t.TempDir(), "/media"))
+	storage := mediastore.NewLocalStorage(t.TempDir(), "/media")
+	handler.SetMediaStorage(storage)
+	mediaHandler := NewMediaHandler(db, storage, nil, testAuthenticator{}, nil)
+	mediaHandler.SetEntitlement(entitlement)
+	handler.SetMediaHandler(mediaHandler)
 	handler.SetPublicURL("https://app.openpost.test")
 	handler.SetFeatureGate(alwaysEnabledMCPGate{})
 	handler.RegisterRoutes(e)
@@ -160,11 +178,15 @@ func (alwaysEnabledMCPGate) IsEffectiveEnabled(context.Context, string, string) 
 }
 
 func (s *mcpTestServer) request(t *testing.T, token string, body any) *httptest.ResponseRecorder {
+	return s.requestPath(t, "/mcp", token, body)
+}
+
+func (s *mcpTestServer) requestPath(t *testing.T, path, token string, body any) *httptest.ResponseRecorder {
 	t.Helper()
 
 	var payload bytes.Buffer
 	require.NoError(t, json.NewEncoder(&payload).Encode(body))
-	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/mcp", &payload)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, path, &payload)
 	req.Header.Set("Content-Type", "application/json")
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
@@ -172,6 +194,123 @@ func (s *mcpTestServer) request(t *testing.T, token string, body any) *httptest.
 	rec := httptest.NewRecorder()
 	s.echo.ServeHTTP(rec, req)
 	return rec
+}
+
+func TestMCPExposesDirectAndCodeModeEndpoints(t *testing.T) {
+	t.Parallel()
+	srv := newMCPTestServer(t)
+	srv.handler.auth = mcpScopeAuthenticator{
+		"mcp-token": {UserID: "user-1", Scope: "mcp:full", WorkspaceID: "ws-1"},
+	}
+	listNames := func(path string) []string {
+		resp := srv.requestPath(t, path, "mcp-token", map[string]any{"jsonrpc": "2.0", "id": "tools", "method": "tools/list"})
+		require.Equal(t, http.StatusOK, resp.Code)
+		var out struct {
+			Result struct {
+				Tools []struct {
+					Name string `json:"name"`
+				} `json:"tools"`
+			} `json:"result"`
+		}
+		require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out))
+		names := make([]string, 0, len(out.Result.Tools))
+		for _, tool := range out.Result.Tools {
+			names = append(names, tool.Name)
+		}
+		return names
+	}
+	direct := listNames("/mcp")
+	require.Contains(t, direct, mcpToolCreatePub)
+	require.NotContains(t, direct, mcpToolSearch)
+	compact := listNames("/mcp/code")
+	require.Contains(t, compact, mcpToolSearch)
+	require.Contains(t, compact, mcpToolQuery)
+	require.Contains(t, compact, mcpToolExecute)
+	require.NotContains(t, compact, mcpToolCreatePub)
+
+	srv.handler.SetToolMode("both")
+	require.Equal(t, compact, listNames("/mcp/code"))
+}
+
+func TestMCPLocalMediaUploadTicketIsHiddenAndOneUse(t *testing.T) {
+	t.Parallel()
+	for _, state := range []string{"live", "member removed", "session revoked"} {
+		t.Run(state, func(t *testing.T) {
+			srv := newMCPTestServer(t)
+			_, err := srv.db.NewCreateTable().Model((*models.UserSession)(nil)).Exec(t.Context())
+			require.NoError(t, err)
+			_, err = srv.db.NewInsert().Model(&models.UserSession{ID: "session-1", UserID: "user-1", ExpiresAt: time.Now().Add(time.Hour), CreatedAt: time.Now()}).Exec(t.Context())
+			require.NoError(t, err)
+			srv.handler.auth = mcpScopeAuthenticator{
+				"mcp-token": {UserID: "user-1", Scope: "mcp:full", WorkspaceID: "ws-1", SessionID: "session-1", ClientID: "client-1"},
+			}
+			png, err := base64.StdEncoding.DecodeString("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=")
+			require.NoError(t, err)
+			response := srv.request(t, "mcp-token", map[string]any{
+				"jsonrpc": "2.0", "id": "ticket", "method": "tools/call",
+				"params": map[string]any{"name": mcpToolCreateTicket, "arguments": map[string]any{
+					"workspace_id": "ws-1", "filename": "../profile.png", "mime_type": "image/png", "size": len(png), "alt_text": "Profile",
+				}},
+			})
+			require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+			var ticketResult struct {
+				Result struct {
+					Structured map[string]any `json:"structuredContent"`
+					Meta       struct {
+						Upload struct {
+							URL     string            `json:"url"`
+							Headers map[string]string `json:"headers"`
+						} `json:"upload"`
+					} `json:"_meta"`
+				} `json:"result"`
+			}
+			require.NoError(t, json.Unmarshal(response.Body.Bytes(), &ticketResult))
+			require.NotContains(t, response.Body.String(), `"structuredContent":{"ticket"`)
+			require.Equal(t, "https://app.openpost.test/mcp/media-upload", ticketResult.Result.Meta.Upload.URL)
+			authorization := ticketResult.Result.Meta.Upload.Headers["Authorization"]
+			require.True(t, strings.HasPrefix(authorization, "Upload "))
+			var publicResult struct {
+				Result struct {
+					Content    json.RawMessage `json:"content"`
+					Structured json.RawMessage `json:"structuredContent"`
+				} `json:"result"`
+			}
+			require.NoError(t, json.Unmarshal(response.Body.Bytes(), &publicResult))
+			require.NotContains(t, string(publicResult.Result.Content), authorization)
+			require.NotContains(t, string(publicResult.Result.Structured), authorization)
+
+			var stored models.MCPMediaUploadTicket
+			require.NoError(t, srv.db.NewSelect().Model(&stored).Scan(t.Context()))
+			require.Equal(t, "profile.png", stored.Filename)
+			require.Equal(t, "session-1", stored.SessionID)
+			require.NotContains(t, authorization, stored.TicketHash)
+
+			upload := func() *httptest.ResponseRecorder {
+				req := httptest.NewRequestWithContext(t.Context(), http.MethodPut, "/mcp/media-upload", bytes.NewReader(png))
+				req.Header.Set("Authorization", authorization)
+				req.Header.Set("Content-Type", "image/png")
+				rec := httptest.NewRecorder()
+				srv.echo.ServeHTTP(rec, req)
+				return rec
+			}
+			if state == "member removed" {
+				_, err := srv.db.NewDelete().Model((*models.WorkspaceMember)(nil)).Where("workspace_id = ? AND user_id = ?", "ws-1", "user-1").Exec(t.Context())
+				require.NoError(t, err)
+			}
+			if state == "session revoked" {
+				_, err := srv.db.NewUpdate().Model((*models.UserSession)(nil)).Set("revoked_at = ?", time.Now()).Where("id = ?", "session-1").Exec(t.Context())
+				require.NoError(t, err)
+			}
+			first := upload()
+			if state != "live" {
+				require.True(t, first.Code == http.StatusUnauthorized || first.Code == http.StatusForbidden, first.Body.String())
+				return
+			}
+			require.Equal(t, http.StatusCreated, first.Code, first.Body.String())
+			require.Contains(t, first.Body.String(), `"original_filename":"profile.png"`)
+			require.Equal(t, http.StatusUnauthorized, upload().Code)
+		})
+	}
 }
 
 type mcpScopeAuthenticator map[string]middleware.Principal
@@ -205,28 +344,31 @@ func TestMCPRejectsMissingAuthorization(t *testing.T) {
 
 func TestMCPRejectsUntrustedBrowserOrigins(t *testing.T) {
 	t.Parallel()
-
 	srv := newMCPTestServer(t)
-	payload := bytes.NewBufferString(`{"jsonrpc":"2.0","id":1,"method":"tools/list"}`)
-	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/mcp", payload)
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer web-token")
-	req.Header.Set("Origin", "https://attacker.example")
-	rec := httptest.NewRecorder()
-	srv.echo.ServeHTTP(rec, req)
-
-	require.Equal(t, http.StatusForbidden, rec.Code)
-	require.Contains(t, rec.Body.String(), "Origin")
-
 	srv.handler.SetAllowedOrigins([]string{"https://trusted-client.example"})
-	payload = bytes.NewBufferString(`{"jsonrpc":"2.0","id":2,"method":"tools/list"}`)
-	req = httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/mcp", payload)
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer web-token")
-	req.Header.Set("Origin", "https://trusted-client.example")
-	rec = httptest.NewRecorder()
-	srv.echo.ServeHTTP(rec, req)
-	require.Equal(t, http.StatusOK, rec.Code)
+	srv.handler.auth = mcpScopeAuthenticator{
+		"web-token": {UserID: "user-1", SessionID: "session"},
+		"mcp-token": {UserID: "user-1", Scope: "mcp:full"},
+	}
+	for _, tc := range []struct {
+		origin, token string
+		status        int
+	}{
+		{"https://attacker.example", "web-token", http.StatusForbidden},
+		{"https://trusted-client.example", "web-token", http.StatusUnauthorized},
+		{"https://trusted-client.example", "mcp-token", http.StatusOK},
+		{"https://app.openpost.test", "web-token", http.StatusOK},
+	} {
+		t.Run(tc.origin+"/"+tc.token, func(t *testing.T) {
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/mcp", bytes.NewBufferString(`{"jsonrpc":"2.0","id":1,"method":"tools/list"}`))
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Authorization", "Bearer "+tc.token)
+			req.Header.Set("Origin", tc.origin)
+			rec := httptest.NewRecorder()
+			srv.echo.ServeHTTP(rec, req)
+			require.Equal(t, tc.status, rec.Code, rec.Body.String())
+		})
+	}
 }
 
 func TestMCPEnforcesHTTPContentTypeAndProtocolVersion(t *testing.T) {
@@ -338,10 +480,27 @@ func TestMCPReadOnlyScopeHidesAndRejectsMutations(t *testing.T) {
 	var toolsOut map[string]any
 	require.NoError(t, json.Unmarshal(toolsResp.Body.Bytes(), &toolsOut))
 	tools := toolsOut["result"].(map[string]any)["tools"].([]any)
-	require.Len(t, tools, 3)
+	// The default direct surface lists query operations themselves: no
+	// mutation operations and no discovery trio.
+	names := make([]string, 0, len(tools))
 	for _, item := range tools {
-		require.NotEqual(t, mcpToolExecute, item.(map[string]any)["name"])
+		names = append(names, item.(map[string]any)["name"].(string))
 	}
+	require.Contains(t, names, mcpToolWorkspaces)
+	require.Contains(t, names, mcpToolRenderWidget)
+	require.Contains(t, names, mcpToolRenderUpload)
+	require.NotContains(t, names, mcpToolCreateTicket)
+	require.NotContains(t, names, mcpToolDeletePub)
+	require.NotContains(t, names, mcpToolDeleteMedia)
+
+	rendered := mcpStructuredContent(t, mcpCallOperation(t, srv, "read-token", "read-render", mcpToolRenderUpload, map[string]any{
+		"workspace_id": "ws-1",
+	}))
+	require.Equal(t, "ws-1", rendered["workspace_id"])
+	require.NotContains(t, names, mcpToolCreatePub)
+	require.NotContains(t, names, mcpToolExecute)
+	require.NotContains(t, names, mcpToolSearch)
+	require.NotContains(t, names, mcpToolQuery)
 
 	initializeResp := srv.request(t, "read-token", map[string]any{
 		"jsonrpc": "2.0",
@@ -421,6 +580,192 @@ func TestMCPReadOnlyScopeHidesAndRejectsMutations(t *testing.T) {
 	}
 }
 
+func TestMCPToolModes(t *testing.T) {
+	t.Parallel()
+
+	srv := newMCPTestServer(t)
+	srv.handler.auth = mcpScopeAuthenticator{
+		"read-token": {UserID: "user-1", Email: "user@example.com", Scope: "mcp:read", WorkspaceID: "ws-1"},
+		"mcp-token":  {UserID: "user-1", Email: "user@example.com", Scope: "mcp:full", WorkspaceID: "ws-1"},
+	}
+
+	listNames := func(t *testing.T, token string) []string {
+		t.Helper()
+		resp := srv.request(t, token, map[string]any{
+			"jsonrpc": "2.0",
+			"id":      "mode-tools",
+			"method":  "tools/list",
+		})
+		require.Equal(t, http.StatusOK, resp.Code)
+		var out map[string]any
+		require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out))
+		tools := out["result"].(map[string]any)["tools"].([]any)
+		names := make([]string, 0, len(tools))
+		for _, item := range tools {
+			names = append(names, item.(map[string]any)["name"].(string))
+		}
+		return names
+	}
+
+	// The zero value is the direct default.
+	directFull := listNames(t, "mcp-token")
+	require.Contains(t, directFull, mcpToolWorkspaces)
+	require.Contains(t, directFull, mcpToolCreatePub)
+	require.Contains(t, directFull, mcpToolRenderWidget)
+	require.NotContains(t, directFull, mcpToolSearch)
+	require.NotContains(t, directFull, mcpToolQuery)
+	require.NotContains(t, directFull, mcpToolExecute)
+
+	directRead := listNames(t, "read-token")
+	require.Contains(t, directRead, mcpToolWorkspaces)
+	require.Contains(t, directRead, mcpToolRenderWidget)
+	require.NotContains(t, directRead, mcpToolCreatePub)
+	require.NotContains(t, directRead, mcpToolSearch)
+	require.NotContains(t, directRead, mcpToolQuery)
+	require.NotContains(t, directRead, mcpToolExecute)
+
+	srv.handler.SetToolMode("search")
+	searchFull := listNames(t, "mcp-token")
+	require.Contains(t, searchFull, mcpToolSearch)
+	require.Contains(t, searchFull, mcpToolQuery)
+	require.Contains(t, searchFull, mcpToolExecute)
+	require.Contains(t, searchFull, mcpToolRenderWidget)
+	require.NotContains(t, searchFull, mcpToolWorkspaces)
+	require.NotContains(t, searchFull, mcpToolCreatePub)
+
+	searchRead := listNames(t, "read-token")
+	require.Contains(t, searchRead, mcpToolSearch)
+	require.Contains(t, searchRead, mcpToolQuery)
+	require.NotContains(t, searchRead, mcpToolExecute)
+	require.NotContains(t, searchRead, mcpToolWorkspaces)
+
+	srv.handler.SetToolMode("both")
+	bothFull := listNames(t, "mcp-token")
+	require.Contains(t, bothFull, mcpToolWorkspaces)
+	require.Contains(t, bothFull, mcpToolCreatePub)
+	require.Contains(t, bothFull, mcpToolSearch)
+	require.Contains(t, bothFull, mcpToolQuery)
+	require.Contains(t, bothFull, mcpToolExecute)
+	require.Contains(t, bothFull, mcpToolRenderWidget)
+
+	bothRead := listNames(t, "read-token")
+	require.Contains(t, bothRead, mcpToolWorkspaces)
+	require.NotContains(t, bothRead, mcpToolCreatePub)
+	require.Contains(t, bothRead, mcpToolSearch)
+	require.Contains(t, bothRead, mcpToolQuery)
+	require.NotContains(t, bothRead, mcpToolExecute)
+
+	// Unknown mode values fall back to direct.
+	srv.handler.SetToolMode("sideways")
+	require.Equal(t, directFull, listNames(t, "mcp-token"))
+}
+
+func TestMCPToolModeInstructions(t *testing.T) {
+	t.Parallel()
+
+	srv := newMCPTestServer(t)
+	srv.handler.auth = mcpScopeAuthenticator{
+		"read-token": {UserID: "user-1", Email: "user@example.com", Scope: "mcp:read", WorkspaceID: "ws-1"},
+		"mcp-token":  {UserID: "user-1", Email: "user@example.com", Scope: "mcp:full", WorkspaceID: "ws-1"},
+	}
+	initialize := func(t *testing.T, token string) string {
+		t.Helper()
+		resp := srv.request(t, token, map[string]any{
+			"jsonrpc": "2.0",
+			"id":      "mode-initialize",
+			"method":  "initialize",
+			"params": map[string]any{
+				"protocolVersion": mcpProtocolVersion,
+				"capabilities":    map[string]any{},
+				"clientInfo":      map[string]any{"name": "test", "version": "1"},
+			},
+		})
+		require.Equal(t, http.StatusOK, resp.Code)
+		var out map[string]any
+		require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out))
+		instructions, _ := out["result"].(map[string]any)["instructions"].(string)
+		return instructions
+	}
+
+	// Direct mode never names the discovery tools; search-family modes do.
+	srv.handler.SetToolMode("direct")
+	require.NotContains(t, initialize(t, "mcp-token"), mcpToolSearch)
+	require.NotContains(t, initialize(t, "mcp-token"), mcpToolExecute)
+	srv.handler.SetToolMode("search")
+	require.Contains(t, initialize(t, "mcp-token"), mcpToolSearch)
+	srv.handler.SetToolMode("both")
+	require.Contains(t, initialize(t, "mcp-token"), mcpToolSearch)
+
+	// The read-only scope suffix applies in every mode.
+	for _, mode := range []string{"direct", "search", "both"} {
+		srv.handler.SetToolMode(mode)
+		require.Contains(t, initialize(t, "read-token"), "read-only", mode)
+	}
+}
+
+func TestMCPToolModeExecuteParity(t *testing.T) {
+	t.Parallel()
+
+	srv := newMCPTestServer(t)
+	srv.handler.auth = mcpScopeAuthenticator{
+		"read-token": {UserID: "user-1", Email: "user@example.com", Scope: "mcp:read", WorkspaceID: "ws-1"},
+	}
+
+	mutationCalls := []map[string]any{
+		{
+			"name": mcpToolExecute,
+			"arguments": map[string]any{
+				"operation": mcpToolCreatePub,
+				"arguments": map[string]any{"workspace_id": "ws-1"},
+			},
+		},
+		{
+			"name":      mcpToolCreatePub,
+			"arguments": map[string]any{"workspace_id": "ws-1"},
+		},
+	}
+
+	for _, mode := range []string{"direct", "search", "both"} {
+		srv.handler.SetToolMode(mode)
+		for _, call := range mutationCalls {
+			resp := srv.request(t, "read-token", map[string]any{
+				"jsonrpc": "2.0",
+				"id":      "read-parity-" + mode,
+				"method":  "tools/call",
+				"params":  call,
+			})
+			var out map[string]any
+			require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out), mode)
+			errBody, ok := out["error"].(map[string]any)
+			require.True(t, ok, "mode %s must reject read-scope call of %v", mode, call["name"])
+			require.Equal(t, float64(-32602), errBody["code"], mode)
+			require.Contains(t, errBody["message"], "mcp:read", mode)
+		}
+
+		searchResp := srv.request(t, "read-token", map[string]any{
+			"jsonrpc": "2.0",
+			"id":      "read-parity-search-" + mode,
+			"method":  "tools/call",
+			"params": map[string]any{
+				"name":      mcpToolSearch,
+				"arguments": map[string]any{"query": "create a publication"},
+			},
+		})
+		var searchOut map[string]any
+		require.NoError(t, json.Unmarshal(searchResp.Body.Bytes(), &searchOut), mode)
+		operations := searchOut["result"].(map[string]any)["structuredContent"].(map[string]any)["operations"].([]any)
+		names := make([]string, 0, len(operations))
+		for _, item := range operations {
+			name := item.(map[string]any)["name"].(string)
+			names = append(names, name)
+			operation, ok := mcpOperationByName(name)
+			require.True(t, ok, "mode %s search returned unknown operation %q", mode, name)
+			require.Equal(t, mcpOperationQuery, operation.Mode, "mode %s search must omit mutations", mode)
+		}
+		require.NotContains(t, names, mcpToolCreatePub, mode)
+	}
+}
+
 func TestMCPRejectsAudienceMismatch(t *testing.T) {
 	t.Parallel()
 
@@ -453,13 +798,13 @@ func TestMCPPublicationExecutionIntentDefaultsAndRequiresInstanceAdmin(t *testin
 	publicationID := created.(map[string]any)["structuredContent"].(map[string]any)["publication"].(mcpPublicationStatus).ID
 
 	_, _, intent, rpcErr := srv.handler.loadMCPPublicationAction(ctx, map[string]any{
-		"publication_id": publicationID, "expected_revision": 1,
+		"post_id": publicationID, "expected_revision": 1,
 	}, "invalid")
 	require.Nil(t, rpcErr)
 	require.Equal(t, providerreadiness.ExecutionIntentProduction, intent)
 
 	rejectedPublicationID, rejectedRevision, rejectedIntent, rpcErr := srv.handler.loadMCPPublicationAction(ctx, map[string]any{
-		"publication_id": publicationID, "expected_revision": 1,
+		"post_id": publicationID, "expected_revision": 1,
 		"execution_intent": "certification_test",
 	}, "invalid")
 	require.NotNil(t, rpcErr)
@@ -471,7 +816,7 @@ func TestMCPPublicationExecutionIntentDefaultsAndRequiresInstanceAdmin(t *testin
 	_, err := srv.db.NewUpdate().Model((*models.User)(nil)).Set("is_admin = ?", true).Where("id = ?", "user-1").Exec(ctx)
 	require.NoError(t, err)
 	_, _, intent, rpcErr = srv.handler.loadMCPPublicationAction(ctx, map[string]any{
-		"publication_id": publicationID, "expected_revision": 1,
+		"post_id": publicationID, "expected_revision": 1,
 		"execution_intent": "certification_test",
 	}, "invalid")
 	require.Nil(t, rpcErr)
@@ -664,7 +1009,7 @@ func TestMCPDelegatedToolsRejectOperationsAcrossSafetyBoundary(t *testing.T) {
 			tool:          mcpToolQuery,
 			operation:     mcpToolCreatePub,
 			arguments:     map[string]any{"workspace_id": "ws-1", "content_profile": "short_text", "source_text": "must not be created"},
-			expectedError: "create_publication changes state or performs an external action; call " + mcpToolExecute + " with this operation",
+			expectedError: "create_post changes state or performs an external action; call " + mcpToolExecute + " with this operation",
 		},
 		{
 			name:          "execute rejects read",
@@ -787,6 +1132,43 @@ func TestMCPResourcesReadRejectsUnknownResource(t *testing.T) {
 	require.Equal(t, "unknown resource", out["error"].(map[string]any)["message"])
 }
 
+func TestMCPLocalUploadWidgetContractIsAccessibleAndAppScoped(t *testing.T) {
+	t.Parallel()
+	html := mcpUploadWidgetHTML()
+	for _, required := range []string{
+		`<label for="file">Media file</label>`,
+		`<label for="alt">Alt text`,
+		`role="status" aria-live="polite"`,
+		`accept="image/*,video/*"`,
+	} {
+		require.Contains(t, html, required)
+	}
+	// Gateways in front of MCP servers (Cloudflare MCP Server Portals and
+	// similar aggregators) expose tools under rewritten names such as
+	// {server_id}_{tool_name}, so a bare hardcoded ticket call fails with
+	// tool-not-found even though the widget rendered fine. The widget must
+	// recover the gateway prefix from the host-reported name of the tool that
+	// rendered it (ui/initialize hostContext.toolInfo.tool.name) and reapply
+	// it to the ticket tool, falling back to the bare name when the host
+	// provides no metadata.
+	require.Contains(t, html, `var renderTool="`+mcpToolRenderUpload+`",ticketToolDefault="`+mcpToolCreateTicket+`"`)
+	require.Contains(t, html, `method:'ui/initialize'`)
+	require.Contains(t, html, `data.result.hostContext&&data.result.hostContext.toolInfo`)
+	require.Contains(t, html, `invoked.slice(-renderTool.length)===renderTool`)
+	require.Contains(t, html, `invoked.slice(0,invoked.length-renderTool.length)+ticketToolDefault`)
+	require.Contains(t, html, `await resolveTicketTool()`)
+	require.Contains(t, html, `callTool(ticketTool,{`)
+	require.Contains(t, html, `This MCP client does not expose the OpenPost upload tool`)
+	require.Contains(t, html, `This MCP client does not support app tool calls.`)
+	require.NotContains(t, html, `callTool('`+mcpToolCreateTicket+`'`)
+	ticketTool := mcpCreateLocalUploadTicketTool()
+	meta := ticketTool["_meta"].(map[string]any)
+	require.Equal(t, []string{"app"}, meta["ui"].(map[string]any)["visibility"])
+	renderTool := mcpRenderLocalUploadTool()
+	renderMeta := renderTool["_meta"].(map[string]any)
+	require.Equal(t, mcpUploadWidgetURI, renderMeta["ui"].(map[string]any)["resourceUri"])
+}
+
 func TestMCPPromptsGetRejectsUnknownPrompt(t *testing.T) {
 	t.Parallel()
 
@@ -841,7 +1223,7 @@ func TestMCPWorkspaceScopedTokenFiltersAndRejectsOtherWorkspaces(t *testing.T) {
 		"id":      "scoped-create",
 		"method":  "tools/call",
 		"params": map[string]any{
-			"name": "create_publication",
+			"name": "create_post",
 			"arguments": map[string]any{
 				"workspace_id":    "ws-2",
 				"content_profile": "short_text",
@@ -855,71 +1237,15 @@ func TestMCPWorkspaceScopedTokenFiltersAndRejectsOtherWorkspaces(t *testing.T) {
 	require.Equal(t, "workspace outside token scope", createOut["error"].(map[string]any)["message"])
 
 	count, err := srv.db.NewSelect().
-		Model((*models.Post)(nil)).
+		Model((*models.Publication)(nil)).
 		Where("workspace_id = ?", "ws-2").
-		Where("content = ?", "This should not cross the token boundary").
+		Where("source_text = ?", "This should not cross the token boundary").
 		Count(context.Background())
 	require.NoError(t, err)
 	require.Equal(t, 0, count)
-}
-
-func TestMCPCallListPublicationEvents(t *testing.T) {
-	t.Parallel()
-
-	srv := newMCPTestServer(t)
-	ctx := context.Background()
-	_, err := srv.db.NewInsert().Model(&models.Publication{
-		ID:              "publication-events",
-		WorkspaceID:     "ws-1",
-		CreatedByID:     "user-1",
-		Title:           "Launch",
-		ContentProfile:  models.ContentProfileShortText,
-		SourceText:      "Launch",
-		SourceContent:   "Launch",
-		Status:          models.PublicationStatusPublished,
-		MetadataJSON:    "{}",
-		ReleasePlanJSON: "{}",
-		CreatedAt:       time.Date(2026, 7, 1, 10, 0, 0, 0, time.UTC),
-		UpdatedAt:       time.Date(2026, 7, 1, 10, 0, 0, 0, time.UTC),
-	}).Exec(ctx)
+	jobs, err := srv.db.NewSelect().Model((*models.Job)(nil)).Count(t.Context())
 	require.NoError(t, err)
-	_, err = lifecycle.NewService(srv.db).Record(ctx, lifecycle.EventInput{
-		WorkspaceID:   "ws-1",
-		PublicationID: "publication-events",
-		Type:          lifecycle.EventPublished,
-		Status:        lifecycle.StatusSucceeded,
-		Message:       "rendition published",
-		Metadata:      map[string]any{"provider": "x"},
-	})
-	require.NoError(t, err)
-
-	resp := srv.request(t, "web-token", map[string]any{
-		"jsonrpc": "2.0",
-		"id":      "call-publication-events",
-		"method":  "tools/call",
-		"params": map[string]any{
-			"name": "list_publication_events",
-			"arguments": map[string]any{
-				"publication_id": "publication-events",
-			},
-		},
-	})
-
-	require.Equal(t, http.StatusOK, resp.Code)
-	var out map[string]any
-	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out))
-	result := out["result"].(map[string]any)
-	structured := result["structuredContent"].(map[string]any)
-	events := structured["events"].([]any)
-	require.Len(t, events, 2)
-	event := events[0].(map[string]any)
-	require.Equal(t, "published", event["type"])
-	require.Equal(t, "succeeded", event["status"])
-	require.Equal(t, "Published to provider", event["summary"])
-	require.Equal(t, "x", event["platform"])
-	require.NotContains(t, event, "message")
-	require.NotContains(t, event, "metadata")
-	require.Equal(t, "created", events[1].(map[string]any)["type"])
+	require.Zero(t, jobs)
 }
 
 func TestMCPCallValidatePublication(t *testing.T) {
@@ -969,9 +1295,9 @@ func TestMCPCallValidatePublication(t *testing.T) {
 		"id":      "call-validate-publication",
 		"method":  "tools/call",
 		"params": map[string]any{
-			"name": "validate_publication",
+			"name": "validate_post",
 			"arguments": map[string]any{
-				"publication_id": "publication-validate",
+				"post_id": "publication-validate",
 			},
 		},
 	})
@@ -989,6 +1315,112 @@ func TestMCPCallValidatePublication(t *testing.T) {
 		codes = append(codes, issue.(map[string]any)["code"].(string))
 	}
 	require.Contains(t, codes, "missing_scope")
+}
+
+func TestMCPListPublicationsCursorPagination(t *testing.T) {
+	t.Parallel()
+
+	srv := newMCPTestServer(t)
+	ctx := t.Context()
+	base := time.Date(2026, 7, 1, 10, 0, 0, 0, time.UTC)
+	for i := 1; i <= 5; i++ {
+		created := base.Add(time.Duration(i) * time.Hour)
+		_, err := srv.db.NewInsert().Model(&models.Publication{
+			ID: fmt.Sprintf("publication-page-%d", i), WorkspaceID: "ws-1", CreatedByID: "user-1",
+			Title: fmt.Sprintf("Paged %d", i), ContentProfile: models.ContentProfileShortText,
+			SourceText: fmt.Sprintf("Paged %d", i), SourceContent: fmt.Sprintf("Paged %d", i),
+			Status:          models.PublicationStatusDraft,
+			MetadataJSON:    "{}",
+			ReleasePlanJSON: "{}",
+			CreatedAt:       created,
+			UpdatedAt:       created,
+		}).Exec(ctx)
+		require.NoError(t, err)
+	}
+	_, err := srv.db.NewInsert().Model(&models.Rendition{
+		ID: "rendition-page-failed", PublicationID: "publication-page-5",
+		SocialAccountID: "account-1", Platform: "x", Profile: models.ContentProfileShortText,
+		Body: "Paged 5", SettingsJSON: "{}", Status: models.RenditionStatusFailed,
+		ErrorMessage:   "The provider is rate limiting this account. OpenPost will retry.",
+		ErrorKind:      "rate_limited",
+		ErrorAction:    "retry",
+		ErrorRetryable: true,
+	}).Exec(ctx)
+	require.NoError(t, err)
+
+	callList := func(id string, args map[string]any) map[string]any {
+		t.Helper()
+		resp := srv.request(t, "web-token", map[string]any{
+			"jsonrpc": "2.0", "id": id, "method": "tools/call",
+			"params": map[string]any{"name": mcpToolListPubs, "arguments": args},
+		})
+		require.Equal(t, http.StatusOK, resp.Code, resp.Body.String())
+		var out map[string]any
+		require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out))
+		require.Nil(t, out["error"], resp.Body.String())
+		return out["result"].(map[string]any)["structuredContent"].(map[string]any)
+	}
+	publicationIDs := func(structured map[string]any) []string {
+		t.Helper()
+		items := structured["publications"].([]any)
+		ids := make([]string, 0, len(items))
+		for _, item := range items {
+			ids = append(ids, item.(map[string]any)["id"].(string))
+		}
+		return ids
+	}
+
+	first := callList("list-pubs-page-0", map[string]any{"workspace_id": "ws-1", "limit": 2})
+	require.Equal(t, []string{"publication-page-5", "publication-page-4"}, publicationIDs(first))
+	require.Equal(t, true, first["has_more"])
+	require.NotEmpty(t, first["next_cursor"])
+	require.Equal(t, float64(5), first["total_count"])
+
+	newest := first["publications"].([]any)[0].(map[string]any)
+	require.Equal(t, float64(1), newest["failed_variant_count"])
+	require.Equal(t, "rate_limited", newest["error_kind"])
+	require.Equal(t, "retry", newest["error_action"])
+	require.Equal(t, "The provider is rate limiting this account. OpenPost will retry.", newest["error_message"])
+	for _, key := range []string{"error_code", "error_http_status", "raw", "response_body", "provider_response"} {
+		require.NotContains(t, newest, key)
+	}
+	healthy := first["publications"].([]any)[1].(map[string]any)
+	require.Equal(t, float64(0), healthy["failed_variant_count"])
+	require.NotContains(t, healthy, "error_kind")
+	require.NotContains(t, healthy, "error_action")
+	require.NotContains(t, healthy, "error_message")
+
+	second := callList("list-pubs-page-1", map[string]any{
+		"workspace_id": "ws-1", "limit": 2, "cursor": first["next_cursor"],
+	})
+	require.Equal(t, []string{"publication-page-3", "publication-page-2"}, publicationIDs(second))
+	require.Equal(t, true, second["has_more"])
+	require.NotEmpty(t, second["next_cursor"])
+	require.Equal(t, float64(5), second["total_count"])
+
+	third := callList("list-pubs-page-2", map[string]any{
+		"workspace_id": "ws-1", "limit": 2, "cursor": second["next_cursor"],
+	})
+	require.Equal(t, []string{"publication-page-1"}, publicationIDs(third))
+	require.Equal(t, false, third["has_more"])
+	require.Equal(t, float64(5), third["total_count"])
+
+	all := callList("list-pubs-default-limit", map[string]any{"workspace_id": "ws-1"})
+	require.Len(t, all["publications"].([]any), 5)
+	require.Equal(t, false, all["has_more"])
+	require.Equal(t, float64(5), all["total_count"])
+
+	invalid := srv.request(t, "web-token", map[string]any{
+		"jsonrpc": "2.0", "id": "list-pubs-bad-cursor", "method": "tools/call",
+		"params": map[string]any{
+			"name":      mcpToolListPubs,
+			"arguments": map[string]any{"workspace_id": "ws-1", "cursor": "not-a-cursor"},
+		},
+	})
+	require.Equal(t, http.StatusOK, invalid.Code, invalid.Body.String())
+	var invalidOut map[string]any
+	require.NoError(t, json.Unmarshal(invalid.Body.Bytes(), &invalidOut))
+	require.Contains(t, invalidOut["error"].(map[string]any)["message"], "cursor")
 }
 
 func TestMCPCommentMutationQueuesOneAttemptProviderJob(t *testing.T) {
@@ -1033,7 +1465,7 @@ func TestMCPCommentMutationQueuesOneAttemptProviderJob(t *testing.T) {
 	require.Nil(t, out["error"])
 	structured := out["result"].(map[string]any)["structuredContent"].(map[string]any)
 	require.Equal(t, "comment reply queued", structured["message"])
-	jobID := structured["id"].(string)
+	jobID := structured["job_id"].(string)
 	require.NotEmpty(t, jobID)
 	var job models.Job
 	require.NoError(t, srv.db.NewSelect().Model(&job).Where("id = ?", jobID).Scan(ctx))
@@ -1062,6 +1494,27 @@ func TestMCPCommentMutationRejectsCredentialBoundToAnotherWorkspace(t *testing.T
 	var out map[string]any
 	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out))
 	require.NotNil(t, out["error"])
+	rpcError := out["error"].(map[string]any)
+	require.Equal(t, float64(-32602), rpcError["code"])
+	require.Equal(t, "workspace outside token scope", rpcError["message"])
+	jobs, err := srv.db.NewSelect().Model((*models.Job)(nil)).Count(ctx)
+	require.NoError(t, err)
+	require.Zero(t, jobs)
+
+	allowed := mcpStructuredContent(t, mcpCallOperation(t, srv, "web-token", "allowed-comment", mcpToolExecute, map[string]any{
+		"operation": mcpToolHideComment,
+		"arguments": map[string]any{"comment_id": commentID},
+	}))
+	jobID, ok := allowed["job_id"].(string)
+	require.True(t, ok)
+	require.NotEmpty(t, jobID)
+	var job models.Job
+	require.NoError(t, srv.db.NewSelect().Model(&job).Where("id = ?", jobID).Scan(ctx))
+	require.Equal(t, "engagement_action", job.Type)
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal([]byte(job.Payload), &payload))
+	require.Equal(t, "hide", payload["action"])
+	require.Equal(t, "provider-comment-1", payload["provider_comment_id"])
 }
 
 func TestMCPRequiredSSOTokenBinding(t *testing.T) {
@@ -1294,7 +1747,7 @@ func TestMCPCallAuditLogRecordsSuccessAndFailure(t *testing.T) {
 	failResp := srv.request(t, "mcp-token", map[string]any{
 		"jsonrpc": "2.0", "id": "call-log-error", "method": "tools/call",
 		"params": map[string]any{
-			"name": "create_publication",
+			"name": "create_post",
 			"arguments": map[string]any{
 				"workspace_id": "ws-1", "content_profile": "short_text",
 				"source_text": "Draft from an agent", "social_account_ids": []string{"account-other-workspace"},
@@ -1303,7 +1756,7 @@ func TestMCPCallAuditLogRecordsSuccessAndFailure(t *testing.T) {
 	})
 	require.Equal(t, http.StatusOK, failResp.Code)
 	var failure models.MCPToolCall
-	require.NoError(t, srv.db.NewSelect().Model(&failure).Where("tool_name = ?", "create_publication").Scan(context.Background()))
+	require.NoError(t, srv.db.NewSelect().Model(&failure).Where("tool_name = ?", "create_post").Scan(context.Background()))
 	require.Equal(t, "error", failure.Status)
 	require.Contains(t, failure.ErrorMessage, "outside this workspace")
 }

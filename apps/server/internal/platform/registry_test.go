@@ -1,6 +1,8 @@
 package platform
 
 import (
+	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -115,6 +117,47 @@ func TestAccountProviderKeyIsolatesNonDefaultBlueskyPDS(t *testing.T) {
 	require.Equal(t, "bluesky:https://pds.example", AccountProviderKey("bluesky", "https://pds.example/", ""))
 }
 
+func TestBuildAdapterRegistryPassesInstagramConfigIDToAuthURL(t *testing.T) {
+	t.Setenv("META_GRAPH_API_VERSION", "v25.0")
+
+	adapters, _, err := BuildAdapterRegistry([]AppConfig{{
+		Provider:     "instagram",
+		ClientID:     "ig-client",
+		ClientSecret: "ig-secret",
+		RedirectURI:  "https://app.test/api/v1/accounts/instagram/callback",
+		ConfigID:     " config-123 ",
+	}}, RegistryOptions{})
+	require.NoError(t, err)
+
+	adapter, ok := adapters["instagram"].(*InstagramAdapter)
+	require.True(t, ok, "the Facebook Login Instagram adapter must be registered")
+	require.Equal(t, "config-123", adapter.configID, "config_id must be trimmed on the adapter")
+	authURL, _ := adapter.GenerateAuthURL("state-1")
+	parsed, err := url.Parse(authURL)
+	require.NoError(t, err)
+	require.Equal(t, "config-123", parsed.Query().Get("config_id"))
+	require.Empty(t, parsed.Query().Get("scope"), "config_id replaces the scope list")
+
+	loginAdapters, _, err := BuildAdapterRegistry([]AppConfig{{
+		Provider:       "instagram",
+		ConnectionMode: ConnectionModeInstagramLogin,
+		ClientID:       "ig-login-client",
+		ClientSecret:   "ig-login-secret",
+		RedirectURI:    "https://app.test/api/v1/accounts/instagram/callback",
+		ConfigID:       "config-123",
+	}}, RegistryOptions{})
+	require.NoError(t, err)
+	loginAdapter, ok := loginAdapters["instagram:instagram_login"].(*InstagramAdapter)
+	require.True(t, ok, "the direct Instagram login adapter must be registered")
+	require.Empty(t, loginAdapter.configID, "direct Instagram login ignores Facebook Login configurations")
+	loginURL, _ := loginAdapter.GenerateAuthURL("state-1")
+	parsedLogin, err := url.Parse(loginURL)
+	require.NoError(t, err)
+	require.Equal(t, "www.instagram.com", parsedLogin.Host)
+	require.Empty(t, parsedLogin.Query().Get("config_id"))
+	require.NotEmpty(t, parsedLogin.Query().Get("scope"), "direct login keeps its own scopes")
+}
+
 func TestBuildAdapterRegistryAcceptsBuiltinCredentialProviders(t *testing.T) {
 	// Built-in credential providers (no operator secrets) must always
 	// produce template adapters so the server boots with them enabled.
@@ -132,6 +175,42 @@ func TestBuildAdapterRegistryAcceptsBuiltinCredentialProviders(t *testing.T) {
 		if adapters[provider] == nil {
 			t.Fatalf("expected template adapter for %s", provider)
 		}
+	}
+}
+
+func TestBuildAdapterRegistryTikTokDisplayAPIToggle(t *testing.T) {
+	t.Parallel()
+
+	app := AppConfig{Provider: "tiktok", ClientID: "tiktok-key", ClientSecret: "tiktok-secret", RedirectURI: "https://app.test/api/v1/accounts/tiktok/callback"}
+
+	adapters, _, err := BuildAdapterRegistry([]AppConfig{app}, RegistryOptions{})
+	require.NoError(t, err)
+	full, ok := adapters["tiktok"].(*TikTokAdapter)
+	require.True(t, ok)
+	require.Equal(t, TikTokDefaultScopeCapabilities().Scopes(), full.RequestedScopes())
+	require.True(t, full.AnalyticsSupport().Account)
+	require.True(t, full.AnalyticsSupport().Content)
+
+	adapters, _, err = BuildAdapterRegistry([]AppConfig{app}, RegistryOptions{DisableTikTokDisplayAPI: true})
+	require.NoError(t, err)
+	minimal, ok := adapters["tiktok"].(*TikTokAdapter)
+	require.True(t, ok)
+	require.Equal(t, TikTokRequiredPublishingScopes(), minimal.RequestedScopes())
+	require.False(t, minimal.AnalyticsSupport().Account)
+	require.False(t, minimal.AnalyticsSupport().Content)
+	require.Contains(t, minimal.AnalyticsSupport().AccountUnavailable, "user.info.stats")
+	require.Contains(t, minimal.AnalyticsSupport().ContentUnavailable, "video.list")
+	authURL, _ := minimal.GenerateAuthURL("state-123")
+	scope := mustParseQuery(t, authURL).Get("scope")
+	require.Equal(t, "user.info.basic,video.publish,video.upload", scope)
+	require.Equal(t, scope, strings.Join(minimal.RequestedScopes(), ","))
+	for _, dropped := range TikTokOptionalDisplayScopes() {
+		require.NotContains(t, scope, dropped)
+	}
+	capabilityURL, _ := minimal.GenerateAuthURLWithCapabilities("state-123", TikTokDefaultScopeCapabilities())
+	capabilityScope := mustParseQuery(t, capabilityURL).Get("scope")
+	for _, want := range []string{"video.publish", "user.info.stats", "video.list"} {
+		require.Contains(t, capabilityScope, want)
 	}
 }
 

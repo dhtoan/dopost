@@ -4,10 +4,2164 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
-## [4.32.1] - 2026-09-14
+## [7.37.1] - 2026-11-02
 
 ### Fixed
 
+- Restore official YouTube icons in public channel navigation and cards, and keep the account connection row compact while preserving the artwork's colors, proportions and clear space.
+
+## [7.37.0] - 2026-11-02
+
+### Fixed
+
+- Instagram keeps ambiguous `media_publish` errors pending for read-only reconciliation, including Story sequence progress, rather than permitting another publish request.
+- Instagram does not send a publish request for a container already reported as published, even when a later status read is inconsistent.
+- Direct Instagram Login reads older messages through the conversation node and retains its nested pagination cursor.
+- Graph `100/33` guidance describes inaccessible objects and unsupported actions without claiming that a Facebook Page was deleted or asking users to republish a live post.
+- Instagram server diagnostics identify the failed Graph operation and endpoint template, a bounded object ID, and safe provider codes without logging tokens, captions, media URLs, or response bodies.
+- Replayed delivery errors restore their separate provider code and subcode, retaining Meta recovery classification without sending a rejected write again.
+- Publishing through a Discord bot token that the server rejects now reports an administrator action ("update the Discord bot token in the server settings") instead of asking the account owner to reconnect their Discord authorization, which could not fix the problem.
+- Mastodon and Pixelfed connections reject failed profile lookups instead of saving an account with a placeholder identity. This applies to OAuth callbacks and pasted authorization codes.
+- When Instagram accepts a post but the publish response is lost, resuming the destination now recovers the published post's ID by matching the account's recent published media against the authored caption and media type. Post links and analytics work again instead of recording an accepted post with no external ID; ambiguous or empty-caption cases keep the previous behavior rather than guessing.
+- The MCP local media upload widget now resolves the host-exposed tool name before calling the upload-ticket tool, so it works behind MCP gateways that prefix tool names (such as Cloudflare MCP Server Portals) and falls back to the direct connection name when the host does not report one. Failures now show a clear message instead of a silent error.
+- Meta analytics preserve permission, token, rate-limit, and unavailable-object errors instead of treating them as missing metrics. Requests where every metric fails also retain their error.
+- Restored centered headlines on the homepage, Contact, and Channels pages.
+- Enforced the Hosted X spending limit before looking up photo-tag handles, including accounting for uncached lookups.
+- Limited reconnect notifications to accounts with confirmed credential failures, and kept temporary provider outages from hiding or repeating those alerts.
+- Kept mobile Posts view preferences scoped to the active Workspace while its saved preference loads.
+- The Video Editor color picker samples the first paused preview frame immediately, so picking a color works even when the preview renders before the normal sampling interval has elapsed.
+- Telegram video posts and albums retain their analyzed dimensions instead of appearing square.
+- Bluesky image and video posts include known aspect ratios, including media attached to quote posts. Publishing retains analyzed dimensions and duration through direct, ordinary, resumable, and thread uploads.
+- TikTok connections with Display API disabled now request only basic profile fields. Connections also recover from HTTP scope denials for optional username access without hiding invalid-token failures.
+- YouTube profile checks use the authorized channel API without requiring Google profile or email permissions.
+- Provider setup guides match the requested TikTok, YouTube, and Threads scopes.
+- Consume published direct changelog entries so later release announcements no longer repeat old fixes, while preserving notes added after the release tag.
+- Phones: the workspace shell now defines the mobile bottom navigation's height and clearance variables, so page content no longer slides under the semi-transparent fixed nav and shows through behind its passive icons.
+- Image Editor: the Line tool no longer shows a remove (×) glyph, the tablet ellipse marquee no longer shows a pending (clock) glyph, and the desktop "More" menu can no longer open phone-style sheets stacked over the persistent panes.
+- Image Editor: "Resize page" and "Rename page" no longer share the same pencil icon.
+- Video Editor: the transcript inspector tab no longer scrolls inside its own nested box within the scrolling inspector.
+- Recorder: the local-space estimate no longer adds a "plus 20% working headroom" clause on top of a figure that already includes it.
+- Composer: the schedule dialog announces failed time parsing to screen readers, the post-publish feedback uses the shared success notice, and the publication link respects base-path deployments.
+- Publications: status and analytics delta colors use semantic theme tokens so organization themes render correctly; the failed-load state keeps the page chrome; loading defaults to the localized message everywhere.
+- Media library: the active-filter count badge no longer spends the focal action color on a passive chip.
+- Marketing: hero headings step down again on phones, so accented phrases such as "For your next post." and "Choose for the job." stay inside 320px screens.
+- Image Editor: the phone "More actions" Layer section explains destructive rasterizing again, matching the desktop menu.
+- Docs: the copy button announces "Copied" after copying, and the 404 figure includes screen-reader context; marketing FAQs share one keyboard focus treatment; the image dropzone limit hint derives from the actual limit; the media converter dropzone shows drag feedback.
+- Developers: removed 10 duplicate byte-size formatters and consolidated media-duration formatting and editor control-height tokens onto their shared owners.
+- Video analysis now accounts for non-square pixels before rotation, so anamorphic videos retain their display aspect ratio in publishing metadata and media validation.
+- Video Editor clip menus close after trimming, so the next clip can be trimmed without reopening a stale menu.
+- X destinations with "Tag people" now validate photo tags before publishing: at most 10 people per post, entries must be X handles or numeric user IDs, and tags require a photo attachment. OpenPost resolves handles to numeric X user IDs when publishing and caches the result per workspace, so retries do not repeat paid lookups. Over-limit lists are rejected at authoring readiness as well.
+- Clarify which YouTube data OpenPost accesses and stores, how users can request deletion, and the refresh or deletion duties that apply to downloaded reports and shared copies. Include source-fetch dates in post and grouped exports.
+- Expire cached YouTube analytics, imports and comments before their 30-day deadline, and clear those caches when a destination is disconnected or its grant revoked. Refresh authorized channel profiles independently of analytics, expire stale profiles and abandoned channel selections, and remove copied notification data, cached avatars and revoked authorization metadata.
+- Use current official YouTube artwork at its minimum display size on connection cards, with text attribution in compact controls instead of undersized marks.
+- Keep revocations effective when cleanup retries, preserve comment operation receipts across reconnection, and fence expired import cursors without changing account opt-in or activation.
+
+### Changed
+
+- When a connected account's credentials break, OpenPost now notifies the person who connected the account and the workspace administrators once per failure, in addition to the per-post failure notification for the post's author. Repeated failures for the same broken account no longer create a separate notification for every scheduled post.
+- Simplified Analytics on web and mobile by removing recommendation cards and repeated explanations. Web reporting actions use compact labelled icons, and audience by account appears directly after the trend chart.
+- Analytics reuses the shared account picker with multiple-account and Social Set selection. Totals, charts, rankings, and export defaults follow the same selection while preserving Visibility and provider-specific measurements.
+- Refresh the README, product screenshots, and demos for the Calm interface.
+- New default Calm theme with Manrope, softer surfaces, and a single warm accent. Saved themes are unchanged.
+- Rebuilt navigation around Home, Posts, Inbox, Analytics, Ideas, Studio, Media, Automations, and Accounts, with labelled phone tabs. The app now opens on Home; choose New post under Preferences to open on the composer and show Drafts in the sidebar.
+- Rebuilt Home, onboarding, Posts, Inbox, Analytics, and Settings around one clear job per screen. The composer shows a live preview on wide screens. Accounts is now its own page, and Brand merges Brand kit and App branding.
+- The Image Editor tool rail now fits eight slots: Add, Select (move, marquee, lasso, and magic select variants), Crop, Text, Shape, Draw (pencil, eraser, magic eraser, fill, gradient), Eyedropper, and View (hand, zoom). Every tool keeps its shortcut and stays reachable from its slot's flyout.
+- The Image Editor Edit/Color mode switch and the AI studio's selected states use the same neutral selected color as sidebar navigation instead of the peach selection tint.
+- Back to Studio on the Image Editor start page is now a quiet link at the very top of the page, above the title.
+- Properties on phone-sized screens is now a non-modal bottom sheet without a scrim, so the canvas stays visible and interactive while adjusting properties.
+- Onboarding now asks what you want to do when you open OpenPost instead of how you mostly work. The choices are "Write a new post" (opens the composer and shows Drafts in the sidebar) and "See what's going on" (opens Home with your schedule, inbox, and results), each with a one-line explanation.
+- Settings, composer, workflows, and theme screens now use one shared disclosure control for expandable rows, so chevrons, focus styles, and touch targets stay consistent.
+- Deleting a previous-data restore point in instance backup settings asks for confirmation first.
+- Rebuilt the Reddit post preview around the real card chrome: community and author line with `r/` and `u/` labels, a horizontal vote pill with the score between the arrows, comment and share/save actions, and Reddit's typography, colors, and card border in both schemes.
+- Matched the Lemmy and PieFed post cards to their real interfaces: comment count first, then the compact upvote/score/downvote group, with the published time, community, and creator line placed like the source UI.
+- Rebuilt the Pinterest preview on the real Pin closeup: on wide containers the image sits beside a details column with react, share, and more actions, the red Save button, title, description, author row with Follow, and a comments section; the full page shell adds the related Pins column next to the closeup.
+- Gave TikTok photo posts their own photo-mode chrome: one progress dot per slide at the bottom center instead of the video progress bar.
+- Added the channel view count to the Telegram message footer, matching the Telegram web channel preview.
+- Rebuilt the PeerTube preview on the real watch page: stats line under the title, labeled Like/Dislike/Support/Share/Download actions, the channel row with Subscribe, a "No comments." state, and a page shell with the Other videos rail instead of the generic sidebar.
+- Polished the Pixelfed status card against the real web app: handle header with the time and place line, caption above the action row, pill-shaped actions, and Pixelfed's own fonts, colors, radius, and shadow.
+- Aligned the Facebook post preview with Facebook's own CSS tokens: the real system font stack, the #0866FF rebrand blue, borderless 8px cards with the verified base shadow, exact 15px message typography, and the engagement and action bar metrics in both schemes.
+- Aligned the Discord message preview with the client's documented variable palette: 16px/1.375 message body, corrected text and hover colors in both schemes, the real floating action toolbar, and 4px attachment and embed radii with the verified 400x300 inline cap.
+- Rebuilt the Bluesky card on the real social-app palette and metrics: Inter type, pure-black dark theme, 15px posts with the real content-warning hider, media radii, action row, and hover washes.
+- Rebuilt the Mastodon card on the current indigo flavor design: Inter type, 700px feed metrics, accent-alpha borders and washes, the callout content warning, and the redesigned split action bar; the page shell follows the same palette and column width.
+- Aligned the Instagram card with the production web app: the Optimistic product font, 470px feed metrics, 4px radius, the real Stories ring (production five-stop gradient with the band-and-gap geometry, fixed for every ring consumer), and the current dark background.
+- Aligned the YouTube watch card with the live watch page: 20px/400 title, the joined like/dislike pill with its divider, 36px action pills, the description box and Sort-by chip, the signed-out channel row without the bell, and the icon-only guide rail on the page shell.
+- Aligned the X card with the live client: the Chirp font stack, 15px posts and name row, 12px cell padding, 18.75px action icons with the verified per-action hover tints, and the lights-out palette; the page shell follows the same tokens.
+- Aligned the Threads card with the live app: 15px/600 usernames, 15px/1.4 bodies, 13px timestamps, and the verified system font stack.
+- Aligned the LinkedIn card with LinkedIn's own tokens: the real cool-gray surfaces and hairlines, 14px/600 names with 12px metadata, the #378fe9 like dot, the teal Author pill on replies, 12px comment typography, and the real two-row engagement layout with the count line above the divider; the page shell follows the palette.
+- Aligned the Google Business card with Google's tokens: Google Sans and Google Sans Text, the resting #1a73e8 action blue (not the pressed state), 14px/500 weight rules, and the corrected dark palette; the page shell follows with real hairlines and fonts, and event ranges use the real dash separator.
+- Hardened every phone shell from visual review: bottom navigation now pins to the frame bottom across the X, Bluesky, LinkedIn, Facebook, Instagram, YouTube, and TikTok shells, the Reddit feed spans the full phone width, Facebook gained its missing mobile navigation, and the composer Post button, channel headers, and dark covers render correctly in both schemes.
+- Built out the /dev/null preview from the real dev-null.sh interface: the commit card now shows the commit hash chip, star/quote/reply actions, and the site's Geist theme in both schemes, and the full page preview renders the real Log layout with the icon rail, the bordered commit column, and the GitHub sign-in aside instead of the generic fallback.
+- Video Editor: clip actions now have one canonical home per surface. The top-bar overflow "Clip" section is gone (Split, delete, and ripple delete stay in the timeline and inspector clip menus), "Add crossfade" is available from the timeline clip context menu, and empty timeline space offers Add track like the toolbar and track menus do.
+- Video Editor: double-clicking a timeline marker now opens its details instead of deleting it; delete stays on the explicit button and context menu.
+- Video Editor: modified Appearance, Crop, Playback, Anchor, and Corner pin groups are now marked "Modified" instead of the meaningless "Active" when collapsed.
+- Video Editor: the phone inspector pane toggle is now labeled "Properties" so it no longer collides with the "Edit" workspace tab.
+- Video Editor: phones now switch panes from one bottom dock above the timeline instead of stacked top tabs, the desktop tool rail shows every content panel without an overflow menu, and the source monitor no longer floats over the preview.
+- Video Editor: audio EQ, effects, ducking, and noise reduction sit beside the other audio controls in Properties instead of nested inside Advanced.
+- Video Editor: the audio EQ, effects, and ducking panels use the editor's shared disclosure and toggle controls, one consistent on/off pill style, and editor theme tokens instead of mixed app-theme styles; the mixer drawer no longer shows a duplicated "Track EQ" header, and fader drags announce their value to screen readers.
+- Video Editor: every content browser has search (shapes, timers, and text templates join effects, stickers, backgrounds, and scenes), and the scrub fields across color, transform, crop, and playback share one numeric-scrub control with PageUp/PageDown and Home/End keyboard support, unit suffixes, and display scaling. Speech cleanup, transitions, text motion, motion presets, local music, and settings sliders use the shared rows, and the Image Editor's color sliders use them instead of a private component.
+- Editors and start pages: the storage destination choice now reads "OpenPost cloud" / "This device" instead of the past-tense status strings; the Recorder keeps the toggle visible and labeled while recording.
+- Quick Cut: panels use the shared editor disclosure and scrub controls, the empty state says to open a video (there is no create action), and playback shortcuts plus Escape keep working in repurpose mode.
+- Image Editor: the tablet tool rail now behaves like the desktop rail (click activates the remembered variant; menus open on repeat click and arrow keys), the page strip is resizable with a stable reset, and touch targets meet the 44px minimum.
+- Image Editor: properties sliders (opacity, rotation, curve, adjustments, lens) share the standard editor slider row with typed and scrubbable values.
+- Image Editor: Color workspace adjustment and wheel-ring controls use the standard editor slider row (one label, track, value field, and reset line), keeping the mixed-value placeholder, reset buttons, and 0-100 display scale.
+- Composer and workspace copy now use the product terms consistently: "variant" instead of "rendition" or "account versions", and "account" instead of "channel" for connectable destinations.
+- Message catalog: trailing "..." normalized to "…", labels no longer end with periods, and the video editor agent error prefix no longer apologizes. Broken machine-generated Quick Cut translations ("Cut in", "Cut export" shown as literal text in French, Portuguese, Spanish, German, and Japanese) are replaced with correct translations, and Quick Cut strings that silently dropped their second sentence are restored across nine locales.
+- Posts and Media share one search control and the same tabbed filter chrome; status and delta colors follow semantic theme tokens.
+- Mobile: Media tab shows the standard full-page error state on first-load failure, More drill-ins use the native stack header, empty states fall back to a fitting icon, and the media placeholder and drawer scrim follow the theme.
+- Public site: one heading system and section rhythm across marketing pages, shared FAQ keyboard focus, dropzone drag feedback, and limits derived from the actual configured size.
+
+### Added
+
+- Read and answer dev/null comments and nested replies from Inbox using existing SSH connections.
+- Add an automatic first comment to dev/null posts.
+- Instagram destinations now enforce Meta's 1000-character alt-text maximum on image posts, including carousel image children. Scheduling, publishing, and API or MCP submissions that project longer alt text onto an Instagram image destination fail readiness and publish validation with a clear message instead of silently truncating. Alt text on Reels, Stories, and video carousel children is never sent to Meta and stays unvalidated. The Instagram destination settings dialog caps the alt-text input at the limit and shows the provider hint; the media library and other destinations keep accepting longer descriptions.
+- Instagram connections through Facebook Login now support Meta's Unified Login for newly created Meta apps: provider app entries accept a `config_id`, and the consent dialog is built from the Facebook Login for Business configuration instead of explicit scopes. Apps created before Meta's change keep working unchanged; end-to-end verification against a fresh Meta app is tracked separately (#495).
+
+### Improved
+
+- Run development servers from multiple checkouts with separate local URLs, ports, databases, and media.
+
+## [7.35.4] - 2026-10-30
+
+### Fixed
+
+- Instagram Story publishing omits the unsupported `alt_text` parameter and records a rejected media container as a definite failure with the provider error visible, instead of leaving the publication processing until reconciliation expires.
+- Resuming an Instagram Story create checkpoint now retries container creation when Meta never returned a container id.
+- `openpost publication create --content-profile story` no longer writes a `post_type` setting that server validation rejects.
+- Release recording now removes the changelog entries that shipped with the tag instead of repeating them in every later release, while keeping entries added after the tag.
+
+## [7.35.3] - 2026-10-30
+
+### Fixed
+
+- Self-hosted instance administrators can record certification evidence for Telegram bot publishing. Recording derived the expected contract from the managed-production flag, while readiness decisions and the certification context derived it from the provider's mandatory certification policy, so every Telegram, Pinterest and Google Business Profile evidence append on a self-hosted instance was rejected with "provider readiness evidence was rejected". Both paths now share one contract derivation.
+
+## [7.35.2] - 2026-10-30
+
+### Fixed
+
+- Prevent a delayed GitHub run status from failing release CI coordination. Retry pending tag status briefly and retain main CI when tag liveness cannot be confirmed, while keeping full release qualification required.
+- Restore public site delivery after CI reruns retain an earlier successful public build, while keeping artifacts tied to their original successful execution.
+- Self-hosted instance administrators can record certification evidence for Telegram bot publishing. Recording derived the expected contract from the managed-production flag, while readiness decisions and the certification context derived it from the provider's mandatory certification policy, so every Telegram, Pinterest and Google Business Profile evidence append on a self-hosted instance was rejected with "provider readiness evidence was rejected". Both paths now share one contract derivation.
+
+## [7.35.1] - 2026-10-30
+
+### Fixed
+
+- Fixed posts being blocked by a `caption_mentions is not supported` error even without mentions. Caption reset markers and authored caption metadata no longer count as unsupported provider settings, and null settings no longer block publishing.
+- Keep Instagram connection choices and other multiline actions readable at desktop and touch sizes, with their labels, descriptions, and setup notices inside the button.
+- Restore LinkedIn Page follower and post analytics with current follower parameters and correctly encoded API requests.
+- Keep browser worker source maps private and verify their upload before frontend packaging.
+- AI draft workflows preserve complete writing instructions separately from the short outcome, so release-post instructions longer than 200 characters no longer fail before generation.
+- Self-hosted instance administrators can record certification evidence for Telegram bot publishing. Recording derived the expected contract from the managed-production flag, while readiness decisions and the certification context derived it from the provider's mandatory certification policy, so every Telegram, Pinterest and Google Business Profile evidence append on a self-hosted instance was rejected with "provider readiness evidence was rejected". Both paths now share one contract derivation.
+
+### Added
+
+- Analytics now combines supported post impressions and video views into an inspectable Visibility total, with the same calculations, account performance and ranked posts on web and mobile.
+- Evidence-backed next actions identify strong posts to build on and connections needing attention. Suggestions use stored results and each account's own history.
+- dev/null analytics now collects public follower, following, and commit counts, plus stars and replies on published commits. Missing counters remain unavailable, and views are not reported. Profile refresh also recognizes the current public API handle field.
+
+### Changed
+
+- Analytics distinguishes posts from their published destination outputs, adds month-to-date and last-month ranges, and includes Visibility in exports while keeping original provider metrics available.
+- Automated repository updates require the OpenPost bot identity. Changelog-only main pushes skip duplicate GitHub CI while the public changelog continues deploying; release recording and fragment cleanup remain one commit.
+
+### Improved
+
+- Balance application browser test shards using recorded durations, retain marketing test timings, and avoid unused browser downloads in application test jobs.
+
+### CI/CD
+
+- Deploy verified public-site artifacts with retained rollback bytes and coordinate duplicate release qualification.
+- Build marketing and documentation through one task graph and reuse verified generated documentation inputs.
+- Process private browser source maps without uploading build-only server symbols for static web and marketing builds.
+
+## [7.34.2] - 2026-10-29
+
+### Fixed
+
+- Releases can run from an exact published-main snapshot when another worktree owns the local main branch, while still rejecting other branches and unpublished detached revisions.
+- Self-hosted instance administrators can record certification evidence for Telegram bot publishing. Recording derived the expected contract from the managed-production flag, while readiness decisions and the certification context derived it from the provider's mandatory certification policy, so every Telegram, Pinterest and Google Business Profile evidence append on a self-hosted instance was rejected with "provider readiness evidence was rejected". Both paths now share one contract derivation.
+
+## [7.34.1] - 2026-10-29
+
+### Fixed
+
+- Show LinkedIn organization Page logos when choosing accounts and refreshing connected profiles, including the required image URN encoding.
+- Self-hosted instance administrators can record certification evidence for Telegram bot publishing. Recording derived the expected contract from the managed-production flag, while readiness decisions and the certification context derived it from the provider's mandatory certification policy, so every Telegram, Pinterest and Google Business Profile evidence append on a self-hosted instance was rejected with "provider readiness evidence was rejected". Both paths now share one contract derivation.
+
+### Changed
+
+- Releases keep unchanged Android, CLI, SDK and n8n downloads on their existing versions, with verified links in the release notes. App browser checks prepare earlier, and Android builds reuse Gradle and native compiler caches.
+
+## [7.34.0] - 2026-10-29
+
+### Fixed
+
+- Keep the Image Editor Alt-drag origin ghost above the page background and behind its multi-selection, including while animated layers re-sync.
+- Keep a newly applied Image Editor page background behind the layers that already exist instead of placing it above them until reload.
+- Keep a newly added Image Editor layer above a selected layer that belongs to a group, and draw the layer-tree drop line below an expanded group's full subtree.
+- Anchor Image Editor range selection at a newly added layer so the next shift-click starts from the new layer instead of the previous selection.
+- Insert Video Editor shapes, timers, Motion generated layers, and saved library text overlays above occupied video tracks instead of hiding them behind existing clips.
+- Keep automatic Video Editor placement on visible tracks, and let media and nested sequences share a track with non-exclusive adjustment layers and transform controllers.
+- Scene insertion and regular Video Editor adjustment layers now choose visible tracks and use the same non-exclusive occupancy rule as other placement paths.
+- Avoid duplicate default Video Editor track names when a matching track is hidden and source insert creates a new visible track.
+- Self-hosted instance administrators can record certification evidence for Telegram bot publishing. Recording derived the expected contract from the managed-production flag, while readiness decisions and the certification context derived it from the provider's mandatory certification policy, so every Telegram, Pinterest and Google Business Profile evidence append on a self-hosted instance was rejected with "provider readiness evidence was rejected". Both paths now share one contract derivation.
+
+### Changed
+
+- Run affected checks on main and pull requests while keeping complete release qualification on tags and nightly runs. Separate mobile source feedback from Android packaging and preserve production release gates.
+- Select shared package consumers through declared dependencies, avoid unrelated public-site builds, and retain browser test timing reports for regression and selection audits.
+- Check unpushed changes locally before releases; retain full local rehearsal as an explicit command.
+
+### Added
+
+- LinkedIn Community Management authentication uses the approved Profile API and individual Page lookups for Development Tier integrations. Self-hosted installations retain OpenID Connect as the default and can opt into Community Management with `OPENPOST_LINKEDIN_AUTH_MODE=community_management`.
+
+## [7.33.0] - 2026-10-29
+
+### Fixed
+
+- Self-hosted instance administrators can record certification evidence for Telegram bot publishing. Recording derived the expected contract from the managed-production flag, while readiness decisions and the certification context derived it from the provider's mandatory certification policy, so every Telegram, Pinterest and Google Business Profile evidence append on a self-hosted instance was rejected with "provider readiness evidence was rejected". Both paths now share one contract derivation.
+
+### Changed
+
+- Make long account lists searchable and responsive across the composer, Social Sets, workflows, repost settings, analytics exports, and native destination selection. Keep selection controls reachable and preserve hidden selections while filtering.
+- Label creation-menu actions New image and New video, and keep the sidebar arrow button square.
+
+## [7.32.2] - 2026-10-28
+
+### Fixed
+
+- The native Ideate flow now chooses destinations through the same shared destination chooser as the post composer: the same `Social Set` drawer title, checkbox rows with account avatars and platform labels, default-first set chips, shared loading, offline and error states, a `Done` action that stays disabled until a destination is selected, and one summary label format. Set members whose account is gone stay visible as explicit, removable rows instead of being silently dropped, and the build request still sends only publishable ids in the order chosen.
+- Image Editor tool shortcuts work on non-Latin keyboard layouts while preserving Latin layout mappings, text entry, IME composition and browser shortcuts.
+- Prepare translations once per component-browser shard instead of repeating compilation in every isolated test process.
+- Run local type, policy, lint and test checks before release pushes, keep the candidate revision fixed, and resume existing tags after main advances. Report local preparation separately from remote CI and deployment.
+- Bound CI browser/media setup and report canceled job steps and timeout annotations with recovery on the same revision.
+- Reuse public-site build-test results with their declared inputs, run the suite once per check, and keep documentation builds on their committed external-source snapshot.
+- Keep shared UI builds ahead of both web and marketing type checks in one dependency graph.
+- Keep valid sessions signed in when a save requires reauthentication; clear the session only when the server explicitly rejects its credential.
+- Prevent disabled editor knobs from committing keyboard edits while they retain focus.
+- Handle Quick Cut cancellation after output starts without leaking an unhandled rejection.
+- Facebook and Instagram direct messages keep their sent time. Graph returns `created_time` and `updated_time` with an offset without a colon (`+0000`), which the messaging adapters rejected, so collected messages were stored in the year 1: conversations showed year 1 as their last activity and no reply window was recorded.
+- Instagram and Facebook direct messages that share a post or reel, reply to a story, mention the account in a story, or attach an image without a declared type no longer appear empty in the Inbox. The Meta messaging adapters did not request the `shares` and `story` message fields, read image attachments from `image_data.src`, and ignored the story on a story reply delivered by webhook. These messages now show a link to the shared content.
+- Posts and threads no longer reject authored mention metadata as an unsupported provider setting, including after clearing selected mentions. This fixes Bluesky, Mastodon, LinkedIn, and other destinations carrying empty mention metadata. Selected mentions still require a matching network and account authority.
+- Bound local task steps and CI jobs so a hung build or a missing binary fails in minutes instead of blocking a run for hours.
+- Stop every process in a timed-out task step, not only the direct command, and keep a changelog entry beside a documentation change from enabling the complete CI matrix.
+- Facebook comments keep an attached photo, video, or link, and Threads replies keep their own image, video, or audio, so the Inbox shows the attachment instead of text only.
+- Preserve composer appearance, text and editing behavior after the mention editor migration. Pointer editing stays free of outlines while keyboard focus remains visible. Mention suggestions stay within phone viewports. Empty or failed searches allow caret movement, Mac editing shortcuts work, single-post saves retain annotations and whitespace, description edits clear removed identities, and native readiness reflects later thread edits.
+- Direct messages the social network cannot describe show a short explanation instead of an empty bubble.
+- Collected direct messages that were stored without content keep their text and attachments once the provider describes them again, instead of staying blank because the remote message already existed. Only blank, not deleted messages change, and a repair does not notify.
+- Threads mentions keep their activity time. Graph and Threads return offsets without a colon (`2026-10-24T10:00:00+0000`), and provider timestamps now share one parser that accepts every layout the providers send.
+- Keep the Image Editor stable when merging or flattening animated layers.
+- Preserve source text and selected mentions when editing or resetting joined video captions.
+- Update Go HTML and JOSE dependencies to address reported security vulnerabilities.
+- Include required model assets in public-site CI checks and isolate the file-watcher regression probe from dependency scanning.
+- Retain hidden discovery files when reusing public-site CI artifacts, and update the patched query-string dependency. Keep the unpatched deepmerge advisory confined to the reviewed development graph, with checks against dependency drift and runtime imports.
+- Prebundle GIF encoding before component tests so dependency discovery cannot reload an active test runner.
+- Isolate route tests from media component tests in bounded browser sessions.
+- Self-hosted instance administrators can record certification evidence for Telegram bot publishing. Recording derived the expected contract from the managed-production flag, while readiness decisions and the certification context derived it from the provider's mandatory certification policy, so every Telegram, Pinterest and Google Business Profile evidence append on a self-hosted instance was rejected with "provider readiness evidence was rejected". Both paths now share one contract derivation.
+
+### Added
+
+- Image Editor can import animated GIF layers, preview playback, select, duplicate and delete frames, edit timing and looping, and export the composed design as GIF. Editable projects retain the original GIF and frame decisions. Decoding and encoding run in bounded, cancellable browser workers.
+- Image Editor offers reversible anamorphic flare, starburst, mist, prism and shaped bokeh effects derived from image highlights, with strength, threshold, size and direction controls and matching canvas/export rendering.
+- Build comment campaigns in Workflows with post or Reel targeting, included and excluded keywords, reply priority, and daily run limits.
+- Send a saved Instagram private reply when someone requests a resource, then optionally acknowledge it publicly after Instagram accepts the message. Saved responses work without AI.
+- Prepare or automatically send AI replies from approved product information, review and edit replies in Inbox, and hand off questions that need a person.
+- Inspect reply delivery and stop pending automatic replies from Inbox or the workflow. Repeated events and matching rules do not duplicate sends, and private campaigns send once per person per post.
+- Save reusable Workspace mentions and insert them with @ from the shared composer. Each saved mention has its own network text or supported native identity. Each insertion keeps its mappings, so editing or deleting the library entry leaves existing posts unchanged.
+
+### Changed
+
+- Reduce component-test loading overhead while preserving real translations, file isolation and coverage runs.
+- Remove verified duplicate test execution and unused test-only code, strengthen weak assertions, and document checks that future tests must protect.
+- Add local checks for affected owners with explicit omitted gates and a full-preflight fallback for shared or uncertain changes.
+- Check formatting before costly preflight generation and builds.
+- Avoid package version increases for excluded test-only edits while rejecting compiled tests in npm payloads.
+- Instagram comment webhooks can collect comments on media published outside OpenPost, using the receiving account's current authorization.
+- Run the public artifact contract in a dedicated CI job, reuse the docs and marketing artifacts that job needs, persist the local Turbo cache across jobs, and keep changelog-only pull requests out of the full matrix.
+- The composer keeps image restore out of the main flow: "Use original image" now lives in each destination's three-dots menu instead of floating under the post editor, and restoring a shared image from a destination tab still replaces that attachment for every account while keeping per-account settings, alt text, and captions intact.
+
+### Operator notes
+
+- Comment campaigns require account comment permissions and collection. Instagram private replies require a professional account and provider-approved access. External Instagram media require the comments webhook. This release does not provision Meta app approval or subscriptions.
+- Apply migration 175 before running new web and worker binaries. Pause comment workflows and stop pending automatic replies before downgrading; retain the added receipts and opt-out records.
+
+## [7.31.1] - 2026-10-26
+
+### Added
+
+- Instance administrators can download a full backup of a self-hosted instance and restore it from **Settings → Instance → Backup and restore**. The backup is one ZIP file with a consistent snapshot of the SQLite database and every uploaded media file. A restore is checked first, applied on the next start only after explicit confirmation, and keeps the replaced data as a restore point that can be deleted from the same page. Exports protect local media against concurrent deletion; interrupted restores recover from a durable journal without consuming their staged input. Backups need the default SQLite database, local media storage, and a single server process; the encryption key is not included and must match.
+
+### Fixed
+
+- Keep release image-index publication running after successful image builds when proven artifacts replace upstream build jobs.
+
+## [7.30.4] - 2026-10-25
+
+### Added
+
+- Analytics now offers last-year, all-time, and custom date ranges, with matching exports and mobile date controls. Older published posts retain their original dates and can be inspected without changing their publication history.
+
+### Fixed
+
+- Appearance settings only show a loading indicator for the selected tab.
+
+## [7.29.4] - 2026-10-24
+
+### Fixed
+
+- LinkedIn text posts and root-plus-comment posts accept inherited and custom links without changing the selected format. X quotes containing a link retain the quote access check instead of reporting an unsupported setting.
+- Links no longer block X, Threads, Mastodon, or Pixelfed threads. Pixelfed also accepts URL text alongside media and generated text cards.
+- Threads keeps links in the caption when a text or GIF attachment is selected, rather than adding a conflicting link card. Explicit conflicting cards still require correction.
+- Keep connected-account profile pictures in OpenPost storage so Facebook, Instagram, Threads, and other provider image links cannot expire underneath them. New connections and reconnects save pictures locally, and Refresh profile repairs existing expired pictures without reconnecting the account. Failed downloads preserve the previous picture.
+- Add, remove, and edit image alt text from account previews, including Stories, carousel images, and attachments beyond a preview's visible limit. Account changes preserve shared images and thread segments.
+- Keep image descriptions, tags, and focal points when preparing or restoring images. Editing image settings creates an account variant without changing its text.
+- Show readable image size limits and a direct media editing action when reviewing publishing issues.
+- Text posts with a link in them publish to Threads, Mastodon and other providers that take a native link again. Publish checks rejected the link the composer had attached with "url is not supported for Threads post" (or Mastodon post), so posts without media that contained a URL were blocked.
+- Preserve native LinkedIn hashtags while keeping URLs, ordinary hash characters, and user-supplied markup safely escaped.
+- Respect Mastodon instance image byte and pixel limits during capability validation and image preparation.
+- Avoid oversized intermediate images when creating previews of very narrow or tall media, including fitted images and text-card avatars.
+- The TypeScript SDK reports its installed package version in HTTP request headers.
+- Plain-text clients retain unchanged selected mentions and safely remap surrounding edits. Ambiguous edits fail atomically, and publication revisions include identity changes.
+- Canonical-only edits refresh inherited destination text while keeping independent legacy variants. Structured CLI creation retains every source when a destination joins a thread.
+- Added web and native mention editors with keyboard suggestions, stable selections, structured copying, undo and exact thread text. Updated API, CLI, MCP, SDK and n8n contracts, plus authoring guides.
+- Native AI assist keeps generated destination text in the fields people review, and rendition summaries mirror their first saved output.
+- Show a visible keyboard focus indicator on tab panels, including appearance settings.
+- Keep keyboard focus on the correct thread part after reordering post editors.
+- Explain exhausted YouTube daily upload quotas and ask users to reschedule instead of repeatedly retrying them as short-term rate limits.
+
+### Added
+
+- Optimize PNG attachments automatically in the web composer without quality loss. Fit oversized images for one account when resizing or quality reduction is needed, while retaining the original.
+- Mark all matching Inbox comments read across every page on web, mobile, and the API. The action respects the current filters and shared Workspace read state.
+- Collect incoming Bluesky, Mastodon and Threads mentions independently of posts created in OpenPost. Collect Google Business reviews, including anonymous and rating-only reviews, with durable pagination and account permission checks.
+- Google Business owner replies use durable, serialized operations and expose moderation state separately from submission acceptance. Review collection preserves existing Inbox read and archive state.
+- Web, mobile, API, CLI, SDK and MCP expose incoming mentions and reviews with matching filters, shared read state and inspectable action receipts. Mobile can explicitly select a fitted image copy for one account without replacing the original.
+- Fit images to connected destination limits through the API and MCP, using the same server operation as the composer. Each ready copy retains its original and must be selected explicitly. Animated images are rejected instead of flattened.
+- Selected people and company mentions carry stable provider identities through publication segments, destination versions and joined threads. HTTP, MCP and typed contracts support the same UTF-8 byte annotations and account-scoped lookup for Bluesky, Mastodon and LinkedIn company pages.
+
+### Security
+
+- Update Echo to v4.16.1 for fixes to WebSocket proxy handling and bounded request-body middleware.
+- Update the application's Zod validation dependency to 4.6.7. Check the remaining legacy toolchain dependencies and unused SvelteKit APIs before admitting their advisory exceptions in release audits.
+- Update Undici and serialize-javascript in the build toolchain for newly disclosed denial-of-service, integrity-check and serialization issues. Re-review the dependency admission while retaining its exact lockfile and editor-boundary checks.
+
+### Changed
+
+- Update the pinned SEO audit toolkit to v2.5.0, including bounded fetches, browser request isolation, and hardened Google OAuth handling.
+- Social account connection choices show mainstream networks first, with smaller networks later and dev/null last in the built-in provider list.
+- Explain TikTok Direct Post approval restrictions in self-hosting guides and the provider app form, including internal-use ineligibility and private-only posting before audit.
+
+## [7.27.2] - 2026-10-22
+
+### Fixed
+
+- Give generated Paraglide output a single writer: marketing no longer regenerates `apps/web/src/lib/paraglide`, web's Vite plugin passes the same options as `generate:i18n`, and `check-i18n` fails when the two drift apart. The web locale strategy keeps `preferredLanguage`, so first-time visitors still get `Accept-Language` detection.
+- Generate translation declarations without the upstream TypeScript emit that dominates `check -- frontend-marketing` on the full catalog. `generate:i18n` and the Vite plugin now share the fast declarations in `scripts/paraglide-declarations.mjs`; typed message inputs, locale options, and plural variants are unchanged.
+- Show the destination account photo on delivery cards, publication history rows, and workflow approval rows from the server-projected destination identity, with the platform badge preserved. Destinations whose account is unavailable retain their delivery details with a platform fallback.
+- Preserve the recorder's observed system-audio status when a screen recording contains microphone audio. An encoded audio track no longer implies that system sound was shared.
+- Message retries retain one operation identity, outbound echoes converge with queued sends, and uncertain provider outcomes remain inspectable.
+- New incoming messages reopen archived conversations, unread controls retain a visible indicator, and replies dispatch independently of slow media jobs.
+- Mobile Inbox uses quieter filters, compact conversation rows, grouped timestamps and smaller moderation controls. Swipe to archive with Undo keeps the list focused on conversations.
+- Inbox rows announce their latest message or comment text to screen readers, not just names and read state.
+- Outlined native text fields retain their bottom border with the theme's original subtle color.
+- X messaging now shares durable REST quota admission across OAuth1 and OAuth2 and rejects send responses that lack a message ID.
+- Animated memes honor the requested output height, matching static meme rendering.
+- Prepare the application TypeScript configuration before marketing builds import shared application modules, so fresh checkouts build reliably without regenerating application translations.
+- Keep images added to a post sharp. The composer tile showed the small library thumbnail stretched across the editor column; it now shows the original image and uses the thumbnail only as a fallback.
+- Let Ideate find topic ideas for every supported publishing platform, including Social Sets with more than five platforms.
+- Reattach files from the media library and restore removed attachments after a reload, including temporary files. Preserve each attachment's publishing permission.
+- Discard topic-search results when the idea, accounts, or voice has changed during the search.
+- Show the media library grid at the 400px thumbnail tier and the inspector and approval preview at the original image, so large previews are no longer stretched from a 150px square crop.
+- Keep saved text-card images visible when a publication stores only sparse card settings, instead of losing them after a save.
+- Clear the media picker grid when the workspace changes, so another workspace's media cannot be selected while the new list loads.
+- Restore the Quick Cut cloud-conflict heading, so the notice is reachable by heading navigation again.
+- Save edited attachment alt text on destination media rows that already exist in the native composer.
+- Request the 400px tier for the native draft attachment thumbnails instead of each full original.
+- Keep the media conversion limits out of the marketing tool route bundle, so tool pages no longer load the conversion engine before hydration.
+- Render saved memes at 1080px so the composer and social feeds no longer upscale the 600px preview size; animated GIFs keep 600px to bound their size.
+- Import the original Pixabay photo when available, then the 1920px full HD and 1280px large copies, and report the delivered file's dimensions and media type.
+- Encode thumbnails as transparent PNG for uploads with alpha and serve the matching content type, so transparent images no longer get a black background.
+- Stop stretching extension screenshots beyond their captured width.
+- Show image tiles in the media picker at the 400px thumbnail tier instead of upscaling the 150px one.
+- Keep generated text card footers clear of the last line of body copy. Long posts no longer draw the page arrow into the text on full pages.
+
+### Added
+
+- Mobile Inbox with separate Chats and Comments, existing-chat replies, account filters, search, archive recovery, saved drafts, public thread context, and safe retry receipts.
+- Native Posts, Inbox, Analytics, Media and More navigation, with Calendar and Queue retained under Posts.
+- Foreground Inbox updates shared by web and mobile, incremental Bluesky chat logs, signed Meta message intake, leased Mastodon streams, and lazy network message history.
+- Separate X OAuth2 authorization for legacy direct messages, preserving OAuth1 publishing, with signed event receipts and explicit operator budget controls for paid X Activity subscriptions.
+
+### Security
+
+- Update DOMPurify and the documentation framework to patched releases covering the latest upstream security advisories.
+
+### Changed
+
+- Add FeedHive to the "best social media tools for solo founders" guide with its verified plan limits, agent access, and pricing source.
+- Simplify the Ideate dialog with attachment previews, clearer topic-search controls, and grouped generation actions.
+
+## [7.26.0] - 2026-10-22
+
+### Added
+
+- Export Analytics from the web app as CSV, Excel with charts, or JSON. Choose the timezone, group rows by post, day, week, month, platform, or account, filter platforms and metrics, and pick which table to download. Unmeasured provider metrics stay empty instead of becoming zero. The same export is available at `GET /analytics/export`.
+- Select individual connected accounts using their avatar, platform, and handle. Every exported table respects the selection; missing measurements stay empty, and grouped reports exclude averages and reporting-period values that cannot be summed by publication date.
+- Notify the people who can approve when a workflow parks a draft for approval, and notify them and the author when that wait expires. Both transitions were silent before: a draft could sit in the approval queue, and later disappear from it, without anyone being told. The notification links straight to the waiting run, which now opens on that run. The audience is the roles that satisfy the approve level — administrators and clients — derived from the access matrix rather than restated, so a client, who can decide an approval without being able to administer the workspace, is told about the wait that is theirs to resolve. The author is skipped when others can decide, and told when nobody else can.
+- Remind the approvers three days before a wait expires. An expiry notice alone arrives thirty days after anyone last thought about the draft, which is too late to act on; the reminder is the only notice that arrives while the reader can still do something about it.
+- Resolve the approval notices once the wait is decided. Approving or cancelling left every other approver holding an item that said "waiting for your approval" with a button that answered with an error; the row now keeps its place in the history but stops claiming something untrue.
+- Russian interface language, selected from preferences or the browser language, including localized number and date formatting and offline recovery.
+
+### Fixed
+
+- Remove the impressions summary from web and mobile Analytics, and stop the web page from scrolling into empty space below its content.
+- Emit approval notifications after the transaction that changes the run, not inside it. A failed notification write used to roll the park back: a recipient whose stored preferences would not decode, or a workspace lookup that found no row, left the run behind its lease, so the sweep re-enqueued it and the step replayed and failed again — a loop in which the run never parked. Notification failures are now logged and the run keeps its state.
+- Expire stale approvals per run instead of per batch. `expireApprovals` returned on the first error, so one run that could not be expired stopped every other wait in the batch from expiring, once a minute.
+- Restore the revision to the expiry compare-and-set. The guard had been narrowed to the state alone, which still yields one winner but no longer matches the contract that a writer only replaces the row it read.
+- Carry the workspace in the notification link. The run inspector resolves a run against the workspace the viewer is in, so an approver arriving from another workspace landed on an empty inspector.
+- Read the deep link reactively. The requested run was captured once at mount, so clicking a second approval notification while the page was already open did nothing.
+- Persist approval notification intents with the run transition and retry delivery through database jobs. Recheck the current run and recipient permissions under the workspace fence, so delayed requests cannot reopen decided waits.
+- Visit every eligible reminder batch, resolve notices for their original recipients after role changes, preserve read timestamps, and remove obsolete review actions from history. Post links open the post detail directly.
+- Point the npm CLI installer to the current release so new installs receive the patched Go toolchain.
+- A capability cache write failure no longer marks a verified destination as incompatible.
+- Text-card projection no longer rewrites caller-owned segments, which would race when destinations resolve together.
+- Keep images added to a post sharp. The composer tile showed the small library thumbnail stretched across the editor column; it now shows the original image and uses the thumbnail only as a fallback.
+- Explain which stage of a social account connection failed and preserve safe provider error codes and trace IDs in Settings and server logs, without exposing tokens or raw provider responses. (#459)
+- Accept a single wrapped Instagram direct-login profile and keep its professional account ID separate from the authorization subject. Preserve selected destination IDs when saving connections for every provider.
+- Show the media library grid at the 400px thumbnail tier and the inspector and approval preview at the original image, so large previews are no longer stretched from a 150px square crop.
+- Keep saved text-card images visible when a publication stores only sparse card settings, instead of losing them after a save.
+- Clear the media picker grid when the workspace changes, so another workspace's media cannot be selected while the new list loads.
+- Restore the Quick Cut cloud-conflict heading, so the notice is reachable by heading navigation again.
+- Save edited attachment alt text on destination media rows that already exist in the native composer.
+- Request the 400px tier for the native draft attachment thumbnails instead of each full original.
+- Keep the media conversion limits out of the marketing tool route bundle, so tool pages no longer load the conversion engine before hydration.
+- Render saved memes at 1080px so the composer and social feeds no longer upscale the 600px preview size; animated GIFs keep 600px to bound their size.
+- Import the original Pixabay photo when available, then the 1920px full HD and 1280px large copies, and report the delivered file's dimensions and media type.
+- Encode thumbnails as transparent PNG for uploads with alpha and serve the matching content type, so transparent images no longer get a black background.
+- Stop stretching extension screenshots beyond their captured width.
+- Show image tiles in the media picker at the 400px thumbnail tier instead of upscaling the 150px one.
+- Update the Vitest mocker and URI parsing dependencies to their patched releases.
+- Keep generated text card footers clear of the last line of body copy. Long posts no longer draw the page arrow into the text on full pages.
+
+### Changed
+
+- Collapse the two approval notification topics into one `workflow_approval` topic with three states. The preferences page offered two switches for one mechanism, and neither described what actually happened.
+- Composer destination checks keep the previous readiness answer usable while a refresh runs. Readiness warnings and publish actions no longer disappear and reappear during ordinary typing, and submitting still resolves accuracy first.
+- Required destination pickers for multiple accounts now load together instead of one account at a time, and one account's option request can no longer discard another account's result.
+- Capability resolution no longer cancels the in-flight request immediately while typing, so completed provider work can populate the capability cache.
+- Capability resolution sends per-account segment overrides only for accounts that actually customize text, media, alt text, a poll, or an AI attachment requirement.
+- Destination capability resolution runs a bounded number of accounts in parallel, preserving response order and the first error in request order.
+- One resolve request now shares provider-scoped readiness facts across destinations and operations, caches the capability catalog, and reuses certification digests for canonical capabilities.
+- Provider capability cache keys follow the inputs each adapter declares, so unrelated destination settings no longer re-fetch provider state. Entries are bounded.
+- Load camera, stock, and upload tools when the upload dialog opens, keeping Media browsing within its JavaScript budget.
+- Remove the duplicate Send feedback entry from the profile menu; Help & feedback remains.
+
+## [7.23.0] - 2026-10-20
+
+### Added
+
+- Connect Instagram Business and Creator accounts directly without a Facebook Page, or choose the existing Facebook Login connection. Instance administrators can configure both methods independently. The connection dialog explains their requirements and availability.
+- Connect dev/null accounts with an SSH private key and publish commits, replies, and image posts from OpenPost. Publishing signs each commit with the key on your GitHub account, exactly like the official dev/null commit script. New dev/null accounts need approval before posts go public, and dev/null allows 10 commits a minute.
+- Render account and workspace identity in the mobile app, including avatars and labels on drafts, the composer, analytics, and media previews.
+- Show per-destination publishing readiness in the mobile composer before publishing.
+- Publish the enforced media upload limits from the server and validate mobile attachments against them, with the limits guide generated from the same constants.
+
+### Changed
+
+- Give every account picker one shared row and one select-all header: account checkboxes are now named for the account (readiness issues stay linked as descriptions instead of changing the name), and partial destination selections show an indeterminate state. Selection contracts are unchanged.
+- Load mobile media previews as thumbnails and show a placeholder when a preview cannot be loaded.
+- Derive marketing tool limits and provider capability claims from the same catalogues the product enforces.
+
+### Fixed
+
+- Ellipsize long account names and handles on delivered Instagram and Pixelfed text cards instead of clipping them mid-word with no ellipsis, matching the preview. Existing cards re-render on the next save.
+- Fixed a startup crash when publish-now jobs were pending at restart. Authorization recovery now compares timestamps with the original receipt at database precision, preserving retry dispatch times and interrupted provider operations. Jobs with invalid authorization are failed individually instead of blocking startup. No manual database edits are needed for valid pending jobs. (#455)
+- Restore the desktop sidebar's compact spacing: the planner calendar, drafts, and footer navigation sit at their original 8px inset instead of the doubled paddings introduced with the sidebar planning change.
+- Open a workflow step's inspector on the first node click instead of sometimes requiring a second click.
+- Recover LinkedIn Organization Page lookups when the provider rejects optional profile projections.
+- Save mobile posts whose destination account was disconnected.
+- Show the planned time in the web publication detail header.
+- Key text-card previews by account identity and retry failed avatars, and derive the avatar placeholder from the card colour.
+- Name Google Business and fediverse software correctly, and align the mobile and web handle rules on one allowlist.
+- Toggle both directions of the any-source checkbox in repost policies.
+- Keep the calendar's all-accounts filter mode visible and show the account photo on calendar surfaces.
+- Add referrer policy and lazy loading to preview avatars, and show the verified badge in the full-page preview.
+- Render the Inbox counterpart avatar through the shared control and announce the selected account in the account filter label.
+- Show the account photo in the workflow source-account picker.
+- Accept videos up to the server limit on mobile and validate attachments by type.
+- Derive the review fallback plan prices from the catalog.
+- Honour reduced motion in every settings pending spinner.
+- Keep destructive dialogs open while their action is pending.
+- Show the account photo in consent and analytics account lists, and on delivery and history destination rows.
+- Use content-shaped loading for media results and history.
+- Bound provider response bodies through the shared read helper.
+- Make the published SDK response types and the CLI's `--json` output match the served contract.
+- Settle a mutation 401 in the API client instead of at each call site.
+- Make the composer destination row match the control it renders.
+- Derive the mobile analytics account filter from the authorized overview.
+
+### Maintenance
+
+- Prepare the Android package at 0.2.63 (65) for the mobile identity, readiness, and media-preview changes in this release.
+- Consolidate shared web and native controls on one owner per concern, including the badge tone API, form field, section heading, overflow menu, empty state, inline notice, account row and select-all, async action button, clipboard helper, byte-size formatter, monogram rule, color picker and telemetry consent in `@openpost/ui`, and the editor media and audio primitives in `@openpost/editor-shared`.
+- Route shared server behavior through one owner, including the Discord webhook sender, bounded avatar fetch, credentialed-redirect policy, settings-map coercion, server-side text counter, provider feature table, and text-card option values.
+- Gate the hand-written SDK, CLI, and n8n surfaces against the served spec, and guard platform text limits and counting rules across TypeScript and Go.
+- Restore README asset and screenshot refreshes, stabilize native gallery capture, and update the pinned Alpine image and GitHub Actions group.
+
+## [7.22.9] - 2026-10-17
+
+### Fixed
+
+- Opening or editing generated mobile drafts no longer crashes when a destination segment has empty settings.
+- Removed the duplicate Ideate shortcut from the mobile draft header. Ideate remains available beside quick capture.
+- The bottom Ideate button opens the AI workspace even before you enter an idea, preserving the shortcut removed from the header.
+- Drafts remain available in the desktop sidebar across Posts, Inbox, Analytics, Media, and other workspace pages. The list fills the available space and scrolls through all drafts.
+- Changing pages or languages with sidebar drafts no longer causes background composer-import errors.
+
+### Changed
+
+- The sidebar calendar is visible by default, with workspace navigation below the drafts. Turn off Sidebar calendar in Preferences to use the compact layout. Existing saved choices are preserved.
+
+## [7.22.4] - 2026-10-17
+
+### Changed
+
+- Keep Google provider authorization limited to the scopes OpenPost requests instead of merging unrelated grants from a reused OAuth client.
+
+### Fixed
+
+- Enforce verified Instagram collaborator and Trial Reel combinations before publishing, while preserving older Story drafts by omitting their unsupported collaborator values.
+- Reject TikTok photo uploads whose shorter side exceeds 1080 pixels when stored dimensions are available.
+- Recover from Instagram's exact media-container propagation delay without retrying the wider publication flow.
+- Report actionable Instagram collaborator, first-comment, and video-limit failures without exposing provider response text.
+- Collect regular Facebook video views through the supported metric without double-counting Reel plays.
+- Explain YouTube thumbnail failures that require channel phone verification while preserving the already published video.
+
+## [7.22.2] - 2026-10-16
+
+### Fixed
+
+- Publish video posts with a selected cover frame when MCP or API media settings are omitted, including existing posts with null settings.
+- Record destination and post failures after publishing panics, preserving diagnostics and checking saved provider receipts before any retry.
+- Allow deletion of failed posts when no delivery is active or unresolved.
+- Handle null JSON objects in legacy messaging settings and legacy publication-job migration without panicking.
+- Keep joined-source and inherited text-card attachment settings as objects when refreshing existing posts.
+- Protect unsaved scheduled-post edits when navigating away from the composer.
+- Connect and refresh LinkedIn Organization Pages when LinkedIn rejects optional profile projections.
+
+### Maintenance
+
+- Update compatible Expo SDK 57 patches and use the shared app icon for iOS validation.
+- Refresh product screenshots and make automated screenshot and README asset refreshes more reliable.
+- Document the sidebar-calendar browser preference and align navigation checks with the current post and workspace controls.
+- Give the public-site determinism check enough time to build both sites twice and verify their complete outputs on CI.
+
+### Added
+
+- Browse posts in a masonry grid and use the draft gallery to search, select, and schedule drafts.
+- Show or hide the sidebar calendar through personal preferences.
+
+## [7.21.1] - 2026-10-14
+
+### Added
+
+- Italian interface translations, language selection, regional formatting, and offline recovery copy in the web app.
+
+### Fixed
+
+- Backup restore drills count the current Publication inventory and clean up their temporary database after failed restores.
+
+### Maintenance
+
+- Remove the README demo-maintenance note and the retired VitePress link-checking branch. Point the superseded composer proposal to the maintained Ideate and review contracts.
+- Remove obsolete web dependency declarations after the shared UI extraction and keep theme-icon generator dependencies with repository tooling.
+
+## [7.20.8] - 2026-10-14
+
+### Fixed
+
+- Facebook Reels and video Stories finish completed uploads before waiting for processing, and recognize already published videos from older checkpoints without sending finish again.
+- Pending publications stay in progress without repeated failure events. Automatic provider reconciliation is bounded and retains unresolved receipts for manual checks.
+- YouTube waits for confirmed processing before reporting a video published, and preserves provider schedules. X processing checks stop at media expiry and yield without repeating uploads.
+- Preserve the first day's Analytics trend change when its previous measurement falls on the same UTC date as the selected range's start.
+- Calendar week headers wrap long timezone names within their column, keeping the full name readable without overlapping the first day.
+- Image Editor cancels exports and previews while document fonts are still loading. Multi-page exports continue when animation frames pause in a background tab, and export task yields remain cancellable.
+- Curved text finishes reshaping after an intervening group edit and refreshes its stroke from the new glyphs, preserving the editing caret.
+- Cancelling or closing the Image Editor reliably stops a pending magic scan. Cancelled previews cannot apply edits, and an older scan cannot hide a replacement scan's progress controls.
+- Protect unsaved Quick Cut projects during failed downloads, offer a project backup before refreshing, and cancel pending imports and export continuations when leaving the editor.
+- Keep late waveform results from a previous source out of the current Quick Cut timeline.
+- Reject theme manifests with trailing JSON or malformed data so corrupt stored themes use the complete Workshop recovery theme.
+- Imported video animation lanes are ordered at load time while retaining each keyframe's value, identity, easing, and preset attribution.
+- Keep video upload editing actions visible on small screens. Cancel pending file reads and active edits cleanly, and prevent an older file's encoder check from changing the current file's crop controls.
+- Refresh a workflow inspector when a newer run summary arrives before its first complete snapshot. Late list responses cannot make older run details appear current, including results recorded after cancellation.
+- Restored Dependabot coverage for the server and Directus example Dockerfiles. Repository checks now reject stale automation paths and Docker dependency ignore rules.
+- LinkedIn Organization Page connections no longer request member analytics permissions unless separately enabled with `OPENPOST_LINKEDIN_MEMBER_ANALYTICS_ENABLED=true` and approved by LinkedIn. Thanks to [@Heavyarms83](https://github.com/Heavyarms83) in [#335](https://github.com/getopenpost/openpost/pull/335).
+- Updated native app dependencies to the compatible Expo 57.0.29 patch set while retaining the Swift compiler compatibility fix.
+- Pending provider receipts continue reconciling when another destination has a longer rate-limit delay, without repeating an accepted write.
+- Performance index migrations follow the already published security and client-review migrations, so upgrades and fresh installations apply without version collisions.
+
+### Performance
+
+- Read the latest stored Analytics measurements and pre-range trend baselines through a workspace-scoped rendition index, avoiding full-history transfers and repeated historical sorts. Preserve workspace and account filters, missing measurements, and insights across the complete filtered post inventory.
+- Video Editor preview and export reuse the active sequence's item index when resolving transform parents, property links, and expressions. Large timelines no longer rebuild the complete lookup for each visible clip; paused edits continue to update immediately.
+- Resolve built-in workspace themes from a catalogue validated once per server process. Requests copy only the selected theme, preserving independent manifests, custom-theme validation, and complete Workshop recovery.
+- Calendar date ranges use an index on each post's actual calendar occurrence, avoiding scans and sorts over unrelated history. Authored schedules, published timestamps, workspace boundaries, and stable pagination retain their existing behavior.
+- Calendar week view groups posts by their local hour once per data or timezone change, preserving daylight-saving transitions and existing post order while avoiding repeated time formatting for every grid cell.
+- Filmstrip previews display decoded frames before JPEG cache encoding finishes. Replacing large filmstrips checks retained bitmaps once instead of repeatedly scanning every frame.
+- Image Editor galleries render visible previews through the shared thumbnail queue instead of retaining a live editor canvas for every card. Recent local designs load cover-page media for browsing; opening a design still restores media for every page.
+- Color adjustment gestures reuse layer lookups when checking nested group locks. Large grouped image selections update faster while keeping inherited locks and undo behavior.
+- Video Editor history checks simple timeline settings, tracks, and markers before serializing clip and sequence data, avoiding that work when recording those edits. Full undo and redo snapshots remain intact.
+- Accelerated the Image Editor's CPU color-grading fallback by reusing exact channel mappings and preparing color-wheel parameters once per render. Pixel rounding, effect order, alpha, and the GPU path are preserved.
+- Image Editor keeps unchanged child artwork, masks, and stroke decorations when a group is hidden, locked, or renamed. Inherited visibility and editing controls still update immediately.
+- Speed up Image Editor selection in deeply grouped artwork by indexing parent layers once per page update and stopping topmost selection at its first visible hit. Preserve group locking, inherited visibility, stacking order, and transparent-pixel selection.
+- Video Editor reuses linked clip lookups and indexes occupied track boundaries when moving large selections, retaining synchronized audio, collision checks, locked tracks, and undo behavior.
+- The Image Editor reads only the newest local designs needed for its recent-design list. Older document payloads stay in browser storage until needed, while load-more order and designs saved at the same time retain their existing behavior.
+- Accelerated large Image Editor magic selections and fills with scanline traversal and worker execution that no longer pauses between progress updates. Scans use less temporary memory and retain the same pixel matching and connectivity rules.
+- Media library usage summaries count distinct post references in the database instead of loading every matching post into the server. Reused media retains accurate usage and deletion protection with substantially less response processing and memory allocation.
+- Video Editor playback prepares audio ownership, processing requirements, and transition handles when their inputs change. Frame updates reuse those bounds while keeping clip edits, mute changes, media readiness, and existing audio graphs responsive.
+- Source audio waveforms reuse their sampled peaks and drawing during playback, redraw cleanly when the display scale changes, and discard results from previously selected sources.
+- Reuse bounded color parsing results while validating theme contrast and editing palettes. Every manifest edit is still checked, including alpha compositing, focus visibility, and Dither texture contrast.
+- Video Editor media and Color previews share thumbnail read and URL ownership. Pending reads survive clip moves without duplication, completed imports load their previews once, and removed or refreshed sources cannot publish outdated thumbnails.
+- Video animation evaluation now finds scalar, vector, and color keyframe segments with binary search, improving playback and export evaluation for long or densely baked animation lanes.
+- Video Editor, Quick Cut, and mobile project browsers now load lightweight Cloud Video Project summaries instead of complete timelines. Opening a project still loads its full document. Summary reads preserve Workspace permissions, Trash, editor-family filtering, and mutation refreshes; mobile clients retain compatibility with older self-hosted servers.
+- Cloud Video Project, revision, and conflict reads validate and return stored documents directly, reducing response CPU time and temporary allocations while preserving the existing API schema. Stored numeric values no longer lose precision during response encoding.
+- Load video inspection and editing code when a video is opened or edited, reducing the Media page's initial JavaScript download.
+- Workflow validation discovers sample fields and branch-scoped variables once per edit, keeping larger sample payloads responsive while preserving variable visibility within each branch.
+
+### Fixes
+
+- Video Editor filmstrip eviction now releases decoded images and object URLs while preserving thumbnails still in use. Cache cleanup discards and releases pending thumbnail loads, preventing stale thumbnails from returning after cleanup.
+- Source previews keep usable space in short panels and on phones. Audio waveforms remain visible while the source controls scroll, and the source name and touch-sized close button stay reachable.
+
+### Improved
+
+- Open image designs with many grouped layers faster by preparing group destinations when a layer menu opens.
+- Open Quick Cut with less JavaScript by loading source inspection, waveforms, and export processing when needed.
+- Load workflow history and connected accounts when their views need them, and pause hidden history polling. Keep navigation available during loading and offer retry controls for failed history requests.
+- Build workflow diagram catalogues once per graph, and avoid validating run payloads for compact previews. Full editor and run canvases retain their validation warnings.
+- Load workflow run cards without transferring every run's source data, inputs, and outputs. Opening a run retrieves its complete saved snapshot, with loading and retry feedback.
+
+### Changed
+
+- Existing installations using LinkedIn member analytics must set `OPENPOST_LINKEDIN_MEMBER_ANALYTICS_ENABLED=true` and restart OpenPost to retain collection after upgrading. The setting defaults to false, independently of Organization Page support. Reconnect accounts only if their existing authorization lacks `r_member_profileAnalytics` or `r_member_postAnalytics`. Stored metrics are preserved.
+
+### Added
+
+- Native clients can inspect submitted post versions and review history, then approve their assigned version or request changes. Review previews show destination accounts, segment titles, descriptions, provider settings, and first comments. Protected videos and audio play in the app; other attachments open through the device's file controls.
+- Shared recovery pages give the app, public site, documentation, and native app a consistent route back to work, including offline recovery.
+- Self-hosting documentation includes an UmbrelOS installation guide.
+
+### Upgrade notes
+
+- Android advances to version 0.2.59 (61). Database migrations 159 and 160 add analytics and calendar lookup indexes.
+
+## [7.19.1] - 2026-10-13
+
+### Added
+
+- Invite clients to connect and reconnect social accounts and decide assigned approvals. Clients cannot author, publish, disconnect accounts, or administer the workspace.
+- Workspace summaries expose `can_connect` and `can_approve` separately from editing rights, and the interface follows those capabilities.
+- Client invitations open account connections after acceptance.
+- Client-role support incorporates [PR #332](https://github.com/getopenpost/openpost/pull/332) by Digital Media Group.
+- Create a source-backed series within Ideate, select concepts to generate, edit each post, and explicitly save selected drafts.
+- Preview exact dates for selected drafts, then confirm them with safe partial retries and workspace-local timing.
+- Send individual posts to a named client for required approval. Submitted versions and decisions remain inspectable, and content changes require another review.
+
+### Changed
+
+- Improved Ideate's four post alternatives to prioritize source-supported reader value, honest openings and payoffs, feasible media briefs, meaningful variety, and earned humor without inventing tutorial details or platform-performance claims.
+- Web Ideate uses one resumable dialog from navigation and the composer. The old route opens that dialog. Ordinary solo-founder drafting and publishing remain unchanged.
+- Scheduled usage is reserved atomically with delivery jobs across individual and batch scheduling.
+
+### Upgrade notes
+
+- Apply additive migration 158 and upgrade every publishing process before enabling `OPENPOST_CLIENT_REVIEWS_ENABLED`. Existing reviews remain enforced when new review admission is disabled. See `docs/development/client-reviews-and-series.md` for rollout and rollback instructions.
+
+## [7.18.5] - 2026-10-13
+
+### Fixed
+
+- Upload production browser source maps for the app, website, and documentation so new error reports can show readable source locations.
+
+## [7.18.4] - 2026-10-13
+
+### Added
+
+- Update the Privacy Policy to disclose separate native analytics consent.
+- Add optional native app analytics with per-server consent, screen and device context, selected product actions, and sanitized JavaScript errors.
+- Measure video project and export outcomes, documentation search and successful code copies, AI build outcomes, live Workflow successes and failures, hosted waitlist joins, and REST write responses.
+- Create four complete posts from one idea, with native account previews, editable memes and screenshot templates, durable edits, reusable voice profiles, and explicit missing screenshot or demo requirements.
+- Reuse configured Workflow decision models for bounded source and template checks, and route standalone meme suggestions through the complete semantic catalogue.
+- Add native mobile Ideate with four compact options, context attachments, voice defaults, rendered visuals, resumable generation, and explicit draft selection.
+- YouTube: per-post `publish_at` sets YouTube's public release time (`status.publishAt`) separately from OpenPost's upload schedule. It requires Private and an RFC 3339 timestamp with a timezone. Past times publish immediately.
+
+### Fixed
+
+- Preserve known public page paths on direct entry and reload, including mobile browsers, and keep unknown URLs and private route values out of analytics.
+- Observe Huma server errors and terminal worker failures even when their status write fails. Count expired approvals and exhausted build jobs after their state change commits.
+- Recover temporary analytics configuration and SDK download failures, prevent SDK faults from interrupting product actions, and discard queued events when consent or the signed-in user changes.
+- Repair production PostHog reports, production URLs, internal/test exclusions, conversion goals, and Workspace-based activation measurement.
+- Use the same author instructions, source evidence, voice profiles, and platform guidance throughout AI post planning, drafting, and review. Preserve explicitly requested post formats across destinations.
+- Repair invalid AI output with the specific validation failure, and distinguish rejected reviews from generation timeouts in build diagnostics.
+- Updated the browser extension pages for Feed Limiter and YouTube Localizer, added extension-specific privacy policies, and redirected the former X Timeline Blocker page to Feed Limiter.
+- Keep public appearance controls disabled until the page is interactive so the first theme switch is not lost on a slow connection.
+- YouTube: explicit No answers for "Made for kids" and "Synthetic media" are sent as `false`. Both controls distinguish Yes, No, and Not specified. Absent and null disclosures remain omitted, preserving YouTube's audience defaults.
+
+## [7.17.5] - 2026-10-11
+
+### Fixed
+
+- Give the race-instrumented backend suites an explicit package time allowance so the expanded rendering integration tests can finish in CI.
+- Preserve composer loading, legacy link cards, joined captions, and Social Set formats when a saved destination has empty settings.
+- Keep idea discovery available when a Workspace has future scheduled posts, while still using those posts to avoid repetitive suggestions.
+- Keep Image Editor save failures readable beside AI controls, with responsive feedback in both appearance modes.
+- Allow the fal image-generation key to be saved securely in administrator settings and applied when the server restarts.
+- Resolve Pixelfed runtime configuration by its instance, consistently with provider registration.
+
+### Added
+
+- Generate images, edit the selected image layer and fill selected areas in Image Editor through fal, with GPT Image 2.5 Flare as the default. Review results before applying them and undo any application.
+- Save image requests and provider receipts across restarts, recover uploads without generating again, and record each user's fal costs in the existing AI usage ledger. No image-specific credit limits are enforced.
+- Turn text posts into customizable Instagram and Pixelfed image cards, with account identity, Feed and Story layouts, and optional cards before carousel attachments.
+- Reuse styles through Social Set defaults, preview cards in the composer or MCP, and retain exact publishing images separately from authored attachments.
+
+### Self-hosting
+
+- Configure `FAL_KEY` on the server and worker to enable AI images for signed-in users with Workspace edit access. Migration 155 adds durable image requests and provider attribution to AI usage.
+
+## [7.16.5] - 2026-10-11
+
+### Fixed
+
+- Upload stored images and videos to X through the publisher's lazy media reader instead of failing before contacting X.
+
+## [7.16.4] - 2026-10-10
+
+### Added
+
+- Add internal account labels and calendar filtering by individual connected accounts.
+
+### Changed
+
+- Schema migration 154 adds an optional internal label to connected accounts. Existing accounts keep their provider names and selectors.
+- Collect X post analytics daily and account for estimated user and post read costs before provider calls, including unresolved exposure in the Hosted X budget.
+- Schema migration 153 preserves existing delivery receipts while adding the user-action state for TikTok inbox drafts. Older binaries do not understand that state; a downgrade requires the pre-upgrade database backup.
+
+### Fixed
+
+- Prevent later events for an old billing subscription from replacing a newer checkout.
+- Keep Instagram containers pending when Meta is still preparing them, and treat missing processing status as unknown. Explain Trial Reel limits.
+- Preserve Facebook video upload IDs through interrupted transfers and processing. Confirm video publication after the finish acknowledgement.
+- Keep TikTok inbox delivery separate from publication, retain its receipt for reconciliation, and use photo URLs for photo posts. Resolve public identities from provider receipts instead of captions. Preserve structured OAuth errors.
+- Resume X media processing from its saved media ID and explain depleted X developer credits. Check Bluesky email verification before video uploads while keeping text and image posting available.
+- Exclude provider-confirmed Facebook and TikTok identity aliases from native imports. Defer ambiguous import pages within a bounded 30-day identity window.
+- MCP post validation and scheduling now use the configured public-media verifier, allowing reachable signed HTTPS media to pass validation while still rejecting inaccessible media.
+- Simplified Analytics with one warnings and data-notes disclosure, compact insights, quieter chart controls, and table-style post results on smaller desktop windows.
+- Check JSX and TSX formatting before commits and pushes, including mobile screens and documentation components.
+
+## [7.15.7] - 2026-10-10
+
+### Fixed
+
+- Preserve video proportions in exports, frame captures, and nested compositions when clips and project canvases have different aspect ratios. Prevent extra black bars from being baked into decoded clips, including reversed clips.
+- Fit the complete project into a differently proportioned export resolution without stretching video, text, or shapes, while keeping off-canvas content clipped.
+- Preserve layer scaling, canvas clipping, and transparency when exporting resized PNG and WebP image sequences.
+- Retain video transparency during export, preview proxy generation, cached seeking, and freeze-frame extraction.
+- Scale clip and adjustment-layer blur, default text size, and text padding with the project when rendering at a different resolution.
+- Apply animated clip effects in preview and animated adjustment-layer effects in both preview and export.
+- Render simultaneous transitions on separate visible tracks, and prevent conflicting transition windows on the same track from hiding each other.
+- Preserve nested audio reversal, fades, volume keyframes, speed ramps, and the frame rate retained by existing composition clips.
+- Keep pixel-based GPU effects consistent across export resolutions and preview quality levels, including full-picture pixel sorting at reduced quality.
+- Remove incomplete image-sequence files after failed writes and honor cancellation during encoding, finalization, and ZIP saving.
+- Keep nested audio crossfades aligned through speed ramps, reverse playback, and trimmed exports.
+- Preserve translucent edge colors through GPU blurs and effect chains without dark halos.
+- Reuse one image decode across transition participants and release every decoded bitmap after export.
+- Preserve GIF and Lottie animation timing through splits and start trims, including reversed clips and transition handles.
+- Prepare transition windows once per timeline change to reduce playback and export work on long timelines.
+- Publish the final playhead frame when pausing or reaching playback boundaries after delayed animation frames.
+- Share pending media reads and cancel revoked reads before they can create stale preview URLs.
+- Cancel queued decoder prewarming on teardown and release frames that arrive from an earlier preview session.
+- Release pending media sources when closing the preview, including file reads that finish after teardown.
+- Isolate proxy subscribers so cancellation, retry, and source relinking cannot return an older encode or cancel another caller.
+- Refresh preview frames when a source or proxy changes, cancel obsolete source reads, and replace failed decoder workers. Reuse unchanged source bytes while prewarming successive frames.
+- Preserve nested clip audio ownership through unlinking, movement, deletion, and dissolution. Upgrade existing projects without changing their current sound ownership.
+- Keep trailing silence in audio exports so the output spans the complete selected range.
+- Retain active animated-image frames during cache eviction so transitions and later exports cannot use closed bitmaps.
+- Serialize overlapping frame renders and coalesce nested-preview requests to the latest frame. Refresh paused source timing edits and recover the latest preview after an obsolete source fails.
+- Keep ordinary and nested audio preview connections alive through playback and volume edits, without recreating browser media sources.
+- Preserve audio-effect connections when setting up the rack or changing EQ filters, apply effects in nested previews, and reuse audio-processing workers when only gain changes.
+- Preserve every filtered sample across noise-reduction chunks, stop cancelled processing between chunks, and recover pending previews after worker failure or disposal.
+- Apply noise reduction consistently to nested clips, composition overrides, and reverse shuttle playback, cancelling obsolete filtering work.
+- Follow nested speed ramps and shuttle rates in preview audio. Preserve continuous processed playback across rate changes and update reversal direction even when the source position stays near the same point.
+- Follow authored speed ramps during reverse shuttle, replace queued audio after direction changes, and recover at the current source position after scheduling delays. Play short source-boundary tails instead of dropping them.
+- Keep authored-reverse audio synchronized during faster forward shuttle without repeatedly restarting its native source.
+- Move playing audio onto its destination mixer track immediately, including authored-reverse and reverse-shuttle playback. Reuse prepared direct and nested audio when only the track changes.
+- Keep reversed audio within the authored trim and preserve silence outside the file. Reuse covering reversed samples across trim edits, copy only the selected window, and cap the reversed sample cache at 32 MiB.
+- Bound retained decoded preview audio to 64 MiB while sharing pending decodes and cached reversed windows. Oversized active audio is released when its callers finish.
+- Stop queued exports from starting after the render runner shuts down, including jobs waiting on an active render to cancel.
+- Handle late loading failures after cancellation, including work cancelled before the caller starts waiting.
+- Video transitions and image or video color scopes fall back to CPU rendering when a graphics driver exposes WebGPU but cannot upload canvas images. Transitions also verify rendered pixels before enabling acceleration and recover from a lost GPU device, preventing blank output.
+- Grid scopes keep drawing when graphics acceleration starts or falls back to CPU, including when the first image sample arrives after initialization.
+- Disposed effect renderers release their native graphics contexts so repeated editing sessions cannot exhaust the browser's context limit and interrupt an active preview.
+- Keep Image Editor chat drafts and history when closing the assistant or resizing the window.
+- Keep chat shortcuts from changing canvas layers, and close nested menus before chat with Escape.
+- Avoid sending assistant requests while confirming composed text.
+- Ignore replies from a previous project, and keep the composer available while assistant preferences refresh.
+- Make Image Editor curve controls readable with full channel names and editing instructions. Compact curve controls now expose full names to assistive technology, and selected labels use the theme's readable text color.
+- Preserve minimum control widths in the Image Editor inspector, including touch targets.
+- Changing a color adjustment while viewing Before now shows the edited result immediately, preserving the normal undo history.
+- Page-wide Before and After comparisons keep the artwork visible and reuse loaded media instead of briefly clearing the canvas.
+- Cancel layer renaming with Escape without saving the discarded name. Keep focus on the next control when a layer or page rename saves on blur.
+- Keep layer names readable on phones and touch screens by placing reorder controls in the Layers header.
+- Move layers past sibling groups in one step, without counting their children as neighboring layers.
+- Preserve stacking when grouping or ungrouping layers, including selections across groups. Keep children inside their surviving ancestor when ungrouping nested selections.
+- Keep Image Editor text color and alignment beside font and size controls, including on phones.
+- Keep Fit to canvas accurate when the window changes size during text editing.
+- Replace the previous layer targets when drawing a new pixel selection.
+- Undo in-progress image and page color adjustments without removing earlier edits or losing redo.
+- Cancel pending image and custom-font downloads when an export is cancelled or a render is replaced. Ignore late media responses after closing the editor instead of reporting missing files.
+- Keep unused translations out of startup JavaScript by passing only the shared controls' seven localized messages to their provider.
+- Update the server and CLI to Go 1.26.9 and the server's HTTP networking dependency to include the October security fixes. Production image builds and hosted database checks use digest-pinned Docker Official Images from their public ECR mirror to avoid Docker Hub's anonymous pull quota.
+
+### Marketing
+
+- Continue formatted posts, previews and thread parts into an editable OpenPost draft. Selected local files upload after sign-in; failed uploads can resume. Publishing remains a separate action.
+- Clarify the free-tools directory and thread splitter, improve the ZimaOS setup snippet, and recover known documentation URLs missing the `/docs` prefix. Keep Markdown copies available to readers and agents while excluding them from search results.
+
+### Improvements
+
+- Extract shared Svelte controls, themes, icons and styles into a portable `@openpost/ui` package. OpenPost and marketing share its implementation; docs use its palette tokens and mobile derives native theme manifests from its catalogue.
+- Keep YouTube Localizer as a standalone repository and migrate its interface to Svelte with the fixed orange Dither theme.
+
+### Added
+
+- Add YouTube Localizer and X Timeline Blocker to the free-tools directory, with extension pages, installation links and screenshot previews.
+- Edit signed-in Image Editor designs through the in-app assistant. Hosted access requires an active paid plan; configured self-hosted assistants retain their existing access.
+
+### Improved
+
+- Image Editor color tools now open directly from Adjustments, Curves, Color Wheels, and Scopes. Before and After remain available while scrolling through controls.
+- Color editing remembers the selected tool, layer or page scope, and curve channel when moving between editing workspaces or screen sizes. Short landscape screens place color controls beside the canvas.
+- Only the visible color panel runs its scopes. Resizing keeps the selected scope layout and Before/After comparison without duplicate graphics work in a hidden panel.
+- Recalculate nested group bounds in one children-first pass instead of repeatedly scanning every layer.
+
+### Maintenance
+
+- Browser component tests now use full Chromium by default, matching application browser tests. Mobile upload tests share one filesystem fixture so their results do not depend on test discovery order. The reverse-audio continuity fixture now uses its recording's actual nine-second duration.
+
+## [7.14.4] - 2026-10-07
+
+### Documentation
+
+- Give README demos shorter drag sequences, readable pauses and unobstructed captions. Move the smaller editor demos beside their feature descriptions, recreate the RISC-V thumbnail with drag controls, and show a fuller video edit with title entrance and exit animations, music, a transition, effects, and color adjustments.
+- Show publishing, thumbnail design, and video editing in three small, reproducible README demos, with stills for reduced motion.
+
+### Fixed
+
+- Keep the Video Editor playhead out of the fixed track labels when scrolling the timeline horizontally.
+- Keep Video Editor track labels beneath the pinned time ruler when scrolling vertically, including its keyboard focus outline.
+- Native mobile previews authenticate protected images against the selected OpenPost server.
+- Mobile post destinations use compact rows, platform logos, and correct account labels. Android destination drawers keep their header and choices visible.
+- The README mobile gallery shows Drafts, Post, Calendar, and Analytics in one transparent row.
+- Wait for accounts and publishing capabilities before creating a poll, so opening the composer on a slow connection preserves each account's native poll choice.
+
+### Added
+
+- Native mobile analytics now includes impressions, reach, follower and engagement trends, and more post performance results.
+
+### Security
+
+- Update shell-quote to 1.11.0 and Sharp to 0.35.5 to include their upstream security fixes.
+
+## [7.13.3] - 2026-10-06
+
+### Fixed
+
+- Request YouTube's comment permission during connection and show the missing permission for older connections. Reconnect existing YouTube accounts to enable comments, replies, and moderation.
+- Align native Expo SDK patch versions, keep one copy of each native module, and preserve the iOS compiler workaround.
+- Keep startup buttons consistent with Workshop's flat recovery controls in both schemes.
+
+### Changed
+
+- Mobile post lists and capture panels use tighter spacing and lighter post titles.
+- Workshop recovery buttons use flat focal actions, matching the default Dither theme.
+- The README includes labelled iOS phone mockups, regenerated by the weekly screenshot refresh workflow.
+
+### Security
+
+- Update postcss-selector-parser and source-map-js to patched releases, and constrain optional Vue resolution to a patched version.
+- Document audit exceptions for unpatched native installer tooling and the incompatible legacy n8n development parser. These tools are excluded from OpenPost distributions.
+- Require external apps to hold grants for every existing destination before editing a post or its variants, including idempotent requests. Credit: Santosh Kumar Puppala.
+
+## [7.13.0] - 2026-10-05
+
+### Changed
+
+- Account previews start directly below the tabs. A linked/unlinked control, Preview, and More share the tab row; text status labels are removed and resetting to shared text lives in More.
+- Unlink account text and media from shared content with one click, show its linked state, and restore shared inheritance without changing poll or link settings.
+- Mobile Drafts, Calendar, Queue, Video, and the composer put content first with compact headers and shared dither styling.
+- Native tabs and draft generation follow the workspace icon pack.
+
+### Fixed
+
+- Keep the selected account tab visible when preview actions appear, and stay on that account when resetting its text.
+- Restore shared text from the account menu for joined video posts, while keeping caption-only resets separate.
+- iOS display text remains readable at enlarged Dynamic Type sizes.
+- Calendar rows show the post body when no title is authored, and composer attachments display their remote previews.
+
+### Added
+
+- Native Analytics with account filters, stored measurements, daily views, and destination results.
+
+## [7.12.1] - 2026-10-05
+
+### Fixed
+
+- Generate Publication Builder drafts and review replacements within the selected destination's text and segment limits, repair invalid output once, and allow enough response space for complete reviews.
+- Keep long diagnostic stack traces within Discord's field limit so accepted reports reach the maintainer channel.
+- Report notification email failures as worker failures instead of failed social posts.
+- Disable external diagnostics and product telemetry in application browser test servers, including when the parent environment enables reporting.
+- Link cards follow each account's post URL while preserving custom URLs and older saved overrides. LinkedIn article metadata appears inside its card.
+- Media previews follow the selected feed, carousel, multi-image, Story, Reel and video format, account covers, cover frames and image focal points. Joined previews keep delivery order without duplicate attachments.
+- Video Editor disconnects a revoked local folder immediately and offers reconnect even when browser storage is unavailable.
+
+### Improved
+
+- Include known error types, HTTP methods, and bounded browser app stack locations in maintainer diagnostics without sending error messages, concrete project routes, or private content.
+
+### Changed
+
+- Account tabs now open an editable social preview with inline poll and link controls. All keeps the shared composer, and Full preview opens the platform page.
+- Composer account controls share one compact row, with status, reset, Full preview and More.
+
+## [7.11.3] - 2026-10-05
+
+### Fixed
+
+- Preserve locked outcomes, audiences and angles in AI post builds. OpenPost keeps authored choices and asks the model to generate only unlocked fields, including when a saved choice spans multiple lines. Constrain destination choices and claim references to selected accounts and supplied sources. Oversized direction inputs fail before making an AI request.
+
+## [7.11.1] - 2026-10-05
+
+### Fixed
+
+- Collect every available conversation page on Threads and follow Facebook and Instagram comment and reply pages. Busy conversations no longer omit replies after the first page, and later-page failures retain their recovery status.
+
+## [7.11.0] - 2026-10-04
+
+### Documentation
+
+- Browse visual guides and comparisons for publishing, image and video tools, with sourced product logos, free editor costs, and reasons to choose each alternative.
+
+### Fixed
+
+- Show provider reply dates instead of collection times when Meta returns timestamps with compact UTC offsets. Refreshing replies also restores dates on previously collected items.
+
+## [7.10.4] - 2026-10-04
+
+### Documentation
+
+- Add sourced OpenPost comparisons with Buffer and Postiz, including costs, limits, self-hosting responsibilities, and reasons to choose either product. Share guide rendering and derive OpenPost pricing from the plan catalogue.
+
+### Fixed
+
+- Fix Grok MCP connection setup when its authorization request includes both MCP and REST scopes. Consent now shows and grants the MCP permissions through the MCP authorization flow.
+- Report unavailable Bluesky posts in the Inbox collection state and back off instead of retrying them as hourly failures or showing a successful empty read.
+- Deliver accepted diagnostics reports to the configured Discord webhook instead of losing its URL during initialization.
+- Point assistant, automation, and self-hosting cross-links at their exact destination titles.
+- Allow public client logos and share images through the agent-readable documentation checks.
+- Fixed turning imported posts on for Bluesky and Mastodon accounts on PostgreSQL deployments, including turning imports back on after disabling them.
+- Back off reply collection when Meta no longer exposes a post, preserving the provider error without treating missing visibility as a generic hourly failure.
+- Retain unfinished import pages, count and persist provider requests before reads, exclude posts published through OpenPost, and stop in-flight imports after disabling or reactivating them.
+- Show the server's reason when an import setting fails, allow turning imports off after read access is lost, and keep workspace viewers from changing the setting.
+- Opened notifications leave the default unread inbox. Read history remains available, and failed read updates keep the notification available to retry.
+- Keep large media downloads streaming beyond the storage operation timeout, while retaining caller cancellation and connection timeouts.
+- Request Threads reply-reading access when connecting an account, and detect older connections that need to reconnect before collecting replies.
+
+### Changed
+
+- Keep composer polls compact, edit shared content in a focused dialog, and customize each account in its own tab. Unsupported accounts require an explicit text version or post without the poll. Text versions preserve the question and answers in their original language and clearly show that voting buttons are absent.
+- Give every Workflows, Automate, and Image Editor guide its own icon and a consistent action-led title and description.
+- Fold the scheduling guide into publishing and the Docker-run page into self-hosting setup, with redirects from the old addresses.
+
+### Added
+
+- Restore one setup page per AI assistant with its logo: ChatGPT, Claude web, Claude Desktop, Grok, Perplexity, Codex, Claude Code, Cursor, VS Code, GitHub Copilot, Gemini CLI, Devin, Antigravity, OpenCode, OpenClaw, and Hermes Agent.
+- Add share images and link previews to the Quick Cut, Video Editor, and Image Editor start pages.
+- Import new posts into a read-only account library for Threads, Instagram, Facebook, Pinterest, YouTube, eligible TikTok and LinkedIn accounts, Pixelfed, PeerTube, Lemmy, PieFed and Google Business Profile. Show missing read permissions and instance restrictions. X imports remain disabled.
+- Open unread notifications from the bell in a compact panel, with a visible unread count on desktop and phones, mark-as-read controls, and access to the full history.
+
+## [7.8.8] - 2026-10-03
+
+### Fixed
+
+- Theme thumbnails keep their button colors together when switching between light and dark mode, avoiding a brief low-contrast texture.
+- Keep Undo responsive after pressing an arrow key at an Image Editor mask limit, without losing fractional authored values.
+- Allow npm registry propagation to finish before marking an accepted SDK or CLI publication as failed, while preserving integrity checks and publishing each version only once.
+- Point the npm CLI wrapper at the v7.8.8 release binaries and keep its package version in sync.
+
+## [7.8.7] - 2026-10-03
+
+### Fixed
+
+- Messaging sync and sending use the saved account feature preference without requiring the obsolete capability-state opt-in flag. Enabled accounts can collect messages again; disabled choices, missing permissions and provider limits remain enforced (#311).
+- Meta reply collection now recognizes Graph permission, expired-token and rate-limit errors, including errors returned inside HTTP 200 responses. Permission failures offer reconnect guidance instead of a generic automatic retry. Collection failures record safe provider codes and diagnostics in worker logs without response text or credentials. A completed collection job means its outcome and next collection time were saved, not that the provider read succeeded. Successful reads still clear only the recovered post's error.
+- Keep Markdown redirects working when the combined public site has more than 100 rules.
+- MCP results include their structured payload as JSON text so text-only clients can read IDs, schemas, and file metadata. Private upload credentials stay in `_meta`.
+- MCP URL uploads use the configured media pipeline, including processing and public URL verification.
+- Failed public media URL checks can recover after one minute during explicit validation, while preserving failure details between checks.
+- Balanced dithered button texture across the app, marketing, documentation, and README. Pale buttons now show the pattern, darker buttons keep a restrained tint, and hover or focus changes density without increasing color contrast. Kept labels readable over both colors and darkened the Discord README button for white text. Custom Dither themes must meet the same texture contrast range on import, save, and publication. Older palettes remain editable.
+- Restored solid gradient endpoints with dithering between them. README buttons fade from a darker top to a lighter bottom; all shared button renderers retain their endpoints during hover and press.
+- Restored local iOS builds on Swift 6.2 by updating the Expo compatibility patches to the installed module versions.
+- Fixed the native gesture root so swipe controls can open without crashing.
+- Video Editor favourite hearts appear on the hovered or keyboard-focused library item. Text and effect cards fill their grid cells so hearts stay inside each card. Touch devices retain visible favourite buttons.
+- Thread post actions stay visible when keyboard focus moves back to an earlier post. Adding media remains reachable by keyboard and after selecting a post with a pointer or touch.
+- The schedule dialog now groups the selected day, publish time, and existing posts in one panel. Past days show history without a stale time or confirmation, and saved time slots stay available from a compact picker.
+- Workspace media opens in Quick Cut and Video Editor with its saved original filename instead of an opaque media ID (F007).
+- The Video project start page shows bundle import and its local-folder prerequisite before a folder is connected (L003).
+- Track grouping explains when merging replaces existing group names, and disables grouping that would recreate the same group (TGE001).
+- Audio clips now choose Volume for the timeline's default Add key and auto-key controls. Changing clips keeps a supported property or selects a valid default, so new audio keys remain visible in the dope sheet and inspector. The timeline toolbar and keyboard Add key commands reject properties absent from the selected clip's catalog. (AKG001)
+- Analytics metric choices wrap when their labels need more space and retain full touch targets on small screens.
+- Keep the audio EQ panel open and keyboard controls reachable after preset and band edits (A001).
+- Beat detection distinguishes clips with no detected beats from beats already marked on the timeline.
+- Label the Video Editor EQ graph as gain in dB and align Flat, band handles and the filter-response curve with zero. Keep the gain and frequency axes readable at narrow widths. Audio processing, presets and authored gain limits are unchanged. (A003)
+- Reset the Video Editor's Add audio effect picker after each choice so the same effect can be added again after Remove or Undo without selecting the placeholder first. (A004)
+- Video Editor keeps animation application mode, duration, intensity, and stagger settings when switching inspector tabs. These choices last for the open project session without changing the project or its Undo history (AC001).
+- API reference property link buttons now announce the property they copy, so keyboard and screen reader users can identify them.
+- Keep the accepted audio effect value when an empty numeric edit is left. Clearing Chorus rate no longer silently saves its factory default; Reset still restores defaults. (ACF001)
+- Setting audio ducking to 0 dB turns it off instead of leaving the previous amount active. Undo restores the prior settings.
+- Match audio inspector fade controls to the selected clips' timeline duration instead of capping them at five seconds (AFR001).
+- Keep video, overlays, and adjustment layers visible when an audio track is soloed, preventing black video exports. Solo continues to isolate audio (AM001).
+- Audio mixer faders announce vertical orientation and decibel values. Arrow keys adjust volume consistently, and Home/End select the minimum/maximum.
+- Long account menus stay inside the screen and scroll to every choice, including All accounts, after an account is selected (ANF001).
+- The audio rack labels removal of the whole rack Clear effects. Individual Reset controls keep the effect and its enabled state while restoring default parameters. Both actions remain undoable (ARR001).
+- Audio effect handles support pointer dragging and keyboard ordering. Moves preview locally until drop, Escape cancels, and a completed move creates one undo step (AGR001).
+- Audio rack keyboard moves keep focus on the same effect. At either end, focus moves to its enabled ordering control. A later focus change or a different selected clip is respected (ARF001).
+- Editing a transcript word preserves the caption's authored line breaks and spacing. Word timing changes leave the caption text unchanged. (CA001)
+- Caption timing edits reject times outside their clip or before their start, restore the accepted field value, and explain the valid range (CTE001, CA002). Valid retiming still preserves word identity, supports one-frame cues, and uses the correct frame range for generated and imported captions.
+- Delete and Backspace on protected color-curve endpoints no longer delete selected video clips or image layers. Interior curve points remain removable with either key.
+- Empty YouTube settings now explain how to attach a video through shared or customized content before entering its title and video options. Resolved account settings and existing editing choices remain authoritative.
+- Disabled engagement collection now offers account settings recovery instead of promising an automatic retry or offering Refresh. Enabled accounts retain retry recovery.
+- Editor shortcuts preserve native disclosure and button activation, including Quick Cut transcript words, instead of starting playback or timeline commands. SVG slider targets retain their local keys. Project undo, redo, save and export remain available from focused controls. Audit QC001.
+- Video project search now explains when no projects match and offers Clear search with keyboard focus recovery. An empty search result no longer claims the workspace has no saved projects. (ELD001)
+- Quick Cut’s compact Export button keeps its accessible name when the visible label is hidden on phones.
+- Image Editor More actions group commands into File, Edit, Layer, Select, Tools, View and Help. Categories open in the same menu, with Back restoring keyboard focus. The project title, version history and panel shortcuts remain directly reachable (ER002).
+- Undo also closes the Image menu when it consumes the last history entry.
+- Escape cancels a shortcut change before closing Editor settings. A second Escape outside capture still closes settings.
+- Open Video Editor export settings from the export shortcut and More menu, preserving format, range, resolution and render controls before starting an export.
+- Opening a saved recording explicitly shows its recorded timeline in Edit, even when Motion was remembered. Ordinary project opens still retain the chosen editor view. (F008)
+- Recorder shows Saving during normal and recovery handoffs. Download, removal and new recording actions appear after the handoff settles, with the storage failure shown when recovery is needed. Scratch recordings remain recoverable until saving succeeds. (F009)
+- Brand font uploads identify unreadable files and explain the supported formats. The file chooser resets after each selection so the same file can be retried after correcting the form (FUP001).
+- Keep custom Gradient Map stop numbers visible in narrow Video Editor property panels.
+- Image Editor canvas typing continues from inspector text changes without restoring old contents. Active text selections stay within the updated text, including Unicode characters.
+- Image Editor text selections now explain that font family and size affect the whole text layer. Both controls expose that guidance to screen readers. Collapsing the inspector text selection clears its range indicator and returns style edits to the whole layer.
+- Compare Image Editor checkpoints using the same document defaults as the editor, so omitted saved defaults do not appear as new layer or page edits (ICD001).
+- Let editors remove a named Image Editor checkpoint from version history, with confirmation and preserved current designs, other versions and their media references (ICM001).
+- Preserve the pending local title with Image Editor conflict recovery copies, alongside their local page content (ICN001).
+- Preserve Arabic joining, bidirectional text, emoji, and grapheme styles in curved Image Editor text. Preview and export use the same shaped text path and asset-specific project font, while text stays editable (ICU001).
+- Flat Image Editor text retains explicit line breaks when changing fonts or other text properties, matching its saved and exported layout.
+- Scale text glyphs with nested Image Editor groups and mixed selections, preserving their proportions through Undo, reload and export (IGS001).
+- Image Editor guide positions show the selected page axis’s valid range. Empty and out-of-range values stay available for correction and cannot add a guide; valid fractional positions are preserved (IGV001).
+- Image Editor ruler drags add guides while Select is active, without starting object selection (IGV002).
+- The Zoom tool enlarges the view around a canvas click. Alt-click reduces it, with the same zoom limits as the existing controls. Zoom remains view state and creates no document history entry (IGV003).
+- Saved workspace Image Editor templates appear on the ordinary start page. Their creation action explicitly saves a new design to OpenPost, while local storage remains available for blank designs and public starters (IHT001).
+- Disable locked Image Editor text and shape properties and reject authored edits on locked layers or children of locked groups, while preserving layer management and Undo (F006, IMG-001).
+- Image Editor rounded-mask keyboard steps stay within the displayed whole-pixel limit. Mask edits respect the geometric radius limit without rounding valid authored fractions, preserving Undo and saved values (IMR001).
+- Invalid or missing 3D LUT data now leaves source pixels unchanged in preview and export, instead of applying a quantized fallback cube. Valid LUTs and zero-intensity grading retain their existing behavior.
+- Magic eraser removes only the selected contiguous paint region, including resized layers. Erase masks now use the saved paint source dimensions and exclude Fabric padding.
+- Image selection toolbars use the available canvas width and wrap controls, keeping Cancel, Delete selected pixels, and Deselect visible without hidden horizontal scrolling. Toolbar buttons have 44px touch targets. Enter and Space activate the focused toolbar action instead of committing the pending selection first or starting canvas pan mode. Delete uses the themed destructive control. (IP002)
+- Keep Image Editor page thumbnail drags in page reordering instead of importing the preview as an image layer (IPP001).
+- Floating pixel-selection resize handles now keep the opposite corner fixed and follow the pointer. The viewport no longer starts a second selection-move gesture when a canvas control receives the drag. (IPR001)
+- Paint pixels now follow the resized selection bounds instead of retaining their original render size, and solid fills stay seamless during fractional resizing.
+- Inbox platform filters announce the selected platform to assistive technology instead of continuing to announce All platforms.
+- Locked Image Editor groups now protect descendant deletion, grouping, ordering, keyboard movement, pixel edits, color gestures and batch property changes. Layer controls reflect inherited locks, and unlocking retains normal Undo and Redo behavior. (IT001)
+- Cloud Image Editor designs can be restored from Trash on the ordinary start page. Recovery preserves the saved design and its history as an independent design, without replacing the active edit opened through Media (ITRASH001).
+- Keyframe segment easing controls accept pointer clicks without starting timeline selection or clearing selected keys.
+- Adding generated voice linked to a text clip now selects both clips when linked selection is enabled, so an immediate keyboard nudge keeps them aligned. Disabled linked selection and unlinked audio retain individual selection (LC001).
+- Keep imported Image Editor fonts distinct when projects share the same family, weight and style, using asset identity for preview, export and reopening (LFI001).
+- Import valid fonts from portable local Image Editor projects through font validation and storage, restore their saved faces on reopen, and preserve font validation when moving the project to OpenPost (LFI001).
+- Logo icon variants with matching display names use their distinct Lucide names in accessible labels and hover hints.
+- Logo Maker keeps keyboard focus on PNG export and copy buttons while encoding, and ignores repeated requests until encoding finishes.
+- Preserve Japanese, Arabic and emoji captions in meme preview and exported images with shaped text and bundled font fallbacks (M001).
+- Meme preview errors now state the existing image limits and explain how to recover by resizing or choosing a smaller image. Invalid images remain rejected separately from oversized images.
+- Render previews for edited meme copies without sending export-only metadata to the preview endpoint (M003, MA001).
+- Meme exports saved to Media use the authored design name, matching browser downloads and filename search. API callers may supply a validated output filename; omitted names retain the existing template-based default.
+- Dissolving a compound clip retains its published instance overrides in the independent layers, including edited title text (MD001).
+- Device uploads selected in the media picker now show the same Add media and Cancel actions as Library, so attaching a file does not require switching sources (MDU001).
+- Media filters keep reversed dimension and date ranges available for correction, explain the conflicting bounds, and prevent applying them. A maximum dimension of 0 still means no maximum.
+- Audio mixer Master labels, lock icons and active controls use the editor theme colors so their state stays readable in both schemes.
+- Media summaries distinguish the matching asset count from total workspace storage, including when one asset matches a filter.
+- Give published Motion text override fields their property names for screen readers and keyboard navigation (MN001).
+- Controller size changes scale parented text visually while preserving its local font, line wrapping, and text styles in preview and export. Audit MSC001.
+- Motion Solid and Gradient create editable vector layers that render without a media source. Audit MOT-001.
+- Existing Motion Solid and Gradient layers recover their authored vector fills when opening older projects. Local projects keep a pre-upgrade backup; Cloud projects save the upgrade through normal sync and retain the edit if offline or conflicted. Missing-source media clips remain unchanged. Audit MOT-001.
+- Motion layers protected by a track or group lock can no longer acquire or remove a transform parent. Unlocked children remain editable when only their controller is locked (MOTL001).
+- Locked layer and controller transform fields, resets, flips, aspect ratio and blend controls now show their disabled state instead of accepting input that cannot be saved. Inspector disclosures remain available (MLC001).
+- Creating a Motion clip preserves a title's transparent canvas over underlying layers. Transparent frame backgrounds clear previous pixels so moving titles leave no trails. Existing saved composition backgrounds remain unchanged. Audit VG-002.
+- Video upload preparation now shows the accepted trim value when a number edit is committed. Out-of-range entries no longer remain beside a different preview range, while typing decimals and valid fractional positions remains supported.
+- Video upload preparation labels the selected trim range and current source position separately, so the playback time no longer looks like the selected duration.
+- Trimming a compound clip preserves its surviving source frames instead of restarting the composition at the new start. Compound trim extensions also respect the source window (MT001).
+- Media deletion confirmations now explain the recoverable move to Trash rather than claiming immediate permanent deletion, including batch selections (MTR001).
+- Media deletion confirmations stay above the inspector and accept pointer actions. Cancel returns to the inspector; a successful move to Trash closes its stale details and returns focus to the library (MTR002).
+- Ordinary Media duplicates now show Copies provenance for images, videos and audio, preserving the original media reference instead of claiming an Image Editor edit (MTR003).
+- Media image uploads now require valid decoded pixels before becoming ready or being reused. Corrupt images show an upload error and cannot become editable library assets; image decoding is bounded to 64 million pixels (MUV001).
+- Supported AVIF, BMP, TIFF and ICO uploads remain accepted after pixel validation. ICO images now retain decoded dimensions and thumbnails.
+- Calendar explains when selected filters leave no matching posts in Month and Week views, with a Clear filters action that keeps the selected dates and view.
+- Image palette selections identify their source instead of retaining the previous pixel label and marker. Sampling an image pixel restores its coordinates; screen colors use their own source label.
+- Image comparison sliders now announce the visible original and result percentages correctly to screen readers.
+- Image Editor, Video Editor and Quick Cut describe browser downloads as started rather than completed. Video frame capture still reports verified project media storage separately, and Quick Cut keeps its confirmed folder-save feedback.
+- Image Converter and Logo Maker announce that a download has started rather than claiming the browser has saved the file.
+- The posting planner explains empty, fractional and out-of-range post counts. Invalid counts disable CSV actions until a whole number from 1 to 14 restores the schedule.
+- Escape closes mobile marketing navigation and the documentation sidebar, returning keyboard focus to the opening control.
+- Public post previews reject damaged local images with recovery guidance and preserve the current media. Later selections and preview-format changes cancel stale image checks.
+- Keep Publications, Inbox, Analytics and Media visible in desktop navigation. Name the editor creation dropdown Editors.
+- Keep the desktop planner scrollable on short windows so Drafts remains reachable while navigation stays visible.
+- The handle checker guide explains automatic format detection instead of asking you to use a nonexistent platform selector.
+- Empty local images now ask for a fresh export or another file. The smaller-file guidance remains for uploads that exceed the size limit.
+- Explicit Light and Dark appearance choices now control social post cards and full-page previews independently of the surrounding theme in production builds.
+- Pixel Sort explains when reversed thresholds match no pixels. ASCII explains when a custom character set has no visible characters. The guidance follows the values at the playhead and describes the relevant controls, while keeping intentional values, keyframes and Undo intact. (PXS001, ASC001)
+- Quick Cut explains when transcription finishes without speech and keeps that result visible when the saved transcript is reopened. Language and source audio can be changed before retrying. (QC003)
+- Quick Cut explains why transcription is disabled when source audio is deselected and points to the audio track controls needed to enable it again. (QC004)
+- Quick Cut keeps the saved transcript’s audio track while it remains enabled, so retaining another audio track no longer hides cached words or redirects transcription (QCM001). Turning off that track still selects another enabled track without deleting the cached transcript.
+- Reordered Quick Cut previews play the final short part instead of stopping at its start. Segment-end checks wait for the next source seek and playback to settle, while cancelled previews remain fenced. (QCR001)
+- Quick Cut says “Remove word” when one transcript word is selected and keeps the counted plural for other selections (QCS001).
+- Quick Cut explains how to restore removed transcript words after reopening a saved project. The Transcript panel shows their source times and opens the kept-range editor, so phrases can be recovered without Undo or resetting earlier cuts (QSP001).
+- Quick Cut Back returns to the project library without reopening the project from its old URL. Failed saves keep the project open and show an error when Back cannot complete. Audit QCB001.
+- Quick Cut estimates export storage from the output and temporary working files instead of requiring an extra 50 MB for every export. Small exports can proceed when they fit, while exports exceeding the remaining browser quota stay blocked. Audit F005.
+- Quick Cut keeps keyboard focus on the moved part when a boundary reorder disables its button. Removing a part focuses a surviving neighbor, or the empty list after the last removal. Audit QKF001.
+- Quick Cut opens Transcript safely for video-only sources and explains why transcription and Cleanup are unavailable without audio. Audit F003 and F004.
+- Quick Cut cleanup now analyzes explicitly selected audio streams instead of failing to clone their reactive selection into a worker. Multiple selected streams still protect audible material in any retained stream. Failed dispatch also releases the worker (QMC001).
+- The speed ramp explains when Add point reaches an existing point and tells you to move the playhead. The rejected action does not create a history entry or dirty the project. (R001)
+- Speed ramp points can be moved by dragging, arrow keys or source-frame fields. Points stay within the source and cannot cross their neighbors. Drag previews stay local until drop, and Escape cancels without changing history. Linked media, timing and keyframes update together through the existing speed action. (R002)
+- Audio-only exports show only relevant settings. Video quality, resolution, subtitles and sequence pixel dimensions return when switching back to a video format. (R003)
+- Active Video Editor exports show their render progress without the conflicting Ready to render summary. Cancelling restores the idle export checks. (R004)
+- Reopening Video Editor export for the same project preserves the chosen resolution alongside quality, so Draft preview stays at 854 × 480. New projects and sequence changes retain their sequence-size default. (R005)
+- Export resolution distinguishes the selected sequence size from fixed dimensions, including when both are currently 1920 × 1080. The choices keep their existing output behavior. (R006)
+- Editor panel resize handles stay below popovers, so pointer clicks on timeline marker Clear reach the visible button. Uncovered handles retain pointer and keyboard resizing (RMQ001).
+- Incomplete invitation and device authorization links explain how to get a new link and offer a return to OpenPost. Invalid previews offer an Open composer action.
+- Incomplete ownership-transfer links keep their explanation and offer a return to OpenPost instead of retrying a missing ID. Transfer links with an ID retain retry recovery.
+- Email verification shows incomplete-link recovery guidance once, without repeating the same paragraph above its alert.
+- Checkout stops showing opening progress when Paddle confirms the payment window has loaded. Payment confirmation and retry states remain separate.
+- Adding a weekly posting time that already exists for every selected day now explains that nothing was added. Adding missing weekdays still reports success.
+- Developer access now shows authorized workspace names beside API tokens and recent MCP activity. Unknown workspace identities remain visible as IDs, and unrestricted tokens remain labeled All workspaces.
+- Instance AI prompts now use the same platform names as social accounts, including Pixelfed, PeerTube, Lemmy, and PieFed, in navigation and selected prompt details.
+- Organizations without SSO domains or identity events load their settings correctly. Empty lists return arrays, and failed initial reads show recovery without claiming the configuration is empty.
+- Composer time choices now follow the saved interval across hour boundaries, including ninety-minute intervals, instead of restarting at each hour.
+- Scheduling settings explain inverted composer time ranges and prevent saving them. The API also rejects ranges whose end precedes their start, including updates to only one bound.
+- Source position and in/out sliders respond to keyboard arrows, Home and End. Source shortcuts no longer block focused controls during event capture (SKM001).
+- Opening Source on a phone reveals its monitor and moves focus into it, so users can inspect media without discovering a separate panel switch (SPN001).
+- Removing a weekly posting time now deletes all its weekdays in one transaction. Reloading during removal can no longer leave a partially deleted row. Retries safely accept already removed slots and preserve other times and workspaces.
+- Cloud Video Projects can generate, reuse and delete source transcripts without picking a local folder. Transcripts persist in browser storage scoped to the signed-in account and Workspace. Cancelled jobs and editor changes cannot redirect their saves. Local projects keep transcripts in their selected folder. (STC001)
+- Stock videos can be previewed before import (SVD001). Preview loads the provider's playable source on demand, stops when closed or the search changes, and keeps a link to the specific provider page.
+- Testing a theme from a lower catalog card now brings its dashboard sample into view on desktop as well as phones. Reduced-motion preferences remain respected.
+- Transcript cuts report the selected word count captured before the edit, instead of zero after those words disappear (CA003).
+- Cutting editable source words explains when locked captions were kept and how to update them. Locked tracks remain unchanged (CLF001).
+- Status screenshot templates show a separator only between filled stage and update fields. Blank titles, timestamps and wholly empty rows stay editable without exporting empty placeholders (TT001).
+- Preserve partial decimal and negative text in audio and other editor numeric fields, and nudge from the current value when a draft is incomplete (VC-001).
+- Preserve partial numeric text while typing in editor fields, so decimal and negative values can be entered without being replaced by a range limit (VC-001).
+- Cloud Video history lets you inspect saved titles, canvas settings, timeline changes and authored track, clip and sequence names before restoring. Comparisons use the latest saved version, leave the open edit untouched and omit device view state.
+- Cloud Video conflict history shows the authored project name, saved revision and whether an edit came from this browser or another browser or device. Full stored device IDs and read-only change details remain available; missing origins are not guessed.
+- Conflict copies retain their source media through independent project references. Shared media status updates reach each project; unfinished source uploads keep the local edit available for retry.
+- Conflict copies open immediately without retrying the old conflicting save.
+- Corner-pin rows leave room for their touch-sized inputs, preventing adjacent controls from overlapping on touch screens.
+- Locked tracks and groups protect text, caption styling and corner-pin edits, including span and text-effect actions. Their inspector edit controls stay disabled while browsing and disclosure controls remain usable. Audit F001 and CLB001.
+- Explain Source and Program shuttle scope in the Playback shortcut list, including why focused sliders, buttons and text fields keep their own keys. (VKP001)
+- Keep the selected Source destination track name visible when the track is locked. Its disabled menu entry and existing unlock guidance identify the track blocking an edit. (VLT001)
+- Paused video previews repaint when a shape mask's inversion, opacity, feather or mask type changes, including Undo and Redo.
+- Path and mask editing controls stay within the preview instead of rotating with the shape or covering the canvas tools. Secondary path actions use More, and touch controls have 44px targets.
+- Mask guidance names the Edit mask control shown in the canvas toolbar.
+- Keep saved feedback clear of editor workspace tabs at narrow widths, with touch controls remaining reachable.
+- Source marks limit playback while paused seeking remains available across the full source, allowing users to find a later out point (VS001).
+- Moving a rotated, scaled or flipped Video Editor anchor keeps the clip in place. The direct preview uses the authored pivot, matching composited frames.
+- Workflow output now marks changes to the current node configuration or captured test data while preserving its completed state, stored result, and workflow revision. Run history retains its immutable snapshot without draft warnings (W001).
+- Selecting a variable in an empty workflow JSON field now replaces its empty list or object default with a typed reference, rather than creating invalid concatenated JSON (W002).
+- Newly added workflow steps and their next-step controls stay in the canvas viewport without requiring Fit canvas.
+- An untested Wait node now points to Run preview for simulated sample output, rather than offering an individual node test that Wait does not support (W004).
+- Active workflows explain empty run history, including the wait for the first scheduled interval and background check. Draft changes do not replace the published timing shown to users.
+- Failed workflow Builder steps retain their native build identity and safe error, with authorized read-only build inspection in the run output even when AI is unavailable.
+- Workflow Builder destinations show required guidance before a live run, while ordinary draft steps keep optional destinations.
+- Cancelled workflow runs explain that child-step states show the last recorded state. Historical Waiting and Completed results remain intact instead of implying that a cancelled run is still active. (WC002)
+- Workflow run reads reconcile the selected run with its history cards. Older in-flight list or detail responses no longer replace a newer run revision, and newer server revisions remain authoritative across approval and completion transitions. (WC003)
+- Empty workflow variable searches describe variables instead of nodes.
+- Workflow Preview, Live, and node tests report malformed sample JSON in Test data before checking node variables. The sample field keeps its text and receives focus; corrected JSON can run without an empty-object fallback. Full runs still require an object, while node tests preserve valid JSON values and literal field names, including nested prototype-named data keys. (WFA-001)
+- Testing a workflow node explains invalid inputs using their visible labels and returns focus to the field that needs correction.
+- Workflow canvas positions now survive reopening in the same browser, scoped to the Workspace and workflow. The canvas distinguishes browser-saved positions from session-only positions when storage is blocked (WFG003).
+- Failed workflow HTTP JSON parsing retains the response status and bounded, redacted Content-Type for inspection, and explains how to correct the response format. Malformed response bodies are not retained in diagnostics, and failed requests are not retried automatically.
+- HTTP workflow nodes explain that Test node sends the configured request, while Preview does not.
+- Workflow node keyboard instructions describe selection, movement, and the owning step actions without advertising deletion from the canvas wrapper. Read-only results have separate inspection guidance.
+- Keyboard workflow node moves now share pointer placement history, Undo, Redo, and device-local retention without changing workflow execution order or saved revisions (WKP001).
+- Saved workflow destinations finish loading when Social Sets and capability responses arrive in either order.
+- Post-created workflow events expose the post’s creation time as `created_at` and omit `published_at` for unscheduled drafts. Source examples and the variable picker use the same fields.
+- Feed workflow sources explain malformed URLs and embedded credentials before activation, with the same warning in the field and canvas.
+- Schedule workflow sources show interval guidance once while retaining range validation.
+- List and Calendar show the same authored time for scheduled posts, including posts with randomized dispatch delays. Published posts retain their actual run time. Existing schedules and queued jobs are unchanged.
+- Empty replies explain that no text or attachments are available. Attachment-only replies and explicit deletion notices keep their existing meaning and actions.
+- Random shows the selected writing idea and example before opening the composer. Choose New post to start a draft; choosing another category or Workspace clears the selection.
+- Today reveals the current date in the Calendar agenda and resets a later empty-date choice to today. Keyboard focus stays on Today, including when the current month finishes loading.
+- Calendar's compact week agenda is labelled as weekly. Its empty-date guidance and picker name use the displayed week range, including weeks spanning two months.
+- Public profile activity keeps the recent dates visible when the page narrows. Older dates remain keyboard reachable, and deliberate scrolling is preserved across resizing.
+- Public profile headers direct signed-in viewers to their own profile settings instead of offering registration. Anonymous visitors retain the registration link.
+- Video Editor cleanup reports the number of reviewed source sections it removed, rather than counting linked clips and ripple pieces separately (CCT001). Locked sources and sections outside the selected source window do not inflate the count.
+- Draft saves keep destination segments and new first comments bound to their canonical source after server IDs are assigned, instead of rejecting the save.
+- Customized thread versions that combine into one post retain each source text and media choice after reopening, without duplicating the continuation.
+- Shared media changes also refresh combined versions while preserving their independent source attachments.
+- Reusing an image across combined source posts keeps one output attachment instead of failing the save.
+- Adding media to a later thread post no longer makes an earlier text post's native poll unavailable. Each preserved post keeps its own poll eligibility; media on the poll's own post and joined destination outputs still respect provider restrictions.
+- Post destinations retain their authored order across saves, reloads and inventory return. Existing destinations receive a stable order on upgrade. Composer tab labels include the platform to distinguish accounts with the same username.
+- Post history reports the authored fields that actually changed. Unchanged full saves no longer claim changes to destinations, media, schedules or automation, and inherited joined output does not appear as a changed custom variant.
+- Video Editor keeps the playhead and playback clock on a valid frame when cleanup, speed changes or other committed edits shorten the timeline. Undo and Redo apply the same boundary while preserving valid navigation and cancelled gestures (CPL001).
+- Preserve the control you focus while a dialog opens, so a quick keyboard confirmation cannot activate Cancel instead.
+- Focus the first control when opening a dialog from an editor menu, while preserving a control already chosen inside the dialog.
+- Documentation Ask AI links keep the `/docs` path when sharing a guide with an assistant.
+- Dropdown opening focus no longer resets a keyboard choice made while the menu is appearing.
+- Use singular wording for one affected post in Inbox collection recovery, with localized recovery guidance in every supported language.
+- Video Editor project summaries use labeled clip, media and issue counts in every language, including zero and one (F002).
+- Reduce the cookie notice footprint and add a small cookie icon, while keeping consent choices and privacy details accessible.
+- Include the shared button texture opacity in the initial light and dark theme tokens.
+- Keep spaces around the separator between a status update's stage and message in the template preview and exported image.
+- Follow the selected icon theme in the cookie preferences disclosure.
+- Font uploads show visible keyboard focus on the file selection control.
+- Image conversion thumbnail labels fit inside their artwork at desktop and phone sizes.
+- Keep marketing heading circles clear of long phrases after responsive resizing.
+- Keep image publication and promotion from failing when digest extraction closes the inspection output early.
+- Fail marketing browser CI when a test passes only after a retry, matching the application suite.
+- Grouping the same Motion layers again keeps their existing group and Undo history, without leaving an empty group.
+- Preserve Media search, filters, sort, layout, and page when returning with browser Back or Forward. Keep unfinished search text separate from submitted results, and discard saved discovery state when the signed-in person or Workspace changes.
+- Explain when Messages filters or Archived have no matches, with a Clear filters action to return to the inbox. The unfiltered setup state now links to account details. Account feature restrictions keep their existing guidance.
+- Motion explains how composition FPS changes affect frame-based duration and new instances. Existing clips keep their inserted frame rate (MT002). Saved timing and preview/export behavior are unchanged.
+- Music generation shows the selected starting point instead of always showing Cinematic pulse (MU001). The brief remains editable.
+- Unread notifications no longer appear read while the counter reports unread items. The API omits an unset read timestamp, so notification labels, filters and counts agree before and after marking read or reloading.
+- Custom writing prompts can be edited without replacing them or starting a post. Corrections retain the prompt’s identity and respect creator, Workspace role and credential permissions.
+- Returning from a published post keeps the Published list selected, including browser Back and reload. Detail-return coverage now verifies the existing tab-history repair instead of adding a second navigation fix.
+- Popovers preserve a control chosen during opening, so a saved schedule time is not replaced by the first slot.
+- Documentation copy buttons report denied clipboard access, offer the original text for manual copying, and let readers retry. Code, heading links and page Markdown show success only after a completed copy. (PostHog 01a0a965-b673-7d82-b332-5da07e8d4a7d)
+- HTTP failures report once when request logging and Echo handle the same error. Interrupted response streams retain their actual HTTP status and a separate failure diagnostic; request cancellation is distinguished from independent storage and server timeouts.
+- Keep the Publications List tab and address in agreement when switching back to Scheduled. Reload and browser history now retain the selected tab, with explicit tab links taking precedence over the remembered view.
+- Rejected Quick Cut overlapping edits and segment imports now explain how to adjust or remove an existing range before retrying. They no longer suggest normalizing a candidate that was never added. QCI001.
+- Quick Cut time fields now show the accepted range after rejected edits and Undo. Escape cancels an unfinished time edit, and invalid timecodes explain the accepted format. QCT001.
+- Keep Quick Cut source transcripts in the captured local folder or account-scoped browser cache. Cloud project saves exclude these derived words, and replacing a source invalidates its cached transcript.
+- Package validation accepts local Turbo caches while retaining the published-file allowlist.
+- Editor assistant readiness and preferences use the shared Query cache and central authenticated transport. Read failures retain their HTTP status for retry and recovery, and cancelled editor panels cannot apply a stale readiness result.
+- Dependency patch verification reports rejected artifacts directly on standard error, even when the runtime suppresses uncaught exception output.
+- Prevent dependency security checks from following linked workspaces while retaining verification of linked package installations.
+- Video Editor closes the actions menu after Undo or Redo, including when the selected command becomes disabled.
+- Keyboard navigation keeps timeline controls and their focus outline visible on narrow screens. Scrolling waits for the toolbar layout and leaves later focus alone.
+- Workflow variable pickers and schema rows distinguish literal dotted keys from nested fields. Either choice resolves its own value without crashing the picker.
+- Workflow field errors distinguish explicit null values from absent fields and explain how to correct null values. Existing null guards and literal null values remain unchanged.
+- Workflow JSON previews preserve quotes, backslashes, newlines, and Unicode in substituted values. Invalid JSON and embedded values that cannot execute no longer show a resolved JSON preview.
+- Workflow run history keeps each saved graph intact while switching runs or returning to the list, without crashing the canvas.
+- Merge data explains list order, second-input precedence and replacement of entire nested values before execution.
+- Rejected workflow loop connections now explain how to correct the connection and never appear as accepted edges (WFG-001).
+- Workflow ports now identify their node, direction and Yes or No branch for assistive technology (WFG-004).
+- Opening a pending approval from Workflows run history loads destination accounts so the review opens and shows account names correctly.
+- Opening a workflow inspector no longer steals focus from a field after typing begins. Keyboard entry and focus return remain available.
+- Adding a workflow step keeps the new step selected and opens its fields instead of returning to the trigger.
+- Workflow input ports remain above their node cards so the visible port center accepts pointer connections.
+- Workflow post reviews show account and platform names instead of internal destination keys. Identical title and body text appears once; distinct fields remain labelled.
+- Post review conflicts now explain that the post changed, instead of asking users to save the workflow. Refresh reloads the post for review without approving it.
+- Returning from workspace run details restores keyboard focus to the run card that opened them.
+- Newly created workspaces remain in the switcher when returning to an earlier workspace. Updating the signed-in user's profile no longer marks an old workspace inventory as fresh.
+- Workflow Sort items rejects mixed text and numeric fields with guidance to use one type throughout the list. Numeric and text sorting keep their own order and preserve equal-item order.
+
+### Changed
+
+- Simplified cookie banners across the app, website, and docs with clearer copy, direct Accept and Decline actions, and cookie-free analytics under More options.
+- Split Workflows documentation into a dedicated section with focused guides and template walkthroughs. Keep external automation separate, redirect old guide URLs, and remove Workflows from the landing page Resources menu.
+- Simplified public documentation around complete tasks, merged duplicate setup pages, removed unhelpful screenshots, and kept retired links working.
+- Shortened Workflow guides and linked repost setup from run management.
+- Refreshed the native mobile app with flatter content sections, shared gradient buttons, and a month calendar with a time-ordered daily agenda. Quick capture now scrolls with drafts.
+- Posts now brings List and Calendar together with a consistent view switch. On phones, Calendar shows a compact month or week picker and the selected day's posts, including history. Filters stay behind one control, and Publication wording has been replaced with post throughout the app.
+- Redesigned social sharing images across the landing page, free tools, platform pages, and documentation with original landing artwork, larger titles, and prominent topic symbols.
+- Image Editor guidance distinguishes formatting selected characters from changing the whole layer's font family and size.
+- The Meme API filename documentation specifies `.jpg` for both `jpg` and `jpeg` output formats. Existing strict extension validation is unchanged.
+- Workflows using Post created with `source.published_at` must change that binding to `source.created_at`. Existing workflow definitions and historical run snapshots are not rewritten. Publication timestamps for feeds, releases and published variants remain unchanged.
+- Free tool thumbnails show format changes and tool-specific previews, using the marketing palette and shared icons.
+- Advance the Android app to 0.2.49 (51) and update the npm CLI wrapper to install the v7.8.7 release.
+- Release the SDK media-copy source type in version 0.3.2.
+
+### Added
+
+- MCP clients can upload local files with `upload_media_base64` when a file picker or public URL is unavailable. Files use the shared media pipeline, with an 8 MiB decoded limit and a 12 MiB request limit.
+- Edit open Image and Video projects through MCP or the built-in Assistant, with live canvas updates, source evidence, composed previews, exports and safe undo.
+- Reuse favorites and templates, save explicit editing rules and versioned styles, and control suggestions from manual library choices.
+- Added durable AI clip suggestions from recording transcripts, with up to three distinct moments, source-word timing, and cancellation and retry. Suggestions remain separate from posts until reviewed.
+- Theme testing now offers a temporary color-scheme control for paired themes. Comparing light and dark previews does not change saved appearance or theme assignments; stopping testing restores the saved appearance.
+- Free browser tools for video container and codec conversion, audio conversion, soundtrack extraction, silent videos, compression, and media file inspection. Each has a guide, searchable directory entry, and social preview.
+- Choose a source video frame, edit it in Image Editor, and return it to the original destination as a cover. Sampled frames help navigation; timestamp-only destinations keep their frame selection. Edited covers never replace the video attachment, and returns reject a post changed during editing.
+- New cover text starts with a readable light title on a dark highlight, editable with the existing text controls.
+- Review pauses, filler words and possible repeated starts through Clean up recording in Video Editor. Add captions from the review, keep individual suggestions, and apply optional noise reduction and compression with the cuts in one undoable step.
+- Find up to three clips from a Quick Cut transcript, preview the selected audio, adjust word-aligned times, and create independent editable clip projects. Reviews and completed links resume on this device; original cuts and source media stay intact.
+
+### Operators
+
+- The built-in editor Assistant uses the configured OpenRouter provider and `OPENPOST_EDITOR_AGENT_MODEL`. Hosted requires a signed-in editor on an active paid plan and records each AI call. External MCP retains ordinary workspace access. Keep the browser project open for editing and rendering.
+
+### Improved
+
+- Scheduling uses a compact calendar with post markers and a daily agenda for scheduled and published posts. Browse past dates, enter an exact time, or pick a saved time slot without scrolling through a full-height time list.
+- Filtered Video Editor Library results explain that no items match and offer Clear filters. Recipe management buttons identify their action separately from insertion.
+- Workflow history cards show Preview, Live or Test node and the recorded workflow revision before opening a run.
+
+### Security
+
+- Apply the upstream Braces nesting-limit fix to web tooling and mobile dependencies. Security audits verify the installed patch before admitting the advisory for its unchanged upstream version.
+- Update DOMPurify, Axios, devalue, and Next.js to patched compatible releases for newly reported sanitization, request handling, serialization, and image-generation vulnerabilities.
+
+## [7.6.2] - 2026-09-30
+
+### Fixed
+
+- Bluesky hashtags are detected the way Bluesky detects them: tags in any script (`#café`, `#日本語`, `#São_Paulo`) are linked whole instead of being cut at the first non-ASCII letter or skipped, a tag must follow a space, number-only tags stay plain text, and a tag longer than 64 characters is left unlinked instead of producing a facet the post record does not allow.
+- Bluesky link facets cover the whole URL: links with commas, semicolons or `!` (map coordinates, Wikipedia titles such as `Washington,_D.C.`) are no longer cut at that character, and links on top-level domains longer than six letters (`.digital`, `.network`, `.software`) are linked instead of left as plain text.
+- Bluesky direct messages no longer bring in empty messages: entries that `chat.bsky.convo.getMessages` returns for a message the account deleted for itself (`deletedMessageView`) or for a group event such as a member joining (`systemMessageView`) are skipped instead of being stored as blank inbound messages that raise the unread count and send a new-message notification.
+- Prevent an older open composer from silently overwriting a newer draft and deleting its thread replies. Saves now use the revision of the content shown in the editor, so concurrent changes open the existing conflict dialog.
+- Preserve revision-conflict details in publication API responses so the composer can offer reload, save-as-copy, and overwrite recovery.
+- Mastodon posts are measured the way Mastodon measures them: every HTTP(S) link counts as 23 characters and a remote mention such as `@alice@example.social` counts as `@alice`, in publishing validation and in the composer counter. A post with a long link no longer shows as over the 500-character limit while Mastodon would accept it.
+- TikTok file uploads larger than 64 MiB follow TikTok's chunk rules: `total_chunk_count` is `video_size / chunk_size` rounded down and the final chunk carries the trailing bytes, instead of an extra small chunk of leftover bytes that the declared count does not allow.
+
+## [7.6.1] - 2026-09-30
+
+### Security
+
+- Update locked brace-expansion build dependencies to versions that fix the reported denial-of-service flaws.
+
+### Improved
+
+- Add polls from an icon beside the composer media button, keeping the writing area clear.
+
+## [7.5.2] - 2026-09-29
+
+### Fixed
+
+- Updated the Android app's Expo dependencies to the supported SDK patch versions.
+- Prevent blank Video Editor preview frames at cuts by preparing adjacent clips before playback reaches them.
+- Resume preview audio when playback starts, preventing silent or stalled video after the browser suspends its audio context.
+- Show timeline fade handles only on selected, editable clips.
+- Place new auto-captions and imported subtitles above video, with compact caption tracks.
+- Separating or unlinking audio no longer restores a second copy of the video's sound. Linked audio from a different recording source no longer silences embedded screen audio.
+- Clip context menus stay inside narrow phone screens when opened with the keyboard.
+- Video Editor property diamonds now add or remove a keyframe at the playhead, with a filled diamond at a saved key. Moving the playhead and changing an animated property creates the next key.
+- Adding a first keyframe preserves the current value, including text size, crop, audio gain, shape paths, and effect controls. Text, shape, and background inspectors follow and edit animated values at the playhead.
+- Scale and anchor keys preserve existing clip geometry and can be copied and pasted with both axes.
+- Modal backdrops stay dark when an older custom theme contains a light scrim color.
+
+### Added
+
+- Drag Video Editor track names to reorder layers. Escape cancels the drag, and Undo restores the previous order.
+- Detach audio from a video clip's context menu, then link or unlink the clips to edit them together or separately. Detaching preserves source timing, speed, volume automation, and audio processing, with Undo.
+
+### Improved
+
+- AI text accepts general system and user messages. AI decisions use Jev with recorded probability and usage. Shared text, image caption, and meme generation defaults now use Luna 6; explicit model settings stay unchanged.
+- Organize workflow canvases, rename steps in their header, and use node context menus to add, duplicate, or delete with undo.
+- Write values and insert searchable variable chips in one field editor. Recipes add editable groups of steps for drafts, review, digests, and data preparation.
+- Workflow drafts use the composer's Social Set picker and provider settings. Each run creates posts with the selected set's current accounts and defaults.
+- Workflow scheduling preserves native validation messages and destination outcomes.
+- Workflow keyboard shortcuts support undo, redo, save, node duplication and deletion. Canvas moves and organization can be undone without interfering with text fields or nested dialogs.
+- Node names and save status stay readable on narrow screens.
+- Workflow previews stay centered as cards resize. Node categories use distinct theme colors and clearer symbols across the canvas, templates, runs, and node picker.
+- The landing-page workflow tour shows a release branching into an announcement or a short update, each with a draft and review step.
+
+### Changed
+
+- Recorder microphone audio stays with the camera, or with the screen when the camera is off. Screen-only recordings mix system sound and microphone audio. Microphone-only recordings remain audio files.
+
+## [7.4.2] - 2026-09-29
+
+### Fixed
+
+- Keep generated captions aligned in preview and export when their source clip starts later in the timeline. Trim exported captions to the retained clip.
+- Fix Motion ruler seeking and preserve authored composition duration in full and partial exports.
+- Keep transcript cuts tied to the correct source instance and retained caption range.
+- Explain silent recordings before downloading a transcription model and show the model download size before transcription starts.
+- Keep playback controls and project duration consistent with the active Motion composition.
+- Prevent accidental fades when grabbing an unselected clip near its corner. Insert new recordings above existing visuals with distinct, short track names.
+- Cameras, screen sharing, and microphone monitoring stop before the recording finishes saving. Capture duration no longer includes storage delays.
+- Saving a new recording no longer briefly displays recovery warnings. Preparing previews no longer counts as a media issue.
+- Kept Video Editor asset panels, transcript controls, timeline tracks, and the overview within the window at small sizes. Phone Assets now uses the available panel space, and long controls scroll within their own panel.
+- Prevented the audio mixer, beat controls, and marker details from pushing timeline navigation below the window.
+- Kept transcript words clickable in short panels by letting search and word actions scroll with the text when there is not enough room to pin them.
+- Kept the selected Video Editor asset panel open when choosing it again from More.
+- Kept Video Editor clips selectable on touch screens by moving track-height resizing into the track menu. The mouse resize handle stays on the track edge.
+- Preserved source timing when trimming reversed clips and speed ramps, including ramps with implicit boundary points and very slow reversed clips.
+- Modal backdrops now darken the page in dark mode instead of washing it out with white.
+
+### Changed
+
+- Read and edit video transcripts as flowing text. Click words to seek, drag or Shift-click to select, correct captions, add selected text to the timeline, or cut the matching footage with undo. Search, playback following, pause markers, and detailed caption controls stay within the same panel.
+- Simplify the Video Editor asset rail and Motion layer rows. Show placement guidance, rejected drop feedback, the active Motion composition, and skim time. Remember the selected panel, playhead, zoom, and scroll position on this device.
+- Video recording prefers native H.264 when supported and appends capture data in a storage worker, reducing encoding and disk work while preserving recovery files.
+- The Video Editor recorder separates source setup, recording controls, and saving progress, with fewer controls visible during capture.
+- Hosted registration temporarily collects emails for the launch waitlist while the remaining social platform approvals are completed. Signups need no password or verification email. Existing accounts can still sign in, and self-hosted registration is unchanged.
+- Waitlist emails are saved once and sent to the configured billing Discord channel through the job queue. Set `OPENPOST_HOSTED_WAITLIST_ENABLED=false` to reopen Hosted registration.
+- Updated the Android package to 0.2.47 (49) for the shared API and built-in theme changes in this release.
+- The landing-page tour now shows a small release-to-draft workflow. Workflows has a dedicated feature section, matching artwork, share previews, and links from the documentation home and README.
+
+### Improved
+
+- Simplified Video Editor properties with expandable crop, playback, appearance, anchor, pitch, and advanced audio controls. Modified crop, playback, and appearance settings stay marked when closed.
+- Reduced preview toolbar clutter while keeping frame capture and in/out actions in its menu. Scene detection is available from clip actions.
+- Made transcript setup start with language and Auto-captions, with model settings under Advanced and download size visible. Existing transcripts keep generation setup collapsed so the words stay in view.
+
+### Added
+
+- Canvas format presets for landscape, vertical, square, and feed videos. Applying a format preserves frame rate and clip placement and can be undone in one step.
+- Trim a selected Video Editor clip's start or end to the playhead from Properties. Linked audio and attached captions follow the trim, later clips stay in place, and Undo restores the whole edit.
+- Add media at the playhead or at the end of the sequence from its menu. The source monitor can also append a marked range.
+- Illustrated Workflows guide and examples for feed digests, AI decisions, custom API data, and scheduling after review.
+
+### Security
+
+- Updated the Undici build-tool dependency to 7.29.1 to fix GHSA-3wwx-pv8p-q78v.
+- Updated the fast-uri build-tool dependency to 3.1.7 to fix URI authority parsing vulnerabilities.
+
+## [7.3.1] - 2026-09-28
+
+### Fixes
+
+- Automatically display Arabic and Hebrew post text right to left in the composer and social previews, including mixed English words and paragraphs.
+- Show the provider, account identity, and avatar when choosing workflow destinations.
+- Preserve publishing failures through retries and keep external requests from repeating after an uncertain outcome. Cancellation fences new external effects and response snapshots redact saved credentials.
+- Retry temporary Threads carousel assembly failures and Instagram media-not-ready rejections with bounded backoff, reusing the prepared media containers.
+- Limit Meta propagation retries to confirmed readiness rejections so uncertain network or server failures cannot repeat a publish.
+- Give the JavaScript engine a separate startup budget so cold compilation does not cause valid code to time out. User code keeps its two-second execution limit.
+- Keep JSON intact when inserting variables, validate against the current source data, and accept nested field outputs. Canvas attention matches field errors, and invalid AI responses retain usage with a failed outcome.
+- Keep graph previews readable, expose undo and redo on phones, and reopen node settings on the configuration tab.
+
+### Fixed
+
+- Preserve fades, linked audio, captions, overlapping audio, imported subtitles, gaps and locked tracks through splits and transcript cuts. Prevent the production-only preview crash during timeline edits.
+- Keep the viewing position when undoing edits, support timeline Select All and cancelable marquee selection, and update paused text previews.
+- Restore cloud media playback and prepared audio/Lottie metadata when reopening projects, including multiple project assets that share uploaded media.
+- Restore Kokoro pronunciation data and compatible Parakeet model loading, and keep transcription failures visible.
+- Keep Color and Source controls reachable, align Motion keyframes and layer rows, place new titles above video, and improve recorder storage and export feedback.
+- Accept frame-rounding differences at verified audio EOF without hiding genuinely truncated sources.
+- Keep Motion marquee selection after releasing the pointer, restore selection when canceled, and accept valid binary audio that contains SVG-like bytes.
+- Split long auto-captions into timed cues instead of discarding spoken words behind an ellipsis.
+- Cloud autosave and preview-thumbnail updates preserve the Image Editor text cursor so typing can continue without reselecting the text.
+- Image Editor crop controls now apply, cancel, reset, change aspect ratio, and resize by dragging without losing the active crop session.
+- Crop aspect presets keep their ratio while resizing with the pointer or keyboard, and the first choice keeps its correct label.
+- On phones, the Color workspace keeps space for the live canvas when the page strip is expanded. Short windows compact the strip while keeping grading controls reachable.
+- The Image Editor library no longer describes saved designs as video projects while loading.
+- Video Editor splits selected clips and their linked media without cutting unrelated tracks. With no selection, split still cuts all unlocked clips at the playhead.
+- Video Editor remembers the active sequence and the Edit return destination from Motion on this device when reopening a project.
+- Motion labels empty-composition creation as "New composition", distinct from "Create from selection". Transition feedback now explains that one clip must be selected.
+- Motion timeline and creation dialogs use editor theme surfaces and readable text in light and dark modes.
+- Timer previews retain their authored size and keep counting after scrubbing, using the same preview renderer during hover and playback.
+- Video Editor playback menus stay within the viewport and scroll internally, including expanded voiceover settings.
+- Read a link card's Open Graph title and description whole when they contain an apostrophe, such as "The world's best", which was cut at the apostrophe, and decode HTML entities in them and in the page title, so a LinkedIn article card no longer shows "Tom &amp; Jerry" or "Don&#39;t". A `data-content` attribute is no longer read as the value, and an unquoted `content=` value is read.
+- Detect a link card URL that contains parentheses, such as a Wikipedia article link, whole. Detection stopped at the first ")", so "https://en.wikipedia.org/wiki/Go_(programming_language)" became a broken link missing its closing parenthesis; a ")" is now dropped only when it closes text around the link.
+- Link an imported Bluesky post through the account's DID when Bluesky reports its handle as `handle.invalid`, which it does when a custom-domain handle stops verifying. The post's link was built from that handle and did not open.
+- Keep the paragraph and line breaks of imported Mastodon posts. Only the HTML tags were removed, so every paragraph and line of a status ran together into one line with no space between them.
+- Reset the post-import read budget at the start of the UTC day, when an account whose budget ran out is retried. The budget rolled over 24 hours after its first read instead, so it was still spent at that midnight retry and the import waited another full day.
+
+### Features
+
+- Rebuild Workflows as a full-screen editor with a compact toolbar, searchable node picker, drag-to-add connections, required-field attention, variable chips, a large node-inspection modal with input/output panels, and graph previews for templates and runs.
+- Add scheduled, new-post, and failed-publication triggers; AI text and decisions; HTTP requests with cURL import; isolated JavaScript; and content/data transformations. Add digest, relevance-review, API-to-post, and weekly draft templates.
+- Manage encrypted GitHub and custom API credentials on a Connections page. Restrict custom credentials to a selected HTTPS host and replace secrets without rebuilding workflows.
+- Test individual data, HTTP, feed, and AI nodes without running later publishing steps. Record AI token usage and provider-reported costs without imposing a spending cap.
+
+### Operations
+
+- Migration 146 adds credential metadata, external-effect receipts, and workflow AI usage. Existing repost policies, grants, executions, and per-post overrides retain their native owners and IDs. Pause workflows and finish or cancel their runs before rolling back to a version without these node types.
+
+## [7.2.4] - 2026-09-28
+
+### Added
+
+- Native workflows with GitHub releases, RSS/Atom, manual runs, and published-post sources. Build content flows with drafts, AI writing, review, scheduling, conditions, waits, metrics, and prepared replies.
+- A visual workflow editor, starting templates, previews without publishing effects, and run inspection with revision-bound approval. Runs persist across worker restarts and use OpenPost's native publishing rules.
+- Move existing repost rules, grants, templates, and run history into Workflows without restarting deliveries. Preserve rule identity on edits, reject stale changes, and recover workflow drafts after Social Set changes.
+
+### Fixed
+
+- Saving a paused repost rule no longer enables it through the database default.
+- GitHub sources fetch smaller release pages to handle repositories with large asset histories. Source errors no longer block editor autosave or offer unrelated save recovery actions.
+
+### Changed
+
+- Put common editing tools first in the Image and Video Editor toolbars, keep related tools together, and move specialized tools later in the list.
+- Made the website Resources menu more compact, with clearer link groups and icons.
+
+## [7.1.0] - 2026-09-27
+
+### Added
+
+- Create a shared poll in the composer and choose a native poll, custom poll, text version, or post without a poll for each destination. Drafts preserve unfinished choices; publishing requires resolving them.
+- Video Editor library with favorites, collections, recent items, saved text styles, effects, animations, transitions, timers and reusable blocks. Saved source files stay available on this device and are copied into the destination project when reused.
+- Native countdowns, count-up timers, rings, progress bars, bomb and tomato timers, with editable styling, completion holds and attached countdown sounds.
+- Reusable blocks expose text, color and supported hold durations without changing other instances. Repeat places a previewed batch with count, gap and an optional end boundary, with one Undo.
+- Open the composed current video frame in Image Editor from the preview controls. Export includes editable chapters generated from named markers and the selected render range.
+
+### Fixed
+
+- Preserve commas in poll answers and show each thread segment's own poll in previews.
+- Send LinkedIn poll questions separately from post commentary and use its supported seven-day and fourteen-day duration values.
+- Keep poll choices and independent account polls through saving, reopening, copying, and canonical API edits.
+- Transitions between text or shapes keep both source images instead of replacing the outgoing image with the incoming one.
+- Nested sequences retain their duration in seconds when inserted into a project with a different frame rate.
+- Keep saved cloud video assets available after reopening a project instead of asking for local files.
+- Prevent the timeline menu from scrolling the editor into an accidental command, and keep short clip bodies available for dragging.
+- Refresh paused color comparisons immediately and show caption job progress for the selected clip.
+- Show progress and cancellation for cloud project bundle exports, including cancellation of original-media downloads.
+- Duplicate Motion layers at their original timing on new tracks and select the copies.
+- Open the effect inspector after applying an effect and treat a double-click as one insertion.
+- Refresh an imported LUT when its dimensions change, so stale colors cannot survive a dimension mismatch.
+- Prevent concurrent welcome confirmations with different keys from creating multiple first Workspaces for one user.
+- Published TypeScript SDK 0.3.1 with the stalled-response timeout fix.
+
+### Changed
+
+- Image and Video Editor eyedroppers show a larger pixel grid with a center crosshair and exact color value before selection. The preview stays inside the window near its edges.
+- The free image color picker uses the same magnifier for hover and keyboard sampling without changing the selected color on hover.
+- Video exports reuse unchanged title, caption, and shape pixels while preserving animation, karaoke timing, and font updates.
+- Reuse the Video Editor composition lookup index until the composition registry changes.
+- Reduce repeated GPU texture uploads when video and image edits use multiple Curves, LUT, gradient-map, or ASCII effects. Keep texture reuse bounded by count and memory.
+- Reuse color-effect buffers during preview and export to reduce per-frame allocations.
+
+### Improved
+
+- Favorites sit in the corner of Video Editor catalog cards, with keyboard access and full-size touch targets.
+- Bomb and tomato timers have dimensional shading, detailed materials, animated sparks and completion particles.
+- Timer appearance controls include independent colors, progress thickness, segments, rounded ends, ring angle, number visibility and completion effects. Existing font, position, timing and saved-library controls remain available.
+
+### Security
+
+- Stop serving original media, thumbnails, and video posters after access is denied. Previously, error responses could include private file bytes when the media ID was known, even without valid credentials.
+- Reject HTML and XML media uploads, including generic MIME declarations and duplicate uploads. Serve existing active documents and unknown file types as downloads with restrictive browser headers. Thanks to Hamza for privately reporting the stored XSS.
+
+## [7.0.1] - 2026-09-27
+
+### Fixed
+
+- MCP publication variants accept explicit output formats and format locks.
+- The composer preserves saved publication alt text and destination-specific media descriptions.
+- Composer capability checks include each destination's effective text and attachments.
+- Media editing reopens an existing image design, and workspace designs can be deleted from the editor library.
+- Source associations are recorded for new editing designs. Older designs remain available and removable; the first Edit after upgrading may create one new design.
+- Published records can be removed from OpenPost without deleting posts on social networks.
+- Facebook and Instagram image posts no longer inherit Reel settings or reject inline links as unsupported native link settings.
+- Failed video encodes release the submitted frame instead of keeping its native video memory open.
+- Audio exports no longer reject complete clips or shift their start by one sample when timeline boundaries accumulate floating-point rounding errors.
+- Preview sidebars and mobile navigation now follow the selected preview width. Media keeps its natural proportions, attachment collections remain visible, and warnings, polls, thread settings, events, and offers reflect the authored content.
+- Composer previews preserve the selected destination format, joined segments, and cleared attachments.
+- Guest Image Editor releases local media URLs when their last open view closes, while keeping images available across overlapping views.
+- Canceling an Image Editor export also stops archive creation before a download starts. Multi-page previews retain only the previewed page, and export memory checks account for encoded pages and archive buffers.
+- Workspace brand controls become available when their data finishes loading after a newly created design opens.
+- Meme drafts save before the composer picker closes. Animated memes can return to a publication, and saved meme recipes retain their image slots and source media.
+- Self-hosting backup instructions now distinguish the guide's bind mount from the named volume used by the repository Compose file and platform recipes.
+- Free text tools now use the same platform character limits and counting rules as the composer. Long drafts also split faster.
+- Mobile Video Project uploads now stop when the server rejects the asset upload start, and malformed capture queues remain on-device instead of being treated as empty and overwritten.
+- PeerTube video posts now read stored media in bounded chunks during resumable uploads, so publishing works without loading the whole video into memory.
+- Provider certification now requires fresh evidence when the required approval tier changes.
+- Retrying a publication keeps its original date. A failed finalization returns an error so the job can retry without sending an already published variant again.
+- Keep replies typed while an earlier message or engagement reply is sending.
+- Clear the selected conversation when message filters change, and stop pending engagement searches from carrying into another Workspace.
+- Worker recovery checks the lease again before failing a stale job or marking its provider writes ambiguous. A renewed worker lease keeps the job active.
+- The CLI streams media files through upload sessions instead of buffering the full multipart request in memory.
+- Documentation link checks now catch links to folders that have no page, while allowing indexless navigation groups.
+- Instagram Inbox now checks all permissions Meta requires to read conversations, so accounts missing `pages_manage_metadata` ask to reconnect before message sync.
+- Meta publishing failures now report the specific cause and recovery action: expired tokens reconnect, lost Page roles and checkpointed accounts ask for reconnection, policy blocks stay terminal, and transient outages keep retrying. Raw provider error bodies are never retained.
+- Keep transform values readable in narrow inspectors and show playback position and total duration in matching frame timecodes.
+- Explain canceled or blocked screen sharing without falsely reporting denied camera or microphone access, consistently in the editor and standalone recorder.
+- Make Shift-click toggle timeline selection and plain clicks narrow it without breaking group drags. Preserve Motion group spacing and linked source boundaries across repeated drag and trim updates, and keep locked layers selectable.
+- Keep Undo, Redo, Save, and Export available after focusing editor controls, while preserving native text editing and local keyboard controls in Video Editor and Quick Cut.
+- Recover metadata and binary reads invalidated by concurrent file replacement. Serialize JSON reads with saves, while preserving real permission, corruption, and persistent read errors.
+- Free social preview pages keep one page heading while preserving the headings shown inside platform previews.
+- Public site builds stay within Cloudflare Pages' header-rule limit while preserving Markdown content types for marketing and documentation.
+- The homepage screenshot tour keeps its controls in the initial page layout, avoiding a shift when JavaScript starts.
+- Documentation navigation has readable active-link contrast and an accessible GitHub icon.
+- Older documentation URLs redirect again after consolidating rules within Cloudflare's limit.
+- Sanitize provider transport errors in the X, LinkedIn, PeerTube, Pinterest, and connector HTTP helpers so failing requests no longer leak signed upload or connector URLs into errors and logs.
+- SDK request timeouts now include reading response bodies, so a server that sends headers but stalls its body cannot leave calls pending indefinitely.
+- TikTok accounts connect with the publishing scopes alone. The profile falls back to the Login Kit identity fields when the Display API username scope is missing, completed Direct Post videos keep the provider publish ID when `video.list` reconciliation is unavailable, and analytics explain the missing Display API scopes instead of blocking the connection.
+- Correct the default X Post video limits to 20 minutes / 8 GiB standard and 125 minutes / 16 GiB subscribed, matching X's documented `tweet_video` caps. The previous 512 MiB / 140-second defaults describe Direct Message video, which OpenPost never uploads.
+
+### Changed
+
+- Image Editor pencil strokes process only the affected area, reducing work on large canvases while preserving pressure, texture, selection clipping, and undo.
+- Page and template thumbnails grade images at the resolution needed for their crop and size. Interactive editing and exports retain full-resolution pixels.
+- Moving, resizing, or changing an image layer's opacity reuses its color grade and blur when their inputs are unchanged.
+- Editor operations expose opt-in local Performance traces. Development builds also offer a Svelte DOM update scanner through `renderScan=1`.
+- Video exports and composited previews reuse sequential decoding instead of decoding from the previous keyframe for every frame. Reversed clips use bounded frame windows, and finished clips and nested compositions release their decoders.
+- Forward video rendering transforms only requested source frames and passes native frames to the compositor, avoiding canvas work for frames skipped by the timeline frame rate or playback speed.
+- Reversed clips cache the source frames the timeline will actually display, including speed ramps, reducing repeated decoding within the same memory limit.
+- Preview proxies include seek points every quarter second while preserving source frames and timing.
+- Full-resolution exports, previews, guides, selections, and page tools use each page's own size. Existing designs keep their current page sizes.
+- Page actions remain reachable on narrow phones. Dropping an image onto another page clears the previous selection and fits the new page.
+- Image Editor exports package pages and project media without blocking the editor on large ZIP compression or recompressing encoded images and video.
+- Image Editor selection moves, paint erasing, and selected-layer color sampling use the affected pixels instead of scanning or reading the full canvas.
+- Reworded user-facing copy from Publication to Post and from Rendition to Variant across MCP docs, product copy, marketing, the launch kit, and surface-parity prose. Code identifiers, routes, and API shapes are unchanged. MCP guides now reference the `create_post`, `list_posts`, `get_post`, `update_post`, `set_post_variants`, `reply_to_variant`, `validate_post`, `schedule_post`, `cancel_post`, `publish_post_now`, `list_post_events`, and `list_variant_comments` tools with the `adapt_post_variants` prompt and the `post_id`, `variant_id`, and `variants[]` arguments. Launch-kit samples moved from `docs/launch-kit/renditions/` to `docs/launch-kit/variants/`.
+- MCP assistant-facing operations now use post/variant naming: `create_post`, `list_posts`, `get_post`, `update_post`, `set_post_variants`, `reply_to_variant`, `validate_post`, `schedule_post`, `cancel_post`, `publish_post_now`, `list_post_events`, and `list_variant_comments`, plus the `adapt_post_variants` prompt. Argument keys are renamed to match (`post_id`, `variant_id`, `variants`, `failed_variant_count`), and every tool descriptor carries an `idempotentHint` annotation alongside the existing safety hints. The scheduler widget accepts a `variants` view alias.
+- Retired `publication_*`/`rendition_*` operation names, the `adapt_platform_renditions` prompt, and the old argument keys remain callable as permanent back-compat aliases (new key wins when both are sent), but are no longer advertised. Structured output keeps the top-level `publication` and `publications` keys. REST paths and bodies, OpenAPI, CLI nouns, database columns, and internal identifiers are unchanged.
+- MCP marks every state-changing operation `destructiveHint=true`, keeps `openWorldHint` for operations that reach external provider systems only, and requires a machine-enforceable `confirm=true` second call for `delete_post`, `publish_post_now`, `delete_media`, and `delete_comment`.
+- MCP `list_posts` constrains `status` and `content_profile` to enums so typos fail with `-32602`, and `create_post` documents that `scheduled_at` only stores a desired time while `schedule_post` validates and enqueues.
+- MCP `render_local_media_upload` is read-only end to end: it needs only workspace read access and stays visible to `mcp:read` connections, while the upload-ticket tool remains `mcp:full` only.
+- MCP read paging is now consistent: `list_posts` and `list_media` default to 20 and cap at 100, while `list_post_events` is explicitly 100/200.
+- MCP provider catalog, social account, and readiness descriptions name each other as next steps; `list_posts` and `validate_post` failure text names `get_post` for delivery detail and `retry_failed_variants` for safe retries.
+- MCP clarifies widget renderer scope: both render tools are read-only and visible to `mcp:read`, while the upload ticket tool stays app-only and requires `mcp:full`.
+- MCP OAuth has no per-client allow-listing: any standards-compliant OAuth client can connect, and the recorded client name is attribution only.
+- Marketing feature screenshots load sizes suited to the visitor's screen.
+- Documentation search loads when opened, reducing the JavaScript needed for an initial page view.
+
+### Added
+
+- Pinterest, Reddit, and Google Business Profile post previews, plus dedicated page layouts for every preview platform.
+- Free platform-specific post preview tools with card and full-page views, phone, tablet, and desktop widths, and light and dark appearances.
+- Live compact previews in the publication composer, with a full-page preview that follows edits.
+- Image Editor pages can have different canvas sizes within one design. Resize the active page with Fit, Fill, Keep size, or Stretch, and see each page's size in the page strip.
+- Save workspace layer-effect presets with blend modes, shadows, and outlines. Apply a preset with one undo step, update it from a layer, or delete it without changing layers that already use it.
+- Select part of a text layer in the Image Editor canvas or Text field to set its weight, italic style, underline, or color without changing the rest of the layer. Emphasis survives text edits, undo, saved designs, portable projects, and image export.
+- Screenshot templates for messages, group chats, receipts, and status pages. Edit structured fields with a live preview, undo and redo, light or dark artwork, and automatic image height or fixed social shapes.
+- Workspace designs with automatic saving and conflict protection. Download PNGs, save editable exports to Media, or return them to a publication without losing the composer draft.
+- Image messages and profile photos for every chat participant. Choose, replace, or remove photos from Media, preserve them in saved designs and PNGs, and retain source images for editable exports.
+- Memes now appear in Templates and use the same saved workspace drafts, undo and redo, image picker, and export controls as chats, receipts, and status pages. Existing memes can be reopened as editable copies from Media.
+- Instagram and YouTube posts can now publish a first comment as a child operation of the same publish flow.
+- Facebook link posts retry without the link-card attachment when the provider rejects the scrape, and LinkedIn link posts resolve their preview the same way, so link shares degrade to text posts instead of failing.
+- Add a gated Google Business Profile provider (`googlebusiness`) for controlled development and certification: OAuth connection with location selection, STANDARD/EVENT/OFFER local post validation, and create-then-reconcile publishing. Delivery stays disabled until Google API access and live certification are complete.
+- MCP `list_publications` now pages with an opaque `cursor` input and `has_more`, `next_cursor`, and `total_count` outputs, defaulting to 20 items per response and capping at 100. Assistants review large queues by following `next_cursor` over narrow windows instead of requesting wide unbounded windows.
+- MCP `list_publications` items now include a safe failure summary: `failed_rendition_count` plus the curated `error_kind`, `error_action`, and `error_message` of the first failed destination. Raw provider response bodies are never exposed.
+- MCP execute-mode mutations accept an optional `idempotency_key` routed into the existing REST idempotency path, so retried `create_post`, `update_post`, `set_post_variants`, `schedule_post`, `cancel_post`, `publish_post_now`, `reply_to_variant`, comment actions, `upload_media_from_url`, and upload-ticket calls replay the stored result instead of running twice.
+- MCP can now delete posts through `delete_post` (post ID plus expected revision with a `confirm=true` second call), manage media through `get_media`, `update_media` (favorite, alt text), and `delete_media` (with `confirm=true`), and retry delivery through `retry_failed_variants` and `retry_variant` using the post-action shape.
+- MCP `schedule_post` and `publish_post_now` accept `dry_run` to validate readiness without enqueueing, and post results accept `detail: summary|full` to choose between the unified summary plus job ID shape and the complete post.
+- MCP comment mutations now report `job_id` instead of `id`, and every post mutation returns the unified summary plus job ID shape.
+- MCP `list_media` and `list_post_events` now page with an opaque `cursor` input and `has_more`, `next_cursor`, and `total_count` outputs, using the same shape as `list_posts`. Events default to 100 items per response and cap at 200.
+- MCP `list_variant_comments` accepts a `limit` input (1-100, default 50); results beyond the limit are truncated in provider order and the response text notes the truncation.
+- MCP `get_post_metrics` returns stored analytics per variant (normalized `views`, `reactions`, `engagements`, `impressions`, and `reach`) plus post totals, reading stored snapshots without provider calls.
+- MCP `get_dashboard_link` builds an app-origin dashboard URL for `post`, `media`, `account`, and `calendar` views so agents can hand users a link to the visualization.
+- MCP `search_docs` searches a curated offline registry of documentation and assistant skill pages, returning titles, `/docs` paths, and snippets.
+- MCP documents recommended toolsets per client (direct `/mcp` for full-catalog clients, compact `/mcp/code` for constrained ones) and records the accepted gaps: no account connect/disconnect, no bulk operations, and no webhook tools.
+- Native post imports as a separate opt-in library, independent of Analytics. Enabling imports on a Bluesky or Mastodon account stores its native posts (published after opt-in only, never backfilled) in a read-only imported-posts library with per-account checkpoints, daily read budgets, and loop protection against posts published through OpenPost. X native reads stay disabled by the read-cost policy; Threads, Instagram, Facebook, LinkedIn, TikTok, YouTube, and Pinterest are explicit TODOs.
+- TikTok authorization is now capability-driven: the login request asks for the publishing scopes (`user.info.basic`, `video.publish`, `video.upload`) plus the optional Display API scopes (`user.info.profile`, `user.info.stats`, `video.list`). Set `OPENPOST_DISABLE_TIKTOK_DISPLAY_API=true` when the TikTok app has no Display API approval so the request asks only for what TikTok can grant.
+
+### Improved
+
+- Browse free tools in a searchable grid with editor screenshots, image examples, network icons, and compact phone layouts.
+- Devenv shell entry no longer waits for another worktree's active Turbo task before starting commands. Explicit `cache-prune` still waits to enforce the cache limit.
+
+## [6.3.0] - 2026-09-26
+
+### Changed
+
+- Image Editor pencil strokes process only the affected area, reducing work on large canvases while preserving pressure, texture, selection clipping, and undo.
+- Page and template thumbnails grade images at the resolution needed for their crop and size. Interactive editing and exports retain full-resolution pixels.
+- Moving, resizing, or changing an image layer's opacity reuses its color grade and blur when their inputs are unchanged.
+- Reworded user-facing copy from Publication to Post and from Rendition to Variant across MCP docs, product copy, marketing, the launch kit, and surface-parity prose. Code identifiers, routes, and API shapes are unchanged. MCP guides now reference the `create_post`, `list_posts`, `get_post`, `update_post`, `set_post_variants`, `reply_to_variant`, `validate_post`, `schedule_post`, `cancel_post`, `publish_post_now`, `list_post_events`, and `list_variant_comments` tools with the `adapt_post_variants` prompt and the `post_id`, `variant_id`, and `variants[]` arguments. Launch-kit samples moved from `docs/launch-kit/renditions/` to `docs/launch-kit/variants/`.
+- MCP assistant-facing operations now use post/variant naming: `create_post`, `list_posts`, `get_post`, `update_post`, `set_post_variants`, `reply_to_variant`, `validate_post`, `schedule_post`, `cancel_post`, `publish_post_now`, `list_post_events`, and `list_variant_comments`, plus the `adapt_post_variants` prompt. Argument keys are renamed to match (`post_id`, `variant_id`, `variants`, `failed_variant_count`), and every tool descriptor carries an `idempotentHint` annotation alongside the existing safety hints. The scheduler widget accepts a `variants` view alias.
+- Retired `publication_*`/`rendition_*` operation names, the `adapt_platform_renditions` prompt, and the old argument keys remain callable as permanent back-compat aliases (new key wins when both are sent), but are no longer advertised. Structured output keeps the top-level `publication` and `publications` keys. REST paths and bodies, OpenAPI, CLI nouns, database columns, and internal identifiers are unchanged.
+- MCP marks every state-changing operation `destructiveHint=true`, keeps `openWorldHint` for operations that reach external provider systems only, and requires a machine-enforceable `confirm=true` second call for `delete_post`, `publish_post_now`, `delete_media`, and `delete_comment`.
+- MCP `list_posts` constrains `status` and `content_profile` to enums so typos fail with `-32602`, and `create_post` documents that `scheduled_at` only stores a desired time while `schedule_post` validates and enqueues.
+- MCP `render_local_media_upload` is read-only end to end: it needs only workspace read access and stays visible to `mcp:read` connections, while the upload-ticket tool remains `mcp:full` only.
+- MCP read paging is now consistent: `list_posts` and `list_media` default to 20 and cap at 100, while `list_post_events` is explicitly 100/200.
+- MCP provider catalog, social account, and readiness descriptions name each other as next steps; `list_posts` and `validate_post` failure text names `get_post` for delivery detail and `retry_failed_variants` for safe retries.
+- MCP clarifies widget renderer scope: both render tools are read-only and visible to `mcp:read`, while the upload ticket tool stays app-only and requires `mcp:full`.
+- MCP OAuth has no per-client allow-listing: any standards-compliant OAuth client can connect, and the recorded client name is attribution only.
+- Marketing feature screenshots load sizes suited to the visitor's screen.
+- Documentation search loads when opened, reducing the JavaScript needed for an initial page view.
+
+### Fixed
+
+- Exposed the Video Editor background browser as a named group so its accessible label reaches assistive technology instead of being silently ignored.
+- Exposed the Video Editor bento layout preset picker as a named group so its accessible label reaches assistive technology instead of being silently ignored.
+- Count Bluesky post text in grapheme clusters, the unit of its 300-character limit, in both publishing validation and the composer counter. Emoji with skin tones, flags and ZWJ sequences were counted as two to seven characters each, so posts Bluesky accepts were rejected as over the limit.
+- Month-grid publication buttons now include the destination account count in their accessible name (for example "Launch week post · 2 accounts") instead of only the post title. The avatar stack inside the button is decorative and hidden from assistive technology.
+- Day-drawer publication rows now expose the account count as screen-reader text instead of an `aria-label` on a role-less span, which assistive technology silently ignored.
+- Expose the Video Editor caption preset picker as a named group so its accessible label reaches assistive technology.
+- Exposed the Video Editor clip properties container as a named group so its accessible label reaches assistive technology instead of being silently ignored.
+- Gave the timeline clip volume slider PageUp/PageDown keyboard support: PageUp raises and PageDown lowers the clip volume by six decibels, matching the audio mixer fader large-step convention alongside the existing arrow, Home, and End keys.
+- Exposed the Video Editor color presets picker as a named group so its accessible label reaches assistive technology.
+- Gave the editor color wheel slider full WAI-ARIA keyboard support: PageUp and PageDown now move the value in large steps (ten times the arrow-key step), completing the Home/End support it already had and matching the shared knob control.
+- Restored the composer's "Workspace changed" confirmation after discard-and-switch: the notice now survives the app-shell reload that workspace switches trigger, so scheduling/attachment resets are announced instead of silently dropped.
+- Re-enabled the skipped `an in-flight autosave cannot attach an old-workspace draft after switching` E2E, which proves the notice appears, the late first-workspace save never attaches to the URL, and follow-up typing saves into the new workspace.
+- Video Editor composition control override fields now expose the control name as an explicit accessible name, instead of relying on the default-value placeholder alone so screen-reader users keep the label while typing.
+- Exposed the Video Editor composition work-area lane as a named group so its timeline-range label reaches assistive technology instead of being silently ignored.
+- Exposed the Video Editor composition layer sidebar as a named group so its layers label reaches assistive technology instead of being silently ignored.
+- Exposed the Video Editor composition dimensions strip as a named group so its "Composition dimensions" label reaches assistive technology instead of being silently ignored.
+- Gave the Video Editor composition timeline layer-tools container an explicit `toolbar` role so its "Layer tools" label is exposed to assistive technology instead of being silently ignored on a role-less `div`.
+- Video Editor on-canvas crop handles now support PageUp/PageDown large steps and Home/End bound jumps, completing their WAI-ARIA slider keyboard contract alongside the existing arrow and shift-arrow nudges.
+- Gave Video Editor curves points full WAI-ARIA slider keyboard support: PageUp and PageDown move the output in large steps, Home jumps to minimum output, and End jumps to maximum output, matching the shared knob and color wheel controls.
+- Expose the workspace and organization delete dialog loading indicators as live statuses so their "Loading..." label reaches assistive technology instead of being silently ignored on a role-less container.
+- Video Editor scene browser and keyboard shortcut search fields now expose an explicit accessible name, instead of relying on the placeholder alone so screen-reader users keep the label while typing.
+- Exposed the Video Editor effect browser as a named group so its Effects label reaches assistive technology instead of being silently ignored on a role-less container.
+- The Video Editor effects panel "Modified from defaults" indicator now exposes its label through `role="img"`. The label was previously set on a role-less wrapper around an aria-hidden dot, so assistive technology silently ignored it and a tweaked effect was announced without its modified state.
+- Exposed the Video Editor expression dimensions strip as a named group so its accessible label reaches assistive technology.
+- Video Editor fade handles and audio fade curve dots now support PageUp and PageDown: fade durations jump one second, curve dots move ten arrow steps, matching the knob, color wheel, curves, ruler, and mini-timeline sliders.
+- Expose the Grow profile card follower counts and reason chips as named groups so their accessible labels reach assistive technology.
+- Gave the Video Editor qualifier hue-band slider full WAI-ARIA keyboard support: PageUp/PageDown now move the key hue in large steps, alongside the existing arrow small steps and Home/End jumps.
+- Inbox reply composers in messages and engagement now expose an explicit accessible name, instead of relying on the placeholder alone so screen-reader users keep the label while typing.
+- Instagram Inbox now checks all permissions Meta requires to read conversations, so accounts missing `pages_manage_metadata` ask to reconnect before message sync.
+- Exposed the instance configuration section switcher as a named "Configuration sections" group so assistive technology announces the section buttons together instead of silently ignoring the label.
+- The Video Editor keyframe graph's bezier easing handles and playhead scrub line no longer claim the keyboard-operable `slider` role. They are pointer-only affordances (`tabindex="-1"`, no keyboard handler) that keyboard users could never reach or adjust, so screen readers announced phantom sliders. They now expose `role="img"` with their existing labels. Easing stays keyboard-adjustable through the focusable segment easing buttons and preset menu, and playhead position stays available through the timeline ruler and mini-timeline sliders.
+- The editor knob slider now supports Home, End, PageUp, and PageDown keys per the WAI-ARIA slider pattern: Home jumps to the minimum, End jumps to the maximum, and PageUp/PageDown move in large ten-step increments. Arrow keys, double-click reset, and the disabled state are unchanged.
+- Gave the Video Editor layer type badge `role="img"` so its full type name reaches assistive technology. The single-letter badge (T/S/C/…) now exposes the item type (e.g. "text") instead of being silently ignored on a role-less `span`.
+- Exposed the Video Editor linked A/V drift badge as a labeled image so its "Linked clips are out of sync by ..." description reaches assistive technology instead of being silently ignored on a role-less span.
+- Exposed loading indicators as live statuses so assistive technology announces them: meme generator candidate and template skeleton grids, sidebar drafts loading skeletons, and theme preview loading state.
+- The login verification code button now stays disabled until a full six-digit authenticator code is entered, instead of letting incomplete codes be submitted for a round-trip that always fails.
+- Exposed the Video Editor Lottie browser as a named group so its LottieFiles label reaches assistive technology instead of being silently ignored on a role-less container.
+- The landing-page screenshot zoom now shows the dark variant when the site is in dark mode. The enlarged clone lives outside the `<picture>` element, so the composer screenshot (the only tour view with responsive variants) fell back to its light `srcset` while enlarged.
+- Accept `.ogg`, `.oga`, `.opus` and `.m4a` uploads again. The content sniffer names Ogg `application/ogg` and every ISO BMFF brand `video/mp4`, so files browsers declare as `audio/ogg`, `video/ogg` or `audio/x-m4a` were rejected as not matching their declared MIME type.
+- Store an Ogg upload with the `audio/ogg` or `video/ogg` type the browser declared instead of the sniffer's `application/ogg`, so it is presented as audio or analysed as video rather than filed as an unknown file.
+- Store an M4A upload with the `audio/x-m4a`, `audio/m4a` or `audio/mp4` type the browser declared instead of the sniffer's `video/mp4`, so it is presented as audio rather than analysed as video.
+- The media library video-processing indicator is now exposed as a named progress bar with its current percent value, so assistive technology users get programmatic progress semantics (previously a plain visual bar) alongside the existing polite live-region status text.
+- Media search fields in the library page and the media picker now expose an explicit accessible name, instead of relying on the placeholder alone so screen-reader users keep the label while typing.
+- Exposed the media picker source switcher (Library, Device, Camera, and creation actions) as a named group so assistive technology announces its "Source" label instead of silently ignoring it.
+- Named the media picker source tablist (Library, Device, Camera) with its "Source" label so assistive technology announces the tab container as well as the surrounding group.
+- Gave the media tag filter button group an explicit `group` role so screen readers announce the "Filter media by tag" label that was previously attached to a role-less container and ignored by assistive technology.
+- Exposed the media picker type filter ("All", "Images", "Videos") as a named group so assistive technology announces the filter purpose instead of silently dropping its label.
+- Exposed the media upload dialog source switcher as a named group so its "Source" label reaches assistive technology instead of being silently ignored on a role-less container.
+- Exposed the media upload "Uploaded" success badge to assistive technology as a labeled image instead of a silently ignored label on a role-less element.
+- Give media library video poster thumbnails the same accessible name as image thumbnails (`alt_text`, falling back to the file name), so video posters are announced to assistive technology instead of being silently decorative.
+- Meta publishing failures now report the specific cause and recovery action: expired tokens reconnect, lost Page roles and checkpointed accounts ask for reconnection, policy blocks stay terminal, and transient outages keep retrying. Raw provider error bodies are never retained.
+- Gave the Video Editor Color mini-timeline slider full WAI-ARIA keyboard support: PageUp and PageDown now jump one second of frames, alongside the existing arrow (1/10 frames) and Home/End behavior.
+- The Video Editor on-canvas position motion path now exposes its "Position motion path" label through `role="group"`. The label was previously set on the wrapping `<svg>` without a role, so assistive technology silently ignored it and the motion keyframe controls were announced without their path context.
+- Named the Video Editor keyframe view switcher (Dope Sheet / Graph) and the speech cleanup mode switcher (filler words / silent sections) tablists so assistive technology announces each tab container instead of presenting unnamed tabs.
+- Hid the sidebar notification unread-count badge from assistive technology instead of giving it an ignored label: the badge sits inside an already-named Notifications link whose label announces the count, matching the compact bell pattern.
+- Keep transform values readable in narrow inspectors and show playback position and total duration in matching frame timecodes.
+- Explain canceled or blocked screen sharing without falsely reporting denied camera or microphone access, consistently in the editor and standalone recorder.
+- Make Shift-click toggle timeline selection and plain clicks narrow it without breaking group drags. Preserve Motion group spacing and linked source boundaries across repeated drag and trim updates, and keep locked layers selectable.
+- Keep Undo, Redo, Save, and Export available after focusing editor controls, while preserving native text editing and local keyboard controls in Video Editor and Quick Cut.
+- Recover metadata and binary reads invalidated by concurrent file replacement. Serialize JSON reads with saves, while preserving real permission, corruption, and persistent read errors.
+- Repaired the `lint:oxlint` gate, which was failing on 24 anti-slop errors across 11 browser regression test files. Every `as` assertion now carries a `SAFETY:` comment stating the checked invariant, the four render-helper `Record<string, unknown>` props are typed as owner-derived `Partial<ComponentProps<typeof ...>>`, and the curves `middleOutput` helper takes the typed mock-call tuple instead of `unknown`.
+- Exposed the paused-connection indicator dot on inactive social accounts as a labeled image so its "Connection paused" description reaches assistive technology instead of being silently ignored on a role-less span.
+- The homepage screenshot tour keeps its controls in the initial page layout, avoiding a shift when JavaScript starts.
+- Documentation navigation has readable active-link contrast and an accessible GitHub icon.
+- Older documentation URLs redirect again after consolidating rules within Cloudflare's limit.
+- The Quick Cut editor header back button now announces "Back" instead of the application title, so assistive technology describes the control's action (return to the project start screen, confirming first when unsaved local work would be discarded) instead of mislabeling it. This matches the image-editor back button pattern.
+- Closing a local Quick Cut project without a workspace folder now asks for confirmation through the themed in-app destructive dialog instead of the browser-native `window.confirm` prompt, matching the source-removal flow on the same page.
+- Exposed the failed-posts recovery queue on Publications as a named group so its "Publication recovery queue" label reaches assistive technology instead of being silently ignored.
+- Token refresh jobs now fail loudly with a recorded error when the token manager is not configured, instead of being marked completed without attempting a refresh. Expired credentials now surface in job history and telemetry rather than only as downstream publishing auth errors.
+- Sanitize provider transport errors in the X, LinkedIn, PeerTube, Pinterest, and connector HTTP helpers so failing requests no longer leak signed upload or connector URLs into errors and logs.
+- Exposed the Video Editor scene browser library-color swatches as a named group so the "Library colors" label reaches assistive technology instead of being silently ignored.
+- Exposed the Video Editor scene match signals as a named group so their label reaches assistive technology instead of being silently ignored.
+- Exposed the Video Editor scope view-mode switcher (RGB/R/G/B/Y) as a named group so its "Live color scope" label reaches assistive technology instead of being silently ignored.
+- Exposed the Video Editor shape browser as a named group so its accessible label reaches assistive technology instead of being silently ignored.
+- Removed the overriding accessible name on the shape mask path hint so screen readers announce its visible "Mask type" label instead of replacing it with the tooltip text. The editing hint remains available as a hover tooltip.
+- Gave the keyboard shortcut filter bar its own "Filter shortcuts" accessible name and group role instead of reusing the "All" filter label, so screen-reader users hear what the control filters rather than a duplicate of the first option.
+- The Video Editor track-height resize sliders now announce e.g. "96 pixels" instead of a bare number, and the Color before/after split slider announces e.g. "50%" instead of a bare number. These were the last two editor sliders with unit-less screen-reader announcements.
+- Gave the Video Editor source audio waveform slider PageUp/PageDown keyboard support for ten-second seeks, matching the arrow-key small steps and Home/End jumps.
+- Announced the source audio waveform slider position as formatted time (for example `0:50.0`, or `1:02:05.5` past an hour) through `aria-valuetext`, instead of exposing only raw seconds to assistive technology. The text comes from a new `formatSourceWaveformTime` helper beside the existing waveform seek math and updates as the playhead moves.
+- Video Editor Color before/after split slider now supports PageUp and PageDown ten-percent jumps, completing its WAI-ARIA keyboard contract alongside the existing arrow, shift-arrow, Home, and End gestures.
+- Exposed the Video Editor sticker browser as a named group so its Stickers label reaches assistive technology instead of being silently ignored on a role-less container.
+- Exposed the Video Editor stock browser as a named group so its Stock label reaches assistive technology instead of being silently ignored.
+- Repaired the `svelte-check` gate: fixed five type errors in browser regression tests (missing default test-fixture argument, Playwright `Locator` has no `.locator()` method so scope with `getByTestId`, and the spied OpenAPI `GET` options parameter resolving to `never`).
+- Gave the media tag picker's new-tag field and the destination/effect option search fields explicit accessible names matching their visible placeholder text, so screen-reader users keep the label while typing.
+- Exposed the Video Editor text style presets and text effects pickers as named groups so their labels reach assistive technology instead of being silently ignored.
+- Exposed the Video Editor text template browser as a named group so its Templates label reaches assistive technology instead of being silently ignored.
+- Re-enabled the skipped theme color-randomization regression test now that the randomizer only commits contrast-safe palettes, and extended it with notebook seeds that fail without the guard, so Randomize can no longer produce a draft the validator rejects.
+- Announced theme validation issues as an alert so assistive technology reports the named "Validation issues" error list instead of silently ignoring it.
+- TikTok accounts connect with the publishing scopes alone. The profile falls back to the Login Kit identity fields when the Display API username scope is missing, completed Direct Post videos keep the provider publish ID when `video.list` reconciliation is unavailable, and analytics explain the missing Display API scopes instead of blocking the connection.
+- Gave the Video Editor timeline ruler (the playhead `slider`) full WAI-ARIA keyboard support: `PageUp`/`PageDown` now jump one second of frames forward/back, matching the large-step keys added to the knob, color wheel, and curves-point sliders. Arrow keys (one frame, ten with shift) and Home/End behavior are unchanged.
+- Announced the Video Editor timeline ruler playhead position as a timecode (for example `00:00:03:00`) through `aria-valuetext`, instead of exposing only the raw frame number to assistive technology. The text follows the same `formatTimelinePreviewTimecode` helper already used by the Color mini-timeline playhead and marker labels, and updates live while seeking.
+- The shared editor toolbar group only claims the `toolbar` landmark role when it is given an accessible name. The two unnamed groups (Quick Cut timeline controls and the keyframe sheet clipboard buttons) previously announced themselves as a bare "toolbar" with no way for screen-reader users to tell them apart from sibling toolbars; they now render as plain containers while their individually labeled buttons are unchanged.
+- The Video Editor timeline track-height resize handles now support PageUp and PageDown for large 24px height jumps, matching the large-step convention of the other editor sliders. Arrow keys, shift-modified arrows, Home, and End behavior is unchanged.
+- Exposed the Video Editor transition browser as a named group so its accessible label reaches assistive technology instead of being silently ignored.
+- Exposed the Video Editor transport timecode readout as a labeled image so its "timecode / total frames" label reaches assistive technology instead of being silently ignored.
+- Re-enabled the skipped workspace-switcher race test proving a slow previous-workspace accounts response cannot replace the newly selected workspace's account data. It passes with no code changes: the earlier workspace-selection fixes plus per-workspace query keys already isolate the late response.
+- Fixed workspace creation silently keeping the old workspace when the create dialog remounts mid-flight. Selection of the just-created workspace now survives dialog unmount instead of aborting with no error.
+- Deleting the active workspace from workspace settings now navigates back to the home page as intended. Previously the deletion succeeded and the store switched to another workspace, but the page stayed on the settings URL of the deleted workspace: shrinking the workspace list flips the layout's workspace access key, which remounts the settings page through its onboarding loading gate mid-flight and invalidates the delete handler's still-current guard, so the post-delete navigation never ran. The handler now also navigates when the (possibly remounted) page still shows the deleted workspace.
+- Fixed workspace creation silently keeping the old workspace when a background refresh (such as the layout onboarding check) resolves after the new selection is applied. Implicit refreshes no longer move a selection that is newer than their own intent; they refresh the workspace inventory and keep the current workspace.
+- Correct the default X Post video limits to 20 minutes / 8 GiB standard and 125 minutes / 16 GiB subscribed, matching X's documented `tweet_video` caps. The previous 512 MiB / 140-second defaults describe Direct Message video, which OpenPost never uploads.
+
+### Added
+
+- Instagram, YouTube, LinkedIn, and Facebook posts can now publish a first comment as a child operation of the same publish flow.
+- Facebook link posts retry without the link-card attachment when the provider rejects the scrape, and LinkedIn link posts resolve their preview the same way, so link shares degrade to text posts instead of failing.
+- Add a gated Google Business Profile provider (`googlebusiness`) for controlled development and certification: OAuth connection with location selection, STANDARD/EVENT/OFFER local post validation, and create-then-reconcile publishing. Delivery stays disabled until Google API access and live certification are complete.
+- MCP `list_posts` now pages with an opaque `cursor` input and `has_more`, `next_cursor`, and `total_count` outputs, defaulting to 20 items per response and capping at 100. Assistants review large queues by following `next_cursor` over narrow windows instead of requesting wide unbounded windows.
+- MCP `list_posts` items now include a safe failure summary: `failed_variant_count` plus the curated `error_kind`, `error_action`, and `error_message` of the first failed destination. Raw provider response bodies are never exposed.
+- MCP execute-mode mutations accept an optional `idempotency_key` routed into the existing REST idempotency path, so retried `create_post`, `update_post`, `set_post_variants`, `schedule_post`, `cancel_post`, `publish_post_now`, `reply_to_variant`, comment actions, `upload_media_from_url`, and upload-ticket calls replay the stored result instead of running twice.
+- MCP can now delete posts through `delete_post` (post ID plus expected revision with a `confirm=true` second call), manage media through `get_media`, `update_media` (favorite, alt text), and `delete_media` (with `confirm=true`), and retry delivery through `retry_failed_variants` and `retry_variant` using the post-action shape.
+- MCP `schedule_post` and `publish_post_now` accept `dry_run` to validate readiness without enqueueing, and post results accept `detail: summary|full` to choose between the unified summary plus job ID shape and the complete post.
+- MCP comment mutations now report `job_id` instead of `id`, and every post mutation returns the unified summary plus job ID shape.
+- MCP `list_media` and `list_post_events` now page with an opaque `cursor` input and `has_more`, `next_cursor`, and `total_count` outputs, using the same shape as `list_posts`. Events default to 100 items per response and cap at 200.
+- MCP `list_variant_comments` accepts a `limit` input (1-100, default 50); results beyond the limit are truncated in provider order and the response text notes the truncation.
+- MCP `get_post_metrics` returns stored analytics per variant (normalized `views`, `reactions`, `engagements`, `impressions`, and `reach`) plus post totals, reading stored snapshots without provider calls.
+- MCP `get_dashboard_link` builds an app-origin dashboard URL for `post`, `media`, `account`, and `calendar` views so agents can hand users a link to the visualization.
+- MCP `search_docs` searches a curated offline registry of documentation and assistant skill pages, returning titles, `/docs` paths, and snippets.
+- MCP documents recommended toolsets per client (direct `/mcp` for full-catalog clients, compact `/mcp/code` for constrained ones) and records the accepted gaps: no account connect/disconnect, no bulk operations, and no webhook tools.
+- Native post imports as a separate opt-in library, independent of Analytics. Enabling imports on a Bluesky or Mastodon account stores its native posts (published after opt-in only, never backfilled) in a read-only imported-posts library with per-account checkpoints, daily read budgets, and loop protection against posts published through OpenPost. X native reads stay disabled by the read-cost policy; Threads, Instagram, Facebook, LinkedIn, TikTok, YouTube, and Pinterest are explicit TODOs.
+- TikTok authorization is now capability-driven: the login request asks for the publishing scopes (`user.info.basic`, `video.publish`, `video.upload`) plus the optional Display API scopes (`user.info.profile`, `user.info.stats`, `video.list`). Set `OPENPOST_DISABLE_TIKTOK_DISPLAY_API=true` when the TikTok app has no Display API approval so the request asks only for what TikTok can grant.
+
+## [6.2.0] - 2026-09-25
+
+### Added
+
+- Composer destination tabs now mark accounts that carry their own custom content with a small dot, so unsynced tabs stand apart from tabs sharing the common draft. The marker keeps its own accessible label and sits beside the existing issue count.
+
+### Removed
+
+- Removed the standalone Editors catalog page (`/editors`). Image and video work now starts from the Media library and the editor start pages, and every editor header leads back into OpenPost: the shared editor headers return to OpenPost home, and the Image Editor returns to Media. The Editors entry is gone from workspace navigation.
+
+## [6.1.8] - 2026-09-25
+
+### Fixed
+
+- Workspace-scoped `api:read` tokens can now call the stored analytics overview (`GET /api/v1/analytics`). The operation was missing from the read automation catalogue, so valid read-only tokens received `403`.
+- Admitted the same class of stored-data workspace reads to the `api:read` catalogue: job listing, notification inbox, engagement and conversation lists, growth recommendations, repost automation settings, account feature reads, voice profiles (including the read-only effective-profile resolver), and writing prompts. Each remains workspace-scoped and read-only at the handler layer; mutations stay excluded.
+- Hardened the notification inbox for workspace-bound credentials: account-wide rows (for example invitations from other workspaces) are now excluded when the calling token is bound to a workspace. Browser sessions and unscoped credentials keep the existing combined inbox.
+- Timeline clip corners no longer steal trim and move grabs for fades. Fade handles are smaller, sit inside the clip edge when no fade exists, use a distinct pointer cursor, and ignore presses that never travel.
+- Timeline snapping stays bounded when zoomed out, so clips no longer magnetize from seconds away.
+- Wait at least one second between X video and GIF STATUS polls when the provider omits `check_after_secs` or sends 0, so uploads do not busy-loop the media endpoint and fail as rate-limited.
+
+### Changed
+
+- Releases no longer need a changelog preparation commit. Tag CI builds the draft notes from `CHANGELOG.md` plus `changes/` fragments, and a post-publish bot commit records the shipped section and consumes exactly the tagged fragments.
+
+## [6.1.3] - 2026-09-24
+
+### Fixed
+
+- Cloud Video Editor media can be deleted from the project media pool after its timeline references are removed.
+- Video Editor exports retry WebCodecs source decoding with software acceleration when a browser decoder reports a decoding error. This recovers affected high-frame-rate VP9 recordings without changing the selected export format or codec.
+
+## [6.1.1] - 2026-09-23
+
+### Fixed
+
+- Publish the TypeScript SDK feature set as `@getopenpost/sdk` `0.3.0` instead of reusing the existing `0.2.0` package version.
+
+## [6.1.0] - 2026-09-23
+
+### Added
+
+- Webhook intake results expose `body_authenticated`, reporting whether verification covered the raw request body. Header-only shared secrets report false; the flag describes the current request only.
+- `openpost doctor` checks local CLI configuration without contacting any instance: version, platform, profile, instance, token presence and source, workspace, and config paths. Token material never prints. It exits non-zero with guidance when the instance or token is missing.
+- TypeScript SDK: structured retry dispositions on every error (`never`, `after-delay`, `after-reconnect`, `reconcile-first`), JSON serialization, and a new `ambiguous` code for requests that may have executed. Drive retry buttons and automation from `disposition`, not the boolean alone.
+- TypeScript SDK: per-rendition outcome helpers. `describeRendition` requires the provider native id before reporting `published` and maps unprovable rows to `unknown`; `summarizePublication` reports `pending`, `complete`, or `partial`.
+- TypeScript SDK: a deterministic `@getopenpost/sdk/testing` mock with scenario-driven publish behavior (`immediate-success`, `processing-then-success`, `mixed-success-failure`, `rate-limited`, `reconnect-required`, `ambiguous-accept`), an `advance()` latch, operation history, and reset. The subpath is separate from the root import so production bundles never carry it.
+- TypeScript SDK: a bounded `iterateOffsetPages` helper for offset-paged lists with `maxPages` and `maxItems` guards.
+
+### Fixed
+
+- Controlled sliders no longer turn internal step normalization into edits, so Image Editor export previews no longer restart repeatedly because of a small quality rounding difference.
+- Old self-hosting guide links now open the corresponding documentation pages.
+- Media uploads with an empty filename or a malformed MIME declaration now fail before any byte is stored, at session reserve and every validation entry point.
+- Uploads whose bytes sniff as a specific contradicting type (for example declared images containing HTML, or declared video containing JPEG bytes) are rejected instead of silently adopted. Generic fallbacks stay allowed for device captures.
+- Saving an Image Editor design with a group layer no longer fails with a server error.
+- Keep automatically recovered marketing JavaScript import failures out of error tracking. Report failures that cannot reload and still need the visitor to retry.
+- Stop periodic Video Editor autosave when its local project file has disappeared. Keep the unsaved edit and the existing save error visible so the user can restore the workspace file and retry without repeated background failures.
+- Local Video Editor project creation now falls back to a direct file write when a browser rejects an atomic move from a stale handle.
+- YouTube uploads reject titles containing `<>` and descriptions over 5000 bytes before a resumable session is created.
+- LinkedIn rejects malformed post ids in publish responses instead of storing ids that can never be reconciled; a missing id stays accepted for reconciliation.
+- TikTok media URLs must parse as HTTPS with a host, no credentials, and no fragment. Custom ports stay allowed for self-hosted instances.
+- X posts containing characters the X API never accepts (U+FFFE, U+FEFF, U+FFFF) now fail validation before any upload or post is dispatched.
+- Bluesky posts trim trailing punctuation from link facets, drop overlapping facets instead of sending provider-rejected records, skip mentions with malformed DIDs, and enforce the 300-character and 3000-byte limits before the record is built.
+- A provider acceptance without a native post id or a reference to reconcile with no longer reports published. It stays pending with reconcile-only safety so it reconciles instead of retrying. Acceptances carrying a reconciliation reference (for example Instagram container flows) are unchanged.
+
+## [6.0.4] - 2026-09-23
+
+### Fixed
+
+- Capability checks no longer report a stale native URL setting after a post changes away from a link-share format.
+
+## [6.0.3] - 2026-09-23
+
+### Fixed
+
+- Removing a URL from a post also removes its hidden link settings from destination checks, so Threads does not keep reporting a link that is no longer in the post. Old validation responses no longer restore warnings after an edit.
+
+## [6.0.2] - 2026-09-23
+
+### Changed
+
+- Show saved OpenPost and local projects together in Image Editor, Video Editor, and Quick Cut, with compact storage and sync status. The storage choice now controls where new projects are saved.
+- Give Quick Cut a shared editor start page, clear guidance after marking a selection, and compact kept-part rows with optional settings behind a disclosure.
+- Start background removal as soon as an image is chosen or pasted, download pasted images automatically, and add an accessible draggable before-and-after preview.
+
+### Fixed
+
+- Newly connected instance-based social accounts now resolve their provider adapters immediately across composer options, capability checks, publication validation, comments, and MCP instead of waiting for a server restart. This covers Lemmy, PeerTube, PieFed, Bluesky PDS, Mastodon, and Pixelfed accounts.
+- Instagram connection failures now explain when Meta returns no Business or Creator account linked to a Facebook Page the connecting person can manage.
+- Treat an Instagram professional account's own comments as ours when collecting engagement, so they are not stored as incoming inbox items.
+- Keep Quick Cut timeline scrubbing responsive by coalescing decoder seeks while moving the playhead immediately.
+- Preserve local Quick Cut project links across reloads and keep valid projects visible when another local project is unreadable.
+- Keep cloud image designs accessible when the local library cannot load.
+- Allow n8n package releases and recovery through the trusted publishing workflow without rebuilding or redeploying the app.
+- Video Editor browser checks now follow the explicit Quick Cut or full editor choice, so the new start flow can pass release validation.
+
+### Removed
+
+- Analytics and the engagement inbox only cover content published through OpenPost. Native provider history reads, the account-content discovery sweep, external analytics sources, and the analytics source filter are gone, along with their coverage warnings and provider read usage.
+
+## [6.0.1] - 2026-09-21
+
+### Fixed
+
+- Keep Image Editor workspace storage and device media import verification aligned with the current editor flow.
+
+## [5.2.2] - 2026-09-20
+
+### Changed
+
+- Moved the public documentation to `openpo.st/docs` and kept old documentation links working through direct redirects.
+- Replace the marketing Free tools card's decorative icons with direct links to the image editor, video editor, thread splitter, and character counter.
+- The free-tools directory now has search and categories for images, video, converters, and writing and planning.
+- Background removal preserves original image dimensions by applying the estimated mask to the original pixels. Device memory limits still apply.
+- Aligned the Image Editor, Video Editor, and Quick Cut headers, save status, history controls, and Export placement.
+- Made Quick Cut projects reload from their project URL and moved its editing and timeline controls into a compact toolbar.
+- Numeric multi-layer transforms preserve the arrangement of the selection instead of assigning identical coordinates to each layer.
+- Keep only the newest pending thumbnail render for each preview, without interrupting running work or mixing different preview instances.
+- Refine Image Editor pixel selections by growing, shrinking, or inverting them, load a layer's visible alpha as a binary selection, and draw precise click-by-click polygonal selections.
+- Put alignment controls in Transform and basic color adjustments before advanced controls, with selected images as the initial Color target.
+- Add page naming and named exports, clear eyedropper scope, brush-opacity reset, direct media sources, and Added/Done feedback.
+- Separate searchable workspace templates from starters and return cloud designs to the project browser.
+- Preserve proportions when resizing with Fit or Fill, with Keep size and explicit Stretch options.
+- The logo maker offers the full installed Lucide collection, loaded in batches as you scroll. Search matches Lucide names, aliases, tags, categories, and minor spelling mistakes.
+- Logo colors include opacity controls for outlines, fills, solid backgrounds, and gradient stops. PNG and SVG exports preserve transparency.
+
+### Added
+
+- Publish native `linux/amd64` and `linux/arm64` container images under one multi-architecture OpenPost tag.
+- Free browser tools for background removal, image colors and palettes, clipboard-image downloads, icon-based logos, and PNG/JPEG/WebP conversion. Image processing stays on the device, with no account or watermark. Supported conversion pairs have their own searchable pages and format guidance.
+- Quick Cut has its own free-tool page, separate from the full Video Editor.
+- Rasterize a layer or group, merge adjacent layers, or flatten a page into an image with one undo step. These commands bake the pixels inside the page and keep source media unchanged.
+- Prevent merges that would change backdrop-dependent blending, and reject completed renders when the design has changed.
+- Preview the encoded PNG, JPEG, or WebP output and exact byte count before exporting an Image Editor design.
+
+### Fixed
+
+- Prevented frontend CI health reports from fetching the repository's historical blobs.
+- Prevent duplicate Markdown response headers when serving documentation alongside the public website.
+- Keep dialog close buttons in their intended position when using the Dither theme, and fit the free-tools heading on narrow phones.
+- Link directly to canonical documentation Markdown files from the public agent guide.
+- Use the same ordered dither gradients across marketing, application controls, and documentation. Button hover and keyboard focus now lift pixel density, and chart fills keep square pixels at every height without changing values or series colors.
+- Saved URL imports, stock media, stickers, Lottie animations, captured frames, freeze frames, generated audio, and processed video to Cloud Video Projects without asking for a local workspace folder.
+- Kept preview menus usable in fullscreen, placed backgrounds below visual overlays, and exposed keyframe and Pen controls in compact workspaces.
+- Distinguished real shortcut conflicts from intentional per-surface bindings and showed every active Split shortcut consistently.
+- Waited for Kokoro pronunciation data before loading the speech model so its English voices initialize reliably.
+- Keep Export as the rightmost Video Editor header action, after the export queue, with a matching accessible label.
+- Fixed Video Editor render queue submissions from live projects and kept the Export dialog open with a recovery step when a render cannot be queued.
+- Keep the Video Editor timeline, preview, and selection synchronized when switching sequences or opening compounds.
+- Preserve Stock search state and in-progress Create audio work when moving between editor tools.
+- Collect nested Facebook Page comment replies into the engagement inbox, threaded under the comment they answer.
+- Explain when Facebook returns no manageable Pages instead of showing a generic provider setup error.
+- Reuse the previewed bytes for downloads, Media, and composer attachments, and stop full-resolution exports when source media is missing or unreadable.
+- Keep multi-layer alignment previews, crop rotation, curved text, lines, and centered page gradients in sync with saved Image Editor designs.
+- Render Diamond page backgrounds as diamond gradients in the canvas and exported images.
+- Image Editor layer outlines now follow text glyphs instead of the text box, update while typing, and disappear at zero width. Alpha-based outlines keep layer opacity separate from edge coverage.
+- Make Image Editor trackpad pinch zoom 2.5 times more responsive.
+- Keep imported Image Editor projects isolated from the previously open design, update the browser title after renaming, and open workspace templates without reloading.
+- Isolate guide keyboard actions from selected layers, open the background image picker directly, and keep unsaved-work warnings visible when cloud and local recovery fail.
+- Use readable background-removal progress and correct image-upload wording.
+- Collect Instagram comment replies into the engagement inbox, threaded under the comment they answer.
+- Collect nested LinkedIn comment replies into the engagement inbox, threaded under the comment they answer.
+- Reject release container artifacts with invalid digests or mismatched version and revision labels on either supported architecture.
+- Collect every YouTube comment-thread reply into the engagement inbox, not only the subset returned on commentThreads.list.
+
+## [5.1.2] - 2026-09-19
+
+### Fixed
+
+- Server-only releases no longer wait for an Android package that their candidate CI intentionally skips.
+
+## [5.1.0] - 2026-09-19
+
+### Added
+
+- Quick Cut now has a large preview, waveform timeline, focused editing panels, markers, and undo/redo. Choose Quick Cut or Video Editor when starting a video from the composer.
+- Edit Quick Cut videos by selecting transcript words to remove. Transcripts and markers save with the project without adding subtitles.
+- Both video editors can detect speech locally with Silero or find silence from audio levels without an AI model. Review suggested cuts and adjust pause length and padding before applying them.
+
+### Fixed
+
+- Videos sent from the composer now import into the selected editor. Silence analysis retains audible stereo channels and all selected Quick Cut audio tracks.
+- Exact merged exports trim encoded audio padding at each cut, preventing overlapping timestamps from stopping the export.
+
+## [5.0.0] - 2026-09-19
+
+### Improved
+
+- Video Color now focuses on one grading palette at a time, keeps the viewer usable on laptops, and lets you toggle scopes.
+- Video and Motion inspectors put selected content first and disclose advanced settings. Text styles can apply to existing text from the browser.
+- Image Editor tool variants are easier to find, expanded pages use the thumbnail strip, and tool options stay in one compact row instead of wrapping over the artwork. More actions keeps desktop commands available on narrow screens.
+
+### Fixed
+
+- Color edits respect locked tracks and keep their original targets when selection changes during a drag.
+- Hidden Color scopes stop sampling frames, while Auto Balance and color picking remain available.
+- Sequence grading opens its controls in an empty timeline and preserves the separate clip selection.
+- Image Editor tool families use one aligned button with an attached variant menu. Text controls appear before layer metadata, and phone Color controls keep the live canvas visible.
+- Image Editor header actions have clearer spacing around save status and Export.
+- Editor scope icons are centered, scope labels render once, and curve handles retain their shape as panels resize. Video Color palettes name the tool they add, and compact Video and Motion layouts preserve preview space, clip navigation, and transport actions.
+- Text, audio generation, export, and settings controls fit their panels without clipped labels or unreadably small editable values.
+- Documentation code samples keep complete syntax highlighting when builds run under load.
+
+### Changed
+
+- Reorganized the public docs into Guides, Self-hosting, AI assistants, Automate, Video Editor, Image Editor, and a separate generated API reference, with focused SDK, HTTP API, CLI, MCP, skills, and n8n guides.
+
+## [4.36.3] - 2026-09-19
+
+### Changed
+
+- Prepared Android 0.2.37 for the current OpenPost API contract.
+
+## [4.36.2] - 2026-09-19
+
+### Changed
+
+- Prepared Android 0.2.36 for the current OpenPost API contract.
+
+## [4.36.1] - 2026-09-19
+
+### Fixed
+
+- Fixed release validation for the new Meta analytics and TikTok reconciliation paths.
+
+## [4.36.0] - 2026-09-19
+
+### Fixed
+
+- Updated the archive reader used by local AI models to remove a decompression denial-of-service vulnerability.
+- Lemmy, PieFed, and PeerTube accounts with more than 250 posts or videos in the last 90 days finish their initial content discovery. The last page before the 250-item limit was rejected as oversized, so discovery failed on the same page every hour and never reached routine cycles.
+- New comments on busy Facebook posts reach the engagement inbox. Comments were read oldest first from a single page, so once a post had more comments than fit on one page, every later comment was left out.
+- Fixed Facebook and Instagram connect failing with `Invalid Scopes: pages_read_user_content`. Facebook and Instagram OAuth now request Meta's dependency permissions `pages_read_user_content` and `pages_manage_metadata` alongside comment and messaging scopes, and the Meta app setup guides list them.
+- PeerTube accounts with more than 15 channels can connect and publish to every channel; the channel list now reads every page instead of stopping at PeerTube's default page of 15.
+- PeerTube videos with more than 100 comment threads bring every thread into the inbox; older threads, and new replies on them, are no longer dropped after the first page.
+- PeerTube account content discovery finishes its cycle and picks up new videos again. It used to get stuck repeating the same page once a channel had a video older than the discovery window, spending the daily read budget on that page and never finding newer uploads.
+- Fixed Facebook video Stories and Reels failing when Meta had not finished fetching the video. OpenPost now uses Meta's hosted-file upload session, validates the credential-bearing upload host, keeps polling the accepted upload through temporary failures, and finishes only after the upload completes.
+- Fixed provider network errors retaining credential-bearing request URLs in stored or logged error text.
+- Fixed Threads posts with accents, curly punctuation, or emoji passing OpenPost's character check and then exceeding Meta's UTF-8 byte limit.
+- Fixed Facebook analytics using feed-post fields for Stories, Reels, and video posts. OpenPost now requests the metric family supported by each Graph object type.
+- Replies to replies on Threads posts reach the engagement inbox, threaded under the reply they answer. Only top-level replies were collected before, so a follower answering the account's own reply never showed up.
+- Reconcile public TikTok videos when publishing completes without a public post ID, while keeping ambiguous matches pending instead of republishing or saving a broken link.
+
+### Changed
+
+- Photo and video editors use compact workstation-density controls: smaller inspector rows, icon-first toolbars with tooltips, tighter browsers, pickers, dialogs, and canvas handles. Theme colors and behavior are unchanged.
+- Video inspector sections collapse with value summaries; the audio mixer no longer duplicates the clip EQ panel.
+- Transition and effect catalogs open as picker popovers instead of inline scrolling grids.
+- Image editor canvas bars collapse into one tool-options strip with a zoom and position status readout.
+- Timeline scrolling skips recompute and subscription churn when scroll geometry is unchanged.
+- Slider rows land the thumb where clicked with anchor-pixel scrub math behind one commit model.
+- Transcript cue list collapses into a value-reporting disclosure with a selected-cue editor.
+- Asset panel and page strip gain overlay and status modes for follow-up shell wiring.
+- MCP lists every operation as its own tool by default; set `OPENPOST_MCP_MODE=search` to keep the previous search-first flow (`both` combines them, search tool names unchanged).
+
+### Added
+
+- The image and video editor guides are now illustrated with captured product screenshots that refresh automatically when the UI drifts.
+- Added a full default MCP endpoint, a compact code-mode endpoint, secure local-file uploads, and RFC 9207 OAuth issuer metadata.
+- Track whether each Publication was created through the web app, API, TypeScript SDK, MCP, CLI, or an automatic posting flow.
+
+## [4.35.3] - 2026-09-18
+
+### Fixed
+
+- Made release promotion tolerant of the parallel Android job uploading the APK early: the core asset check now only rejects files outside the full expected set.
+
+## [4.35.2] - 2026-09-18
+
+### Fixed
+
+- Pinned `devalue` to 5.9.2 to clear the Security audit advisory and aligned Expo mobile packages with the installed SDK, fixing the Android candidate check.
+- Pointed the npm CLI wrapper at the current release tag so first-time installs download checksum-verified binaries.
+
+## [4.35.1] - 2026-09-18
+
+### Added
+
+- Added the official TypeScript SDK (`@getopenpost/sdk`): token-auth publications with per-account renditions, media session uploads, accounts and Social Sets reads, and job plus publication waiters with typed errors.
+- Added the npm CLI wrapper (`@getopenpost/cli`): the `openpost` and `openpost-mcp` commands install verified prebuilt binaries from the GitHub release with SHA-256 checksum enforcement.
+- Release binaries for the CLI and MCP proxy now ship detached `.sha256` checksums alongside every platform asset.
+
+### Fixed
+
+- The PeerTube category and licence pickers in the composer list the instance's catalogs again instead of coming back empty.
+- PieFed replies now show whether the connected account already liked them, so the inbox offers Unlike instead of Like on replies the account upvoted.
+
+## [4.35.0] - 2026-09-17
+
+### Fixed
+
+- The instance Discord bot now rotates its presence through all four activities every few seconds instead of sitting on one for half an hour.
+- Searching for a PieFed community when choosing a post destination now returns communities that match the search, instead of the same list of active communities whatever was typed.
+- Analytics for PieFed posts no longer fails when reading a post's votes and comment count: the post is now requested by the `id` parameter PieFed expects.
+- The inbox now collects replies to comments on PieFed posts, not only the comments made directly on the post.
+- Replies that a moderator removed from a PieFed post no longer show up in the inbox as blank comments or trigger new-engagement notifications.
+- Deleting your own reply to a PieFed post no longer fails: the request now tells PieFed to delete the reply, which it requires.
+
+### Added
+
+- Connect Telegram channels and groups through an instance-owned bot: post a one-time command inside the chat, then schedule text and media messages from OpenPost.
+- Drag video-editor sidebar content straight onto the timeline: backgrounds, stickers, stock assets, and Lottie animations now land on the hovered track at the drop frame with a live placement preview, and saved AI voice and music previews drag out as audio clips.
+
+## [4.34.2] - 2026-09-16
+
+### Fixed
+
+- Release announcements now fire on publication itself, so a skipped or retried pipeline step can no longer drop the Discord announcement.
+- Server-only releases publish without waiting on the skipped Android packaging job.
+
+## [4.34.1] - 2026-09-16
+
+### Changed
+
+- Show the live OpenPost GitHub star count beside the wordmark on the public landing navigation.
+
+### Fixed
+
+- Analytics for Lemmy and PieFed accounts now lists only posts the connected account wrote, instead of other people's posts from the instance feed.
+- Lemmy and PieFed image posts no longer fail at the image upload step: Lemmy uploads go to the instance's image endpoint, and PieFed uploads send the image under the field name PieFed expects.
+- Discover only the connected account's own Lemmy and PieFed posts, and upload their images where each server accepts them.
+- Accept maximum-lifetime API tokens within five minutes of client clock skew instead of rejecting them at creation.
+- Coalesce editor ResizeObserver callbacks into one frame and skip unchanged sizes to stop layout loops.
+- Treat blocked OPFS storage as unavailable before the video editor loads, with actionable export errors.
+- Recover video-editor handle-database reads from stale IndexedDB transactions instead of filing errors.
+- Drop benign ResizeObserver and contentless script-error noise from telemetry while preserving console output.
+- Keep the GitHub star link out of the authenticated application sidebar and allow the hosted marketing site to read the cached public count.
+- Release candidates now prove the full core product on their own tag instead of inheriting proof from a path-filtered main run.
+- Server-only releases keep the released Android identity and publish without waiting for Android packaging; mobile releases still require a monotonic identity advance.
+- Release preparation validates changelog and contract inputs before touching files, stages only the changelog and its fragments, and no longer captures screenshots, runs broad browser suites, or waits for main CI.
+- A broken production no longer blocks shipping its fix; readiness gates deployment health instead.
+- Generated-contract checks restore the working tree before reporting, and provider-claim derivation survives import and variable renames.
+
+## [4.34.0] - 2026-09-15
+
+### Fixed
+
+- API token copying now falls back when browser clipboard permission is denied and leaves a selectable token with clear recovery instructions.
+- Workspace image settings now open device upload first, confirm a completed upload, and keep the final workspace save explicit.
+- Prevent the video editor from opening in browsers that lack its required filesystem, storage, or media APIs, and explain how to recover from blocked Brave filesystem access.
+- Keep project creation working when a browser exposes Web Crypto without `crypto.randomUUID`.
+- Keep the composer publishing warning hidden while pasted media is uploading, and align a lone required destination selector with its label.
+- Keep URLs in post text when publishing media to X, Threads, Mastodon, and LinkedIn.
+- Remove stale native link settings from existing media publications during readiness checks and publishing.
+- Verify that ordinary URLs in body text remain supported alongside media, using the provider's text-plus-media APIs for [X](https://docs.x.com/x-api/posts/create-post), [Threads](https://www.postman.com/meta/threads/documentation/dht3nzz/threads-api), [Mastodon](https://docs.joinmastodon.org/methods/statuses/), and [LinkedIn](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/multiimage-post-api?view=li-lms-2026-08). Native link cards and articles remain format-specific.
+- Keep the MCP authorization action locked until its callback redirect starts, so repeated clicks cannot consume a second one-time authorization code or show a failure after the connection already succeeded.
+
+### Added
+
+- Keep configured Discord bot accounts connected and online through the worker Gateway.
+- Rotate a truthful bot presence, with optional Twitch or YouTube streaming mode.
+- Add the live OpenPost GitHub star count beside the authenticated app logo, linking to the repository.
+
+### Changed
+
+- Move Publications and Media into the sidebar's More menu, keeping the primary navigation focused on Inbox and Analytics.
+
+## [4.33.0] - 2026-09-15
+
+### Fixed
+
+- Lemmy replies keep their posted and edited times and show whether the connected account already liked them, and Lemmy account content discovery no longer drops every post.
+- Lemmy community search now lists communities, and published Lemmy posts keep the community's host in their destination reference.
+- PeerTube engagement now collects each comment's text, author, and replies instead of storing empty comments.
+
+### Added
+
+- Send Paddle customer, subscription, trial, cancellation, payment, and payment-failure events to a configured Discord webhook as embeds with user identity, email, plan, status, amount, and profile avatar when available.
+
+## [4.32.1] - 2026-09-15
+
+### Fixed
+
+- MCP OAuth responses preserve both `mcp:read` and `mcp:full` when a client requests both, while the issued token keeps full-access enforcement.
+- Discord bot analytics no longer inherits the publishing certification gate, so configured bot accounts can reach normal analytics readiness.
+- Mobile browser pairing now continues into the app after approval instead of starting a replacement pairing code when the authenticated session refreshes the navigation tree.
 - Video Editor preview frames no longer dispose a media input while an asynchronous decoder read is still using it.
 - Discord bot readiness follows the configured account and evidence policy instead of adding a production-only certification blocker.
 - A single required destination field sits in the right column on wide composer layouts, while mobile keeps the field full width.

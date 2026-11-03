@@ -4,12 +4,23 @@ This page is for contributors changing hosted billing, entitlements, or usage ac
 
 Hosted service billing uses saved plan limits and durable usage counters. The backend does not call Paddle on normal API requests.
 
+## Temporary Hosted waitlist
+
+Cloud defaults to `OPENPOST_HOSTED_WAITLIST_ENABLED=true`. `/register` collects only an email while social platform approvals are pending. Self-hosted instances ignore this setting. Existing users can sign in; password registration and OIDC account provisioning are closed, including an OIDC callback started before the waitlist was enabled. Existing unverified accounts can still verify their email.
+
+`POST /api/v1/auth/waitlist` normalizes and deduplicates addresses in `hosted_waitlist_entries`. It creates no account, verification email, session, or billing record. The email and creation time are committed with a `waitlist_notification` job. The worker sends the email to `OPENPOST_BILLING_DISCORD_WEBHOOK_URL`, the same destination used for payment events, with Discord mentions disabled. Configure that secret on workers as well as web processes. Failed deliveries retry up to ten times; emails remain saved if all attempts fail. A delivery interrupted after Discord accepts it can appear twice.
+
+Apply migration 147 before starting web and worker roles. To reopen registration, set `OPENPOST_HOSTED_WAITLIST_ENABLED=false` on all roles and restart them. This restores the plan selection and verification flow without deleting waitlist entries. Pending notifications continue to run after reopening. The temporary waitlist has no launch-mail sender or admin UI; use the stored list for the later launch announcement.
+
+For manual recovery after fixing the webhook configuration, select failed `waitlist_notification` jobs in the database and reset their status to `pending`, attempts to `0`, and `run_at` to the current time. Sent entries are skipped using `notified_at`. Delete an entry by its normalized email if someone asks to leave the list; a queued notification for a deleted entry is skipped.
+
 ## Current pieces
 
 - `packages/plan-catalog/src/catalog.json`: the versioned source for hosted plan names, monthly and annual USD list prices, limits, trial length, card requirement, and amount due when the trial starts. Frontend and marketing code read it directly; `scripts/plan-catalog.mjs` generates the Go projection and checks for drift.
 - `POST /api/v1/billing/purchase-choice`: creates or revalidates a signed 24-hour continuation for one canonical plan and billing period. The response carries the exact catalogue version, list price, trial, card, due-today, and expiry facts shown during signup.
 - Hosted password and explicit identity-provider signup require that purchase choice. Password signup carries it through email verification; identity-provider signup validates it before redirecting and rebuilds the stored onboarding return path from the verified claims. Missing, invalid, expired, or mismatched choices fail closed and require a new pricing selection.
 - `POST /api/v1/billing/welcome`: confirms the first Workspace name and exact signed purchase choice. It creates the Organization, Workspace, Owner memberships, and bound checkout attempt in one transaction. An exact retry returns the same attempt; a replay with different Workspace, plan, period, or return path fails closed.
+- PostgreSQL serializes first-Workspace confirmations by user before reading the checkout attempt or membership state. Different confirmation keys for one user cannot create separate first Workspaces.
 - `GET /api/v1/billing/checkout/{attempt_id}`: resumes the browser-safe checkout configuration for the authenticated user who created the attempt. It never creates another Workspace or checkout attempt.
 - `GET /api/v1/workspaces/{id}/setup`: projects the current user's applicable setup guidance from the Workspace name, hosted subscription, active destinations, and scheduled or submitted Publications. It stores no separate onboarding state. Organization Owners receive the complete applicable journey; Organization administrators receive authorized billing guidance; Workspace administrators and editors receive only destination and Publication actions they may perform; viewers receive no setup steps or actions; self-hosted deployments receive no Hosted service plan or checkout steps. The composer and Settings surfaces re-read this projection after refresh and return flows.
 - `entitlements.Service`: evaluates plan limits and keeps self-hosted defaults unlimited.
@@ -29,7 +40,7 @@ Hosted service billing uses saved plan limits and durable usage counters. The ba
 - Workspace invitation creation checks `team_members` before issuing a link. The check counts active members plus non-expired pending invitations so a plan cannot over-reserve seats.
 - Media uploads check `media_bytes_uploaded_monthly` and `media_bytes_stored`; successful new uploads increment monthly uploaded-byte usage.
 - Scheduled single posts and threads check `scheduled_posts_monthly` before inserting posts or jobs; successful scheduled creates increment monthly scheduled-post usage.
-- The publishing worker checks `published_posts_monthly` and `provider_write_calls_monthly` before publishing. It records provider write attempts when a provider request is sent and records published posts only after the provider returns success.
+- The publishing worker admits `provider_write_calls_monthly` through an atomic counter update before dispatch. Finite `published_posts_monthly` limits reserve one unit per logical provider write in `monthly_usage_reservations`, atomically with dispatch admission. Acceptance commits the unit; a definite failure returns it. Pending and ambiguous writes retain their unit, and retries and reconciliation reuse the original receipt. These finite counters include unresolved reservations. Unlimited publishing records successful posts after provider acceptance.
 - When cloud mode has X configured, the publisher creates a durable cost reservation before each X post-create request. It classifies posts with and without URLs using operator-configured prices, then atomically checks confirmed cost plus reservations against a per-workspace monthly safety limit.
 - A confirmed provider success turns the reservation into an immutable estimated-cost event. A definite provider error releases it. A network, timeout, response-decoding, or other ambiguous result remains reserved without being reported as confirmed billed cost.
 - `provider_usage_period_counters` keeps reconciled UTC-month confirmed and reserved totals for fast workspace-visible reads. Startup reconciliation rebuilds the open month from immutable events and active reservations; bounded pruning never removes open-month events or reservations.
@@ -43,13 +54,19 @@ The X guardrail is active only when both conditions are true:
 1. `OPENPOST_EDITION=cloud`
 2. An X adapter is configured
 
-Each reservation and confirmed event uses a hashed idempotency key derived from the workspace, durable job execution, subject, and request phase. Both store the provider, priced operation, units, unit price, estimated cost, and UTC occurrence time. They do not store post text, provider tokens, or provider response bodies.
+Publication reservations use a hashed key derived from the workspace, durable job execution, subject, and request phase. Analytics reservations use a fresh request key after checking the stored daily cadence.
 
-The default per-workspace budget is $5.00 per UTC month. A request that would make confirmed cost plus reservations exceed the budget is rejected before the provider call. `0` blocks all hosted X publishing. Prices and budgets use millionths of a US dollar so calculations stay integer-only:
+Tagged-user resolution reserves the X user-read cost before looking up deduplicated, uncached handles. Cached handles and numeric IDs do not trigger reads. Lookups use the same user-read price as analytics. Partial or ambiguous responses keep the reservation as unresolved exposure.
+
+All reservations store the provider, priced operation, units, unit price, estimated cost, and UTC occurrence time. They do not store post text, provider tokens, or provider response bodies.
+
+The default per-workspace budget is $5.00 per UTC month. A request that would make confirmed cost plus reservations exceed the budget is rejected before the provider call. `0` blocks all hosted X publishing and analytics reads. Prices and budgets use millionths of a US dollar so calculations stay integer-only:
 
 - `OPENPOST_X_MONTHLY_BUDGET_MICROUSD=5000000`
 - `OPENPOST_X_POST_CREATE_COST_MICROUSD=15000`
 - `OPENPOST_X_POST_CREATE_WITH_URL_COST_MICROUSD=200000`
+
+Analytics estimates use $0.005 per requested post and $0.010 per requested user, reviewed against the [X pricing catalogue](https://docs.x.com/x-api/getting-started/pricing) on October 10, 2026. The estimate does not assume the app-owner discount or best-effort UTC-day deduplication. Account and post reads use a daily cadence, including manual refresh. Posts stop routine collection after seven days. Partial responses and transport failures retain the full reservation as unresolved exposure. Permission, readiness and feature gates run before reservation and provider I/O.
 
 Review these prices when X changes its pay-per-use catalog. OpenPost exposes confirmed cost estimates and unresolved reserved exposure under **Settings → Organization → Plan & usage**. Reserved exposure protects the safety limit after an ambiguous result, but it is not presented as billed cost. X pricing and the X Developer Console remain authoritative.
 

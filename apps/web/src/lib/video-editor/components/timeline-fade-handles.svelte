@@ -1,3 +1,73 @@
+<script module lang="ts">
+	/**
+	 * Pure keyboard map for fade duration handles so the WAI-ARIA slider
+	 * contract (arrows one frame / ten with shift, PageUp/PageDown one second,
+	 * Home/End no-fade / max-fade) is unit-testable without the timeline store.
+	 * Returns null for unhandled keys so the caller can ignore them without
+	 * side effects. Clamping stays with commitFade.
+	 */
+	export function nextFadeKeyboardSeconds(
+		currentSeconds: number,
+		key: string,
+		shiftKey: boolean,
+		fps: number,
+		maxSeconds: number,
+		handle: 'in' | 'out'
+	): number | null {
+		const stepFrames = shiftKey ? 10 : 1;
+		const stepSeconds = fps > 0 ? stepFrames / fps : 0.033;
+		const pageSeconds = fps > 0 ? 1 : stepSeconds * 10;
+		// Fade-in grows to the right, fade-out to the left: one sign keeps the
+		// ArrowLeft/ArrowRight branches free of nested conditionals.
+		const lateralSign = handle === 'in' ? 1 : -1;
+		switch (key) {
+			case 'ArrowLeft':
+				return currentSeconds - lateralSign * stepSeconds;
+			case 'ArrowRight':
+				return currentSeconds + lateralSign * stepSeconds;
+			case 'ArrowUp':
+				return currentSeconds + stepSeconds;
+			case 'ArrowDown':
+				return currentSeconds - stepSeconds;
+			case 'PageUp':
+				return currentSeconds + pageSeconds;
+			case 'PageDown':
+				return currentSeconds - pageSeconds;
+			case 'Home':
+				return 0;
+			case 'End':
+				return Math.max(0, maxSeconds);
+			default:
+				return null;
+		}
+	}
+
+	/**
+	 * Pure keyboard map for audio fade curve dots. Arrows nudge curve/bias,
+	 * PageUp/PageDown move ten arrow steps, Home resets, End pins to full.
+	 * Returns null for unhandled keys. Clamping stays with commitCurve.
+	 */
+	export function nextCurveKeyboard(
+		curve: number,
+		curveX: number,
+		key: string,
+		shiftKey: boolean,
+		defaultCurveX: number
+	): { curve: number; curveX: number } | null {
+		const curveStep = shiftKey ? 0.1 : 0.05;
+		const biasStep = shiftKey ? 0.04 : 0.02;
+		if (key === 'ArrowLeft') return { curve, curveX: curveX - biasStep };
+		if (key === 'ArrowRight') return { curve, curveX: curveX + biasStep };
+		if (key === 'ArrowUp') return { curve: curve + curveStep, curveX };
+		if (key === 'ArrowDown') return { curve: curve - curveStep, curveX };
+		if (key === 'PageUp') return { curve: curve + curveStep * 10, curveX };
+		if (key === 'PageDown') return { curve: curve - curveStep * 10, curveX };
+		if (key === 'Home') return { curve: 0, curveX: defaultCurveX };
+		if (key === 'End') return { curve: 1, curveX: 0.96 };
+		return null;
+	}
+</script>
+
 <script lang="ts">
 	import { onDestroy } from 'svelte';
 	import { m } from '$lib/paraglide/messages';
@@ -52,6 +122,8 @@
 	let fadeDrag: {
 		handle: FadeHandle;
 		pointerId: number;
+		startClientX: number;
+		committed: boolean;
 		beforeSnapshot: ReturnType<typeof captureSnapshot>;
 		beforeItem: TimelineItem;
 		target: HTMLElement;
@@ -96,8 +168,20 @@
 		liveItem.type === 'video' || liveItem.type === 'composition' ? (liveItem.fadeOut ?? 0) : 0
 	);
 
-	const fadeIn = $derived(isAudio ? audioFadeIn : visualFadeIn);
-	const fadeOut = $derived(isAudio ? audioFadeOut : visualFadeOut);
+	const fadeIn = $derived(
+		Math.max(
+			0,
+			(isAudio ? audioFadeIn : visualFadeIn) -
+				(isAudio ? (liveItem.audioFadeOffsets?.in ?? 0) : (liveItem.videoFadeOffsets?.in ?? 0))
+		)
+	);
+	const fadeOut = $derived(
+		Math.max(
+			0,
+			(isAudio ? audioFadeOut : visualFadeOut) -
+				(isAudio ? (liveItem.audioFadeOffsets?.out ?? 0) : (liveItem.videoFadeOffsets?.out ?? 0))
+		)
+	);
 
 	const fadeInRatio = $derived(fadeRatio(fadeIn, fps, duration));
 	const fadeOutRatio = $derived(fadeRatio(fadeOut, fps, duration));
@@ -117,6 +201,12 @@
 		isAudio
 			? getAudioFadeCurvePath({
 					handle: 'in',
+					progressStart: audioFadeIn > 0 ? (liveItem.audioFadeOffsets?.in ?? 0) / audioFadeIn : 0,
+					progressEnd:
+						audioFadeIn > 0
+							? Math.min(1, ((liveItem.audioFadeOffsets?.in ?? 0) + duration / fps) / audioFadeIn)
+							: 1,
+
 					fadePixels: audioFadeInViewboxWidth,
 					clipWidthPixels: FADE_VIEWBOX_WIDTH,
 					curve: audioFadeInCurve,
@@ -128,6 +218,16 @@
 		isAudio
 			? getAudioFadeCurvePath({
 					handle: 'out',
+					progressStart:
+						audioFadeOut > 0
+							? Math.max(
+									0,
+									1 - ((liveItem.audioFadeOffsets?.out ?? 0) + duration / fps) / audioFadeOut
+								)
+							: 0,
+					progressEnd:
+						audioFadeOut > 0 ? 1 - (liveItem.audioFadeOffsets?.out ?? 0) / audioFadeOut : 1,
+
 					fadePixels: audioFadeOutViewboxWidth,
 					clipWidthPixels: FADE_VIEWBOX_WIDTH,
 					curve: audioFadeOutCurve,
@@ -139,6 +239,12 @@
 		isVisual
 			? getAudioFadeCurvePath({
 					handle: 'in',
+					progressStart: visualFadeIn > 0 ? (liveItem.videoFadeOffsets?.in ?? 0) / visualFadeIn : 0,
+					progressEnd:
+						visualFadeIn > 0
+							? Math.min(1, ((liveItem.videoFadeOffsets?.in ?? 0) + duration / fps) / visualFadeIn)
+							: 1,
+
 					fadePixels: videoFadeInViewboxWidth,
 					clipWidthPixels: FADE_VIEWBOX_WIDTH,
 					curve: 0,
@@ -150,6 +256,16 @@
 		isVisual
 			? getAudioFadeCurvePath({
 					handle: 'out',
+					progressStart:
+						visualFadeOut > 0
+							? Math.max(
+									0,
+									1 - ((liveItem.videoFadeOffsets?.out ?? 0) + duration / fps) / visualFadeOut
+								)
+							: 0,
+					progressEnd:
+						visualFadeOut > 0 ? 1 - (liveItem.videoFadeOffsets?.out ?? 0) / visualFadeOut : 1,
+
 					fadePixels: videoFadeOutViewboxWidth,
 					clipWidthPixels: FADE_VIEWBOX_WIDTH,
 					curve: 0,
@@ -165,7 +281,12 @@
 					fadePixels: audioFadeInViewboxWidth,
 					clipWidthPixels: FADE_VIEWBOX_WIDTH,
 					curve: audioFadeInCurve,
-					curveX: audioFadeInCurveX
+					curveX: audioFadeInCurveX,
+					progressStart: audioFadeIn > 0 ? (liveItem.audioFadeOffsets?.in ?? 0) / audioFadeIn : 0,
+					progressEnd:
+						audioFadeIn > 0
+							? Math.min(1, ((liveItem.audioFadeOffsets?.in ?? 0) + duration / fps) / audioFadeIn)
+							: 1
 				})
 			: null
 	);
@@ -176,26 +297,28 @@
 					fadePixels: audioFadeOutViewboxWidth,
 					clipWidthPixels: FADE_VIEWBOX_WIDTH,
 					curve: audioFadeOutCurve,
-					curveX: audioFadeOutCurveX
+					curveX: audioFadeOutCurveX,
+					progressStart:
+						audioFadeOut > 0
+							? Math.max(
+									0,
+									1 - ((liveItem.audioFadeOffsets?.out ?? 0) + duration / fps) / audioFadeOut
+								)
+							: 0,
+					progressEnd:
+						audioFadeOut > 0 ? 1 - (liveItem.audioFadeOffsets?.out ?? 0) / audioFadeOut : 1
 				})
 			: null
 	);
 
-	const canInteract = $derived(!trackLocked && activeEditTool === null);
+	const canInteract = $derived(selected && !trackLocked && activeEditTool === null);
 	const isAnyEditing = $derived(editing !== null || curveEditing !== null);
-	const handleVisibilityClass = $derived(
-		editing !== null || curveEditing !== null || selected
-			? 'opacity-100'
-			: 'opacity-0 group-hover/timeline-item:opacity-100'
-	);
 	const densityVisibilityClass = $derived(
 		isAnyEditing
 			? 'opacity-100'
 			: 'opacity-0 @min-[44px]:opacity-40 @min-[64px]:opacity-100 group-focus-within/timeline-item:opacity-100'
 	);
-	const densityPointerClass = $derived(
-		isAnyEditing ? 'pointer-events-auto' : 'pointer-events-none @min-[44px]:pointer-events-auto'
-	);
+	const densityPointerClass = $derived(canInteract ? 'pointer-events-auto' : 'pointer-events-none');
 
 	const keyboardHelp = $derived(m.video_editor_fade_handle_keyboard());
 	const curveKeyboardHelpId = $derived(
@@ -284,7 +407,10 @@
 	}
 
 	function restoreFade(handle: FadeHandle, beforeItem: TimelineItem): void {
-		const patch: Partial<TimelineItem> = {};
+		const patch: Partial<TimelineItem> = {
+			audioFadeOffsets: beforeItem.audioFadeOffsets,
+			videoFadeOffsets: beforeItem.videoFadeOffsets
+		};
 		if (isAudio) {
 			if (handle === 'in') patch.audioFadeIn = beforeItem.audioFadeIn;
 			else patch.audioFadeOut = beforeItem.audioFadeOut;
@@ -297,6 +423,10 @@
 
 	function onFadePointerMove(event: PointerEvent): void {
 		if (!fadeDrag || event.pointerId !== fadeDrag.pointerId) return;
+		if (!fadeDrag.committed) {
+			if (Math.abs(event.clientX - fadeDrag.startClientX) <= FADE_DRAG_THRESHOLD_PIXELS) return;
+			fadeDrag.committed = true;
+		}
 		const next = computeFadeSeconds(event.clientX, fadeDrag.handle);
 		commitFade(fadeDrag.handle, next);
 	}
@@ -326,6 +456,10 @@
 
 	function onFadePointerUp(event: PointerEvent): void {
 		if (!fadeDrag || event.pointerId !== fadeDrag.pointerId) return;
+		if (!fadeDrag.committed) {
+			cleanupFadeDrag();
+			return;
+		}
 		const next = computeFadeSeconds(event.clientX, fadeDrag.handle);
 		commitFade(fadeDrag.handle, next);
 		finishFadeDrag(false);
@@ -361,6 +495,8 @@
 		fadeDrag = {
 			handle,
 			pointerId: event.pointerId,
+			startClientX: event.clientX,
+			committed: false,
 			beforeSnapshot: before,
 			beforeItem: { ...beforeItem },
 			target
@@ -377,8 +513,6 @@
 		window.addEventListener('pointerup', onFadePointerUp);
 		window.addEventListener('pointercancel', onFadePointerCancel);
 		window.addEventListener('keydown', onFadeKeyEscape);
-		const next = computeFadeSeconds(event.clientX, handle);
-		commitFade(handle, next);
 	}
 
 	function commitCurve(handle: FadeHandle, curve: number, curveX: number): void {
@@ -408,7 +542,26 @@
 			pointerOffsetY: clientY - rect.top,
 			fadePixels,
 			clipWidthPixels: rect.width,
-			rowHeight: rect.height
+			rowHeight: rect.height,
+			progressStart:
+				handle === 'in'
+					? audioFadeIn > 0
+						? (liveItem.audioFadeOffsets?.in ?? 0) / audioFadeIn
+						: 0
+					: audioFadeOut > 0
+						? Math.max(
+								0,
+								1 - ((liveItem.audioFadeOffsets?.out ?? 0) + duration / fps) / audioFadeOut
+							)
+						: 0,
+			progressEnd:
+				handle === 'in'
+					? audioFadeIn > 0
+						? Math.min(1, ((liveItem.audioFadeOffsets?.in ?? 0) + duration / fps) / audioFadeIn)
+						: 1
+					: audioFadeOut > 0
+						? 1 - (liveItem.audioFadeOffsets?.out ?? 0) / audioFadeOut
+						: 1
 		});
 	}
 
@@ -431,7 +584,7 @@
 	}
 
 	function restoreCurve(handle: FadeHandle, beforeItem: TimelineItem): void {
-		const patch: Partial<TimelineItem> = {};
+		const patch: Partial<TimelineItem> = { audioFadeOffsets: beforeItem.audioFadeOffsets };
 		if (handle === 'in') {
 			patch.audioFadeInCurve = beforeItem.audioFadeInCurve;
 			patch.audioFadeInCurveX = beforeItem.audioFadeInCurveX;
@@ -525,39 +678,13 @@
 
 	function adjustFadeWithKeyboard(event: KeyboardEvent, handle: FadeHandle): void {
 		if (!canInteract) return;
-		const stepFrames = event.shiftKey ? 10 : 1;
-		const stepSeconds = fps > 0 ? stepFrames / fps : 0.033;
-		let delta = 0;
-		if (event.key === 'ArrowLeft') delta = handle === 'in' ? -stepSeconds : stepSeconds;
-		else if (event.key === 'ArrowRight') delta = handle === 'in' ? stepSeconds : -stepSeconds;
-		else if (event.key === 'ArrowUp') delta = stepSeconds;
-		else if (event.key === 'ArrowDown') delta = -stepSeconds;
-		else if (event.key === 'Home') {
-			event.preventDefault();
-			const before = captureSnapshot();
-			commitFade(handle, 0);
-			const after = captureSnapshot();
-			if (!snapshotsEqual(before, after)) {
-				commandHistory.addUndoEntry({ type: 'UPDATE_FADE_KEYBOARD' }, before);
-				onedit();
-			}
-			return;
-		} else if (event.key === 'End') {
-			event.preventDefault();
-			const before = captureSnapshot();
-			const max = duration > 0 && fps > 0 ? duration / fps : 5;
-			commitFade(handle, Math.max(0, max));
-			const after = captureSnapshot();
-			if (!snapshotsEqual(before, after)) {
-				commandHistory.addUndoEntry({ type: 'UPDATE_FADE_KEYBOARD' }, before);
-				onedit();
-			}
-			return;
-		} else return;
+		const current = handle === 'in' ? fadeIn : fadeOut;
+		const max = duration > 0 && fps > 0 ? duration / fps : 5;
+		const next = nextFadeKeyboardSeconds(current, event.key, event.shiftKey, fps, max, handle);
+		if (next === null) return;
 		event.preventDefault();
 		const before = captureSnapshot();
-		const current = handle === 'in' ? fadeIn : fadeOut;
-		commitFade(handle, current + delta);
+		commitFade(handle, next);
 		const after = captureSnapshot();
 		if (!snapshotsEqual(before, after)) {
 			commandHistory.addUndoEntry({ type: 'UPDATE_FADE_KEYBOARD' }, before);
@@ -569,38 +696,17 @@
 		if (!canInteract) return;
 		const rawCurve = handle === 'in' ? audioFadeInCurve : audioFadeOutCurve;
 		const rawX = handle === 'in' ? audioFadeInCurveX : audioFadeOutCurveX;
-		let nextCurve = rawCurve;
-		let nextX = rawX;
-		const curveStep = event.shiftKey ? 0.1 : 0.05;
-		const biasStep = event.shiftKey ? 0.04 : 0.02;
-		if (event.key === 'ArrowLeft') nextX -= biasStep;
-		else if (event.key === 'ArrowRight') nextX += biasStep;
-		else if (event.key === 'ArrowUp') nextCurve += curveStep;
-		else if (event.key === 'ArrowDown') nextCurve -= curveStep;
-		else if (event.key === 'Home') {
-			event.preventDefault();
-			const before = captureSnapshot();
-			commitCurve(handle, 0, AUDIO_FADE_CURVE_X_DEFAULT);
-			const after = captureSnapshot();
-			if (!snapshotsEqual(before, after)) {
-				commandHistory.addUndoEntry({ type: 'UPDATE_AUDIO_FADE_CURVE_KEYBOARD' }, before);
-				onedit();
-			}
-			return;
-		} else if (event.key === 'End') {
-			event.preventDefault();
-			const before = captureSnapshot();
-			commitCurve(handle, 1, 0.96);
-			const after = captureSnapshot();
-			if (!snapshotsEqual(before, after)) {
-				commandHistory.addUndoEntry({ type: 'UPDATE_AUDIO_FADE_CURVE_KEYBOARD' }, before);
-				onedit();
-			}
-			return;
-		} else return;
+		const next = nextCurveKeyboard(
+			rawCurve,
+			rawX,
+			event.key,
+			event.shiftKey,
+			AUDIO_FADE_CURVE_X_DEFAULT
+		);
+		if (!next) return;
 		event.preventDefault();
 		const before = captureSnapshot();
-		commitCurve(handle, nextCurve, nextX);
+		commitCurve(handle, next.curve, next.curveX);
 		const after = captureSnapshot();
 		if (!snapshotsEqual(before, after)) {
 			commandHistory.addUndoEntry({ type: 'UPDATE_AUDIO_FADE_CURVE_KEYBOARD' }, before);
@@ -658,6 +764,9 @@
 	});
 
 	const handleTop = '-2px';
+	// Dead zone before a fade press becomes a fade drag (Kdenlive pattern): a press
+	// that never travels stays a no-op instead of stamping a fade under the cursor.
+	const FADE_DRAG_THRESHOLD_PIXELS = 4;
 </script>
 
 {#if isAudio || isVisual}
@@ -700,16 +809,17 @@
 		<div
 			class="pointer-events-none absolute inset-0 z-[60] transition-opacity duration-150 {densityVisibilityClass}"
 			data-fade-handles-container
+			hidden={!canInteract && !isAnyEditing}
 		>
 			<!-- Fade-in handle -->
 			<button
 				bind:this={fadeInHandle}
 				type="button"
 				role="slider"
-				class="absolute flex h-11 w-11 -translate-x-1/2 -translate-y-1/2 cursor-ew-resize touch-none items-center justify-center rounded-[2px] transition-opacity focus-visible:ring-2 focus-visible:ring-white focus-visible:outline-none {densityPointerClass} {editing ===
-					'in' || hoveredFade === 'in'
-					? 'opacity-100'
-					: handleVisibilityClass}"
+				class="absolute flex h-4 w-4 -translate-y-1/2 cursor-ew-resize touch-none items-center justify-center rounded-[2px] transition-opacity focus-visible:ring-2 focus-visible:ring-white focus-visible:outline-none [@media(pointer:coarse)]:h-7 [@media(pointer:coarse)]:w-7 {fadeInPercent <=
+				0
+					? 'translate-x-0'
+					: '-translate-x-1/2'} {densityPointerClass} opacity-100"
 				style="left:{fadeInPercent}%; top:{handleTop}"
 				disabled={!canInteract}
 				aria-disabled={!canInteract}
@@ -755,10 +865,10 @@
 				bind:this={fadeOutHandle}
 				type="button"
 				role="slider"
-				class="absolute flex h-11 w-11 -translate-x-1/2 -translate-y-1/2 cursor-ew-resize touch-none items-center justify-center rounded-[2px] transition-opacity focus-visible:ring-2 focus-visible:ring-white focus-visible:outline-none {densityPointerClass} {editing ===
-					'out' || hoveredFade === 'out'
-					? 'opacity-100'
-					: handleVisibilityClass}"
+				class="absolute flex h-4 w-4 -translate-y-1/2 cursor-ew-resize touch-none items-center justify-center rounded-[2px] transition-opacity focus-visible:ring-2 focus-visible:ring-white focus-visible:outline-none [@media(pointer:coarse)]:h-7 [@media(pointer:coarse)]:w-7 {fadeOutLeft >=
+				100
+					? '-translate-x-full'
+					: '-translate-x-1/2'} {densityPointerClass} opacity-100"
 				disabled={!canInteract}
 				aria-disabled={!canInteract}
 				tabindex={canInteract ? 0 : -1}
@@ -806,7 +916,7 @@
 					bind:this={curveInHandle}
 					type="button"
 					role="slider"
-					class="absolute flex h-11 w-11 -translate-x-1/2 -translate-y-1/2 cursor-move touch-none items-center justify-center rounded-full transition-opacity focus-visible:ring-2 focus-visible:ring-white focus-visible:outline-none {densityPointerClass} {curveEditing ===
+					class="absolute flex h-7 w-7 -translate-x-1/2 -translate-y-1/2 cursor-move touch-none items-center justify-center rounded-full transition-opacity focus-visible:ring-2 focus-visible:ring-white focus-visible:outline-none {densityPointerClass} {curveEditing ===
 						'in' || hoveredCurve === 'in'
 						? 'opacity-100'
 						: 'opacity-0 group-hover/timeline-item:opacity-100'}"
@@ -861,7 +971,7 @@
 					bind:this={curveOutHandle}
 					type="button"
 					role="slider"
-					class="absolute flex h-11 w-11 -translate-x-1/2 -translate-y-1/2 cursor-move touch-none items-center justify-center rounded-full transition-opacity focus-visible:ring-2 focus-visible:ring-white focus-visible:outline-none {densityPointerClass} {curveEditing ===
+					class="absolute flex h-7 w-7 -translate-x-1/2 -translate-y-1/2 cursor-move touch-none items-center justify-center rounded-full transition-opacity focus-visible:ring-2 focus-visible:ring-white focus-visible:outline-none {densityPointerClass} {curveEditing ===
 						'out' || hoveredCurve === 'out'
 						? 'opacity-100'
 						: 'opacity-0 group-hover/timeline-item:opacity-100'}"

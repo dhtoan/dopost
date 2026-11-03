@@ -1,8 +1,17 @@
 <!-- Text recipes adapted from FreeCut's MIT-licensed media sidebar. -->
 <script lang="ts">
+	import LibraryShelf from './library-shelf.svelte';
+	import type { ProjectAssetImporter } from '../media/types';
+	import { videoLibrary } from '../library/library-store.svelte';
+	import LibraryFavorite from './library-favorite.svelte';
 	import { m } from '$lib/paraglide/messages';
+	import { Input } from '$lib/components/ui/input';
 	import { ProtectedIcon } from '$lib/themes/icons';
 	import { addTextItem, addTextTemplateItem } from '$lib/video-editor/timeline/actions/items';
+	import { applyTextStylePreset } from '$lib/video-editor/timeline/actions/text-layout';
+	import { timelineStore } from '$lib/video-editor/timeline/stores/timeline-store.svelte';
+	import { isTrackEffectivelyLocked } from '$lib/video-editor/timeline/utils/track-groups';
+	import { editorSession } from '$lib/video-editor/editor.svelte';
 	import { TEXT_STYLE_PRESETS, type TextStylePresetLayout } from '../typography/text-style-presets';
 	import { localizedTextStylePresetCopy } from '../typography/text-style-preset-copy';
 	import {
@@ -11,16 +20,86 @@
 		writeGeneratedItemDragData
 	} from '$lib/video-editor/timeline/generated-item-drag';
 
-	let { oninserted }: { oninserted: (itemId: string) => void } = $props();
+	let {
+		oninserted,
+		importAsset,
+		selectedTextItemId = null,
+		onapplied = () => {}
+	}: {
+		oninserted: (itemId: string) => void;
+		importAsset?: ProjectAssetImporter;
+		selectedTextItemId?: string | null;
+		onapplied?: () => void;
+	} = $props();
+	const selectedTextItem = $derived(
+		selectedTextItemId ? timelineStore.itemById.get(selectedTextItemId) : undefined
+	);
+	const selectedTextItemLocked = $derived(
+		selectedTextItem
+			? isTrackEffectivelyLocked(selectedTextItem.trackId, timelineStore.tracks)
+			: false
+	);
 
+	let search = $state('');
+	const searchQuery = $derived(search.trim().toLocaleLowerCase());
+	const addTextVisible = $derived(
+		`${m.video_editor_text_layout_single()} ${m.video_editor_add_text()}`
+			.toLocaleLowerCase()
+			.includes(searchQuery)
+	);
 	const groups: Array<{ layout: TextStylePresetLayout; label: () => string }> = [
 		{ layout: 'single', label: m.video_editor_text_layout_single },
 		{ layout: 'two', label: m.video_editor_text_layout_two },
 		{ layout: 'three', label: m.video_editor_text_layout_three }
 	];
+	const filteredGroups = $derived(
+		groups
+			.map((group) => ({
+				...group,
+				presets: TEXT_STYLE_PRESETS.filter(
+					(preset) =>
+						preset.layout === group.layout &&
+						`${group.label()} ${localizedTextStylePresetCopy(preset.id).label}`
+							.toLocaleLowerCase()
+							.includes(searchQuery)
+				)
+			}))
+			.filter((group) => group.presets.length > 0 || (group.layout === 'single' && addTextVisible))
+	);
 
 	function insertPlainText(): void {
 		oninserted(addTextItem(m.video_editor_text_default_label()));
+	}
+
+	function usePreset(presetId: (typeof TEXT_STYLE_PRESETS)[number]['id']): void {
+		const copy = localizedTextStylePresetCopy(presetId);
+		if (selectedTextItem?.type === 'text') {
+			if (selectedTextItemLocked) return;
+			if (
+				applyTextStylePreset(
+					selectedTextItem.id,
+					presetId,
+					{
+						width: editorSession.project?.metadata.width ?? 1920,
+						height: editorSession.project?.metadata.height ?? 1080
+					},
+					1,
+					copy
+				)
+			) {
+				onapplied();
+				videoLibrary.recordChoice(
+					`${videoLibrary.scope}:text:${presetId}`,
+					TEXT_STYLE_PRESETS.find((preset) => preset.id === presetId)?.label ?? presetId
+				);
+			}
+			return;
+		}
+		oninserted(addTextTemplateItem(presetId, copy));
+		videoLibrary.recordChoice(
+			`${videoLibrary.scope}:text:${presetId}`,
+			TEXT_STYLE_PRESETS.find((preset) => preset.id === presetId)?.label ?? presetId
+		);
 	}
 
 	function startDrag(
@@ -35,9 +114,27 @@
 
 <div
 	class="text-browser min-h-0 flex-1 overflow-y-auto p-2"
+	role="group"
 	aria-label={m.video_editor_text_templates()}
 >
-	{#each groups as group (group.layout)}
+	<LibraryShelf
+		kind="text"
+		selectedIds={selectedTextItemId ? [selectedTextItemId] : []}
+		{oninserted}
+		onedit={onapplied}
+		{importAsset}
+	/>
+	<Input
+		type="search"
+		bind:value={search}
+		placeholder={m.video_editor_text_templates_search()}
+		aria-label={m.video_editor_text_templates_search()}
+		class="mb-2 h-[25px] text-xs [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:text-base"
+	/>
+	{#if filteredGroups.length === 0}<p class="text-xs text-muted-foreground" role="status">
+			{m.video_editor_text_templates_no_results()}
+		</p>{/if}
+	{#each filteredGroups as group (group.layout)}
 		<section class="mb-4 last:mb-0">
 			<h3
 				class="mb-2 text-[10px] font-semibold tracking-[0.12em] text-[var(--video-editor-muted)] uppercase"
@@ -45,10 +142,10 @@
 				{group.label()}
 			</h3>
 			<div class="template-grid">
-				{#if group.layout === 'single'}
+				{#if group.layout === 'single' && addTextVisible}
 					<button
 						type="button"
-						class="template-card"
+						class="template-card w-full"
 						draggable="true"
 						onclick={insertPlainText}
 						ondragstart={(event) => startDrag(event, m.video_editor_text_default_label())}
@@ -62,24 +159,41 @@
 						<span class="template-name">{m.video_editor_add_text()}</span>
 					</button>
 				{/if}
-				{#each TEXT_STYLE_PRESETS.filter((preset) => preset.layout === group.layout) as preset (preset.id)}
+				{#each group.presets as preset (preset.id)}
 					{@const copy = localizedTextStylePresetCopy(preset.id)}
-					<button
-						type="button"
-						class="template-card"
-						draggable="true"
-						onclick={() => oninserted(addTextTemplateItem(preset.id, copy))}
-						ondragstart={(event) => startDrag(event, copy.label, preset.id)}
-						ondragend={clearGeneratedItemDragData}
-						aria-label={`${m.video_editor_add_text()}: ${copy.label}`}
-					>
-						<span class="template-canvas" data-kind={preset.previewKind} aria-hidden="true">
-							{#if copy.sample.eyebrow}<span class="eyebrow">{copy.sample.eyebrow}</span>{/if}
-							<span class="title">{copy.sample.title}</span>
-							{#if copy.sample.subtitle}<span class="subtitle">{copy.sample.subtitle}</span>{/if}
-						</span>
-						<span class="template-name">{copy.label}</span>
-					</button>
+					<div class="group/library-item relative min-w-0">
+						<button
+							type="button"
+							class="template-card w-full"
+							draggable="true"
+							onclick={() => usePreset(preset.id)}
+							ondragstart={(event) => startDrag(event, copy.label, preset.id)}
+							ondragend={clearGeneratedItemDragData}
+							aria-label={selectedTextItem?.type === 'text'
+								? m.video_editor_text_apply_template({ name: copy.label })
+								: `${m.video_editor_add_text()}: ${copy.label}`}
+							aria-pressed={selectedTextItem?.type === 'text'
+								? selectedTextItem.textStylePresetId === preset.id
+								: undefined}
+							disabled={selectedTextItemLocked}
+						>
+							<span class="template-canvas" data-kind={preset.previewKind} aria-hidden="true">
+								{#if copy.sample.eyebrow}<span class="eyebrow">{copy.sample.eyebrow}</span>{/if}
+								<span class="title">{copy.sample.title}</span>
+								{#if copy.sample.subtitle}<span class="subtitle">{copy.sample.subtitle}</span>{/if}
+							</span>
+							<span class="template-name"
+								>{selectedTextItem?.type === 'text'
+									? m.video_editor_text_apply_template({ name: copy.label })
+									: copy.label}</span
+							>
+						</button>
+						<LibraryFavorite
+							catalogId={`text:${preset.id}`}
+							name={copy.label}
+							recipe={{ kind: 'text', presetId: preset.id }}
+						/>
+					</div>
 				{/each}
 			</div>
 		</section>
@@ -209,8 +323,8 @@
 	.template-name {
 		display: block;
 		overflow: hidden;
-		padding: 0.3rem 0.125rem 0.1rem;
-		font-size: 0.625rem;
+		padding: 0.2rem 0.125rem 0.1rem;
+		font-size: 0.5625rem;
 		text-align: center;
 		text-overflow: ellipsis;
 		white-space: nowrap;

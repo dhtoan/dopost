@@ -4,10 +4,12 @@ import { hashBlob } from '../project-bundle/bundle-utils';
 import { fileWithInferredMediaType, prepareMediaImportFile } from '../media/media-file-types';
 import { probeMediaFile } from '../media/probe-client';
 import { mediaPool } from '../media/pool.svelte';
-import type { MediaMetadata, RecordingCaptureMetadata } from '../media/types';
+import type { MediaAttribution, MediaMetadata, RecordingCaptureMetadata } from '../media/types';
+import { isLottieFile, parseLottieFileBytes } from '../lottie/metadata';
 
 export interface CloudProjectAssetImportOptions<TDocument extends object> {
 	projectId: string;
+	isCurrent?: () => boolean;
 	repository: CloudVideoProjectRepository<TDocument>;
 	onUnsupportedAudio?: (request: {
 		fileName: string;
@@ -20,6 +22,10 @@ export interface CloudProjectAssetFileOptions<
 > extends CloudProjectAssetImportOptions<TDocument> {
 	file: File;
 	tags?: string[];
+	attribution?: MediaAttribution;
+	duration?: number;
+	width?: number;
+	height?: number;
 	capture?: RecordingCaptureMetadata;
 }
 
@@ -28,16 +34,37 @@ export async function importCloudProjectAssetFile<TDocument extends object>(
 ): Promise<MediaMetadata | null> {
 	const source = fileWithInferredMediaType(options.file);
 	let file = await prepareMediaImportFile(source);
-	const probe = await probeMediaFile(file);
-	if (probe.mimeType && probe.mimeType !== file.type) {
-		file = new File([file], file.name, { type: probe.mimeType, lastModified: file.lastModified });
+	const lottie = isLottieFile(file)
+		? parseLottieFileBytes(new Uint8Array(await file.arrayBuffer()))
+		: null;
+	if (isLottieFile(file) && !lottie) {
+		throw new Error('This file is not a valid Lottie animation.');
 	}
-	if (probe.audioCodecSupported === false) {
-		const decision = await options.onUnsupportedAudio?.({
-			fileName: file.name,
-			codec: probe.audioCodec ?? 'unknown'
-		});
-		if (decision !== 'import') return null;
+	const probe = lottie ? null : await probeMediaFile(file);
+	if (probe) {
+		if (probe.mimeType && probe.mimeType !== file.type) {
+			file = new File([file], file.name, {
+				type: probe.mimeType,
+				lastModified: file.lastModified
+			});
+		}
+		if (probe.audioCodecSupported === false) {
+			const decision = await options.onUnsupportedAudio?.({
+				fileName: file.name,
+				codec: probe.audioCodec ?? 'unknown'
+			});
+			if (decision !== 'import') return null;
+		}
+		const expectedWidth = Number.isFinite(options.width) ? Math.round(options.width ?? 0) : 0;
+		const expectedHeight = Number.isFinite(options.height) ? Math.round(options.height ?? 0) : 0;
+		if (
+			(expectedWidth > 0 && expectedWidth !== probe.width) ||
+			(expectedHeight > 0 && expectedHeight !== probe.height)
+		) {
+			throw new Error(
+				`Generated image dimensions do not match its pixels (${probe.width}x${probe.height}).`
+			);
+		}
 	}
 	const stableMediaId = crypto.randomUUID();
 	const contentHash = await hashBlob(file);
@@ -46,7 +73,31 @@ export async function importCloudProjectAssetFile<TDocument extends object>(
 		fileName: file.name,
 		mimeType: file.type || 'application/octet-stream',
 		size: file.size,
-		sha256: contentHash
+		sha256: contentHash,
+		mediaMetadata: lottie
+			? {
+					duration: lottie.durationSeconds,
+					width: lottie.width,
+					height: lottie.height,
+					fps: lottie.frameRate,
+					codec: 'lottie',
+					tags: ['lottie', ...(options.tags ?? [])],
+					lottieTotalFrames: lottie.totalFrames,
+					lottieMarkers: lottie.markers,
+					attribution: options.attribution
+				}
+			: {
+					duration: options.duration ?? probe!.durationSeconds,
+					width: probe!.width,
+					height: probe!.height,
+					fps: probe!.fps,
+					codec: probe!.videoCodec ?? '',
+					audioCodec: probe!.audioCodec,
+					hasAudio: probe!.hasAudio,
+					tags: [probe!.kind, ...(options.tags ?? [])],
+					animationFrameCount: probe!.animationFrameCount,
+					attribution: options.attribution
+				}
 	});
 	const uploaded = await uploadMediaFile({
 		workspaceId: options.repository.workspaceId,
@@ -58,31 +109,55 @@ export async function importCloudProjectAssetFile<TDocument extends object>(
 		clientSHA256: contentHash,
 		prepareVideo: false
 	});
-	const media: MediaMetadata = {
-		id: stableMediaId,
-		storageType: 'cloud',
-		remoteUrl: uploaded.url,
-		contentHash,
-		fileName: file.name,
-		fileSize: file.size,
-		mimeType: file.type || 'application/octet-stream',
-		duration: probe.durationSeconds,
-		width: probe.width,
-		height: probe.height,
-		fps: probe.fps,
-		frameRateMetrics: probe.frameRateMetrics,
-		codec: probe.videoCodec ?? '',
-		videoCodecSupported: probe.videoCodecSupported,
-		bitrate: probe.bitrate ?? 0,
-		audioCodec: probe.audioCodec,
-		audioCodecSupported: probe.audioCodecSupported,
-		keyframeTimestamps: probe.keyframeTimestamps,
-		gopInterval: probe.gopInterval,
-		animationFrameCount: probe.animationFrameCount,
-		tags: [...new Set([probe.kind, ...(options.tags ?? [])])],
-		capture: options.capture
-	};
-	mediaPool.upsert(media, 'ready');
+	const media: MediaMetadata = lottie
+		? {
+				id: stableMediaId,
+				storageType: 'cloud',
+				remoteUrl: uploaded.url,
+				contentHash,
+				fileName: file.name,
+				fileSize: file.size,
+				mimeType:
+					file.type || (/\.lottie$/i.test(file.name) ? 'application/zip' : 'application/json'),
+				duration: lottie.durationSeconds,
+				width: lottie.width,
+				height: lottie.height,
+				fps: lottie.frameRate,
+				codec: 'lottie',
+				bitrate: Math.round((file.size * 8) / Math.max(lottie.durationSeconds, 1)),
+				lottieTotalFrames: lottie.totalFrames,
+				lottieMarkers: lottie.markers,
+				attribution: options.attribution,
+				tags: [...new Set(['lottie', ...(options.tags ?? [])])],
+				capture: options.capture
+			}
+		: {
+				id: stableMediaId,
+				storageType: 'cloud',
+				remoteUrl: uploaded.url,
+				contentHash,
+				fileName: file.name,
+				fileSize: file.size,
+				mimeType: file.type || 'application/octet-stream',
+				duration: options.duration ?? probe!.durationSeconds,
+				width: probe!.width,
+				height: probe!.height,
+				fps: probe!.fps,
+				frameRateMetrics: probe!.frameRateMetrics,
+				codec: probe!.videoCodec ?? '',
+				videoCodecSupported: probe!.videoCodecSupported,
+				bitrate: probe!.bitrate ?? 0,
+				audioCodec: probe!.audioCodec,
+				audioCodecSupported: probe!.audioCodecSupported,
+				hasAudio: probe!.hasAudio,
+				keyframeTimestamps: probe!.keyframeTimestamps,
+				gopInterval: probe!.gopInterval,
+				animationFrameCount: probe!.animationFrameCount,
+				attribution: options.attribution,
+				tags: [...new Set([probe!.kind, ...(options.tags ?? [])])],
+				capture: options.capture
+			};
+	if (!options.isCurrent || options.isCurrent()) mediaPool.upsert(media, 'ready');
 	return media;
 }
 

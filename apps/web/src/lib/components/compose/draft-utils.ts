@@ -1,4 +1,10 @@
+import { readMentionMetadata, type MentionMetadata } from '@openpost/platform-text/mentions';
+import { readLinkDraft, type LinkDraft } from './links';
+import { readSharedPoll, type SharedPoll } from './polls';
 export interface PostItem {
+	mentions?: MentionMetadata;
+	poll?: SharedPoll;
+	link?: LinkDraft;
 	id?: string;
 	key: string;
 	content: string;
@@ -6,6 +12,7 @@ export interface PostItem {
 }
 
 export interface VariantPost {
+	mentions?: MentionMetadata;
 	content: string;
 	mediaIds: string[];
 	contentInherited?: boolean;
@@ -15,7 +22,7 @@ export interface VariantPost {
 export type ThreadVariantMap = Record<string, Record<string, VariantPost>>;
 
 export interface DecodedThreadDraft {
-	posts: { key: string; content: string; mediaIds: string[] }[];
+	posts: PostItem[];
 	variants: ThreadVariantMap;
 }
 
@@ -52,7 +59,14 @@ export function makeEmptyPost(): PostItem {
 
 export function encodeThreadDraft(posts: PostItem[], variants: ThreadVariantMap = {}): string {
 	const data = {
-		p: posts.map((p) => ({ k: p.key, c: p.content, m: p.mediaIds })),
+		p: posts.map((p) => ({
+			k: p.key,
+			c: p.content,
+			mentions: p.mentions,
+			m: p.mediaIds,
+			poll: p.poll,
+			link: p.link
+		})),
 		v: variants
 	};
 	return THREAD_DRAFT_PREFIX + JSON.stringify(data);
@@ -113,8 +127,11 @@ function parseThreadPost(value: ThreadDraftJSONValue): DecodedThreadDraft['posts
 	}
 	return {
 		key: typeof value.k === 'string' && value.k ? value.k : generatePostKey(),
+		mentions: readMentionMetadata(String(value.c ?? ''), value.mentions),
 		content: value.c === undefined || value.c === null ? '' : String(value.c),
-		mediaIds: Array.isArray(value.m) ? value.m.map(String) : []
+		mediaIds: Array.isArray(value.m) ? value.m.map(String) : [],
+		poll: readSharedPoll(value),
+		link: readLinkDraft(value)
 	};
 }
 
@@ -132,6 +149,7 @@ function parseVariantPost(value: ThreadDraftJSONValue): VariantPost {
 	if (isThreadDraftRecord(value)) {
 		const variant: VariantPost = {
 			content: String(value.content ?? value.c ?? ''),
+			mentions: readMentionMetadata(String(value.content ?? value.c ?? ''), value.mentions),
 			mediaIds: Array.isArray(value.mediaIds)
 				? value.mediaIds.map(String)
 				: Array.isArray(value.m)
@@ -153,9 +171,78 @@ function isThreadDraftRecord(value: unknown): value is { [key: string]: ThreadDr
 }
 
 export function getDraftSnapshot(posts: PostItem[]): string {
-	return JSON.stringify(posts.map((p) => ({ content: p.content, mediaIds: p.mediaIds })));
+	return JSON.stringify(
+		posts.map((p) => ({
+			content: p.content,
+			mentions: p.mentions,
+			mediaIds: p.mediaIds,
+			poll: p.poll,
+			link: p.link
+		}))
+	);
 }
 
 export function hasAnyContent(posts: PostItem[]): boolean {
-	return posts.some((p) => p.content.trim().length > 0 || p.mediaIds.length > 0);
+	return posts.some((p) => p.content.trim().length > 0 || p.mediaIds.length > 0 || Boolean(p.poll));
+}
+
+export function arraysEqual(left: string[], right: string[]): boolean {
+	if (left.length !== right.length) return false;
+	return left.every((value, index) => value === right[index]);
+}
+export function makeVariantRecord(sourcePosts: PostItem[]): Record<string, VariantPost> {
+	return Object.fromEntries(
+		sourcePosts.map((post) => [
+			post.key,
+			{
+				content: post.content,
+				mentions: post.mentions,
+				mediaIds: [...post.mediaIds],
+				contentInherited: true,
+				mediaInherited: true
+			}
+		])
+	);
+}
+export function normalizeVariantRecord(
+	record: Record<string, VariantPost> | undefined,
+	sourcePosts: PostItem[]
+): Record<string, VariantPost> {
+	return Object.fromEntries(
+		sourcePosts.map((post) => {
+			const value = record?.[post.key];
+			return [
+				post.key,
+				{
+					content: value?.content ?? post.content,
+					mentions: value?.contentInherited ? post.mentions : value?.mentions,
+					mediaIds: value?.mediaIds ? [...value.mediaIds] : [...post.mediaIds],
+					contentInherited: value?.contentInherited ?? false,
+					mediaInherited: value?.mediaInherited ?? false
+				}
+			];
+		})
+	);
+}
+export function variantPostEquals(
+	left: VariantPost | undefined,
+	right: VariantPost,
+	fallback: PostItem
+): boolean {
+	return (
+		(left?.content ?? fallback.content) === right.content &&
+		JSON.stringify(left?.mentions ?? fallback.mentions) === JSON.stringify(right.mentions) &&
+		arraysEqual(left?.mediaIds ?? fallback.mediaIds, right.mediaIds) &&
+		(left?.contentInherited ?? false) === (right.contentInherited ?? false) &&
+		(left?.mediaInherited ?? false) === (right.mediaInherited ?? false)
+	);
+}
+
+export function variantRecordEquals(
+	left: Record<string, VariantPost> | undefined,
+	right: Record<string, VariantPost>,
+	sourcePosts: PostItem[]
+): boolean {
+	if (Object.keys(left ?? {}).length !== Object.keys(right).length) return false;
+	return sourcePosts.every((post) => variantPostEquals(left?.[post.key], right[post.key], post));
 }

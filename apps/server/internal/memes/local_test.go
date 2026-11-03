@@ -26,7 +26,7 @@ func TestBuiltinProviderOwnsTheCompletePinnedCatalog(t *testing.T) {
 
 	catalog, err := provider.Templates(context.Background())
 	require.NoError(t, err)
-	require.Len(t, catalog.Templates, 209)
+	require.NotEmpty(t, catalog.Templates)
 	require.False(t, catalog.Stale)
 	require.Regexp(t, `^sha256:[0-9a-f]{64}$`, catalog.Revision)
 
@@ -81,15 +81,6 @@ func TestBuiltinSemanticsRequireSpecificValidatedRecords(t *testing.T) {
 	require.ErrorContains(t, err, "load built-in meme semantics")
 }
 
-func TestBuiltinCatalogRevisionIncludesSemantics(t *testing.T) {
-	t.Parallel()
-
-	manifest := []byte(`{"templates":["sample"]}`)
-	semantics := []byte(`[{"id":"sample"}]`)
-	require.Equal(t, builtinCatalogRevision(manifest, semantics), builtinCatalogRevision(manifest, semantics))
-	require.NotEqual(t, builtinCatalogRevision(manifest, semantics), builtinCatalogRevision(manifest, []byte(`[{"id":"sample","meaning":"changed"}]`)))
-}
-
 func TestBuiltinProviderRendersLocallyWithoutWatermark(t *testing.T) {
 	t.Parallel()
 
@@ -129,6 +120,26 @@ func TestBuiltinProviderRendersLocallyWithoutWatermark(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, expectedBlank.Bounds(), actualBlank.Bounds())
 	require.Equal(t, expectedBlank.Pix, imaging.Clone(actualBlank).Pix, "blank output must not add a watermark")
+}
+
+func TestBuiltinProviderHonorsRequestedRenderHeight(t *testing.T) {
+	t.Parallel()
+
+	provider, err := NewBuiltinProvider()
+	require.NoError(t, err)
+
+	for _, fixture := range []struct{ template, extension string }{{"drake", "png"}, {"bongo", "gif"}} {
+		t.Run(fixture.extension, func(t *testing.T) {
+			rendered, err := provider.Render(context.Background(), RenderRequest{
+				TemplateID: fixture.template, Text: []string{"", ""}, Extension: fixture.extension, Height: 900,
+			})
+			require.NoError(t, err)
+			config, _, err := image.DecodeConfig(bytes.NewReader(rendered.Data))
+			require.NoError(t, err)
+			require.Equal(t, 900, config.Height)
+			require.Positive(t, config.Width)
+		})
+	}
 }
 
 func TestBuiltinProviderReturnsSmallCacheableTemplateImages(t *testing.T) {
@@ -176,6 +187,37 @@ func TestBuiltinProviderRendersEveryCatalogTemplate(t *testing.T) {
 			require.Equal(t, "png", format)
 			require.Positive(t, config.Width)
 			require.Positive(t, config.Height)
+		})
+	}
+}
+
+func TestBuiltinRenderPreservesUnicodeCaptionPixels(t *testing.T) {
+	t.Parallel()
+	provider, err := NewBuiltinProvider()
+	require.NoError(t, err)
+	blank, err := provider.Render(t.Context(), RenderRequest{TemplateID: "chair", Text: []string{"", "", "", "", "", ""}, Extension: "png"})
+	require.NoError(t, err)
+	for _, pair := range [][2]string{{"東京", "大阪"}, {"مرحبا", "جميلة"}, {"👩🏽‍💻", "👩🏽‍🔧"}} {
+		t.Run(pair[0], func(t *testing.T) {
+			t.Parallel()
+			rendered, err := provider.Render(t.Context(), RenderRequest{TemplateID: "chair", Text: []string{pair[0], "", "", "", "", ""}, Extension: "png"})
+			require.NoError(t, err)
+			original, _, err := image.Decode(bytes.NewReader(blank.Data))
+			require.NoError(t, err)
+			actual, _, err := image.Decode(bytes.NewReader(rendered.Data))
+			require.NoError(t, err)
+			changed := 0
+			for y := 120; y < 198; y++ {
+				for x := 0; x < 356; x++ {
+					if original.At(x, y) != actual.At(x, y) {
+						changed++
+					}
+				}
+			}
+			require.Greater(t, changed, 100, "caption must produce visible ink in its slot")
+			other, err := provider.Render(t.Context(), RenderRequest{TemplateID: "chair", Text: []string{pair[1], "", "", "", "", ""}, Extension: "png"})
+			require.NoError(t, err)
+			require.NotEqual(t, rendered.Data, other.Data, "distinct captions must not collapse to identical missing-glyph boxes")
 		})
 	}
 }

@@ -9,14 +9,17 @@ let whisperQueueSize = 0;
 let whisperQueueWaiter: (() => void) | null = null;
 let paused = false;
 let pauseWaiter: (() => void) | null = null;
+let startDecoding: (() => void) | null = null;
 
 type DecoderWorkerMessage =
 	| { type: 'port'; port: MessagePort }
 	| { type: 'pause' }
+	| { type: 'decode' }
 	| { type: 'resume' }
 	| {
 			type: 'init';
 			file: File;
+			audioTrackIndex?: number;
 			sourceStartSeconds?: number;
 			sourceEndSeconds?: number;
 	  };
@@ -33,6 +36,12 @@ self.onmessage = async (event: MessageEvent<DecoderWorkerMessage>) => {
 				whisperQueueWaiter = null;
 			}
 		};
+		return;
+	}
+
+	if (message.type === 'decode') {
+		startDecoding?.();
+		startDecoding = null;
 		return;
 	}
 
@@ -53,7 +62,12 @@ self.onmessage = async (event: MessageEvent<DecoderWorkerMessage>) => {
 
 	if (message.type === 'init') {
 		try {
-			await run(message.file, message.sourceStartSeconds ?? 0, message.sourceEndSeconds);
+			await run(
+				message.file,
+				message.sourceStartSeconds ?? 0,
+				message.sourceEndSeconds,
+				message.audioTrackIndex
+			);
 		} catch (error) {
 			postMain({
 				type: 'error',
@@ -70,18 +84,32 @@ function awaitResume(): Promise<void> {
 	});
 }
 
-async function run(file: File, requestedStart: number, requestedEnd?: number): Promise<void> {
+async function run(
+	file: File,
+	requestedStart: number,
+	requestedEnd?: number,
+	audioTrackIndex?: number
+): Promise<void> {
 	const input = new Input({
 		formats: ALL_FORMATS,
 		source: new BlobSource(file)
 	});
 
-	const audioTrack = await input.getPrimaryAudioTrack();
+	const audioTrack =
+		audioTrackIndex === undefined
+			? await input.getPrimaryAudioTrack()
+			: (await input.getAudioTracks())[audioTrackIndex];
 	if (!audioTrack) {
 		input.dispose();
-		throw new Error('No audio track found in file');
+		postMain({ type: 'error', code: 'no-audio', message: 'No audio track found in file' });
+		return;
 	}
 
+	// Start the model only after finding audio, then wait until it can consume chunks.
+	await new Promise<void>((resolve) => {
+		startDecoding = resolve;
+		postMain({ type: 'audio-ready' });
+	});
 	const mediaDuration = await audioTrack.computeDuration();
 	const sourceStart = Math.min(Math.max(0, requestedStart), mediaDuration);
 	const sourceEnd = Math.min(Math.max(sourceStart, requestedEnd ?? mediaDuration), mediaDuration);

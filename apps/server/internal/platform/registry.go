@@ -16,6 +16,7 @@ type AppConfig struct {
 	ClientID       string `json:"client_id,omitempty"`
 	ClientSecret   string `json:"client_secret,omitempty"`
 	RedirectURI    string `json:"redirect_uri,omitempty"`
+	ConfigID       string `json:"config_id,omitempty"`
 	InstanceURL    string `json:"instance_url,omitempty"`
 	BotToken       string `json:"bot_token,omitempty"`
 	BotUsername    string `json:"bot_username,omitempty"`
@@ -23,8 +24,12 @@ type AppConfig struct {
 }
 
 type RegistryOptions struct {
-	DisableLinkedInThreadReplies bool
-	EnableLinkedInOrganizations  bool
+	LinkedInAuthMode              string
+	DisableLinkedInThreadReplies  bool
+	EnableLinkedInOrganizations   bool
+	EnableLinkedInMemberReads     bool
+	EnableLinkedInMemberAnalytics bool
+	DisableTikTokDisplayAPI       bool
 }
 
 type RegistryEntry struct {
@@ -72,6 +77,9 @@ var appBuilders = map[string]appBuilder{
 	providerBluesky: func(_ AppConfig, _ RegistryOptions) (Adapter, error) {
 		return NewBlueskyAdapter(""), nil
 	},
+	providerDevNull: func(_ AppConfig, _ RegistryOptions) (Adapter, error) {
+		return NewDevNullAdapter(""), nil
+	},
 	providerDiscord: func(app AppConfig, _ RegistryOptions) (Adapter, error) {
 		if app.ConnectionMode == ConnectionModeBot {
 			return NewDiscordBotAdapter(app.ClientID, app.ClientSecret, app.BotToken, app.RedirectURI), nil
@@ -90,17 +98,35 @@ var appBuilders = map[string]appBuilder{
 		}
 		return NewFacebookAdapter(app.ClientID, app.ClientSecret, app.RedirectURI), nil
 	},
+	providerGoogleBusiness: func(app AppConfig, _ RegistryOptions) (Adapter, error) {
+		if strings.TrimSpace(app.ClientID) == "" {
+			return nil, fmt.Errorf("googlebusiness provider app requires client_id")
+		}
+		return NewGoogleBusinessAdapter(app.ClientID, app.ClientSecret, app.RedirectURI), nil
+	},
 	providerInstagram: func(app AppConfig, _ RegistryOptions) (Adapter, error) {
 		if strings.TrimSpace(app.ClientID) == "" {
 			return nil, fmt.Errorf("instagram provider app requires client_id")
 		}
-		return NewInstagramAdapter(app.ClientID, app.ClientSecret, app.RedirectURI), nil
+		if app.ConnectionMode == ConnectionModeInstagramLogin {
+			return NewInstagramLoginAdapter(app.ClientID, app.ClientSecret, app.RedirectURI), nil
+		}
+		adapter := NewInstagramAdapter(app.ClientID, app.ClientSecret, app.RedirectURI)
+		adapter.configID = app.ConfigID
+		return adapter, nil
 	},
 	providerLinkedIn: func(app AppConfig, opts RegistryOptions) (Adapter, error) {
 		if strings.TrimSpace(app.ClientID) == "" {
 			return nil, fmt.Errorf("linkedin provider app requires client_id")
 		}
-		return NewLinkedInAdapter(app.ClientID, app.ClientSecret, app.RedirectURI, opts.DisableLinkedInThreadReplies, opts.EnableLinkedInOrganizations), nil
+		if opts.LinkedInAuthMode != "" && opts.LinkedInAuthMode != "openid" && opts.LinkedInAuthMode != "community_management" {
+			return nil, fmt.Errorf("unsupported linkedin auth mode %q", opts.LinkedInAuthMode)
+		}
+		adapter := NewLinkedInAdapter(app.ClientID, app.ClientSecret, app.RedirectURI, opts.DisableLinkedInThreadReplies, opts.EnableLinkedInOrganizations)
+		adapter.authMode = opts.LinkedInAuthMode
+		adapter.enableMemberReads = opts.EnableLinkedInMemberReads
+		adapter.enableMemberAnalytics = opts.EnableLinkedInMemberAnalytics
+		return adapter, nil
 	},
 	providerThreads: func(app AppConfig, _ RegistryOptions) (Adapter, error) {
 		if strings.TrimSpace(app.ClientID) == "" {
@@ -108,11 +134,15 @@ var appBuilders = map[string]appBuilder{
 		}
 		return NewThreadsAdapter(app.ClientID, app.ClientSecret, app.RedirectURI), nil
 	},
-	providerTikTok: func(app AppConfig, _ RegistryOptions) (Adapter, error) {
+	providerTikTok: func(app AppConfig, opts RegistryOptions) (Adapter, error) {
 		if strings.TrimSpace(app.ClientID) == "" {
 			return nil, fmt.Errorf("tiktok provider app requires client_id")
 		}
-		return NewTikTokAdapter(app.ClientID, app.ClientSecret, app.RedirectURI), nil
+		capabilities := TikTokDefaultScopeCapabilities()
+		if opts.DisableTikTokDisplayAPI {
+			capabilities = capabilities.WithoutDisplayAPI()
+		}
+		return NewTikTokAdapterWithCapabilities(app.ClientID, app.ClientSecret, app.RedirectURI, capabilities), nil
 	},
 	providerYouTube: func(app AppConfig, _ RegistryOptions) (Adapter, error) {
 		if strings.TrimSpace(app.ClientID) == "" {
@@ -206,6 +236,9 @@ func MergeAppConfigs(base []AppConfig, overrides ...AppConfig) []AppConfig {
 
 func AppConfigMergeKey(app AppConfig) string {
 	app = NormalizeAppConfig(app)
+	if app.Provider == providerInstagram && app.ConnectionMode == ConnectionModeInstagramLogin {
+		return app.Provider + ":" + app.ConnectionMode
+	}
 	if app.Provider == providerMastodon || app.Provider == providerPixelfed {
 		return app.Provider + ":" + app.InstanceURL
 	}
@@ -220,6 +253,13 @@ func AppConfigMergeKey(app AppConfig) string {
 // continue to resolve to the canonical incoming-webhook adapter.
 func AccountProviderKey(provider, instanceURL, capabilityStateJSON string) string {
 	provider = strings.ToLower(strings.TrimSpace(provider))
+	if provider == providerInstagram {
+		state := map[string]string{}
+		_ = json.Unmarshal([]byte(capabilityStateJSON), &state)
+		if state["connection_type"] == ConnectionModeInstagramLogin {
+			return provider + ":" + ConnectionModeInstagramLogin
+		}
+	}
 	if provider == providerMastodon || provider == providerPixelfed {
 		return provider + ":" + strings.TrimRight(strings.TrimSpace(instanceURL), "/")
 	}
@@ -255,6 +295,7 @@ func NormalizeAppConfig(app AppConfig) AppConfig {
 	app.ClientID = strings.TrimSpace(app.ClientID)
 	app.ClientSecret = strings.TrimSpace(app.ClientSecret)
 	app.RedirectURI = strings.TrimSpace(app.RedirectURI)
+	app.ConfigID = strings.TrimSpace(app.ConfigID)
 	app.InstanceURL = strings.TrimRight(strings.TrimSpace(app.InstanceURL), "/")
 	app.BotToken = strings.TrimSpace(app.BotToken)
 	app.BotUsername = strings.TrimPrefix(strings.TrimSpace(app.BotUsername), "@")
@@ -263,6 +304,9 @@ func NormalizeAppConfig(app AppConfig) AppConfig {
 }
 
 func adapterKeys(app AppConfig) []string {
+	if app.Provider == providerInstagram && app.ConnectionMode == ConnectionModeInstagramLogin {
+		return []string{AppConfigMergeKey(app)}
+	}
 	if app.Provider == providerDiscord {
 		if app.ConnectionMode == ConnectionModeBot {
 			return []string{providerDiscord + ":" + ConnectionModeBot}

@@ -1,11 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import type { TimelineItem, TimelineTrack, TimelineTransition } from '../project/types';
-import { planMixdown, sliceMixEntries } from '../media/render-plan';
+import { planMixdown } from '../media/render-plan';
 import {
 	audioCrossfadeGainAtFrame,
 	buildTransitionGainCurve,
 	equalPowerGain,
-	isAudioTransitionParticipantAtFrame,
 	transitionGainSpansForItem,
 	type TransitionGainSpan
 } from './transition-crossfade';
@@ -57,26 +56,6 @@ function transition(
 		fromItemId,
 		toItemId,
 		...extra
-	};
-}
-
-function cutPair(durationInFrames = 20) {
-	const left = clip({ id: 'left' });
-	const right = clip({
-		id: 'right',
-		from: 60,
-		mediaId: 'media-2',
-		sourceStart: 10,
-		sourceEnd: 70
-	});
-	return {
-		left,
-		right,
-		transition: transition('left', 'right', durationInFrames),
-		itemsById: new Map([
-			['left', left],
-			['right', right]
-		])
 	};
 }
 
@@ -170,6 +149,28 @@ describe('preview crossfade', () => {
 });
 
 describe('transition mix planning', () => {
+	it.each<Partial<TimelineItem>>([
+		{ sourceStart: 30, sourceEnd: 90 },
+		{ speed: 2 },
+		{ isReversed: true },
+		{ sourceFps: 24 },
+		{ speedRamp: [{ id: 'ramp', sourceFrame: 0, speed: 2, easing: 'linear' }] }
+	])('keeps independently sourced linked audio audible: %j', (source) => {
+		const video = clip({ id: 'video', linkedGroupId: 'edit-group' });
+		const audio = clip({
+			id: 'audio',
+			type: 'audio',
+			trackId: 'audio',
+			linkedGroupId: 'edit-group',
+			...source
+		});
+		expect(
+			planMixdown([video, audio], [track('video'), track('audio', 'audio')], FPS).map(
+				(entry) => entry.itemId
+			)
+		).toEqual(['video', 'audio']);
+	});
+
 	it('clamps extensions to available source handles', () => {
 		const left = clip({ id: 'left', sourceEnd: 60, sourceDuration: 63 });
 		const right = clip({

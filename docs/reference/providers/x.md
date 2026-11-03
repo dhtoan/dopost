@@ -18,10 +18,15 @@ OpenPost currently uses X OAuth 1.0a end-to-end. Configure an app type that supp
 
 OpenPost reads the connected account's `subscription_type` from the authenticated X profile and applies the matching publishing limits.
 
+<!-- provider-limits:start -->
+
 | Connected X account              |                 Text limit | Video duration | Video size |
 | -------------------------------- | -------------------------: | -------------: | ---------: |
-| Standard, unknown, or stale tier |    280 weighted characters |    140 seconds |    512 MiB |
-| Basic, Premium, or Premium+      | 25,000 weighted characters |        4 hours |     16 GiB |
+| Standard, unknown, or stale tier |    280 weighted characters |     20 minutes |      8 GiB |
+| Basic, Premium, or Premium+      | 25,000 weighted characters |    125 minutes |     16 GiB |
+
+Text limits come from the capability catalogue for the standard and subscribed X tiers; video caps come from the provider limits. Provider documentation verified 26 September 2026; see the links below.
+<!-- provider-limits:end -->
 
 X does not count every Unicode character as one. OpenPost follows X's weighted counting rules, treats URLs as 23 characters, normalizes composed text, and keeps emoji sequences together. The counter and server validation use the same rules.
 
@@ -29,7 +34,7 @@ The standard profile is the safe fallback. OpenPost uses it when X omits the sub
 
 These account limits do not replace X API access, API limits, or post rules. Test each post type with the real account.
 
-X documents the [`subscription_type` user field](https://docs.x.com/x-api/fundamentals/data-dictionary), [weighted character counting](https://docs.x.com/fundamentals/counting-characters), and [longer Premium video limits](https://help.x.com/en/using-x/premium-longer-videos).
+X documents the [`subscription_type` user field](https://docs.x.com/x-api/fundamentals/data-dictionary), [weighted character counting](https://docs.x.com/fundamentals/counting-characters), and [Post video size and duration limits](https://docs.x.com/x-api/media/quickstart/best-practices). The 512 MiB / 140-second values in older guides describe Direct Message video, not Post video.
 
 ## Media upload
 

@@ -3,11 +3,13 @@
 	import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
 	import { Button } from '$lib/components/ui/button';
 	import DestructiveConfirmDialog from '$lib/components/destructive-confirm-dialog.svelte';
+	import OverflowMenu from '$lib/components/overflow-menu.svelte';
 	import type { DestructiveActionOutcome } from '$lib/destructive-action-outcome';
 	import PageLoading from '$lib/components/page-loading.svelte';
 	import InlineNotice from '$lib/components/inline-notice.svelte';
 	import EmptyState from '$lib/components/empty-state.svelte';
-	import { client } from '$lib/api/client';
+	import { client, type SocialAccount } from '$lib/api/client';
+	import { loadWorkspaceAccounts } from '$lib/api/performance-cache';
 	import { openPostQueryKeys, schedulingPublicationsQueryOptions } from '@openpost/query-catalog';
 	import { queryClient } from '$lib/query/client';
 	import {
@@ -18,6 +20,7 @@
 	} from '$lib/query/authorization-boundary';
 	import { reconcileQueryMutation } from '$lib/query/mutation-reconciliation';
 	import { activityBucketForStatus } from '$lib/publication-invalidation';
+	import { mediaUsageStatusLabel } from '$lib/media-presentation';
 	import { schedulingQueryAPI } from '$lib/query/scheduling';
 	import type { components } from '$lib/api/types';
 	import { publicationCalendarOccurrence } from '$lib/publication-calendar';
@@ -26,8 +29,8 @@
 	import { workspaceCtx } from '$lib/stores/workspace.svelte';
 	import { CalendarDate, type DateValue } from '@internationalized/date';
 	import { ThemeIcon } from '$lib/themes/icons';
-	import { getStatusColor } from '$lib/utils';
-	import PlatformIcon from '$lib/components/platform-icon.svelte';
+	import { formatSocialAccountName, getStatusColor } from '$lib/utils';
+	import SocialAccountAvatar from '$lib/components/social-account-avatar.svelte';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { resolveAppPath } from '$lib/app-path';
@@ -38,6 +41,7 @@
 	type Publication = components['schemas']['PublicationResponse'];
 
 	let posts = $state.raw<Publication[]>([]);
+	let accountById = $state<Record<string, SocialAccount>>({});
 	let loading = $state(false);
 	let error = $state('');
 	let open = $state(false);
@@ -137,6 +141,7 @@
 		if (workspaceId !== currentWorkspaceId) return;
 		if (postsWorkspaceId !== workspaceId) {
 			posts = [];
+			accountById = {};
 			postsWorkspaceId = workspaceId;
 			postsDataReady = false;
 		}
@@ -162,6 +167,10 @@
 				posts = sortedPosts(cached);
 				postsDataReady = true;
 			}
+			const accountsRequest = loadWorkspaceAccounts(workspaceId, force).then(
+				(accounts) => Object.fromEntries(accounts.map((account) => [account.id, account] as const)),
+				(): Record<string, SocialAccount> => ({})
+			);
 			if (force) {
 				await queryClient.invalidateQueries({
 					queryKey: options.queryKey,
@@ -173,6 +182,9 @@
 			if (!isCurrentRequest()) return;
 			posts = sortedPosts(publications);
 			postsDataReady = true;
+			const resolvedAccounts = await accountsRequest;
+			if (!isCurrentRequest()) return;
+			accountById = resolvedAccounts;
 		} catch (cause) {
 			if (!isCurrentRequest()) return;
 			error = cause instanceof Error ? cause.message : m.day_posts_load_failed();
@@ -228,26 +240,7 @@
 	}
 
 	function statusLabel(status: string) {
-		switch (status.toLowerCase()) {
-			case 'published':
-				return m.activity_status_published();
-			case 'failed':
-				return m.activity_status_failed();
-			case 'scheduled':
-				return m.activity_status_scheduled();
-			case 'publishing':
-				return m.activity_status_publishing();
-			case 'completed':
-				return m.activity_status_completed();
-			case 'processing':
-				return m.activity_status_processing();
-			case 'pending':
-				return m.activity_status_pending();
-			case 'draft':
-				return m.activity_status_draft();
-			default:
-				return status;
-		}
+		return mediaUsageStatusLabel(status);
 	}
 
 	function handleNewPost() {
@@ -419,7 +412,7 @@
 								<div class="mt-2 flex flex-wrap items-center gap-2">
 									<span
 										class={[
-											'rounded-sm px-1.5 py-0.5 text-[11px] font-medium capitalize',
+											'rounded-sm px-1.5 py-0.5 text-xs font-medium capitalize',
 											getStatusColor(post.status)
 										]}>{statusLabel(post.status)}</span
 									>
@@ -431,15 +424,34 @@
 											data-testid="day-post-destinations"
 										>
 											{#each visibleDestinations as destination (destination.social_account_id)}
+												{@const account = accountById[destination.social_account_id]}
+												{@const destinationName =
+													(account &&
+														(formatSocialAccountName(
+															account.account_username,
+															account.platform,
+															account.alias
+														) ||
+															account.slug)) ||
+													destination.platform}
 												<span
-													class="flex size-6 items-center justify-center rounded-full border border-border bg-background ring-2 ring-background"
+													title={destinationName}
+													class="inline-flex shrink-0 items-center gap-1"
 												>
-													<PlatformIcon platform={destination.platform} class="size-3.5" />
+													<SocialAccountAvatar
+														name={destinationName}
+														platform={destination.platform}
+														avatarUrl={account?.account_avatar_url ?? ''}
+														size="sm"
+													/>
+													{#if destination.platform === 'youtube'}
+														<span class="text-xs text-muted-foreground">YouTube</span>
+													{/if}
 												</span>
 											{/each}
 											{#if hiddenDestinationCount > 0}
 												<span
-													class="flex size-6 items-center justify-center rounded-full border border-border bg-muted text-[10px] font-medium text-muted-foreground ring-2 ring-background"
+													class="flex size-6 items-center justify-center rounded-full border border-border bg-muted text-xs font-medium text-muted-foreground ring-2 ring-background"
 												>
 													+{hiddenDestinationCount}
 												</span>
@@ -448,20 +460,8 @@
 									{/if}
 								</div>
 							</button>
-							<DropdownMenu.Root>
-								<DropdownMenu.Trigger>
-									{#snippet child({ props })}
-										<Button
-											{...props}
-											variant="ghost"
-											size="icon"
-											class="size-11"
-											aria-label={m.day_posts_actions()}
-											><ThemeIcon role="more-horizontal" class="size-4" /></Button
-										>
-									{/snippet}
-								</DropdownMenu.Trigger>
-								<DropdownMenu.Content align="end">
+							<OverflowMenu label={m.day_posts_actions()}>
+								{#snippet items()}
 									<DropdownMenu.Item onclick={() => handleEdit(post)}
 										><ThemeIcon role="edit" class="mr-2 size-4" />{canDeletePublication(post)
 											? m.day_posts_edit_in_composer()
@@ -478,8 +478,8 @@
 											/>{m.day_posts_delete_action()}</DropdownMenu.Item
 										>
 									{/if}
-								</DropdownMenu.Content>
-							</DropdownMenu.Root>
+								{/snippet}
+							</OverflowMenu>
 						</article>
 					{/each}
 				</div>

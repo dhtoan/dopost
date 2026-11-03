@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -103,14 +104,17 @@ func (c *ConfigurationCatalog) Register(app RuntimeApp) error {
 func (c *ConfigurationCatalog) Resolve(provider, instanceURL string, environment ProviderEnvironment) RuntimeConfiguration {
 	provider = strings.ToLower(strings.TrimSpace(provider))
 	instanceURL = strings.TrimRight(strings.TrimSpace(instanceURL), "/")
-	key := provider
+	app := platform.AppConfig{Provider: provider, InstanceURL: instanceURL}
 	fingerprintInstanceURL := instanceURL
-	if provider == capabilities.ProviderMastodon {
-		key += ":" + instanceURL
-	} else if provider == capabilities.ProviderDiscord && instanceURL == platform.ConnectionModeBot {
-		key += ":" + platform.ConnectionModeBot
+	if provider == capabilities.ProviderDiscord && instanceURL == platform.ConnectionModeBot {
+		app.ConnectionMode = platform.ConnectionModeBot
 		fingerprintInstanceURL = ""
 	}
+	if provider == capabilities.ProviderInstagram && instanceURL == platform.ConnectionModeInstagramLogin {
+		app.ConnectionMode = platform.ConnectionModeInstagramLogin
+		fingerprintInstanceURL = ""
+	}
+	key := platform.AppConfigMergeKey(app)
 	if c != nil {
 		c.mu.RLock()
 		configured, ok := c.apps[key]
@@ -159,6 +163,7 @@ func AppFingerprint(config platform.AppConfig) (string, error) {
 		return "", errors.New("provider app is invalid")
 	}
 	if config.Provider == capabilities.ProviderPinterest || config.Provider == capabilities.ProviderTelegram ||
+		(config.Provider == capabilities.ProviderInstagram && config.ConnectionMode == platform.ConnectionModeInstagramLogin) ||
 		(config.Provider == capabilities.ProviderDiscord && config.ConnectionMode == platform.ConnectionModeBot) {
 		return digestJSON(struct {
 			Provider       string `json:"provider"`
@@ -285,9 +290,26 @@ func PublicationContract(
 	}, nil
 }
 
+type cachedOutputDigest struct {
+	capability capabilities.Capability
+	digest     string
+}
+
+// The catalog has a fixed set of output profiles, so this stays bounded to one
+// canonical entry per profile. Account-adjusted capabilities are verified by
+// value and never stored.
+var outputDigestCache sync.Map
+
 // A certification subject names an output profile, which can support several
 // authoring formats. Bind all of their constraints to the same evidence.
 func publicationOutputDigest(capability capabilities.Capability) (string, error) {
+	key := capability.Provider + "\x00" + capability.OutputProfile + "\x00" + capability.Profile
+	if cached, ok := outputDigestCache.Load(key); ok {
+		entry := cached.(cachedOutputDigest)
+		if reflect.DeepEqual(entry.capability, capability) {
+			return entry.digest, nil
+		}
+	}
 	formats := []capabilities.Capability{capability}
 	for _, registered := range capabilities.All() {
 		if registered.Provider != capability.Provider || registered.OutputProfile != capability.OutputProfile || registered.Profile == capability.Profile {
@@ -296,7 +318,16 @@ func publicationOutputDigest(capability capabilities.Capability) (string, error)
 		formats = append(formats, registered)
 	}
 	slices.SortFunc(formats, func(a, b capabilities.Capability) int { return strings.Compare(a.Profile, b.Profile) })
-	return digestJSON(formats)
+	digest, err := digestJSON(formats)
+	if err != nil {
+		return "", err
+	}
+	if canonical, found := capabilities.Find(capability.Provider, capability.Profile); found &&
+		canonical.OutputProfile == capability.OutputProfile &&
+		reflect.DeepEqual(canonical, capability) {
+		outputDigestCache.Store(key, cachedOutputDigest{capability: capability, digest: digest})
+	}
+	return digest, nil
 }
 
 // OperationContract binds each non-publishing provider operation to independent
@@ -417,6 +448,9 @@ func RequiredScopesForSubject(subject Subject) []string {
 	case capabilities.ProviderPinterest:
 		return []string{"boards:read", "boards:write", "pins:read", "pins:write", "user_accounts:read"}
 	case capabilities.ProviderInstagram:
+		if strings.HasPrefix(subject.PolicyMode, "instagram.instagram_login.") {
+			return []string{"instagram_business_basic", "instagram_business_content_publish"}
+		}
 		return []string{"instagram_basic", "instagram_content_publish"}
 	case capabilities.ProviderYouTube:
 		return []string{"https://www.googleapis.com/auth/youtube", "https://www.googleapis.com/auth/youtube.upload"}

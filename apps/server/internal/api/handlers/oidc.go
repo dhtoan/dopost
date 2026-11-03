@@ -308,6 +308,9 @@ func (h *OIDCHandler) start(ctx context.Context, input *OIDCStartInput) (*huma.S
 	intent := models.OIDCIntentLogin
 	returnPath := input.ReturnPath
 	if input.Signup {
+		if h.auth.waitlist != nil {
+			return nil, huma.Error403Forbidden("Hosted registration is not open yet; join the waitlist")
+		}
 		if h.auth.purchaseChoiceRequired &&
 			(strings.TrimSpace(input.PlanID) == "" || strings.TrimSpace(input.BillingPeriod) == "") {
 			return nil, purchaseChoiceAPIError(billing.ErrPurchaseChoiceMissing)
@@ -730,7 +733,8 @@ func (h *OIDCHandler) completeLoginCallback(
 	if err != nil {
 		return nil, err
 	}
-	claims, err := h.auth.auth.ValidateToken(authResponse.Body.Token)
+	sessionToken := cookieFromString(authResponse.SetCookie).Value
+	claims, err := h.auth.auth.ValidateToken(sessionToken)
 	if err != nil || claims.SessionID == "" {
 		return nil, huma.Error500InternalServerError("failed to create OIDC session")
 	}
@@ -755,7 +759,7 @@ func (h *OIDCHandler) completeLoginCallback(
 		ctx,
 		completion.User.ID,
 		claims.SessionID,
-		authResponse.Body.Token,
+		sessionToken,
 	)
 	if err != nil {
 		return nil, huma.Error500InternalServerError("failed to create native OIDC handoff")

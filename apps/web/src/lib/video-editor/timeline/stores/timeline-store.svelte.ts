@@ -1,3 +1,5 @@
+import { effectiveMediaTracks } from '../utils/track-groups';
+import { sliceClipFades } from '../../media/clip-fades';
 /**
  * Timeline domain store — items, tracks, markers, playback settings, zoom.
  *
@@ -14,6 +16,7 @@
 import type { TimelineItem, TimelineMarker, TimelineTrack } from '$lib/video-editor/project/types';
 import type { AudioEqSettings } from '$lib/video-editor/audio/types';
 import { clampTimelineZoom } from '$lib/video-editor/timeline/zoom';
+import { calculateTrimSourceUpdate } from '../utils/trim-utils';
 import { calculateSplitSourceBoundaries } from '../utils/source-calculations';
 import { hasVariableSpeed, variableSpeedSplitBoundaries } from '../source-time-map';
 import { synchronizeTranscriptCaptionsAfterSplit } from '../../transcript/split-transcript-captions';
@@ -288,7 +291,7 @@ export const timelineStore = {
 	},
 
 	_addItem(item: TimelineItem): void {
-		state.items.push(item);
+		state.items = [...state.items, item];
 		reindex();
 	},
 
@@ -296,6 +299,17 @@ export const timelineStore = {
 		for (const { id, patch } of updates) {
 			const item = index.itemById.get(id);
 			if (!item) continue;
+			for (const kind of ['video', 'audio'] as const) {
+				const offsetKey = kind === 'video' ? 'videoFadeOffsets' : 'audioFadeOffsets';
+				const inKey = kind === 'video' ? 'fadeIn' : 'audioFadeIn';
+				const outKey = kind === 'video' ? 'fadeOut' : 'audioFadeOut';
+				if (!(offsetKey in patch) && item[offsetKey]) {
+					item[offsetKey] = {
+						in: inKey in patch ? 0 : item[offsetKey].in,
+						out: outKey in patch ? 0 : item[offsetKey].out
+					};
+				}
+			}
 			Object.assign(item, patch);
 		}
 		reindex();
@@ -327,6 +341,11 @@ export const timelineStore = {
 			durationInFrames: rightDuration,
 			label: item.label
 		};
+		Object.assign(
+			rightItem,
+			sliceClipFades(item, relative, item.durationInFrames, state.settings.fps)
+		);
+		Object.assign(item, sliceClipFades(item, 0, relative, state.settings.fps));
 		item.durationInFrames = leftDuration;
 		if (
 			rightItem.type === 'video' ||
@@ -356,16 +375,26 @@ export const timelineStore = {
 					item,
 					rightItem,
 					frame,
-					state.settings.fps
+					state.settings.fps,
+					new Set(
+						effectiveMediaTracks(state.tracks)
+							.filter((track) => track.locked)
+							.map((track) => track.id)
+					)
 				);
 			}
+		} else if (rightItem.type === 'image') {
+			Object.assign(
+				rightItem,
+				calculateTrimSourceUpdate(item, 'start', relative, rightDuration, state.settings.fps)
+			);
 		} else if (rightItem.type === 'lottie') {
 			rightItem.lottiePhaseOffset = (item.lottiePhaseOffset ?? 0) + relative;
 		}
 		// Both halves carry the original's lineage so downstream range-removal
 		// can identify every piece of the clip that was edited.
 		if (!item.originId) item.originId = rightItem.originId;
-		state.items.push(rightItem);
+		state.items = [...state.items, rightItem];
 		reindex();
 		return { leftItem: item, rightItem };
 	},

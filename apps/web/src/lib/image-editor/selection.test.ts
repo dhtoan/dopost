@@ -3,21 +3,24 @@ import {
 	boundsIntersect,
 	combinePixelMasks,
 	colorsWithinTolerance,
+	contractPixelMask,
 	ellipsePixelMask,
-	magicPixelMask,
+	expandPixelMask,
+	invertPixelMask,
 	mergeSelectionIDs,
 	normalizeSelectionBounds,
 	pixelMaskBounds,
 	pixelMaskContainsPoint,
-	pixelSpansToMask,
 	pixelMaskToSpans,
 	pointInPolygon,
 	polygonIntersectsBounds,
 	rectanglePixelMask,
 	strokePixelMask,
+	strokePixelMaskRegion,
 	smoothSelectionPoints,
-	subtractPixelMasks,
+	subtractPixelMaskRegionFromSpans,
 	translatePixelMask,
+	translatePixelMaskRegion,
 	transformPixelMask,
 	pixelMaskTransformAround
 } from './selection';
@@ -64,7 +67,12 @@ describe('OpenPost Image Editor selection composition', () => {
 	});
 
 	it('creates and composes real pixel masks for rectangle and ellipse selections', () => {
-		const rectangle = rectanglePixelMask(8, 8, { x: 1, y: 1, width: 5, height: 4 });
+		const rectangle = rectanglePixelMask(8, 8, {
+			x: 1,
+			y: 1,
+			width: 5,
+			height: 4
+		});
 		const ellipse = ellipsePixelMask(8, 8, { x: 2, y: 2, width: 4, height: 4 });
 		const subtracted = combinePixelMasks(rectangle, ellipse, 'subtract');
 		const intersected = combinePixelMasks(rectangle, ellipse, 'intersect');
@@ -76,24 +84,25 @@ describe('OpenPost Image Editor selection composition', () => {
 		expect(intersected.reduce((total, value) => total + value, 0)).toBeLessThan(
 			ellipse.reduce((total, value) => total + value, 0)
 		);
-		expect(pixelMaskBounds(ellipse, 8, 8)).toEqual({ x: 2, y: 2, width: 4, height: 4 });
+		expect(pixelMaskBounds(ellipse, 8, 8)).toEqual({
+			x: 2,
+			y: 2,
+			width: 4,
+			height: 4
+		});
 	});
 
-	it('flood-selects contiguous pixels using 0-255 tolerance', () => {
-		const pixels = new Uint8ClampedArray([
-			10, 10, 10, 255, 12, 12, 12, 255, 220, 220, 220, 255, 10, 10, 10, 255, 200, 200, 200, 255, 10,
-			10, 10, 255
+	it('grows, shrinks, and inverts a binary pixel selection at the page boundary', () => {
+		const point = rectanglePixelMask(5, 5, { x: 2, y: 2, width: 1, height: 1 });
+		expect([...expandPixelMask(point, 5, 5, 1)]).toEqual([
+			0, 0, 0, 0, 0, 0, 1, 1, 1, 0, 0, 1, 1, 1, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0
 		]);
-		const contiguous = magicPixelMask(
-			{ width: 3, height: 2, data: pixels },
-			{ x: 0, y: 0 },
-			4,
-			true
-		);
-		const global = magicPixelMask({ width: 3, height: 2, data: pixels }, { x: 0, y: 0 }, 4, false);
 
-		expect([...contiguous]).toEqual([1, 1, 0, 1, 0, 0]);
-		expect([...global]).toEqual([1, 1, 0, 1, 0, 1]);
+		const full = new Uint8Array(25).fill(1);
+		expect([...contractPixelMask(full, 5, 5, 1)]).toEqual([
+			0, 0, 0, 0, 0, 0, 1, 1, 1, 0, 0, 1, 1, 1, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0
+		]);
+		expect([...invertPixelMask(point)]).toEqual([...point].map((value) => (value ? 0 : 1)));
 	});
 
 	it('rasterizes hard pencil strokes into compact scanline spans', () => {
@@ -110,6 +119,22 @@ describe('OpenPost Image Editor selection composition', () => {
 
 		expect(spans.length).toBeGreaterThan(0);
 		expect(spans.some((span) => span.width >= 7)).toBe(true);
+	});
+
+	it('keeps a small pressure stroke bounded on an 8K page without shifting its pixels', () => {
+		const region = strokePixelMaskRegion(7680, 4320, [{ x: 10, y: 10, pressure: 0.5 }], 8);
+		expect(region).not.toBeNull();
+		if (!region) throw new Error('Expected a stroke region');
+		expect(region.data.byteLength).toBeLessThanOrEqual(64);
+		expect(
+			pixelMaskToSpans(region.data, region.width, region.height, -region.x, -region.y)
+		).toEqual([
+			{ x: 9, y: 8, width: 2 },
+			{ x: 8, y: 9, width: 4 },
+			{ x: 8, y: 10, width: 4 },
+			{ x: 9, y: 11, width: 2 }
+		]);
+		expect(strokePixelMaskRegion(7680, 4320, [{ x: -10, y: -10 }], 2)).toBeNull();
 	});
 
 	it('uses pen pressure to vary the pencil footprint', () => {
@@ -173,23 +198,65 @@ describe('OpenPost Image Editor selection composition', () => {
 	});
 
 	it('moves a pixel selection without leaving a stale copy', () => {
-		const original = rectanglePixelMask(8, 6, { x: 1, y: 1, width: 3, height: 2 });
+		const original = rectanglePixelMask(8, 6, {
+			x: 1,
+			y: 1,
+			width: 3,
+			height: 2
+		});
 		const moved = translatePixelMask(original, 8, 6, 2, 1);
 
 		expect(pixelMaskContainsPoint(moved, 8, 6, { x: 3, y: 2 })).toBe(true);
 		expect(pixelMaskContainsPoint(moved, 8, 6, { x: 1, y: 1 })).toBe(false);
 		expect(moved.reduce((total, value) => total + value, 0)).toBe(6);
+		const clipped = translatePixelMaskRegion(
+			original,
+			8,
+			6,
+			{ x: 1, y: 1, width: 3, height: 2 },
+			-2,
+			1
+		);
+		expect(clipped.bounds).toEqual({ x: 0, y: 2, width: 2, height: 2 });
+		expect(pixelMaskToSpans(clipped.data, 8, 6)).toEqual([
+			{ x: 0, y: 2, width: 2 },
+			{ x: 0, y: 3, width: 2 }
+		]);
+	});
+
+	it('erases only the marked pixels while normalizing overlapping imported spans', () => {
+		const spans = [
+			{ x: 1.2, y: 1.9, width: 3.1 },
+			{ x: 3, y: 1, width: 3 },
+			{ x: 0, y: 3, width: 2 }
+		];
+		const region = strokePixelMaskRegion(8, 5, [{ x: 3.5, y: 1.5 }], 2)!;
+		expect(subtractPixelMaskRegionFromSpans(spans, 8, 5, region)).toEqual([
+			{ x: 1, y: 1, width: 1 },
+			{ x: 5, y: 1, width: 1 },
+			{ x: 0, y: 3, width: 2 }
+		]);
 	});
 
 	it('resizes and rotates masks around an explicit transform origin', () => {
-		const original = rectanglePixelMask(20, 20, { x: 4, y: 4, width: 4, height: 2 });
+		const original = rectanglePixelMask(20, 20, {
+			x: 4,
+			y: 4,
+			width: 4,
+			height: 2
+		});
 		const resized = transformPixelMask(
 			original,
 			20,
 			20,
 			pixelMaskTransformAround({ x: 4, y: 4 }, 2, 2)
 		);
-		expect(pixelMaskBounds(resized, 20, 20)).toEqual({ x: 4, y: 4, width: 8, height: 4 });
+		expect(pixelMaskBounds(resized, 20, 20)).toEqual({
+			x: 4,
+			y: 4,
+			width: 8,
+			height: 4
+		});
 
 		const rotated = transformPixelMask(
 			original,
@@ -197,18 +264,12 @@ describe('OpenPost Image Editor selection composition', () => {
 			20,
 			pixelMaskTransformAround({ x: 6, y: 5 }, 1, 1, 90)
 		);
-		expect(pixelMaskBounds(rotated, 20, 20)).toEqual({ x: 5, y: 3, width: 2, height: 4 });
-	});
-
-	it('subtracts an erase mask from compact paint spans', () => {
-		const paint = pixelSpansToMask([{ x: 0, y: 1, width: 6 }], 6, 3);
-		const erase = rectanglePixelMask(6, 3, { x: 2, y: 0, width: 2, height: 3 });
-		const result = subtractPixelMasks(paint, erase);
-
-		expect(pixelMaskToSpans(result, 6, 3)).toEqual([
-			{ x: 0, y: 1, width: 2 },
-			{ x: 4, y: 1, width: 2 }
-		]);
+		expect(pixelMaskBounds(rotated, 20, 20)).toEqual({
+			x: 5,
+			y: 3,
+			width: 2,
+			height: 4
+		});
 	});
 
 	it('matches flat colors using a normalized tolerance', () => {

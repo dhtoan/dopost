@@ -23,7 +23,7 @@ test("landing product preview follows the visitor's selection", async ({ page })
     "Calendar",
     "Analytics",
     "Media",
-    "Accounts",
+    "Workflows",
     "Compose",
   ]) {
     const button = picker.getByRole("button", { name, exact: true });
@@ -79,7 +79,7 @@ test("landing details and resources load without repeating full screenshots", as
   for (const path of [
     "/tools",
     "/guides",
-    "https://docs.openpo.st/guides/quickstart",
+    "https://openpo.st/docs/guides/quickstart",
     "/platforms",
   ]) {
     await expect(resources.locator(`a[href="${path}"]`)).toBeVisible();
@@ -99,19 +99,29 @@ test("meme screenshot does not include the blurred dialog backdrop at its sides"
     await expect
       .poll(() => image.evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0))
       .toBe(true);
-    const edgeDifference = await image.evaluate((img: HTMLImageElement) => {
+    const edgeDifference = await image.evaluate(async (img: HTMLImageElement) => {
+      const bitmap = await createImageBitmap(await (await fetch(img.currentSrc)).blob());
       const canvas = document.createElement("canvas");
-      canvas.width = img.naturalWidth;
-      canvas.height = img.naturalHeight;
+      canvas.width = bitmap.width;
+      canvas.height = bitmap.height;
       const context = canvas.getContext("2d");
       if (!context) throw new Error("Canvas 2D context is unavailable");
-      context.drawImage(img, 0, 0);
-      const pixel = (x: number) => context.getImageData(x, 80, 1, 1).data;
+      context.drawImage(bitmap, 0, 0);
+      bitmap.close();
+      const sourceWidth = Number(img.getAttribute("width"));
+      const scale = canvas.width / sourceWidth;
+      const pixel = (x: number) =>
+        context.getImageData(
+          Math.min(canvas.width - 1, Math.max(1, Math.round(x * scale))),
+          Math.round(80 * scale),
+          1,
+          1,
+        ).data;
       const distance = (left: Uint8ClampedArray, right: Uint8ClampedArray) =>
         Math.max(...[0, 1, 2].map((channel) => Math.abs(left[channel] - right[channel])));
       return Math.max(
         distance(pixel(2), pixel(100)),
-        distance(pixel(img.naturalWidth - 3), pixel(img.naturalWidth - 101)),
+        distance(pixel(sourceWidth - 3), pixel(sourceWidth - 101)),
       );
     });
     expect(edgeDifference).toBeLessThan(20);
@@ -134,7 +144,7 @@ test("features navigation stays on the landing page", async ({ page }, testInfo)
 });
 
 test("provider marks use the available icon area", async ({ page }) => {
-  for (const platform of ["Pinterest", "Telegram"]) {
+  for (const platform of ["Pinterest"]) {
     await page.goto(`/platforms/${platform.toLowerCase()}`);
     const icon = page.locator("svg").filter({
       has: page.locator("title", { hasText: new RegExp(`^${platform}$`) }),
@@ -185,6 +195,7 @@ test("visitors can discover publishing, AI, memes, conversations, and developer 
     "Explore AI writing",
     "Make a meme",
     "Explore analytics",
+    "Build your first workflow",
     "Set repost rules",
     "See inbox support",
     "Connect your tools",
@@ -194,15 +205,20 @@ test("visitors can discover publishing, AI, memes, conversations, and developer 
     await link.scrollIntoViewIfNeeded();
     await link.focus();
     await expect(link).toBeFocused();
-    await expect(link).toHaveAttribute("href", /^https:\/\/docs\.openpo\.st\//);
+    await expect(link).toHaveAttribute("href", /^https:\/\/openpo\.st\/docs(?:\/|$)/);
   }
-  for (const image of await features.locator(".visual img").all()) {
+  for (const image of await features.locator(".visual img").filter({ visible: true }).all()) {
     await image.scrollIntoViewIfNeeded();
     await expect
-      .poll(() =>
-        image.evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth >= 1000),
-      )
+      .poll(() => image.evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0))
       .toBe(true);
+    const resolution = await image.evaluate(async (img: HTMLImageElement) => {
+      const bitmap = await createImageBitmap(await (await fetch(img.currentSrc)).blob());
+      const width = bitmap.width;
+      bitmap.close();
+      return { width, needed: img.clientWidth * window.devicePixelRatio };
+    });
+    expect(resolution.width).toBeGreaterThanOrEqual(resolution.needed);
   }
   for (const mark of await features.locator('img[src*="/brand/features/"]').all()) {
     await mark.scrollIntoViewIfNeeded();
@@ -213,7 +229,7 @@ test("visitors can discover publishing, AI, memes, conversations, and developer 
   }
   await expect(
     features.getByRole("link", { name: "Connect your tools", exact: true }),
-  ).toHaveAttribute("href", "https://docs.openpo.st/guides/automation");
+  ).toHaveAttribute("href", "https://openpo.st/docs/automate");
   await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
 });
 
@@ -225,6 +241,13 @@ test("landing keeps trial terms and its tour accessible without JavaScript", asy
   await page.goto("/");
   await expect(page.getByRole("heading", { level: 1 })).toContainText("You build the business.");
   await expect(page.getByText("14 days free. $0 today. Card required.").first()).toBeVisible();
+  await expect(page.getByRole("group", { name: "Explore OpenPost" })).toBeVisible();
+  for (const button of await page
+    .getByRole("group", { name: "Explore OpenPost" })
+    .getByRole("button")
+    .all()) {
+    await expect(button).toBeDisabled();
+  }
   await expect(page.getByRole("link", { name: "Start your free trial" }).first()).toHaveAttribute(
     "href",
     /app\.openpo\.st\/register\?plan=founder/,
@@ -244,6 +267,9 @@ test("landing CTAs keep shared action colors beneath the Dither texture", async 
     await page.emulateMedia({ colorScheme, reducedMotion: "reduce" });
     await page.goto("/");
     const cta = page.getByRole("link", { name: "Start your free trial", exact: true }).first();
+    await expect
+      .poll(() => cta.evaluate((element) => getComputedStyle(element, "::before").maskImage))
+      .toContain("svg");
     const colors = await cta.evaluate((element) => {
       const button = getComputedStyle(element);
       const root = getComputedStyle(document.documentElement);
@@ -255,11 +281,9 @@ test("landing CTAs keep shared action colors beneath the Dither texture", async 
       return {
         backgroundColor: button.backgroundColor,
         sharedActionColor,
-        texture: button.backgroundImage,
       };
     });
     expect(colors.backgroundColor).toBe(colors.sharedActionColor);
-    expect(colors.texture).toContain("svg");
   }
 });
 
@@ -274,8 +298,10 @@ for (const width of [1440, 390, 320]) {
       await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
       if (colorScheme === "dark") await expect(page.locator("html")).toHaveClass(/dark/);
       else await expect(page.locator("html")).not.toHaveClass(/dark/);
-      const productScreenshots = page.locator('main img[src^="/assets/screenshots/"]');
-      await expect(productScreenshots).toHaveCount(8);
+      const productScreenshots = page
+        .locator('main img[src^="/assets/screenshots/"]')
+        .filter({ visible: true });
+      await expect(productScreenshots).toHaveCount(width > 760 ? 9 : 8);
       for (const image of await productScreenshots.all()) {
         await image.scrollIntoViewIfNeeded();
         await expect

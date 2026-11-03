@@ -1,3 +1,4 @@
+import { startProfileSpan } from '$lib/performance/profiling';
 import {
 	ALL_FORMATS,
 	BlobSource,
@@ -33,16 +34,16 @@ import {
 } from './model';
 import { createStreamingOutputTarget } from '$lib/video/stream-target';
 import { probeSourceFile, resolveSourceFile } from './source';
-import { ensureAc3DecoderForCodec } from '$lib/video-editor/media/ac3-decoder';
-import { requireWorkspaceRoot } from '$lib/video-editor/workspace-fs/root';
-import { openBlobWriter, exists, removeEntry } from '$lib/video-editor/workspace-fs/fs-primitives';
+import { ensureAc3DecoderForCodec } from '@openpost/editor-shared/media';
+import { requireWorkspaceRoot } from '@openpost/editor-shared/workspace';
+import { openBlobWriter, exists, removeEntry } from '@openpost/editor-shared/workspace';
 import {
 	projectExportFilePath,
 	exportFilePath,
 	PROJECTS_DIR,
 	EXPORTS_DIR,
 	sanitizeWorkspaceFileName
-} from '$lib/video-editor/workspace-fs/paths';
+} from '@openpost/editor-shared/workspace';
 import { exportSmartCut, nextSmartCutBoundary, UnsupportedSmartCutError } from './smart-cut';
 import { copyContainerMetadata, readTrackMetadata } from './container-metadata';
 
@@ -538,11 +539,10 @@ export async function preflightExport(
 			const usage = est.usage ?? 0;
 			if (quota === 0) storageState = 'unknown';
 			else {
-				const reserve = 50 * 1024 * 1024;
 				const needsWorkingArtifacts =
 					requiresTranscode || perSegment.some((segment) => segment.requiresTranscode);
 				const headroom =
-					estimatedBytes * (needsWorkingArtifacts ? TRANSCODE_STORAGE_MULTIPLIER : 1) + reserve;
+					estimatedBytes * (needsWorkingArtifacts ? TRANSCODE_STORAGE_MULTIPLIER : 1);
 				if (usage + headroom > quota) storageState = 'insufficient';
 				else storageState = 'ok';
 			}
@@ -1024,7 +1024,8 @@ async function exportMergedStreamCopy(
 		}
 	}
 	const onAbort = () => {
-		if (output.state === 'started') void output.cancel();
+		// Closing the target can reject with the same abort handled by the export.
+		if (output.state === 'started') void output.cancel().catch(() => undefined);
 	};
 	signal?.addEventListener('abort', onAbort, { once: true });
 	let muxedTime = 0;
@@ -1561,7 +1562,8 @@ async function exportMergedTranscode(
 	let videoSeq = 0;
 	const audioSeqs: number[] = Array.from({ length: outputAudioTrackCount }, () => 0);
 	const onAbort = () => {
-		if (finalOutput.state === 'started') void finalOutput.cancel();
+		// Closing the target can reject with the same abort handled by the export.
+		if (finalOutput.state === 'started') void finalOutput.cancel().catch(() => undefined);
 	};
 	signal?.addEventListener('abort', onAbort, { once: true });
 	const tempScratches: Array<{
@@ -1596,12 +1598,12 @@ async function exportMergedTranscode(
 				trim: { start: seg.start, end: seg.end },
 				video: (track, n) => {
 					const idx = n - 1;
-					if (selVideo && idx === selVideoIdx) return { forceTranscode: true };
+					if (selVideo && idx === selVideoIdx) return { forceTranscode: true, codec: videoCodec };
 					return { discard: true };
 				},
 				audio: (track, n) => {
 					const idx = n - 1;
-					if (selAudioIdxSet.has(idx)) return { forceTranscode: false };
+					if (selAudioIdxSet.has(idx)) return { forceTranscode: true, codec: audioCodec };
 					return { discard: true };
 				}
 			});
@@ -1672,11 +1674,14 @@ async function exportMergedTranscode(
 			const vSink = new EncodedPacketSink(vTrack);
 			const vDec = await vTrack.getDecoderConfig();
 			let first = true;
+			const segmentDuration = seg.end - seg.start;
 			for await (const pkt of vSink.packets()) {
 				throwIfAborted(signal);
+				if (pkt.timestamp < 0 || pkt.timestamp >= segmentDuration) continue;
 				await videoSource.add(
 					pkt.clone({
 						timestamp: muxedTime + pkt.timestamp,
+						duration: Math.min(pkt.duration, segmentDuration - pkt.timestamp),
 						sequenceNumber: videoSeq++
 					}),
 					{
@@ -1702,9 +1707,12 @@ async function exportMergedTranscode(
 					let aFirst = true;
 					for await (const pkt of aSink.packets()) {
 						throwIfAborted(signal);
+						// Encoder padding must not overlap the next segment's audio.
+						if (pkt.timestamp < 0 || pkt.timestamp >= segmentDuration) continue;
 						await audioSources[ai]!.add(
 							pkt.clone({
 								timestamp: muxedTime + pkt.timestamp,
+								duration: Math.min(pkt.duration, segmentDuration - pkt.timestamp),
 								sequenceNumber: audioSeqs[ai]++
 							}),
 							{
@@ -1770,8 +1778,12 @@ export async function exportSegments(
 	const { sources, segments, cutMode, merge, signal, onProgress } = options;
 	const enabled = segments.filter((s) => s.enabled !== false);
 	if (enabled.length === 0) throw new Error('No segments to export.');
-	const preflight = await preflightExport(sources, enabled, cutMode, merge);
+	const finishPreflight = startProfileSpan('Quick Cut', 'Preflight');
+	const preflight = await preflightExport(sources, enabled, cutMode, merge).finally(
+		finishPreflight
+	);
 	if (!preflight.eligible) throw new Error(preflight.reason);
+	const finishProfile = startProfileSpan('Quick Cut', 'Export');
 	const startTime = Date.now();
 	const artifacts: QuickCutScratchArtifact[] = [];
 	let lastReportedFraction = 0;
@@ -1980,6 +1992,8 @@ export async function exportSegments(
 	} catch (e) {
 		for (const a of artifacts) await discardScratchFile(a.scratchPath).catch(() => undefined);
 		throw e;
+	} finally {
+		finishProfile?.();
 	}
 }
 

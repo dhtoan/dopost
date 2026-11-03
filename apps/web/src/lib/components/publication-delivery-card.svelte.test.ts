@@ -1,5 +1,4 @@
 import { expect, it, vi } from 'vitest';
-import { page } from 'vitest/browser';
 import { render } from 'vitest-browser-svelte';
 import PublicationDeliveryCard from './publication-delivery-card.svelte';
 
@@ -10,31 +9,24 @@ const baseRendition = {
 	status: 'failed'
 };
 
-it('attaches retryable failure evidence and retry to the exact destination', async () => {
-	const onRetry = vi.fn();
+it('prefers the projected destination photo over the explicit avatar fallback', async () => {
+	const projectedUrl =
+		'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="10" height="10"%3E%3Crect width="10" height="10" fill="green"/%3E%3C/svg%3E';
+	const fallbackUrl =
+		'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="10" height="10"%3E%3Crect width="10" height="10" fill="red"/%3E%3C/svg%3E';
 	const screen = await render(PublicationDeliveryCard, {
 		rendition: {
 			...baseRendition,
-			delivery: {
-				target_key: 'x',
-				state: 'rejected',
-				current_attempt_id: 'attempt-2',
-				current_attempt_number: 2,
-				current_attempt_created_at: '2026-08-13T10:00:00Z',
-				error_kind: 'provider_http',
-				error_code: 'rate_limited',
-				error_http_status: 429,
-				recovery_action: 'retry'
-			}
+			account: { platform: 'x', display_name: '@projected', avatar_url: projectedUrl }
 		},
-		onRetry
+		destinationLabel: '@stale',
+		accountAvatarUrl: fallbackUrl
 	});
 
-	await expect.element(screen.getByText('Rejected')).toBeVisible();
-	await expect.element(screen.getByText(/provider_http.*rate_limited/)).toBeVisible();
-	await expect.element(screen.getByText(/Provider attempt 2/)).toBeVisible();
-	await screen.getByRole('button', { name: 'Retry destination' }).click();
-	expect(onRetry).toHaveBeenCalledWith('rendition-1');
+	const image = screen.container.querySelector('img');
+	expect(image?.getAttribute('src')).toBe(projectedUrl);
+	await expect.element(screen.getByText('@projected', { exact: true })).toBeVisible();
+	await expect.element(screen.getByText('@stale', { exact: true })).not.toBeInTheDocument();
 });
 
 it('does not offer a stale retry after the destination has been queued again', async () => {
@@ -54,30 +46,6 @@ it('does not offer a stale retry after the destination has been queued again', a
 		onRetry: vi.fn()
 	});
 
-	await expect
-		.element(screen.getByRole('button', { name: 'Retry destination' }))
-		.not.toBeInTheDocument();
-});
-
-it('does not offer replay while an ambiguous attempt is being reconciled', async () => {
-	const screen = await render(PublicationDeliveryCard, {
-		rendition: {
-			...baseRendition,
-			delivery: {
-				target_key: 'x',
-				state: 'ambiguous',
-				current_attempt_id: 'attempt-3',
-				current_attempt_number: 3,
-				current_attempt_created_at: '2026-08-13T10:00:00Z',
-				recovery_action: 'reconcile'
-			}
-		},
-		onRetry: vi.fn()
-	});
-
-	await expect
-		.element(screen.getByText('OpenPost is checking the provider before another send.'))
-		.toBeVisible();
 	await expect
 		.element(screen.getByRole('button', { name: 'Retry destination' }))
 		.not.toBeInTheDocument();

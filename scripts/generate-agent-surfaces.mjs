@@ -1,9 +1,8 @@
 import { constants } from "node:fs";
-import { access, readFile, realpath, writeFile } from "node:fs/promises";
+import { access, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { load as parseYaml } from "js-yaml";
 import { parse, parseFragment } from "parse5";
 import {
   docsSiteUrl,
@@ -27,10 +26,10 @@ const generatedVaryHeaderMarker = "# OpenPost canonical Vary rules (generated)";
 const privateRoutePattern =
   /^\/(?:login|register|onboarding|checkout|organizations|workspaces|publications|renditions|media|settings|billing|oauth|api)(?:[/.?#]|$)/iu;
 const privateApplicationOrigins = new Set(["https://app.openpo.st"]);
-const publicContentOrigins = new Set(["https://openpo.st", "https://docs.openpo.st"]);
+const publicContentOrigins = new Set(["https://openpo.st"]);
 const productionArtifactURLs = new Set([
   "https://openpo.st/index.md",
-  "https://docs.openpo.st/index.md",
+  "https://openpo.st/docs/index.md",
 ]);
 const ignoredMarketingTags = new Set([
   "audio",
@@ -182,9 +181,28 @@ function documentationHTMLArtifact(page) {
   return route === "/" ? "index.html" : `${route.replace(/^\//u, "")}.html`;
 }
 
+function documentationMarkdownArtifact(page) {
+  return page.replace(/\.mdx?$/u, ".md");
+}
+
+function documentationMarkdownURL(route) {
+  const entry = docsSocialEntries.find(
+    (candidate) =>
+      candidate.route === route && candidate.agentRepresentation.membership === "ordinary",
+  );
+  if (!entry) {
+    throw new Error(`unknown documentation agent route ${route}`);
+  }
+  return new URL(documentationMarkdownArtifact(entry.page), `${docsSiteUrl}/`).href;
+}
+
 const documentationDiscoverySections = [
-  ["mcp", "AI assistants", "Connect an AI assistant to your OpenPost workspace."],
   ["user-guide", "User guide", "Create, schedule, publish, and review work in the OpenPost app."],
+  ["video-editor", "Video Editor", "Create, edit, export, and publish video."],
+  ["image-editor", "Image Editor", "Create, edit, export, and publish images and carousels."],
+  ["workflows", "Workflows", "Build, test, and manage built-in content workflows."],
+  ["automate", "Automate", "Use the SDK, HTTP API, CLI, or n8n with OpenPost."],
+  ["mcp", "AI assistants", "Connect an AI assistant to your OpenPost workspace."],
   ["self-hosting", "Self-hosting", "Run and maintain the complete OpenPost service."],
   ["api", "API", "Read the API guide and follow its authoritative OpenAPI JSON contract."],
 ];
@@ -230,6 +248,13 @@ function headMetadata(document) {
 function absoluteUrl(value, canonical) {
   if (!value || value.startsWith("#")) return `${canonical.replace(/\/$/u, "")}${value ?? ""}`;
   if (/^(?:mailto:|tel:)/u.test(value)) return value;
+  if (
+    value.startsWith("/") &&
+    !value.startsWith("/docs/") &&
+    (canonical === docsSiteUrl || canonical.startsWith(`${docsSiteUrl}/`))
+  ) {
+    return `${docsSiteUrl}${value}`;
+  }
   return new URL(value, canonical).href;
 }
 
@@ -289,7 +314,16 @@ function renderNode(node, canonical, listDepth = 0) {
     const href = attribute(node, "href");
     const resolved = href ? absoluteUrl(href, canonical) : undefined;
     if (resolved && privateApplicationOrigins.has(new URL(resolved).origin)) return label;
-    return label && resolved ? `[${label}](${resolved})` : label;
+    if (!label || !resolved) return label;
+    if (label.includes("\n")) {
+      const linkedHeading = label.replace(
+        /^(#{1,6}) (.+)$/mu,
+        (_match, markers, title) => `${markers} [${title}](${resolved})`,
+      );
+      if (linkedHeading !== label) return `\n\n${linkedHeading}\n\n`;
+      return `\n\n${label}\n\n[${textContent(node).replace(/\s+/gu, " ").trim()}](${resolved})\n\n`;
+    }
+    return `[${label}](${resolved})`;
   }
   if (tag === "img") {
     const alt = attribute(node, "alt")?.trim();
@@ -380,15 +414,6 @@ function marketingRepresentation(source, page) {
   };
 }
 
-function parseFrontmatter(source) {
-  const match = source.match(/^---\n([\s\S]*?)\n---\n?/u);
-  if (!match) return { data: {}, body: source };
-  return {
-    data: parseYaml(match[1]) ?? {},
-    body: source.slice(match[0].length),
-  };
-}
-
 function mapFenceAwareLines(source, transform) {
   let fenced = false;
   return source
@@ -439,37 +464,6 @@ function rewriteMarkdownLinks(source, canonical) {
       return `${label}(${resolved}${suffix})`;
     }),
   );
-}
-
-function normalizeContainers(source, sourcePath) {
-  const defaultLabels = {
-    danger: "Danger",
-    details: "Details",
-    info: "Info",
-    tip: "Tip",
-    warning: "Warning",
-  };
-  return transformOutsideFencedBlocks(source, (plainSource) => {
-    const normalized = plainSource.replace(
-      /^:::[ \t]*(info|tip|warning|danger|details)(?:[ \t]+([^\n]*?))?[ \t]*\r?\n([\s\S]*?)^:::[ \t]*$/gimu,
-      (_all, type, label, body) => {
-        const lines = body.trim().split("\n");
-        const title = label?.trim() || defaultLabels[type.toLowerCase()];
-        return [`> **${title}**`, ">", ...lines.map((line) => `> ${line}`)].join("\n");
-      },
-    );
-    const unsupported = normalized.match(/^:::[ \t]*([^\s\n]+)?[^\n]*$/mu);
-    if (unsupported) {
-      throw new Error(
-        `${sourcePath}: unsupported VitePress container ::: ${unsupported[1] ?? "(unclosed directive)"}`,
-      );
-    }
-    return normalized;
-  });
-}
-
-function normalizeMaintainedClientOnly(source) {
-  return source.replace(/<ClientOnly>\s*<OASpec\s+hideBranding\s*\/>\s*<\/ClientOnly>/gu, "");
 }
 
 function transformOutsideFencedBlocks(source, transform) {
@@ -549,84 +543,23 @@ function normalizeRawHtml(source, canonical, sourcePath) {
   });
 }
 
-async function expandControlledIncludes(source, sourcePath, sourceRoot, stack = []) {
-  const includePattern = /<!--@include:\s+([^\s{}]+)\s*-->/gu;
-  let expanded = "";
-  let cursor = 0;
-  for (const match of source.matchAll(includePattern)) {
-    expanded += source.slice(cursor, match.index);
-    const includeReference = match[1];
-    const includePath = path.resolve(path.dirname(sourcePath), includeReference);
-    const resolvedRoot = await realpath(sourceRoot);
-    const resolvedInclude = await realpath(includePath).catch(() => includePath);
-    if (
-      resolvedInclude !== resolvedRoot &&
-      !resolvedInclude.startsWith(`${resolvedRoot}${path.sep}`)
-    ) {
-      throw new Error(
-        `${sourcePath}: controlled include escapes the documentation root: ${includeReference}`,
-      );
-    }
-    if (stack.includes(resolvedInclude)) {
-      throw new Error(`${sourcePath}: controlled include cycle: ${includeReference}`);
-    }
-    await requireSource(resolvedInclude);
-    const included = await readFile(resolvedInclude, "utf8");
-    expanded += await expandControlledIncludes(included, resolvedInclude, sourceRoot, [
-      ...stack,
-      resolvedInclude,
-    ]);
-    cursor = match.index + match[0].length;
-  }
-  expanded += source.slice(cursor);
-  if (/<!--@include:/u.test(expanded)) {
-    throw new Error(`${sourcePath}: unsupported controlled include directive`);
-  }
-  return expanded;
-}
-
-async function documentationRepresentation(source, page, sourceRoot) {
-  source = await expandControlledIncludes(source, page.sourcePath, sourceRoot);
-  const { data, body: maintainedBody } = parseFrontmatter(source);
-  const hero = data.hero ?? {};
-  const sections = [`# ${hero.name ?? page.title}`];
-  if (hero.text) sections.push(String(hero.text));
-  if (hero.tagline) sections.push(String(hero.tagline));
-  if (Array.isArray(hero.actions)) {
-    sections.push(
-      hero.actions
-        .filter(
-          (action) =>
-            action?.text &&
-            action?.link &&
-            !privateApplicationOrigins.has(new URL(action.link, page.canonical).origin),
-        )
-        .map((action) => `- [${action.text}](${absoluteUrl(action.link, page.canonical)})`)
-        .join("\n"),
-    );
-  }
-  if (Array.isArray(data.features)) {
-    for (const feature of data.features) {
-      if (feature?.title) sections.push(`## ${feature.title}\n\n${feature.details ?? ""}`);
-    }
+function documentationRepresentation(source, page) {
+  const maintainedBody = source.replace(/^---\n[\s\S]*?\n---\n?/u, "");
+  if (/<!--@include:|^:::[ \t]/mu.test(withoutFencedContent(maintainedBody))) {
+    throw new Error(`${page.sourcePath}: unsupported legacy documentation directive`);
   }
   const bodyWithoutSourceHeading = maintainedBody.replace(/^\s*#\s+.+(?:\n+|$)/u, "");
   const normalizedBody = rewriteMarkdownLinks(
-    normalizeRawHtml(
-      normalizeContainers(normalizeMaintainedClientOnly(bodyWithoutSourceHeading), page.sourcePath),
-      page.canonical,
-      page.sourcePath,
-    ),
+    normalizeRawHtml(bodyWithoutSourceHeading, page.canonical, page.sourcePath),
     page.canonical,
   );
-  sections.push(normalizedBody);
   return {
     title: page.title,
     description: page.description,
     canonical: page.canonical,
     markdown: representation({
       ...page,
-      body: sections.filter(Boolean).join("\n\n"),
+      body: [`# ${page.title}`, normalizedBody].filter(Boolean).join("\n\n"),
     }),
   };
 }
@@ -657,6 +590,26 @@ export function discoveryDocument(discovery) {
   );
 }
 
+function sitemapDocument(projection, pages) {
+  const sections = new Map();
+  for (const page of pages) {
+    const section =
+      projection.surface === "marketing"
+        ? ({ platform: "Channels", tool: "Free tools" }[page.route?.kind] ?? "OpenPost")
+        : (documentationSectionTitles.get(page.catalog?.agentCorpus?.section) ?? "Documentation");
+    const entries = sections.get(section) ?? [];
+    entries.push(
+      `- [${page.title}](${artifactURL(page)}): ${page.description}\n  Canonical: ${page.canonical}`,
+    );
+    sections.set(section, entries);
+  }
+  return cleanMarkdown(`# ${projection.discovery.title} Markdown sitemap
+
+> Alternate representations of public pages. Cite each page's canonical HTML URL.
+
+${[...sections].map(([title, entries]) => `## ${title}\n\n${entries.join("\n")}`).join("\n\n")}`);
+}
+
 function demoteCorpusHeadings(source) {
   return mapOutsideFences(source, (line) =>
     line.replace(
@@ -666,8 +619,18 @@ function demoteCorpusHeadings(source) {
   );
 }
 
+function artifactBaseURL(page) {
+  return page.catalog?.kind === "docs" || page.canonical.startsWith(`${docsSiteUrl}/`)
+    ? `${docsSiteUrl}/`
+    : `${marketingSiteUrl}/`;
+}
+
+function artifactURL(page) {
+  return new URL(page.outputPath, artifactBaseURL(page)).href;
+}
+
 function corpusArtifactURL(page) {
-  return new URL(page.outputPath, new URL(page.canonical).origin + "/").href;
+  return artifactURL(page);
 }
 
 function corpusLinks(markdown, page, artifactsByCanonical) {
@@ -680,7 +643,14 @@ function corpusLinks(markdown, page, artifactsByCanonical) {
         if (artifact) return `${imageMarker}[${label}](${artifact}${url.hash})`;
         const intentionalNative =
           publicContentOrigins.has(url.origin) &&
-          (url.pathname.startsWith("/assets/") || url.pathname === "/openapi.json");
+          (url.pathname.startsWith("/assets/") ||
+            url.pathname.startsWith("/docs/assets/") ||
+            url.pathname.startsWith("/clients/") ||
+            url.pathname.startsWith("/docs/clients/") ||
+            url.pathname.startsWith("/og/") ||
+            url.pathname.startsWith("/docs/og/") ||
+            url.pathname === "/openapi.json" ||
+            url.pathname === "/docs/openapi.json");
         if (intentionalNative) return `${imageMarker}[${label}](${url.href})`;
         return label;
       },
@@ -699,6 +669,16 @@ function corpusDocument(corpus, generatedPages) {
   const artifactsByCanonical = new Map(
     generatedPages.map((page) => [normalizedPublicURL(page.canonical), corpusArtifactURL(page)]),
   );
+  if (corpus.surface === "marketing") {
+    const included = generatedPages.filter(
+      (page) => page.route?.agentDiscovery?.membership === "primary",
+    );
+    return cleanMarkdown(`# ${corpus.title}
+
+> Selected public product pages. Use llms.txt or sitemap.md to discover the complete catalogue, and cite canonical HTML URLs.
+
+${included.map((page) => `## ${page.title}\n\nCanonical: ${page.canonical}\nSource: [${page.title}](${artifactURL(page)})\n\n${corpusPageBody(page, artifactsByCanonical)}`).join("\n\n")}`);
+  }
   const includedBySection = new Map();
   for (const page of generatedPages) {
     const policy = page.catalog?.agentCorpus;
@@ -769,11 +749,7 @@ function validateDiscovery(projection, generatedPages) {
     );
     throw new Error(`duplicate canonical route: ${duplicate.canonical}`);
   }
-  const artifactURLs = new Set(
-    generatedPages.map(
-      (page) => new URL(page.outputPath, new URL(page.canonical).origin + "/").href,
-    ),
-  );
+  const artifactURLs = new Set(generatedPages.map(artifactURL));
   const discoveryLinks = [
     ...projection.discovery.links,
     ...(projection.discovery.sections ?? []).flatMap((section) => section.links),
@@ -815,6 +791,7 @@ function validateRepresentationLinks(
   canonical,
   knownCanonicalURLs = [],
   knownFragmentsByCanonical = new Map(),
+  knownCanonicalPrefixes = [],
 ) {
   const known = new Set(knownCanonicalURLs.map(normalizedPublicURL));
   for (const match of markdownLinks(markdown)) {
@@ -823,9 +800,20 @@ function validateRepresentationLinks(
       throw new Error(`${canonical}: generated representation exposes private link ${url.href}`);
     }
     if (!publicContentOrigins.has(url.origin)) continue;
-    if (url.pathname.startsWith("/assets/")) continue;
+    if (
+      url.pathname.startsWith("/assets/") ||
+      url.pathname.startsWith("/docs/assets/") ||
+      url.pathname.startsWith("/clients/") ||
+      url.pathname.startsWith("/docs/clients/") ||
+      url.pathname.startsWith("/og/") ||
+      url.pathname.startsWith("/docs/og/")
+    )
+      continue;
     if (knownCanonicalURLs.length === 0) continue;
-    if (!known.has(normalizedPublicURL(url.href))) {
+    if (
+      !known.has(normalizedPublicURL(url.href)) &&
+      !knownCanonicalPrefixes.some((prefix) => url.href.startsWith(prefix))
+    ) {
       throw new Error(`${canonical}: broken internal link ${url.href}`);
     }
     const targetFragments = knownFragmentsByCanonical.get(normalizedPublicURL(url.href));
@@ -873,7 +861,8 @@ function validateHTMLDiscovery(source, page) {
   const document = parse(source);
   const head = element(document, "head");
   const links = descendants(head).filter((node) => node.tagName === "link");
-  const markdownURL = new URL(page.outputPath, new URL(page.canonical).origin + "/").href;
+  const markdownURL = artifactURL(page);
+  const discoveryPath = new URL("llms.txt", artifactBaseURL(page)).pathname;
   const hasMarkdown = links.some(
     (link) =>
       attribute(link, "rel") === "alternate" &&
@@ -884,7 +873,7 @@ function validateHTMLDiscovery(source, page) {
     (link) =>
       attribute(link, "rel") === "alternate" &&
       attribute(link, "type") === "text/plain" &&
-      new URL(attribute(link, "href"), page.canonical).pathname === "/llms.txt",
+      new URL(attribute(link, "href"), page.canonical).pathname === discoveryPath,
   );
   if (!hasMarkdown || !hasDiscovery) {
     throw new Error(`${page.canonical}: canonical HTML is missing Agent-readable discovery links`);
@@ -907,11 +896,7 @@ export async function generateAgentSurface(projection) {
     const rendered =
       projection.surface === "marketing"
         ? marketingRepresentation(source, page)
-        : await documentationRepresentation(
-            source,
-            page,
-            projection.sourceRoot ?? path.dirname(page.sourcePath),
-          );
+        : documentationRepresentation(source, page);
     const generated = { ...page, ...rendered };
     if (privateRoutePattern.test(new URL(generated.canonical).pathname)) {
       throw new Error(`generated page exposes a private application route: ${generated.canonical}`);
@@ -942,6 +927,7 @@ export async function generateAgentSurface(projection) {
       generated.canonical,
       projection.knownCanonicalURLs,
       knownFragmentsByCanonical,
+      projection.knownCanonicalPrefixes,
     );
     generatedPages.push(generated);
   }
@@ -953,6 +939,11 @@ export async function generateAgentSurface(projection) {
   await writeFile(
     path.join(projection.outputDirectory, "llms.txt"),
     discoveryDocument(projection.discovery),
+    "utf8",
+  );
+  await writeFile(
+    path.join(projection.outputDirectory, "sitemap.md"),
+    sitemapDocument(projection, generatedPages),
     "utf8",
   );
   let corpus;
@@ -986,6 +977,7 @@ export async function generateAgentSurface(projection) {
 export const productionProjections = {
   marketing: {
     surface: "marketing",
+    corpus: { title: "OpenPost Product Overview", surface: "marketing" },
     originHeadersRequired: true,
     outputDirectory: path.join(repositoryRoot, "apps/marketing/dist"),
     pages: marketingRouteManifest
@@ -1002,13 +994,15 @@ export const productionProjections = {
     knownCanonicalURLs: [
       ...marketingRouteManifest.map((entry) => entry.canonical),
       ...docsSocialEntries.map((entry) => entry.canonical),
-      "https://docs.openpo.st/openapi.json",
+      "https://openpo.st/docs/openapi.json",
     ],
     knownArtifactURLs: [
-      "https://docs.openpo.st/index.md",
-      "https://docs.openpo.st/openapi.json",
-      "https://docs.openpo.st/guides/publishing.md",
-      "https://docs.openpo.st/guides/automation.md",
+      documentationMarkdownURL("/"),
+      "https://openpo.st/docs/openapi.json",
+      documentationMarkdownURL("/guides/publishing"),
+      documentationMarkdownURL("/automate"),
+      documentationMarkdownURL("/automate/cli"),
+      documentationMarkdownURL("/mcp"),
     ],
     fragmentSources: marketingRouteManifest.map((route) => ({
       canonical: route.canonical,
@@ -1048,7 +1042,7 @@ export const productionProjections = {
         {
           title: "OpenPost documentation",
           description: "Read the user, self-hosting, and API documentation.",
-          url: "https://docs.openpo.st/index.md",
+          url: documentationMarkdownURL("/"),
           classification: "primary",
         },
       ],
@@ -1061,27 +1055,27 @@ export const productionProjections = {
             {
               title: "OpenPost developer entry point",
               description: "Choose the HTTP API, CLI, or MCP server for the job.",
-              url: "https://docs.openpo.st/guides/automation.md",
+              url: documentationMarkdownURL("/automate"),
             },
             {
               title: "OpenAPI JSON",
               description: "Use the authoritative OpenAPI 3.1 HTTP API contract.",
-              url: "https://docs.openpo.st/openapi.json",
+              url: "https://openpo.st/docs/openapi.json",
             },
             {
               title: "OpenPost CLI",
               description: "Use a terminal, script, CI job, cron job, or deploy process.",
-              url: "https://docs.openpo.st/guides/automation.md",
+              url: documentationMarkdownURL("/automate/cli"),
             },
             {
               title: "OpenPost MCP server",
               description: "Connect an AI assistant with explicit read and change scopes.",
-              url: "https://docs.openpo.st/guides/automation.md",
+              url: documentationMarkdownURL("/mcp"),
             },
             {
               title: "Agent-assisted publishing",
               description: "Follow the human-reviewed workflow for agent-prepared publishing work.",
-              url: "https://docs.openpo.st/guides/publishing.md",
+              url: documentationMarkdownURL("/guides/publishing"),
             },
           ],
         },
@@ -1114,7 +1108,6 @@ export const productionProjections = {
   documentation: {
     surface: "documentation",
     originHeadersRequired: true,
-    sourceRoot: path.join(repositoryRoot, "apps/docs/content/docs"),
     corpus: { title: "OpenPost Documentation Full Corpus" },
     outputDirectory: path.join(repositoryRoot, "apps/docs/out"),
     pages: docsSocialEntries
@@ -1126,7 +1119,7 @@ export const productionProjections = {
           "apps/docs/out",
           documentationHTMLArtifact(entry.page),
         ),
-        outputPath: entry.page.replace(/\.mdx?$/u, ".md"),
+        outputPath: documentationMarkdownArtifact(entry.page),
         page: entry.page,
         route: entry.route,
         catalog: entry,
@@ -1137,12 +1130,15 @@ export const productionProjections = {
     knownCanonicalURLs: [
       ...docsSocialEntries.map((entry) => entry.canonical),
       ...marketingRouteManifest.map((entry) => entry.canonical),
-      "https://docs.openpo.st/openapi.json",
+      "https://openpo.st/docs/openapi.json",
+      // Generated by public-agent-discovery during the marketing build and linked from the CLI guide.
+      "https://openpo.st/.well-known/agent-skills/openpost-cli.tar.gz",
     ],
+    knownCanonicalPrefixes: ["https://openpo.st/docs/api-reference/"],
     knownArtifactURLs: [
       "https://openpo.st/index.md",
-      "https://docs.openpo.st/openapi.json",
-      "https://docs.openpo.st/llms-full.txt",
+      "https://openpo.st/docs/openapi.json",
+      "https://openpo.st/docs/llms-full.txt",
     ],
     fragmentSources: docsSocialEntries.map((entry) => ({
       canonical: entry.canonical,
@@ -1150,9 +1146,12 @@ export const productionProjections = {
     })),
     discovery: {
       title: "OpenPost Documentation",
-      description: "Guides to publishing, automation, self-hosting, and the OpenPost API.",
+      description:
+        "Guides to publishing, image and video editing, automation, self-hosting, and the OpenPost API.",
       whenToUse: [
         "Use the user guide for work in the OpenPost web or mobile app.",
+        "Use the Video Editor and Image Editor guides for browser editing, export, and publishing workflows.",
+        "Use the Automate and AI assistants guides for the SDK, HTTP API, CLI, n8n, skills, and MCP.",
         "Use the API reference and authoritative OpenAPI JSON contract for automation and agent access.",
         "Use the self-hosting guide to install, configure, back up, and upgrade an OpenPost instance.",
       ],
@@ -1168,7 +1167,7 @@ export const productionProjections = {
           .map((entry) => ({
             title: "OpenPost documentation home",
             description: entry.description,
-            url: new URL(entry.page.replace(/\.mdx?$/u, ".md"), `${docsSiteUrl}/`).href,
+            url: new URL(documentationMarkdownArtifact(entry.page), `${docsSiteUrl}/`).href,
             classification: entry.agentDiscovery.membership,
           })),
         {
@@ -1181,7 +1180,7 @@ export const productionProjections = {
           title: "OpenPost documentation full corpus",
           description:
             "Read the selected public documentation as one bounded OpenPost convenience artifact.",
-          url: "https://docs.openpo.st/llms-full.txt",
+          url: "https://openpo.st/docs/llms-full.txt",
           classification: "optional",
         },
       ],
@@ -1198,14 +1197,14 @@ export const productionProjections = {
             .map((entry) => ({
               title: entry.socialTitle,
               description: entry.description,
-              url: new URL(entry.page.replace(/\.mdx?$/u, ".md"), `${docsSiteUrl}/`).href,
+              url: new URL(documentationMarkdownArtifact(entry.page), `${docsSiteUrl}/`).href,
             })),
           ...(key === "api"
             ? [
                 {
                   title: "OpenAPI JSON",
                   description: "Use the authoritative machine-readable HTTP API contract.",
-                  url: "https://docs.openpo.st/openapi.json",
+                  url: "https://openpo.st/docs/openapi.json",
                 },
               ]
             : []),

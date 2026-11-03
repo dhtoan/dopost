@@ -2,15 +2,11 @@ package analytics
 
 import (
 	"context"
-	"database/sql"
-	"errors"
-	"fmt"
 	"sort"
 	"time"
 
 	"github.com/openpost/backend/internal/models"
 	"github.com/openpost/backend/internal/platform"
-	"github.com/uptrace/bun"
 )
 
 const (
@@ -43,7 +39,6 @@ type InsightPeriod struct {
 
 type InsightContentEvidence struct {
 	Reference   ContentReference `json:"reference"`
-	Source      string           `json:"source" enum:"openpost,external"`
 	Title       string           `json:"title"`
 	Excerpt     string           `json:"excerpt"`
 	Platform    string           `json:"platform"`
@@ -82,15 +77,14 @@ type measuredEngagementContent struct {
 	key     engagementSemanticKey
 }
 
-func buildOverviewInsights(content []ContentOverview, accounts []AccountOverview, accountID string, start, end time.Time) []Insight {
+func buildOverviewInsights(content []ContentOverview, accounts []AccountOverview, start, end time.Time) []Insight {
 	insights := buildContentInsights(content, start, end)
-	insights = append(insights, buildFollowerDeclineInsight(accounts, accountID, start, end))
+	insights = append(insights, buildFollowerDeclineInsight(accounts, start, end))
 	return insights
 }
 
 // loadStoredInsightContent prevents mutable sync-state values from becoming
-// evidence. Inventory rows already carry account-content snapshots; managed
-// rows are replaced with their latest immutable rendition snapshot.
+// evidence. Rows are replaced with their latest immutable rendition snapshot.
 func (s *Service) loadStoredInsightContent(
 	ctx context.Context,
 	workspaceID string,
@@ -98,34 +92,21 @@ func (s *Service) loadStoredInsightContent(
 ) ([]ContentOverview, error) {
 	renditionIDs := make([]string, 0, len(content))
 	for _, item := range content {
-		if item.Reference.Type == string(platform.AccountContentOriginOpenPost) &&
-			!item.insightSnapshotBacked && item.Reference.RenditionID != "" {
+		if item.Reference.RenditionID != "" {
 			renditionIDs = append(renditionIDs, item.Reference.RenditionID)
 		}
 	}
 	latest := make(map[string]models.AnalyticsRenditionSnapshot, len(renditionIDs))
-	if len(renditionIDs) > 0 {
-		var snapshots []models.AnalyticsRenditionSnapshot
-		if err := s.db.NewSelect().Model(&snapshots).
-			Where("workspace_id = ?", workspaceID).
-			Where("rendition_id IN (?)", bun.List(renditionIDs)).
-			Order("rendition_id ASC", "captured_at DESC").
-			Scan(ctx); err != nil && !errors.Is(err, sql.ErrNoRows) {
-			return nil, fmt.Errorf("load stored analytics insight snapshots: %w", err)
-		}
-		for _, snapshot := range snapshots {
-			if _, exists := latest[snapshot.RenditionID]; !exists {
-				latest[snapshot.RenditionID] = snapshot
-			}
-		}
+	snapshots, err := s.loadLatestRenditionSnapshots(ctx, workspaceID, renditionIDs, time.Time{}, "")
+	if err != nil {
+		return nil, err
+	}
+	for _, snapshot := range snapshots {
+		latest[snapshot.RenditionID] = snapshot
 	}
 
 	stored := make([]ContentOverview, 0, len(content))
 	for _, item := range content {
-		if item.insightSnapshotBacked {
-			stored = append(stored, item)
-			continue
-		}
 		item.Metrics = platform.AnalyticsValues{}
 		item.MetricMetadata = map[string]platform.AnalyticsMetricMetadata{}
 		item.CollectedAt = time.Time{}
@@ -317,7 +298,7 @@ func availableContentInsight(kind string, candidate measuredEngagementContent, m
 	}
 }
 
-func buildFollowerDeclineInsight(accounts []AccountOverview, accountID string, start, end time.Time) Insight {
+func buildFollowerDeclineInsight(accounts []AccountOverview, start, end time.Time) Insight {
 	period := InsightPeriod{
 		FilterStart: start, FilterEnd: end, Aggregation: platform.AnalyticsMetricAggregationCurrentSnapshot,
 	}
@@ -325,9 +306,6 @@ func buildFollowerDeclineInsight(accounts []AccountOverview, accountID string, s
 	measuredCount := 0
 	var candidates []AccountOverview
 	for _, account := range accounts {
-		if accountID != "" && account.ID != accountID {
-			continue
-		}
 		comparisonSample++
 		if len(account.FollowerSeries) < 2 || account.FollowerDelta == nil {
 			continue
@@ -416,7 +394,7 @@ func sortMeasuredEngagement(measured []measuredEngagementContent, descending boo
 
 func insightContentEvidence(content ContentOverview) *InsightContentEvidence {
 	return &InsightContentEvidence{
-		Reference: content.Reference, Source: content.Source, Title: content.Title, Excerpt: content.Excerpt,
+		Reference: content.Reference, Title: content.Title, Excerpt: content.Excerpt,
 		Platform: content.Platform, AccountID: content.AccountID, Username: content.Username,
 		PublishedAt: content.PublishedAt, CollectedAt: content.CollectedAt,
 	}

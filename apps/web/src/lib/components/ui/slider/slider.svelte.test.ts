@@ -1,9 +1,26 @@
 import { describe, expect, it, vi } from 'vitest';
 import { userEvent } from 'vitest/browser';
 import { render } from 'vitest-browser-svelte';
-import Slider from './slider.svelte';
+import Slider from '@openpost/ui/components/slider/slider.svelte';
 
 describe('Slider', () => {
+	it('does not report step normalization as a user edit', async () => {
+		const onValueChange = vi.fn();
+		const screen = await render(Slider, {
+			value: 0.9200000166893005,
+			min: 0.5,
+			max: 1,
+			step: 0.01,
+			ariaLabel: 'Normalized value',
+			onValueChange
+		});
+
+		await expect
+			.element(screen.getByRole('slider', { name: 'Normalized value' }))
+			.toHaveAttribute('aria-valuenow', '0.92');
+		expect(onValueChange).not.toHaveBeenCalled();
+	});
+
 	it('commits one keyboard gesture after all repeated arrow updates', async () => {
 		const onValueChange = vi.fn();
 		const onValueCommit = vi.fn();

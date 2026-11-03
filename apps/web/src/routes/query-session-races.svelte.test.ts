@@ -2,11 +2,19 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { userProfileDefaults } from '$lib/test-fixtures/user-profile';
 import { page } from 'vitest/browser';
 import { render } from 'vitest-browser-svelte';
-import { QueryClientProvider } from '@tanstack/svelte-query';
-import { openPostQueryKeys } from '@openpost/query-catalog';
+import { QueryClientProvider, type InfiniteData } from '@tanstack/svelte-query';
+import {
+	inboxQueryKeys,
+	openPostQueryKeys,
+	type ConversationPage,
+	type EngagementPage as EngagementPageData,
+	type MessagePage
+} from '@openpost/query-catalog';
 import { client, type User, type Workspace } from '$lib/api/client';
 import type { components } from '$lib/api/types';
 import { queryClient } from '$lib/query/client';
+import { inboxUpdateAPI } from '$lib/query/inbox';
+import { pendingInboxChanges } from '$lib/test-fixtures/inbox';
 import { auth } from '$lib/stores/auth';
 import { workspaceCtx } from '$lib/stores/workspace.svelte';
 import CalendarPage from './calendar/+page.svelte';
@@ -26,6 +34,8 @@ const getMock = vi.spyOn(client, 'GET');
 const postMock = vi.spyOn(client, 'POST');
 const putMock = vi.spyOn(client, 'PUT');
 const initializeMock = vi.spyOn(workspaceCtx, 'initialize');
+const updatesMock = vi.spyOn(inboxUpdateAPI, 'inboxChanges');
+const activityMock = vi.spyOn(inboxUpdateAPI, 'inboxActivity');
 
 function deferred<T>() {
 	let resolve!: (value: T) => void;
@@ -35,11 +45,51 @@ function deferred<T>() {
 	return { promise, resolve };
 }
 
+function actionPosts(path: string) {
+	// NOTE: postMock.mock.calls is typed as never[] because the spied
+	// openapi-fetch POST overloads resolve call parameters to never, so
+	// index instead of destructuring (never has no iterator).
+	return postMock.mock.calls.filter((call) => call[0] === path);
+}
+
+async function settleLateResponse(response: Promise<unknown>) {
+	// A guarded late response leaves no cache effect to await, so give its
+	// continuation a macrotask before the following absence checks run.
+	await response;
+	await new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+function cachedConversations() {
+	const data = queryClient.getQueryData<InfiniteData<ConversationPage>>(
+		inboxQueryKeys.conversations(workspace.id, { limit: 100 })
+	);
+	return data?.pages.flatMap((page) => page.items ?? []) ?? [];
+}
+
+function cachedMessages(conversationID: string) {
+	const data = queryClient.getQueryData<InfiniteData<MessagePage>>(
+		inboxQueryKeys.messages(workspace.id, conversationID, { limit: 200 })
+	);
+	return data?.pages.flatMap((page) => page.items ?? []) ?? [];
+}
+
+function cachedEngagement(itemID: string) {
+	const data = queryClient.getQueryData<InfiniteData<EngagementPageData>>(
+		inboxQueryKeys.engagement(workspace.id, { limit: 100, unreadOnly: true })
+	);
+	return data?.pages.flatMap((page) => page.items ?? []).find((item) => item.id === itemID);
+}
+
 describe('route mutation sessions', () => {
 	it('removes renamed media from a search it no longer matches', async () => {
 		let renamed = false;
-		getMock.mockImplementation(async (path) => {
-			if (path === '/media')
+		const mediaSearches: string[] = [];
+		getMock.mockImplementation(async (path, options) => {
+			if (path === '/media') {
+				// SAFETY: The /media branch reads the search parameter of the list request.
+				const search =
+					(options as { params: { query: { search?: string } } }).params.query.search ?? '';
+				mediaSearches.push(search);
 				return {
 					data: {
 						media: renamed ? [] : [mediaItem('media-search', 'report.png')],
@@ -47,6 +97,7 @@ describe('route mutation sessions', () => {
 					},
 					response: new Response()
 				};
+			}
 			if (path === '/media/tags') return { data: { tags: [], can_edit: true } };
 			if (path === '/media/storage')
 				return { data: { used_bytes: 0, asset_count: 1, internal_bytes: 0, limit_bytes: 0 } };
@@ -62,19 +113,32 @@ describe('route mutation sessions', () => {
 			const screen = await renderWithQuery(MediaPage);
 			await screen.getByPlaceholder('Search filename or alt text').fill('report');
 			await screen.getByRole('button', { name: 'Search', exact: true }).click();
-			await screen.getByText('report.png', { exact: true }).click({ button: 'right' });
+			const original = screen.getByText('report.png', { exact: true });
+			await expect.element(original).toBeVisible();
+			expect(mediaSearches).toContain('report');
+			await original.click({ button: 'right' });
 			await page.getByRole('menuitem', { name: 'Rename', exact: true }).click();
 			await page.getByRole('dialog').getByRole('textbox').fill('other.png');
 			await page.getByRole('dialog').getByRole('button', { name: 'Save', exact: true }).click();
 			await expect.element(page.getByRole('dialog')).not.toBeInTheDocument();
+			await expect.element(screen.getByText('report.png', { exact: true })).not.toBeInTheDocument();
 			await expect.element(screen.getByText('other.png', { exact: true })).not.toBeInTheDocument();
+			await expect.element(screen.getByText('No media found')).toBeVisible();
+			expect(mediaSearches.filter((search) => search === 'report')).toHaveLength(2);
 			expect(patch).toHaveBeenCalledOnce();
+			expect(patch).toHaveBeenCalledWith('/media/{id}', {
+				params: { path: { id: 'media-search' } },
+				body: { original_filename: 'other.png' }
+			});
 		} finally {
 			patch.mockRestore();
 		}
 	});
 
 	beforeEach(() => {
+		// These cases control authored mutations, not the realtime transport.
+		updatesMock.mockImplementation((_workspaceId, _cursor, signal) => pendingInboxChanges(signal));
+		activityMock.mockResolvedValue();
 		queryClient.clear();
 		auth.setUser(user('user-a'));
 		workspaceCtx.currentWorkspace = workspace;
@@ -88,6 +152,8 @@ describe('route mutation sessions', () => {
 	});
 
 	it("does not mark the next actor's conversation as read", async () => {
+		// The conversation list and thread share the desktop two-pane layout.
+		await page.viewport(1280, 900);
 		let activeConversation = conversation('Ada', 1);
 		getMock.mockImplementation(async (path) => {
 			if (path === '/messages') {
@@ -101,8 +167,14 @@ describe('route mutation sessions', () => {
 			if (path === '/accounts') return { data: [] };
 			return { data: [] };
 		});
-		const markRead = deferred<{ data: Record<string, never>; response: Response }>();
-		postMock.mockReturnValue(markRead.promise);
+		const oldActorRead = deferred<{ data: Record<string, never>; response: Response }>();
+		const currentActorRead = deferred<{ data: Record<string, never>; response: Response }>();
+		const reads = [oldActorRead, currentActorRead];
+		postMock.mockImplementation(async (path) =>
+			path === '/messages/{conversation_id}/state'
+				? reads.shift()!.promise
+				: { data: {}, response: new Response() }
+		);
 
 		const screen = await renderWithQuery(MessagesPage);
 		const oldConversation = screen.getByRole('button', { name: /Ada/ });
@@ -117,9 +189,27 @@ describe('route mutation sessions', () => {
 		const currentScreen = await renderWithQuery(MessagesPage);
 		const currentConversation = currentScreen.getByRole('button', { name: /Bea/ });
 		await expect.element(currentConversation).toHaveAttribute('data-unread', 'true');
-		markRead.resolve({ data: {}, response: new Response() });
+		await vi.waitFor(() =>
+			expect(cachedConversations().find((item) => item.id === 'conversation-1')?.unread_count).toBe(
+				4
+			)
+		);
 
+		oldActorRead.resolve({ data: {}, response: new Response() });
+		await settleLateResponse(oldActorRead.promise);
 		await expect.element(currentConversation).toHaveAttribute('data-unread', 'true');
+		expect(cachedConversations().find((item) => item.id === 'conversation-1')?.unread_count).toBe(
+			4
+		);
+
+		// Same-session control: this actor's own read still clears the shared entry.
+		await currentConversation.click();
+		await vi.waitFor(() => expect(postMock).toHaveBeenCalledTimes(2));
+		currentActorRead.resolve({ data: {}, response: new Response() });
+		await expect.element(currentConversation).toHaveAttribute('data-unread', 'false');
+		expect(cachedConversations().find((item) => item.id === 'conversation-1')?.unread_count).toBe(
+			0
+		);
 	});
 
 	it("does not add an old actor's sent message to the current actor's thread", async () => {
@@ -137,11 +227,20 @@ describe('route mutation sessions', () => {
 			if (path === '/accounts') return { data: [] };
 			return { data: [] };
 		});
-		const send = deferred<{
+		const oldActorSend = deferred<{
 			data: ReturnType<typeof directMessage>;
 			response: Response;
 		}>();
-		postMock.mockReturnValue(send.promise);
+		const currentActorSend = deferred<{
+			data: ReturnType<typeof directMessage>;
+			response: Response;
+		}>();
+		const sends = [oldActorSend, currentActorSend];
+		postMock.mockImplementation(async (path) =>
+			path === '/messages/{conversation_id}/send'
+				? sends.shift()!.promise
+				: { data: {}, response: new Response() }
+		);
 
 		const screen = await renderWithQuery(MessagesPage);
 		await screen.getByRole('button', { name: /Ada/ }).click();
@@ -158,13 +257,32 @@ describe('route mutation sessions', () => {
 		const currentScreen = await renderWithQuery(MessagesPage);
 		await currentScreen.getByRole('button', { name: /Bea/ }).click();
 		await expect.element(currentScreen.getByText('New actor thread')).toBeVisible();
-		send.resolve({
+		await vi.waitFor(() =>
+			expect(cachedMessages('conversation-1').map((message) => message.body)).toContain(
+				'New actor thread'
+			)
+		);
+
+		oldActorSend.resolve({
 			data: directMessage('message-old', 'Old actor reply'),
 			response: new Response()
 		});
-
+		await settleLateResponse(oldActorSend.promise);
+		expect(cachedMessages('conversation-1').map((message) => message.body)).not.toContain(
+			'Old actor reply'
+		);
 		await expect.element(currentScreen.getByText('Old actor reply')).not.toBeInTheDocument();
 		await expect.element(currentScreen.getByText('New actor thread')).toBeVisible();
+
+		// Same-session control: a send for the current actor reconciles into this thread.
+		await currentScreen.getByPlaceholder('Write a message…').fill('Current actor reply');
+		await currentScreen.getByRole('button', { name: 'Send', exact: true }).click();
+		await vi.waitFor(() => expect(postMock).toHaveBeenCalledTimes(2));
+		currentActorSend.resolve({
+			data: directMessage('message-current-reply', 'Current actor reply'),
+			response: new Response()
+		});
+		await expect.element(currentScreen.getByText('Current actor reply')).toBeVisible();
 	});
 
 	it('keeps the current conversation draft when an earlier send completes', async () => {
@@ -216,13 +334,173 @@ describe('route mutation sessions', () => {
 		await screen.getByRole('button', { name: /Bea/ }).click();
 		await expect.element(screen.getByText('Bea thread')).toBeVisible();
 		await composer.fill('Keep this Bea draft');
+		await expect.element(screen.getByText('Queueing…')).toBeVisible();
 		send.resolve({
 			data: directMessage('message-sent-a', 'Reply to Ada', 'conversation-a'),
 			response: new Response()
 		});
 
+		// The origin conversation receiving the sent message is the reconcile barrier;
+		// the composer's pending status disappearing is the send-message settlement
+		// barrier, so the draft is read only after the whole send flow finished.
+		await vi.waitFor(() =>
+			expect(cachedMessages('conversation-a').map((message) => message.body)).toContain(
+				'Reply to Ada'
+			)
+		);
+		await expect.element(screen.getByText('Queueing…')).not.toBeInTheDocument();
+		expect(cachedMessages('conversation-b').map((message) => message.body)).not.toContain(
+			'Reply to Ada'
+		);
 		await expect.element(composer).toHaveValue('Keep this Bea draft');
 		await expect.element(screen.getByText('Bea thread')).toBeVisible();
+	});
+
+	it('keeps text typed into the same conversation while its earlier reply sends', async () => {
+		getMock.mockImplementation(async (path) => {
+			if (path === '/messages') {
+				return {
+					data: { items: [conversation('Ada', 0)], total: 1, sync_states: [], next_cursor: '' }
+				};
+			}
+			if (path === '/messages/{conversation_id}') {
+				return { data: { items: [], next_cursor: '' }, response: new Response() };
+			}
+			if (path === '/accounts') return { data: [] };
+			return { data: [] };
+		});
+		const send = deferred<{ data: ReturnType<typeof directMessage>; response: Response }>();
+		postMock.mockReturnValue(send.promise);
+
+		const screen = await renderWithQuery(MessagesPage);
+		await screen.getByRole('button', { name: /Ada/ }).click();
+		const composer = screen.getByPlaceholder('Write a message…');
+		await composer.fill('First reply');
+		await screen.getByRole('button', { name: 'Send', exact: true }).click();
+		await vi.waitFor(() => expect(postMock).toHaveBeenCalledOnce());
+		await composer.fill('Second reply');
+		send.resolve({ data: directMessage('sent-1', 'First reply'), response: new Response() });
+
+		await expect.element(screen.getByRole('button', { name: 'Send', exact: true })).toBeEnabled();
+		await expect.element(composer).toHaveValue('Second reply');
+	});
+
+	it('closes a selected conversation when its filter changes', async () => {
+		getMock.mockImplementation(async (path, options) => {
+			if (path === '/messages') {
+				// SAFETY: This branch handles the /messages request with its archived query parameter.
+				const archived = (options as { params: { query: { archived: boolean } } }).params.query
+					.archived;
+				return {
+					data: {
+						items: archived ? [conversation('Bea', 0, 'conversation-b')] : [conversation('Ada', 0)],
+						total: 1,
+						sync_states: [],
+						next_cursor: ''
+					}
+				};
+			}
+			if (path === '/messages/{conversation_id}') {
+				return { data: { items: [], next_cursor: '' }, response: new Response() };
+			}
+			if (path === '/accounts') return { data: [] };
+			return { data: [] };
+		});
+		const screen = await renderWithQuery(MessagesPage);
+		await screen.getByRole('button', { name: /Ada/ }).click();
+		await expect.element(screen.getByTestId('conversation-reply-composer')).toBeVisible();
+		await screen.getByRole('checkbox', { name: 'Archived', exact: true }).click();
+		await expect.element(screen.getByRole('button', { name: /Bea/ })).toBeVisible();
+		await expect.element(screen.getByTestId('conversation-reply-composer')).not.toBeInTheDocument();
+	});
+
+	it('keeps an engagement reply edited while the earlier draft queues', async () => {
+		getMock.mockImplementation(async (path) => {
+			if (path === '/engagement') {
+				return {
+					data: {
+						items: [engagementItem('Ada', false)],
+						total: 1,
+						sync_states: [],
+						next_cursor: ''
+					}
+				};
+			}
+			if (path === '/publications') {
+				return { data: [], response: new Response(null, { headers: { 'X-Next-Cursor': '' } }) };
+			}
+			if (path === '/accounts') return { data: [] };
+			return { data: [] };
+		});
+		const send = deferred<{ data: Record<string, never>; response: Response }>();
+		postMock.mockImplementation(async (path) =>
+			path === '/engagement/{item_id}/actions'
+				? send.promise
+				: { data: {}, response: new Response() }
+		);
+
+		const screen = await renderWithQuery(EngagementPage);
+		await screen.getByRole('button', { name: 'Reply', exact: true }).click();
+		const composer = screen.getByPlaceholder('Write a reply…');
+		await composer.fill('First reply');
+		await screen.getByRole('button', { name: 'Queue reply' }).click();
+		await vi.waitFor(() => expect(postMock).toHaveBeenCalledOnce());
+		await composer.fill('Second reply');
+		send.resolve({ data: {}, response: new Response() });
+
+		await vi.waitFor(() => expect(postMock).toHaveBeenCalledTimes(2));
+		await expect.element(composer).toHaveValue('Second reply');
+	});
+
+	it('does not apply an old publication search to the next Workspace', async () => {
+		const publicationQueries: { workspaceID: string; search?: string }[] = [];
+		getMock.mockImplementation(async (path, options) => {
+			if (path === '/engagement') {
+				return { data: { items: [], total: 0, sync_states: [], next_cursor: '' } };
+			}
+			if (path === '/publications') {
+				// SAFETY: The path check identifies the /publications query request.
+				const query = (options as { params: { query: { workspace_id: string; search?: string } } })
+					.params.query;
+				publicationQueries.push({ workspaceID: query.workspace_id, search: query.search });
+				return { data: [], response: new Response(null, { headers: { 'X-Next-Cursor': '' } }) };
+			}
+			if (path === '/accounts') return { data: [] };
+			return { data: [] };
+		});
+		const screen = await renderWithQuery(EngagementPage);
+		await vi.waitFor(() =>
+			expect(publicationQueries.some(({ workspaceID }) => workspaceID === workspace.id)).toBe(true)
+		);
+		await screen.getByRole('button', { name: 'Filters', exact: true }).click();
+		await screen.getByRole('combobox', { name: 'All posts' }).click();
+		await screen.getByPlaceholder('Search posts').fill('old workspace search');
+		workspaceCtx.currentWorkspace = workspaceB;
+		workspaceCtx.workspaces = [workspaceB];
+		workspaceCtx.settingsWorkspaceID = workspaceB.id;
+		await vi.waitFor(() =>
+			expect(
+				publicationQueries.some(
+					({ workspaceID, search }) => workspaceID === workspaceB.id && !search
+				)
+			).toBe(true)
+		);
+		await new Promise((resolve) => setTimeout(resolve, 300));
+		const nextWorkspaceSearches = publicationQueries
+			.filter(({ workspaceID }) => workspaceID === workspaceB.id)
+			.map(({ search }) => search ?? '');
+		expect(nextWorkspaceSearches).not.toContain('old workspace search');
+
+		// Positive control: the picker still searches the Workspace it now shows.
+		await screen.getByPlaceholder('Search posts').fill('fresh workspace search');
+		await vi.waitFor(
+			() =>
+				expect(publicationQueries).toContainEqual({
+					workspaceID: workspaceB.id,
+					search: 'fresh workspace search'
+				}),
+			{ timeout: 3000 }
+		);
 	});
 
 	it("does not apply an old actor's queued Engagement action to the current queue", async () => {
@@ -239,8 +517,14 @@ describe('route mutation sessions', () => {
 			if (path === '/accounts') return { data: [] };
 			return { data: [] };
 		});
-		const like = deferred<{ data: Record<string, never>; response: Response }>();
-		postMock.mockReturnValue(like.promise);
+		const oldActorLike = deferred<{ data: Record<string, never>; response: Response }>();
+		const currentActorLike = deferred<{ data: Record<string, never>; response: Response }>();
+		const likes = [oldActorLike, currentActorLike];
+		postMock.mockImplementation(async (path) =>
+			path === '/engagement/{item_id}/actions'
+				? likes.shift()!.promise
+				: { data: {}, response: new Response() }
+		);
 
 		const screen = await renderWithQuery(EngagementPage);
 		await expect.element(screen.getByText('Comment from Ada')).toBeVisible();
@@ -253,15 +537,28 @@ describe('route mutation sessions', () => {
 		restoreWorkspace();
 		const currentScreen = await renderWithQuery(EngagementPage);
 		await expect.element(currentScreen.getByText('Comment from Bea')).toBeVisible();
-		like.resolve({ data: {}, response: new Response() });
+		await vi.waitFor(() => expect(cachedEngagement('engagement-1')?.liked).toBe(false));
 
+		oldActorLike.resolve({ data: {}, response: new Response() });
+		await settleLateResponse(oldActorLike.promise);
+		expect(actionPosts('/engagement/state')).toHaveLength(0);
+		expect(cachedEngagement('engagement-1')).toMatchObject({ liked: false, can_like: true });
 		await expect.element(currentScreen.getByRole('button', { name: 'Like' })).toBeVisible();
 		await expect.element(currentScreen.getByText('Comment from Bea')).toBeVisible();
+
+		// Same-session control: the same action applies once the actor is current.
+		await currentScreen.getByRole('button', { name: 'Like' }).click();
+		await vi.waitFor(() => expect(actionPosts('/engagement/{item_id}/actions')).toHaveLength(2));
+		currentActorLike.resolve({ data: {}, response: new Response() });
+		await vi.waitFor(() =>
+			expect(cachedEngagement('engagement-1')).toMatchObject({ liked: true, can_like: false })
+		);
+		await expect.element(currentScreen.getByRole('button', { name: 'Unlike' })).toBeVisible();
 	});
 
 	it('reconciles a Calendar move in its origin Workspace without moving the next Workspace UI', async () => {
-		// The calendar grid needs a square viewport to expose the target slot.
-		await page.viewport(900, 900);
+		// The draggable month grid appears at the desktop breakpoint.
+		await page.viewport(1280, 900);
 		const sourceAt = futureDate(2, 10);
 		const targetAt = futureDate(3, 10);
 		const publications = new Map([
@@ -286,22 +583,24 @@ describe('route mutation sessions', () => {
 		putMock.mockReturnValue(reschedule.promise);
 
 		const screen = await renderWithQuery(CalendarPage);
-		await expect.element(screen.getByText('Workspace A launch').first()).toBeVisible();
-		const source = document.querySelector<HTMLElement>('[data-calendar-item]');
+		const originEvent = screen.getByRole('button', { name: 'Workspace A launch', exact: true });
+		await expect.element(originEvent).toBeVisible();
+		const source = originEvent.element();
 		const target = document.querySelector<HTMLElement>(
 			`[data-calendar-day="${targetAt.slice(0, 10)}"]`
 		);
-		expect(source).not.toBeNull();
 		expect(target).not.toBeNull();
 		const transfer = new DataTransfer();
-		source!.dispatchEvent(new DragEvent('dragstart', { bubbles: true, dataTransfer: transfer }));
+		source.dispatchEvent(new DragEvent('dragstart', { bubbles: true, dataTransfer: transfer }));
 		target!.dispatchEvent(new DragEvent('drop', { bubbles: true, dataTransfer: transfer }));
 		await vi.waitFor(() => expect(putMock).toHaveBeenCalledOnce());
 
 		workspaceCtx.currentWorkspace = workspaceB;
 		workspaceCtx.workspaces = [workspaceB];
 		workspaceCtx.settingsWorkspaceID = workspaceB.id;
-		await expect.element(screen.getByText('Workspace B launch').first()).toBeVisible();
+		await expect
+			.element(screen.getByRole('button', { name: 'Workspace B launch', exact: true }))
+			.toBeVisible();
 		reschedule.resolve({
 			data: { ...publications.get(workspace.id)!, scheduled_at: targetAt, revision: 2 },
 			response: new Response()
@@ -314,14 +613,20 @@ describe('route mutation sessions', () => {
 				)
 			).toMatchObject({ scheduled_at: targetAt })
 		);
-		await expect.element(screen.getByText('Workspace B launch').first()).toBeVisible();
+		await expect
+			.element(screen.getByRole('button', { name: 'Workspace B launch', exact: true }))
+			.toBeVisible();
 		await expect.element(screen.getByText('Workspace A launch').first()).not.toBeInTheDocument();
 	});
 
 	it("does not restore old actor Media into the next actor's library", async () => {
 		let activeMedia = mediaItem('media-a', 'actor-a.png');
+		let mediaGets = 0;
 		getMock.mockImplementation(async (path) => {
-			if (path === '/media') return { data: { media: [activeMedia], total: 1 } };
+			if (path === '/media') {
+				mediaGets += 1;
+				return { data: { media: [activeMedia], total: 1 } };
+			}
 			if (path === '/media/tags') return { data: { tags: [], can_edit: true } };
 			if (path === '/media/storage') {
 				return { data: { used_bytes: 0, asset_count: 1, internal_bytes: 0, limit_bytes: 0 } };
@@ -333,11 +638,17 @@ describe('route mutation sessions', () => {
 			}
 			return { data: [] };
 		});
-		const restore = deferred<{ data: Record<string, never>; response: Response }>();
-		postMock.mockReturnValue(restore.promise);
+		const oldActorRestore = deferred<{ data: Record<string, never>; response: Response }>();
+		const currentActorRestore = deferred<{ data: Record<string, never>; response: Response }>();
+		const restores = [oldActorRestore, currentActorRestore];
+		postMock.mockImplementation(async (path) =>
+			path === '/media/{id}/restore'
+				? restores.shift()!.promise
+				: { data: {}, response: new Response() }
+		);
 
 		const screen = await renderWithQuery(MediaPage);
-		await screen.getByRole('button', { name: 'Trash', exact: true }).click();
+		await screen.getByRole('tab', { name: 'Trash', exact: true }).click();
 		await expect.element(screen.getByText('actor-a.png')).toBeVisible();
 		await screen.getByRole('button', { name: 'Restore', exact: true }).click();
 		await vi.waitFor(() => expect(postMock).toHaveBeenCalledOnce());
@@ -347,13 +658,26 @@ describe('route mutation sessions', () => {
 		auth.setUser(user('user-b'));
 		restoreWorkspace();
 		const currentScreen = await renderWithQuery(MediaPage);
-		await currentScreen.getByRole('button', { name: 'Trash', exact: true }).click();
+		await currentScreen.getByRole('tab', { name: 'Trash', exact: true }).click();
 		await expect.element(currentScreen.getByText('actor-b.png')).toBeVisible();
-		restore.resolve({ data: {}, response: new Response() });
+		const mediaGetsBeforeStaleRestore = mediaGets;
 
+		oldActorRestore.resolve({ data: {}, response: new Response() });
+		await settleLateResponse(oldActorRestore.promise);
+		expect(mediaGets, 'old actor restore must not reload the current media list').toBe(
+			mediaGetsBeforeStaleRestore
+		);
 		await expect.element(currentScreen.getByText('actor-b.png')).toBeVisible();
 		await expect.element(currentScreen.getByText('actor-a.png')).not.toBeInTheDocument();
-		await expect.element(currentScreen.getByText('Media restored.')).not.toBeInTheDocument();
+		// AppToast writes through svelte-sonner's Toaster, which component tests do not
+		// mount; the observable success effect of a restore here is the library reload.
+
+		// Same-session control: restoring here reloads the current library.
+		const mediaGetsBeforeControl = mediaGets;
+		await currentScreen.getByRole('button', { name: 'Restore', exact: true }).click();
+		await vi.waitFor(() => expect(postMock).toHaveBeenCalledTimes(2));
+		currentActorRestore.resolve({ data: {}, response: new Response() });
+		await vi.waitFor(() => expect(mediaGets).toBe(mediaGetsBeforeControl + 1));
 	});
 });
 
@@ -391,6 +715,7 @@ function calendarPublication(id: string, title: string, scheduledAt: string) {
 		title,
 		intent: 'post',
 		creation_preset: 'post',
+		creation_source: 'web',
 		content_profile: 'post',
 		source_text: title,
 		status: 'scheduled',
@@ -521,6 +846,8 @@ const workspace = {
 	organization_name: '',
 	role: 'admin',
 	can_edit: true,
+	can_connect: true,
+	can_approve: true,
 	sso_required: false,
 	sso_authenticated: true,
 	sso_identity_linked: true

@@ -2,8 +2,10 @@
 	import { onDestroy, onMount, tick, untrack } from 'svelte';
 	import { getApplicationThemePreview } from '$lib/themes/application-preview.svelte';
 	import { Button } from '$lib/components/ui/button';
+	import AppSelect from '$lib/components/app-select.svelte';
 	import InlineNotice from '$lib/components/inline-notice.svelte';
 	import DestructiveConfirmDialog from '$lib/components/destructive-confirm-dialog.svelte';
+	import Disclosure from '$lib/components/disclosure.svelte';
 	import { getCurrentLocale, onLocaleChange } from '$lib/i18n';
 	import { m } from '$lib/paraglide/messages';
 	import {
@@ -335,7 +337,7 @@
 			: item.manifest.supportedSchemes[0];
 		testingScheme = testScheme ?? scheme;
 		await tick();
-		if (!previewAnchor || window.matchMedia('(min-width: 640px)').matches) return;
+		if (!previewAnchor) return;
 		previewAnchor.scrollIntoView({
 			behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
 			block: 'start'
@@ -405,6 +407,20 @@
 								>
 							</div>
 						</div>
+						{#if selectedItem.manifest.supportedSchemes.length > 1}
+							<AppSelect
+								value={testingScheme}
+								options={selectedItem.manifest.supportedSchemes.map((value) => ({
+									value,
+									label: themeSchemeLabel(value, activeLocale)
+								}))}
+								ariaLabel={m.theme_editor_preview_scheme()}
+								class="min-h-11 w-full sm:w-44"
+								onValueChange={(value) => {
+									if (value === 'light' || value === 'dark') testingScheme = value;
+								}}
+							/>
+						{/if}
 					</div>
 					<ThemePreview
 						theme={selectedPreview}
@@ -551,12 +567,10 @@
 			{canApply}
 		/>
 
-		<details class="border-t border-border pt-4">
-			<summary
-				class="min-h-11 cursor-pointer py-3 text-sm font-medium focus-visible:outline-2 focus-visible:outline-ring"
-				>{m.theme_library_organization_default()}</summary
-			>
-
+		<Disclosure
+			summary={m.theme_library_organization_default()}
+			class="border-t border-border pt-4"
+		>
 			<div class="py-4">
 				<div class="flex items-start justify-between gap-4">
 					<div>
@@ -615,7 +629,7 @@
 					</button>
 				</div>
 			</div>
-		</details>
+		</Disclosure>
 	</section>
 
 	<ThemeLibraryCreateDialog

@@ -29,10 +29,11 @@ Developer docs are separate from user-facing docs and self-hosting docs. They ca
 ## Frontend, MCP, and launch work
 
 - [Frontend](frontend.md) covers SvelteKit app conventions.
+- [Product screenshots](screenshots.md) covers refreshing canonical UI captures.
 - [MCP and ChatGPT App](mcp.md) covers tool-server and Apps SDK integration notes.
 - [Production Architecture](production-readiness.md) records shared hosted and self-hosted architecture, provider verification, and release checks.
 
 ## Adjacent docs
 
-- If you are using OpenPost through the web app, CLI, or MCP client, start with [User Docs](https://docs.openpo.st/guides/quickstart).
-- If you are deploying or operating an instance, start with [Self-Hosting Docs](https://docs.openpo.st/self-hosting/).
+- If you are using OpenPost through the web app, CLI, or MCP client, start with [User Docs](https://openpo.st/docs/guides/quickstart).
+- If you are deploying or operating an instance, start with [Self-Hosting Docs](https://openpo.st/docs/self-hosting/).

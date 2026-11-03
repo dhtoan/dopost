@@ -17,18 +17,25 @@
 		type FluentEmojiCatalog,
 		type FluentEmojiSticker
 	} from '$lib/video-editor/stickers/fluent-emoji';
+	import {
+		clearStickerDragData,
+		writeStickerDragData
+	} from '$lib/video-editor/stickers/sticker-drag';
+	import type { ProjectAssetImporter } from '$lib/video-editor/media/types';
 
 	const PAGE_SIZE = 60;
 	let {
 		projectId,
 		oninserted,
 		loadCatalog = loadFluentEmojiCatalog,
-		commitAsset = commitImportedAsset
+		commitAsset = commitImportedAsset,
+		importProjectAsset
 	}: {
 		projectId: string;
 		oninserted: (itemId: string) => void;
 		loadCatalog?: typeof loadFluentEmojiCatalog;
 		commitAsset?: typeof commitImportedAsset;
+		importProjectAsset?: ProjectAssetImporter;
 	} = $props();
 	let catalog = $state<FluentEmojiCatalog | null>(null);
 	let status = $state<'loading' | 'ready' | 'error'>('loading');
@@ -60,6 +67,11 @@
 		}
 	}
 
+	function startDrag(event: DragEvent, sticker: FluentEmojiSticker): void {
+		if (!event.dataTransfer) return;
+		writeStickerDragData(event.dataTransfer, sticker);
+	}
+
 	async function addSticker(sticker: FluentEmojiSticker): Promise<void> {
 		if (inserting || !projectId) return;
 		inserting = sticker.name;
@@ -69,7 +81,8 @@
 				attribution: fluentEmojiAttribution(sticker),
 				tags: ['sticker', 'fluent-emoji'],
 				insertAtFrame: timelineStore.currentFrame,
-				label: sticker.label
+				label: sticker.label,
+				importAsset: importProjectAsset
 			});
 			oninserted(committed.itemId);
 			showToast(m.video_editor_sticker_added({ name: sticker.label }), 'success');
@@ -84,7 +97,7 @@
 	}
 </script>
 
-<div class="flex min-h-0 flex-1 flex-col" aria-label={m.video_editor_stickers()}>
+<div class="flex min-h-0 flex-1 flex-col" role="group" aria-label={m.video_editor_stickers()}>
 	<div class="border-b border-[var(--video-editor-border)] p-2">
 		<label class="relative block">
 			<span class="sr-only">{m.video_editor_stickers_search()}</span>
@@ -93,7 +106,7 @@
 				class="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-[var(--video-editor-muted)]"
 			/>
 			<Input
-				class="h-8 w-full rounded bg-[var(--video-editor-panel)] pl-7 text-xs"
+				class="h-[var(--editor-22,22px)] w-full rounded bg-[var(--video-editor-panel)] pl-7 text-[11px]"
 				placeholder={m.video_editor_stickers_search()}
 				bind:value={query}
 			/>
@@ -132,16 +145,19 @@
 					{#each visible as sticker (sticker.name)}
 						<button
 							type="button"
-							class="group relative flex min-h-20 flex-col items-center justify-center gap-1 overflow-hidden rounded-md border border-[var(--video-editor-border)] bg-[var(--video-editor-panel)] p-1.5 text-center hover:border-[var(--video-editor-focus-border)] hover:bg-[var(--video-editor-panel)] focus-visible:outline-2 focus-visible:outline-[var(--video-editor-focus)] disabled:opacity-60"
+							class="group relative flex min-h-14 cursor-grab flex-col items-center justify-center gap-0.5 overflow-hidden rounded-md border border-[var(--video-editor-border)] bg-[var(--video-editor-panel)] p-1 text-center hover:border-[var(--video-editor-focus-border)] hover:bg-[var(--video-editor-panel)] focus-visible:outline-2 focus-visible:outline-[var(--video-editor-focus)] active:cursor-grabbing disabled:opacity-60"
+							draggable="true"
 							disabled={Boolean(inserting)}
 							aria-label={m.video_editor_sticker_add({ name: sticker.label })}
 							title={m.video_editor_sticker_add({ name: sticker.label })}
 							onclick={() => addSticker(sticker)}
+							ondragstart={(event) => startDrag(event, sticker)}
+							ondragend={clearStickerDragData}
 						>
 							<img
 								src={fluentEmojiStickerPreviewUrl(sticker)}
 								alt=""
-								class="size-11 object-contain transition-transform group-hover:scale-105"
+								class="size-8 object-contain transition-transform group-hover:scale-105"
 								loading="lazy"
 							/>
 							<span class="w-full truncate text-[9px] text-[var(--video-editor-muted)]">
@@ -169,7 +185,7 @@
 					<Button
 						variant="outline"
 						size="sm"
-						class="mt-2 w-full"
+						class="mt-2 h-[25px] w-full text-[11px]"
 						onclick={() => (visibleCount += PAGE_SIZE)}
 					>
 						{m.video_editor_stickers_more()}

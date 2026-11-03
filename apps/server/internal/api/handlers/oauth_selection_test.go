@@ -117,6 +117,7 @@ func TestOAuthCallbackCreatesAndCompletesAccountSelection(t *testing.T) {
 		(*models.SocialAccount)(nil),
 		(*models.Job)(nil),
 	)
+	seedOAuthTestWorkspace(t, db)
 	_, err := db.NewInsert().Model(&models.WorkspaceMember{
 		WorkspaceID: "ws-1",
 		UserID:      "user-1",
@@ -154,15 +155,20 @@ func TestOAuthCallbackCreatesAndCompletesAccountSelection(t *testing.T) {
 	state := parsedAuthURL.Query().Get("state")
 	require.NotEmpty(t, state)
 
-	callbackResp := oauthSelectionRequest(t, e, http.MethodGet, "/api/v1/accounts/facebook/callback?code=provider-code&state="+url.QueryEscape(state), nil, false)
+	callbackResp := oauthSelectionRequest(t, e, http.MethodGet, "/api/v1/accounts/facebook/callback?code=provider-code&state="+url.QueryEscape(state), nil, true)
 	callbackResult := callbackResp.Result()
 	t.Cleanup(func() { _ = callbackResult.Body.Close() })
 	require.Equal(t, http.StatusTemporaryRedirect, callbackResult.StatusCode, callbackResp.Body.String())
 	location := callbackResult.Header.Get("Location")
+	require.NotContains(t, location, "access_token")
+	require.NotContains(t, location, "provider-code")
 	require.Contains(t, location, "status=selection_required")
 	require.Contains(t, location, "platform=facebook")
 	callbackURL, err := url.Parse(location)
 	require.NoError(t, err)
+	require.Equal(t, "https", callbackURL.Scheme)
+	require.Equal(t, "app.openpost.test", callbackURL.Host)
+	require.Equal(t, "/accounts/callback", callbackURL.Path)
 	connectionID := callbackURL.Query().Get("connection_id")
 	require.NotEmpty(t, connectionID)
 	require.Equal(t, 1, adapter.profileCalls, "selection adapters resolve the authorizing subject before saving destinations")
@@ -261,6 +267,7 @@ func TestGetAuthURLRejectsMissingSocialAccountEntitlement(t *testing.T) {
 		(*models.OAuthAccountSelection)(nil),
 		(*models.SocialAccount)(nil),
 	)
+	seedOAuthTestWorkspace(t, db)
 	_, err := db.NewInsert().Model(&models.WorkspaceMember{
 		WorkspaceID: "ws-1",
 		UserID:      "user-1",
@@ -308,4 +315,33 @@ func oauthSelectionRequest(t *testing.T, e *echo.Echo, method, path string, body
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
 	return rec
+}
+
+func TestNormalizeAccountSelectionIDs(t *testing.T) {
+	newInput := func(id string, ids ...string) *CompleteAccountSelectionInput {
+		input := &CompleteAccountSelectionInput{}
+		input.Body.SelectionID = id
+		input.Body.SelectionIDs = ids
+		return input
+	}
+	t.Run("merges legacy and plural IDs", func(t *testing.T) {
+		got, err := normalizeAccountSelectionIDs(newInput("b", "a", "b", " ", "a"))
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		want := []string{"a", "b"}
+		if len(got) != len(want) {
+			t.Fatalf("got %v, want %v", got, want)
+		}
+		for i := range want {
+			if got[i] != want[i] {
+				t.Fatalf("got %v, want %v", got, want)
+			}
+		}
+	})
+	t.Run("rejects empty selections", func(t *testing.T) {
+		if _, err := normalizeAccountSelectionIDs(newInput("", " ", "")); err == nil {
+			t.Fatal("expected an error for empty selections")
+		}
+	})
 }

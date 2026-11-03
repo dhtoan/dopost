@@ -6,6 +6,7 @@
 	import { Input } from '$lib/components/ui/input';
 	import { Label } from '$lib/components/ui/label';
 	import AppSelect from '$lib/components/app-select.svelte';
+	import FormField from '$lib/components/form-field.svelte';
 	import DestructiveConfirmDialog from '$lib/components/destructive-confirm-dialog.svelte';
 	import type { DestructiveActionOutcome } from '$lib/destructive-action-outcome';
 	import InlineNotice from '$lib/components/inline-notice.svelte';
@@ -44,7 +45,7 @@
 	} from '../../routes/settings/settings-data';
 	import { ProtectedIcon, ThemeIcon } from '$lib/themes/icons';
 
-	type WorkspaceRole = 'admin' | 'editor' | 'viewer';
+	type WorkspaceRole = 'admin' | 'editor' | 'client' | 'viewer';
 	type InvitationStatus = WorkspaceInvitation['status'];
 	type TeamStatus = 'all' | 'active' | 'inactive' | 'pending' | InvitationStatus;
 	type DestructiveActionTarget =
@@ -142,6 +143,7 @@
 		{ value: 'all', label: m.settings_team_all_roles() },
 		{ value: 'admin', label: roleLabel('admin') },
 		{ value: 'editor', label: roleLabel('editor') },
+		{ value: 'client', label: roleLabel('client') },
 		{ value: 'viewer', label: roleLabel('viewer') }
 	]);
 	const editableRoleOptions = $derived(roleOptions.slice(1));
@@ -647,12 +649,14 @@
 
 	function roleLabel(role: string) {
 		if (role === 'admin') return m.settings_role_admin();
+		if (role === 'client') return m.settings_role_client();
 		if (role === 'viewer') return m.settings_role_viewer();
 		return m.settings_role_editor();
 	}
 
 	function roleDescription(role: string) {
 		if (role === 'admin') return m.settings_role_admin_description();
+		if (role === 'client') return m.settings_role_client_description();
 		if (role === 'viewer') return m.settings_role_viewer_description();
 		return m.settings_role_editor_description();
 	}
@@ -787,34 +791,41 @@
 			onsubmit={createInvitation}
 			class="mb-5 grid gap-3 rounded-lg border bg-muted/10 p-4 lg:grid-cols-[minmax(0,1fr)_220px_auto]"
 		>
-			<div class="space-y-2">
-				<Label for="team-invite-email">{m.settings_invite_email()}</Label>
-				<Input
-					id="team-invite-email"
-					data-testid="team-invite-email"
-					type="email"
-					bind:value={inviteEmail}
-					placeholder="teammate@example.com"
-					autocomplete="email"
-					required
-				/>
-			</div>
-			<div class="space-y-2">
-				<Label for="team-invite-role">{m.settings_role()}</Label>
-				<AppSelect
-					id="team-invite-role"
-					bind:value={inviteRole}
-					options={editableRoleOptions}
-					ariaLabel={m.settings_role()}
-				/>
-				<p class="text-xs text-muted-foreground">
-					{roleDescription(inviteRole)}
-				</p>
-			</div>
+			<FormField id="team-invite-email" label={m.settings_invite_email()} required>
+				{#snippet children({ id, describedBy, invalid })}
+					<Input
+						{id}
+						aria-describedby={describedBy}
+						aria-invalid={invalid}
+						data-testid="team-invite-email"
+						type="email"
+						bind:value={inviteEmail}
+						placeholder="teammate@example.com"
+						autocomplete="email"
+						required
+					/>
+				{/snippet}
+			</FormField>
+			<FormField
+				id="team-invite-role"
+				label={m.settings_role()}
+				description={roleDescription(inviteRole)}
+			>
+				{#snippet children({ id, describedBy, invalid })}
+					<AppSelect
+						{id}
+						ariaDescribedBy={describedBy}
+						ariaInvalid={invalid}
+						bind:value={inviteRole}
+						options={editableRoleOptions}
+						ariaLabel={m.settings_role()}
+					/>
+				{/snippet}
+			</FormField>
 			<div class="flex items-end">
 				<Button type="submit" disabled={Boolean(busyKey) || !inviteEmail.trim()}>
 					{#if busyKey === 'invite'}
-						<ProtectedIcon icon="loading" class="size-4 animate-spin" />
+						<ProtectedIcon icon="loading" class="size-4 animate-spin motion-reduce:animate-none" />
 					{:else}
 						<ThemeIcon role="growth" class="size-4" />
 					{/if}
@@ -942,7 +953,12 @@
 											disabled={Boolean(busyKey)}
 											class="w-full sm:w-40"
 											onValueChange={(role) => {
-												if (role === 'admin' || role === 'editor' || role === 'viewer') {
+												if (
+													role === 'admin' ||
+													role === 'editor' ||
+													role === 'client' ||
+													role === 'viewer'
+												) {
 													void updateMember(member, { role });
 												}
 											}}
@@ -972,7 +988,7 @@
 												>
 													{#if busyKey === `member:${member.user_id}`}<ProtectedIcon
 															icon="loading"
-															class="size-4 animate-spin"
+															class="size-4 animate-spin motion-reduce:animate-none"
 														/>{:else}<ThemeIcon role="refresh" class="size-4" />{/if}
 													{m.settings_member_reactivate()}
 												</Button>
@@ -1059,7 +1075,7 @@
 										>
 											{#if busyKey === `invitation:${invitation.id}`}<ProtectedIcon
 													icon="loading"
-													class="size-4 animate-spin"
+													class="size-4 animate-spin motion-reduce:animate-none"
 												/>{:else}<ThemeIcon role="refresh" class="size-4" />{/if}
 											{m.settings_invitation_resend()}
 										</Button>

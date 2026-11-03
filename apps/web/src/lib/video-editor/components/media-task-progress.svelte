@@ -4,6 +4,8 @@
 	import { Button } from '$lib/components/ui/button';
 	import { ProtectedIcon, ThemeIcon } from '$lib/themes/icons';
 	import { mediaTasks, type MediaTask } from '$lib/video-editor/media/media-tasks.svelte';
+	import { StatusLine } from '$lib/components/editor-density';
+	import { formatBytes as formatByteSize } from '$lib/byte-size';
 
 	let expanded = $state(false);
 	const tasks = $derived(mediaTasks.list);
@@ -16,9 +18,7 @@
 	);
 
 	function formatBytes(bytes: number): string {
-		if (bytes >= 1_000_000_000) return `${(bytes / 1_000_000_000).toFixed(2)} GB`;
-		if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
-		return `${(bytes / (1024 * 1024)).toFixed(bytes < 10 * 1024 * 1024 ? 1 : 0)} MB`;
+		return formatByteSize(bytes, { base: 'iec' }) ?? '—';
 	}
 
 	function kindLabel(task: MediaTask): string {
@@ -151,20 +151,20 @@
 
 {#if tasks.length > 0}
 	<section
-		class="shrink-0 border-t border-[var(--video-editor-border)] bg-[var(--video-editor-panel)] px-2 py-2"
+		class="shrink-0 bg-[var(--video-editor-panel)]"
 		aria-label={m.video_editor_background_tasks()}
 	>
 		<span class="sr-only" role="status" aria-live="polite" aria-atomic="true">
 			{phaseAnnouncement}
 		</span>
-		<div class="flex items-center gap-2 text-[10px]">
+		<StatusLine>
 			<ProtectedIcon
 				icon="loading"
 				class="size-3.5 shrink-0 animate-spin text-[var(--video-editor-focus)] motion-reduce:animate-none"
 			/>
 			<button
 				type="button"
-				class="flex min-h-11 min-w-0 flex-1 items-center gap-1 rounded text-left text-[var(--video-editor-text)] focus-visible:outline-2 focus-visible:outline-[var(--video-editor-focus)] sm:min-h-7"
+				class="flex min-h-8 min-w-0 flex-1 items-center gap-1 rounded text-left text-[var(--video-editor-text)] focus-visible:outline-2 focus-visible:outline-[var(--video-editor-focus)] sm:min-h-7 [@media(pointer:coarse)]:min-h-11"
 				aria-expanded={expanded}
 				onclick={() => (expanded = !expanded)}
 			>
@@ -185,7 +185,7 @@
 						: m.video_editor_task_working()
 					: `${Math.round(averageProgress * 100)}%`}
 			</span>
-		</div>
+		</StatusLine>
 		<ProgressMeter
 			class="mt-1.5 h-1 bg-[var(--video-editor-border)]"
 			fillClass="bg-[var(--video-editor-focus)]"
@@ -214,7 +214,7 @@
 							<Button
 								variant="ghost"
 								size="icon-xs"
-								class="size-11! shrink-0 sm:size-7!"
+								class="size-8! shrink-0 sm:size-7! [@media(pointer:coarse)]:size-11!"
 								disabled={task.status === 'cancelling'}
 								aria-label={`${m.common_cancel()}: ${task.label}`}
 								onclick={() => cancel(task)}

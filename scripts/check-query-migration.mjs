@@ -1,20 +1,28 @@
-import { readdirSync, readFileSync } from "node:fs";
-import { extname, relative, resolve } from "node:path";
+import { readFileSync } from "node:fs";
+import { relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { parse } from "svelte/compiler";
 import ts from "typescript";
 
+import {
+  isQueryAdapter,
+  lineAt,
+  mobileQueryAdapters,
+  sourceExtensions,
+  sourceFiles,
+} from "./check-query-shared.mjs";
+
 const sourceRoots = ["apps/web/src", "apps/mobile/src"];
-const sourceExtensions = new Set([".svelte", ".ts", ".tsx"]);
 const rawFetchMutationMethods = new Set(["DELETE", "PATCH", "POST", "PUT"]);
-const webQueryAdapterPrefix = "apps/web/src/lib/query/";
-const mobileQueryAdapters = new Set([
-  "apps/mobile/src/lib/app-bootstrap.ts",
-  "apps/mobile/src/lib/query-api.ts",
-]);
 
 const imperativeReadAllowlist = [
+  {
+    file: "apps/web/src/lib/components/analytics-export-dialog.svelte",
+    endpoint: "/analytics/export",
+    count: 1,
+    reason: "user-triggered analytics file download, not render-path state",
+  },
   {
     file: "apps/web/src/lib/components/account-data-card.svelte",
     endpoint: "/auth/account/deletion-impact",
@@ -47,10 +55,23 @@ const imperativeReadAllowlist = [
     reason: "bounded post-upload processing poll with caller-owned cancellation",
   },
   {
+    file: "apps/web/src/lib/instance-backup.ts",
+    endpoint: "/ready",
+    count: 1,
+    reason: "bounded post-restore restart poll with caller-owned cancellation",
+  },
+  {
     file: "apps/web/src/lib/post-builder/client.ts",
     endpoint: "/publication-builds/{id}",
     count: 1,
     reason: "bounded live build-status poll resumed from a persisted operation",
+  },
+  {
+    file: "apps/mobile/src/components/native-telemetry-runtime.tsx",
+    endpoint: "/telemetry/config",
+    count: 1,
+    reason:
+      "bounded one-shot SDK privacy/runtime bootstrap, not render-path server state, matching the web telemetry boundary",
   },
   {
     file: "apps/web/src/lib/telemetry.ts",
@@ -159,33 +180,8 @@ const pairingReadAllowlist = [
   },
 ];
 
-function sourceFiles(directory) {
-  const files = [];
-  for (const entry of readdirSync(directory, { withFileTypes: true })) {
-    const path = resolve(directory, entry.name);
-    if (entry.isDirectory()) {
-      if (entry.name.startsWith(".")) continue;
-      files.push(...sourceFiles(path));
-      continue;
-    }
-    if (entry.isFile() && sourceExtensions.has(extname(entry.name))) files.push(path);
-  }
-  return files;
-}
-
-function lineAt(source, index) {
-  return source.slice(0, index).split("\n").length;
-}
-
 function allowlistKey(file, endpoint) {
   return `${file}\0${endpoint}`;
-}
-
-function isQueryAdapter(repoPath) {
-  const isTest = /\.test\.[jt]sx?$/u.test(repoPath);
-  return (
-    !isTest && (repoPath.startsWith(webQueryAdapterPrefix) || mobileQueryAdapters.has(repoPath))
-  );
 }
 
 function directCentralBoundaryNames(sourceFile) {
@@ -549,7 +545,9 @@ export function findImperativeQueryViolations(
     const root = resolve(repoRoot, sourceRoot);
     for (const file of sourceFiles(root).sort()) {
       const repoPath = relative(repoRoot, file).replaceAll("\\", "/");
-      if (repoPath.startsWith(webQueryAdapterPrefix) && /\.test\.[jt]sx?$/u.test(repoPath)) {
+      // Tests never run as app reads; they exercise the transport and adapters
+      // directly, so their fixture GETs must not count against the catalog.
+      if (/\.test\.[jt]sx?$/u.test(repoPath)) {
         continue;
       }
       const source = readFileSync(file, "utf8");

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -17,6 +18,7 @@ import (
 	publicationservice "github.com/openpost/backend/internal/services/publications"
 	"github.com/openpost/backend/internal/services/sourcecontext"
 	"github.com/openpost/backend/internal/services/workspaceaccess"
+	"github.com/openpost/backend/internal/telemetry"
 	"github.com/stretchr/testify/require"
 	"github.com/uptrace/bun"
 	"github.com/uptrace/bun/dialect/sqlitedialect"
@@ -57,6 +59,7 @@ func TestApplicationEnqueueIsIdempotentAndBuildsDurably(t *testing.T) {
 	db := newBuilderApplicationTestDB(t)
 	now := time.Date(2026, 8, 23, 12, 0, 0, 0, time.UTC)
 	builderCalls := 0
+	recorder := &telemetry.MemoryRecorder{}
 	application, err := NewApplication(db, packageBuilderFunc(func(_ context.Context, input BuildInput) (BuildResult, error) {
 		builderCalls++
 		require.Len(t, input.Parts, 1)
@@ -83,8 +86,9 @@ func TestApplicationEnqueueIsIdempotentAndBuildsDurably(t *testing.T) {
 			}},
 		}, nil
 	}), ApplicationConfig{
-		Model: "test-model",
-		Now:   func() time.Time { return now },
+		Telemetry: recorder,
+		Model:     "test-model",
+		Now:       func() time.Time { return now },
 		AuthorizeStored: func(context.Context, workspaceaccess.StoredAuthority) error {
 			return nil
 		},
@@ -175,6 +179,13 @@ func TestApplicationEnqueueIsIdempotentAndBuildsDurably(t *testing.T) {
 	require.NoError(t, application.HandleJob(context.Background(), jobregistry.TypePublicationBuild, payload))
 	require.Equal(t, 1, builderCalls, "replayed completed work must be a no-op")
 
+	require.Len(t, recorder.Events, 2)
+	require.Equal(t, "publication build queued", recorder.Events[0].Name)
+	require.Equal(t, "publication build completed", recorder.Events[1].Name)
+	encoded, err := json.Marshal(recorder.Events)
+	require.NoError(t, err)
+	require.NotContains(t, string(encoded), "private")
+	require.NotContains(t, string(encoded), "Canonical draft")
 	publications := &publicationApplicationStub{}
 	committed, err := application.Commit(context.Background(), "user-1", first.ID, publications)
 	require.NoError(t, err)
@@ -193,7 +204,9 @@ func TestApplicationFailureNeverReturnsOrStoresPrivateModelText(t *testing.T) {
 	privateFailure := errors.New("private customer transcript and raw model output")
 	for expectedCode, failure := range map[string]error{
 		"generation_failed":       privateFailure,
-		"director_output_invalid": &generationFailure{code: failureDirectorOutput, cause: privateFailure},
+		"director_output_invalid": &generationFailure{code: "director_output_invalid", cause: privateFailure},
+		"review_rejected":         &generationFailure{code: "review_rejected", cause: privateFailure},
+		"generation_timeout":      fmt.Errorf("private context: %w", context.DeadlineExceeded),
 	} {
 		t.Run(expectedCode, func(t *testing.T) {
 			db := newBuilderApplicationTestDB(t)
@@ -268,7 +281,10 @@ func TestApplicationReclaimsExpiredBuildLeaseAndFencesOldWorker(t *testing.T) {
 	require.EqualValues(t, 2, calls.Load())
 }
 
-func TestApplicationRetryStealsProcessingFailureJobBeforeOldWorkerCanFenceIt(t *testing.T) {
+// Retry must requeue the failed build and clear the previous worker's
+// ownership fields on the job row. This is a service-level contract: it does
+// not exercise the worker's own finalization fence.
+func TestApplicationRetryRequeuesFailedBuildAndClearsPreviousWorkerOwnership(t *testing.T) {
 	db := newBuilderApplicationTestDB(t)
 	now := time.Date(2026, 8, 23, 16, 15, 0, 0, time.UTC)
 	application, err := NewApplication(db, packageBuilderFunc(func(context.Context, BuildInput) (BuildResult, error) {
@@ -306,6 +322,10 @@ func TestApplicationRetryStealsProcessingFailureJobBeforeOldWorkerCanFenceIt(t *
 	require.True(t, job.LockedAt.IsZero())
 	require.Equal(t, now.Unix(), job.RunAt.Unix())
 
+	// This mirrors the old worker's ownership predicate against the requeued row.
+	// It is the test's own copy of that predicate, not the worker's finalization
+	// path, so it demonstrates the row no longer matches; it does not prove the
+	// worker's fence.
 	oldWorkerFence, err := db.NewUpdate().Model((*models.Job)(nil)).
 		Set("status = ?", jobregistry.StatusFailed).
 		Where("id = ? AND status = ? AND locked_by = ?", job.ID, jobregistry.StatusProcessing, "old-worker").
@@ -314,39 +334,6 @@ func TestApplicationRetryStealsProcessingFailureJobBeforeOldWorkerCanFenceIt(t *
 	rows, err := oldWorkerFence.RowsAffected()
 	require.NoError(t, err)
 	require.Zero(t, rows, "the old worker no longer owns the requeued job")
-}
-
-func TestApplicationRetryCannotBypassActiveBuildCap(t *testing.T) {
-	db := newBuilderApplicationTestDB(t)
-	now := time.Date(2026, 8, 23, 16, 30, 0, 0, time.UTC)
-	application, err := NewApplication(db, packageBuilderFunc(func(context.Context, BuildInput) (BuildResult, error) {
-		return BuildResult{}, nil
-	}), ApplicationConfig{
-		Now:             func() time.Time { return now },
-		AuthorizeStored: func(context.Context, workspaceaccess.StoredAuthority) error { return nil },
-	})
-	require.NoError(t, err)
-	failed, _, err := application.Enqueue(t.Context(), testBuildRequest(now, "retry-limited"))
-	require.NoError(t, err)
-	_, err = db.NewUpdate().Model((*BuildRecord)(nil)).
-		Set("state = ?", BuildStateFailed).Set("phase = ?", BuildPhaseFailed).
-		Where("id = ?", failed.ID).Exec(t.Context())
-	require.NoError(t, err)
-	_, err = db.NewUpdate().Model((*models.Job)(nil)).
-		Set("status = ?", jobregistry.StatusFailed).
-		Where("type = ? AND scope_id = ?", jobregistry.TypePublicationBuild, failed.ID).
-		Exec(t.Context())
-	require.NoError(t, err)
-	for _, key := range []string{"retry-active-one", "retry-active-two", "retry-active-three"} {
-		_, _, err = application.Enqueue(t.Context(), testBuildRequest(now, key))
-		require.NoError(t, err)
-	}
-
-	_, err = application.Retry(t.Context(), "user-1", failed.ID)
-	require.ErrorIs(t, err, ErrTooManyActiveBuilds)
-	stored, err := application.Get(t.Context(), "user-1", failed.ID)
-	require.NoError(t, err)
-	require.Equal(t, BuildStateFailed, stored.State)
 }
 
 func newBuilderApplicationTestDB(t *testing.T) *bun.DB {

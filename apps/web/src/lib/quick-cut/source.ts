@@ -1,3 +1,4 @@
+import { startProfileSpan } from '$lib/performance/profiling';
 import { ALL_FORMATS, BlobSource, EncodedPacketSink, Input } from 'mediabunny';
 import type { QuickCutSource } from './types';
 import { collectKeyframeTimestamps, extractKeyframeTimestamps } from './keyframes';
@@ -11,6 +12,7 @@ export async function probeSourceFile(
 ): Promise<QuickCutSource> {
 	signal?.throwIfAborted();
 	const input = new Input({ formats: ALL_FORMATS, source: new BlobSource(file) });
+	const finishProfile = startProfileSpan('Quick Cut', 'Inspect source');
 	try {
 		const duration = await input.computeDuration().catch(() => 0);
 		signal?.throwIfAborted();
@@ -120,7 +122,7 @@ export async function probeSourceFile(
 		const lastModified = file.lastModified;
 		let contentFingerprint: string | undefined;
 		try {
-			contentFingerprint = await createHash(file);
+			contentFingerprint = await createHash(file, signal);
 			signal?.throwIfAborted();
 		} catch (error) {
 			if (signal?.aborted) throw signal.reason ?? error;
@@ -152,6 +154,7 @@ export async function probeSourceFile(
 			selectedAudioTrackIndices: undefined
 		};
 	} finally {
+		finishProfile?.();
 		try {
 			input.dispose?.();
 		} catch {

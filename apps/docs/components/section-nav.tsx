@@ -1,23 +1,55 @@
 "use client";
+import { ditherSurface } from "@openpost/dither";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useSearchContext } from "fumadocs-ui/contexts/search";
 import { useEffect, useRef } from "react";
 import { documentationSection, documentationSections } from "@/lib/sections";
-import { BookOpen, Code2, Server, Search, ArrowUpRight, Github, Bot } from "lucide-react";
+import {
+  BookOpen,
+  Server,
+  Search,
+  ArrowUpRight,
+  Github,
+  Bot,
+  Clapperboard,
+  Image as ImageIcon,
+  Workflow,
+  Code2,
+} from "lucide-react";
 import { BrandMark } from "@/components/brand-mark";
 
 export function SectionNav() {
   const pathname = usePathname();
   const { setOpenSearch } = useSearchContext();
   const section = documentationSection(pathname);
+  const openApp = useRef<HTMLAnchorElement>(null);
+  useEffect(() => {
+    if (!openApp.current) return;
+    const surface = ditherSurface(openApp.current, {
+      kind: "button",
+      interactive: true,
+    });
+    return () => surface.destroy();
+  }, []);
   const navigation = useRef<HTMLElement>(null);
-  const sectionIcons = { guides: BookOpen, "self-hosting": Server, mcp: Bot, api: Code2 };
+  const sectionIcons = {
+    guides: BookOpen,
+    "video-editor": Clapperboard,
+    "image-editor": ImageIcon,
+    workflows: Workflow,
+    automate: Code2,
+    mcp: Bot,
+    "self-hosting": Server,
+    "api-reference": Code2,
+  };
   useEffect(() => {
     const nav = navigation.current;
     const active = nav?.querySelector<HTMLElement>("[aria-current]");
     if (!nav || !active || nav.scrollWidth <= nav.clientWidth) return;
-    nav.scrollTo({ left: active.offsetLeft - (nav.clientWidth - active.offsetWidth) / 2 });
+    nav.scrollTo({
+      left: active.offsetLeft - (nav.clientWidth - active.offsetWidth) / 2,
+    });
   }, [section.id]);
   return (
     <header className="docs-header">
@@ -39,7 +71,12 @@ export function SectionNav() {
             <Github size={16} />
             GitHub
           </a>
-          <a href="https://app.openpo.st" className="docs-open-app">
+          <a
+            ref={openApp}
+            data-dither-button="always"
+            href="https://app.openpo.st"
+            className="docs-open-app"
+          >
             Open OpenPost
             <ArrowUpRight size={16} />
           </a>

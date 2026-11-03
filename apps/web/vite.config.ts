@@ -1,3 +1,4 @@
+import { pdfPreviewAssets } from '../../packages/social-preview/pdf-assets.ts';
 import { paraglideVitePlugin } from '@inlang/paraglide-js';
 import tailwindcss from '@tailwindcss/vite';
 import { sveltekit } from '@sveltejs/kit/vite';
@@ -8,16 +9,37 @@ import { existsSync, realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { defineConfig, searchForWorkspaceRoot, type Plugin, type PluginOption } from 'vite';
 import { postHogSourceMaps } from '../../scripts/posthog-source-maps.ts';
+import { paraglideFastDeclarationsPlugin } from '../../scripts/paraglide-declarations.mjs';
+import { phonemizerRuntimePlugin } from './src/lib/build/phonemizer-runtime.ts';
+import { devProxy } from './dev-proxy.ts';
 
+// FMT-03 (#393): src/lib/paraglide has one writer and one declared option set.
+// The Vite plugin must pass identical options to the `generate:i18n` script:
+// `preferredLanguage` keeps first-visit Accept-Language detection,
+// `locale-modules` keeps generated declarations small for svelte-check, and
+// `isServer` matches the shipped bundle. scripts/check-i18n.mjs asserts the
+// two stay in sync.
+//
+// The upstream `emitTsDeclarations` path is slow on this catalog
+// (see scripts/paraglide-declarations.mjs), so it stays off here and in
+// `generate:i18n`. The companion plugin below regenerates the same fast
+// `.d.ts` siblings after the paraglide plugin writes the `.js` output.
 const rawParaglidePlugin = paraglideVitePlugin({
 	project: './project.inlang',
-	outdir: './src/lib/paraglide'
+	outdir: './src/lib/paraglide',
+	strategy: ['cookie', 'globalVariable', 'preferredLanguage', 'baseLocale'],
+	outputStructure: 'locale-modules',
+	isServer: "import.meta.env?.SSR ?? typeof window === 'undefined'",
+	emitTsDeclarations: false
 });
 // SAFETY: paraglideVitePlugin returns a Vite-compatible plugin, but its package type is not assignable to this Vite version.
 const paraglidePlugin = rawParaglidePlugin as PluginOption;
+// SAFETY: same as above; the companion plugin is a plain Vite plugin object.
+const paraglideDeclarationsPlugin = paraglideFastDeclarationsPlugin({
+	outdir: './src/lib/paraglide'
+}) as PluginOption;
 const usesPrecompiledParaglide = process.env.OPENPOST_PARAGLIDE_PRECOMPILED === '1';
 const isVitest = process.env.VITEST === 'true';
-const apiProxyTimeoutMs = 120_000;
 const sourceMaps = postHogSourceMaps('app');
 const frontendRoot = fileURLToPath(new URL('.', import.meta.url));
 const dependencyRoots = [
@@ -30,6 +52,15 @@ const svelteKitPlugins = await sveltekit();
 const appFrameworkPlugins = isVitest
 	? svelteKitPlugins.filter((plugin) => plugin.name !== 'vite-plugin-sveltekit-compile')
 	: svelteKitPlugins;
+// Vite drops null values during config merges. Set this after merging so Vitest
+// never starts a project watcher that can reopen while its initial scan settles.
+const testProjectWatcherPlugin: Plugin = {
+	name: 'openpost-vitest-project-watcher',
+	enforce: 'post',
+	configResolved(config) {
+		config.server.watch = null;
+	}
+};
 const testMediaStubPlugin: Plugin = {
 	name: 'openpost-vitest-media-stub',
 	configureServer(server) {
@@ -43,16 +74,24 @@ const testMediaStubPlugin: Plugin = {
 	}
 };
 
-export default defineConfig({
+export default defineConfig(({ isSsrBuild }) => ({
+	// Editor extensions must share one state/view instance across transitive dependencies.
+	resolve: { dedupe: ['@codemirror/state', '@codemirror/view'] },
+	cacheDir:
+		isVitest && process.env.NODE_ENV === 'production'
+			? 'node_modules/.vite-vitest-production'
+			: undefined,
 	publicDir: isVitest ? 'static' : undefined,
 	define: {
 		'import.meta.env.VITE_APP_MODE': JSON.stringify(process.env.VITE_APP_MODE || 'web')
 	},
 	plugins: [
-		...(isVitest ? [testMediaStubPlugin] : []),
+		pdfPreviewAssets(),
+		phonemizerRuntimePlugin(),
+		...(isVitest ? [testMediaStubPlugin, testProjectWatcherPlugin] : []),
 		tailwindcss(),
 		...appFrameworkPlugins,
-		...(!usesPrecompiledParaglide ? [paraglidePlugin] : []),
+		...(!usesPrecompiledParaglide ? [paraglidePlugin, paraglideDeclarationsPlugin] : []),
 		SvelteKitPWA({
 			base: '/',
 			scope: '/',
@@ -129,11 +168,13 @@ export default defineConfig({
 		...sourceMaps.plugins
 	],
 	build: {
-		sourcemap: sourceMaps.enabled ? 'hidden' : false
+		sourcemap: sourceMaps.enabled && !isSsrBuild ? 'hidden' : false
 	},
 	optimizeDeps: {
-		exclude: ['ai-music-js', 'kokoro-js', 'phonemizer'],
+		// The scanner must share the app's Svelte runtime when mounted from client init.
+		exclude: ['ai-music-js', 'kokoro-js', 'phonemizer', 'svelte-render-scan'],
 		include: [
+			'@ricky0123/vad-web/dist/models/silero',
 			'@lucide/svelte/icons/maximize',
 			'@lucide/svelte/icons/minimize',
 			'@lucide/svelte/icons/scan',
@@ -159,6 +200,7 @@ export default defineConfig({
 			'@lucide/svelte/icons/clipboard-paste',
 			'@lucide/svelte/icons/columns-2',
 			'@lucide/svelte/icons/copy',
+			'@lucide/svelte/icons/cloud',
 			'@lucide/svelte/icons/diamond-minus',
 			'@lucide/svelte/icons/eye',
 			'@lucide/svelte/icons/external-link',
@@ -210,17 +252,7 @@ export default defineConfig({
 		fs: {
 			allow: [searchForWorkspaceRoot(frontendRoot), ...dependencyRoots]
 		},
-		proxy: {
-			'/api': {
-				target: 'http://localhost:8080',
-				changeOrigin: false,
-				timeout: apiProxyTimeoutMs,
-				proxyTimeout: apiProxyTimeoutMs
-			},
-			'^/media/[^/]+': {
-				target: 'http://localhost:8080'
-			}
-		}
+		proxy: devProxy(process.env.OPENPOST_DEV_BACKEND_URL)
 	},
 	worker: {
 		format: 'es',
@@ -230,4 +262,4 @@ export default defineConfig({
 					filename.includes('node_modules') ? undefined : { runes: true }
 			})
 	}
-});
+}));

@@ -3,7 +3,12 @@ import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { marketingRouteManifest } from "../packages/social-images/src/index.js";
+import {
+  marketingRouteManifest,
+  browserExtensions,
+  mediaTools,
+  previewTools,
+} from "../packages/social-images/src/index.js";
 
 export const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -56,9 +61,15 @@ export function catalogSlugs(source, catalog) {
   if (start === -1 || end === -1) {
     throw new Error(`Could not find ${catalog} catalog boundaries`);
   }
-  return [...source.slice(start, end).matchAll(/\bslug:\s*["']([^"']+)["']/gu)].map(
-    (match) => match[1],
-  );
+  const section = source.slice(start, end);
+  const literals = [...section.matchAll(/\bslug:\s*["']([^"']+)["']/gu)].map((match) => match[1]);
+  if (catalog !== "tools") return literals;
+  return [
+    ...(section.includes("...previewTools") ? previewTools.map((tool) => tool.slug) : []),
+    ...(section.includes("...mediaTools") ? mediaTools.map((tool) => tool.slug) : []),
+    ...(section.includes("...browserExtensions") ? browserExtensions.map((tool) => tool.slug) : []),
+    ...literals,
+  ];
 }
 
 function sorted(values) {

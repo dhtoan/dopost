@@ -1,3 +1,7 @@
+import { captureTelemetryEvent } from '@openpost/telemetry';
+import { isAudioCodecSupported } from '../media/audio-codec-support';
+import { isProResCodec } from '../media/prores-decoder';
+import { editorAssetMetadataSchema, type EditorAssetMetadata } from './asset-metadata';
 import {
 	portableVideoProjectDocument,
 	videoProjectMutationOperations,
@@ -8,12 +12,12 @@ import {
 } from '@openpost/video-project';
 import type { components } from '@openpost/api-contract';
 import {
-	mediaListQueryOptions,
+	mediaMetadataQueryOptions,
 	mediaQueryKeys,
 	videoProjectAssetsQueryOptions,
 	videoProjectConflictsQueryOptions,
 	videoProjectDetailQueryOptions,
-	videoProjectListQueryOptions,
+	videoProjectSummariesQueryOptions,
 	videoProjectQueryKeys,
 	videoProjectRevisionsQueryOptions
 } from '@openpost/query-catalog';
@@ -56,7 +60,6 @@ const pendingVideoProjectMutationSchema = z.object({
 	attempts: z.number()
 });
 const cloudDocumentSchema = z.looseObject({});
-const cloudDocumentFamilySchema = z.looseObject({ schemaFamily: z.string().optional() });
 type CloudVideoProjectDocument = components['schemas']['VideoProjectResponse']['document'];
 
 export function purgeCloudVideoProjectDeviceData(): void {
@@ -78,9 +81,8 @@ export interface CloudVideoProject<TDocument extends object> {
 	updatedAt: string;
 }
 
-export function cloudVideoProjectFamily(project: CloudVideoProject<object>): string {
-	const result = cloudDocumentFamilySchema.safeParse(project.document);
-	return result.success ? (result.data.schemaFamily ?? '') : '';
+export interface CloudVideoProjectSummary extends Omit<CloudVideoProject<object>, 'document'> {
+	schemaFamily: string;
 }
 
 export interface CloudVideoProjectRevision<TDocument extends object> {
@@ -100,6 +102,10 @@ export interface CloudVideoProjectConflict<TDocument extends object> {
 	document: TDocument;
 	overlapTargets: string[];
 	createdAt: string;
+	deviceId: string;
+	baseRevision: number;
+	headRevision: number;
+	origin: 'this_browser' | 'other_device' | 'unknown';
 }
 
 export class CloudVideoProjectConflictError<TDocument extends object> extends Error {
@@ -163,28 +169,25 @@ function deviceId(): string {
 	return created;
 }
 
-function cloudProject<TDocument extends object>(raw: {
-	id: string;
-	workspace_id: string;
-	name: string;
-	head_revision: number;
-	document: CloudVideoProjectDocument;
-	sync_status: CloudVideoProject<TDocument>['syncStatus'];
-	attention_reason?: string;
-	trashed_at?: string;
-	updated_at: string;
-}): CloudVideoProject<TDocument> {
+function cloudProjectMetadata(
+	raw: Omit<components['schemas']['VideoProjectResponse'], 'document'>
+): Omit<CloudVideoProject<object>, 'document'> {
 	return {
 		id: raw.id,
 		workspaceId: raw.workspace_id,
 		name: raw.name,
 		headRevision: raw.head_revision,
-		document: documentFromAPI<TDocument>(raw.document),
 		syncStatus: raw.sync_status,
 		attentionReason: raw.attention_reason ?? '',
 		trashedAt: raw.trashed_at ?? '',
 		updatedAt: raw.updated_at
 	};
+}
+
+function cloudProject<TDocument extends object>(
+	raw: components['schemas']['VideoProjectResponse']
+): CloudVideoProject<TDocument> {
+	return { ...cloudProjectMetadata(raw), document: documentFromAPI<TDocument>(raw.document) };
 }
 
 function documentFromAPI<TDocument extends object>(value: CloudVideoProjectDocument): TDocument {
@@ -193,6 +196,8 @@ function documentFromAPI<TDocument extends object>(value: CloudVideoProjectDocum
 	// SAFETY: Zod proved this is a JSON object. The editor validates its versioned document when loading it.
 	return result.data as TDocument;
 }
+
+export class CloudProjectSourceUploadsPendingError extends Error {}
 
 export class CloudVideoProjectRepository<TDocument extends object> {
 	readonly outbox = new VideoProjectMutationOutbox(new BrowserMutationStorage());
@@ -224,11 +229,14 @@ export class CloudVideoProjectRepository<TDocument extends object> {
 		]);
 	}
 
-	async list(includeTrash = false): Promise<CloudVideoProject<TDocument>[]> {
+	async listSummaries(includeTrash = false): Promise<CloudVideoProjectSummary[]> {
 		const data = await queryClient.query(
-			videoProjectListQueryOptions(videoProjectQueryAPI, this.workspaceId, includeTrash)
+			videoProjectSummariesQueryOptions(videoProjectQueryAPI, this.workspaceId, includeTrash)
 		);
-		return data.map((project) => cloudProject<TDocument>(project));
+		return data.map((project) => ({
+			...cloudProjectMetadata(project),
+			schemaFamily: project.schema_family
+		}));
 	}
 
 	async get(id: string): Promise<CloudVideoProject<TDocument>> {
@@ -247,28 +255,41 @@ export class CloudVideoProjectRepository<TDocument extends object> {
 		return project;
 	}
 
-	async create(name: string, document: TDocument): Promise<CloudVideoProject<TDocument>> {
-		return this.createWithId(crypto.randomUUID(), name, document);
+	async create(
+		name: string,
+		document: TDocument,
+		options: { sourceProjectId?: string } = {}
+	): Promise<CloudVideoProject<TDocument>> {
+		return this.createWithId(crypto.randomUUID(), name, document, options);
 	}
 
 	async createWithId(
 		id: string,
 		name: string,
-		document: TDocument
+		document: TDocument,
+		options: { sourceProjectId?: string } = {}
 	): Promise<CloudVideoProject<TDocument>> {
 		const portable = portableVideoProjectDocument({ ...document, id });
-		const { data, error } = await client.POST('/video-projects', {
+		const { data, error, response } = await client.POST('/video-projects', {
 			body: {
 				id,
 				workspace_id: this.workspaceId,
 				name,
 				device_id: deviceId(),
+				source_project_id: options.sourceProjectId,
 				document: portable
 			}
 		});
+		if (response.status === 409 && options.sourceProjectId) {
+			throw new CloudProjectSourceUploadsPendingError();
+		}
 		if (error || !data) throw new Error('Could not create Cloud Video Project');
 		queryClient.setQueryData(videoProjectQueryKeys.detail(this.workspaceId, data.id), data);
 		await this.invalidateLists();
+		captureTelemetryEvent('video project created', {
+			source: 'unknown',
+			storage: 'cloud'
+		});
 		return cloudProject<TDocument>(data);
 	}
 
@@ -323,9 +344,24 @@ export class CloudVideoProjectRepository<TDocument extends object> {
 		const data = await queryClient.query(
 			videoProjectConflictsQueryOptions(videoProjectQueryAPI, this.workspaceId, id)
 		);
+		let storedDeviceId: string | null;
+		try {
+			storedDeviceId = browser ? localStorage.getItem(DEVICE_KEY) : null;
+		} catch {
+			storedDeviceId = null;
+		}
 		return data.map((conflict) => ({
 			id: conflict.id,
 			name: conflict.name,
+			deviceId: conflict.device_id ?? '',
+			baseRevision: conflict.base_revision,
+			headRevision: conflict.head_revision,
+			origin:
+				!conflict.device_id || !storedDeviceId
+					? 'unknown'
+					: conflict.device_id === storedDeviceId
+						? 'this_browser'
+						: 'other_device',
 			document: documentFromAPI<TDocument>(conflict.document),
 			overlapTargets: conflict.overlap_targets ?? [],
 			createdAt: conflict.created_at
@@ -418,69 +454,126 @@ export class CloudVideoProjectRepository<TDocument extends object> {
 	async listMedia(id: string): Promise<MediaMetadata[]> {
 		let assetData;
 		try {
-			assetData = await queryClient.query(
-				videoProjectAssetsQueryOptions(videoProjectQueryAPI, this.workspaceId, id)
-			);
+			assetData = await this.listAssets(id);
 		} catch {
 			const offline = await readOfflineCloudProject<TDocument>(this.workspaceId, id);
 			if (offline) return offline.media;
 			throw new Error('Could not load Cloud Video Project assets');
 		}
-		const readyByMediaId = new Map(
-			assetData
-				.filter((asset) => asset.status === 'ready' && asset.media_id)
-				.map((asset) => [asset.media_id, asset] as const)
+		const readyAssets = assetData.filter(
+			(asset): asset is typeof asset & { media_id: string } =>
+				asset.status === 'ready' && Boolean(asset.media_id)
 		);
-		if (readyByMediaId.size === 0) return [];
+		const mediaIds = [...new Set(readyAssets.map((asset) => asset.media_id))];
+		if (mediaIds.length === 0) return [];
 
 		const media: MediaMetadata[] = [];
-		for (let offset = 0; ; offset += 200) {
+		for (let offset = 0; offset < mediaIds.length; offset += 200) {
 			let data;
 			try {
 				data = await queryClient.query(
-					mediaListQueryOptions(mediaQueryAPI, this.workspaceId, {
-						assetKind: 'project_asset',
-						lifecycle: 'all',
-						limit: 200,
-						offset
-					})
+					mediaMetadataQueryOptions(
+						mediaQueryAPI,
+						this.workspaceId,
+						mediaIds.slice(offset, offset + 200)
+					)
 				);
 			} catch {
 				const offline = await readOfflineCloudProject<TDocument>(this.workspaceId, id);
 				if (offline) return offline.media;
 				throw new Error('Could not load Cloud Video Project media');
 			}
-			for (const item of data.media ?? []) {
-				const asset = readyByMediaId.get(item.id);
-				if (!asset) continue;
-				const mediaKind = item.mime_type.startsWith('font/')
-					? 'font'
-					: item.mime_type.startsWith('audio/')
-						? 'audio'
-						: item.mime_type.startsWith('image/')
-							? 'image'
-							: 'video';
+			const metadataById = new Map((data.media ?? []).map((item) => [item.id, item]));
+			for (const asset of readyAssets) {
+				const item = metadataById.get(asset.media_id);
+				if (!item) continue;
+				const prepared = editorAssetMetadataSchema.safeParse(asset.preparation.editorMedia);
+				const probe = prepared.success ? prepared.data : undefined;
+				const mimeType = item.mime_type || asset.mime_type;
+				const fileSize = item.size ?? asset.size;
+				const duration =
+					(item.duration_ms ?? 0) > 0 ? (item.duration_ms ?? 0) / 1000 : (probe?.duration ?? 0);
+				const mediaKind =
+					probe?.codec === 'lottie' &&
+					(mimeType === 'application/zip' || mimeType === 'application/json')
+						? 'lottie'
+						: mimeType.startsWith('font/')
+							? 'font'
+							: mimeType.startsWith('audio/')
+								? 'audio'
+								: mimeType.startsWith('image/')
+									? 'image'
+									: 'video';
 				media.push({
 					id: asset.stable_media_id,
 					storageType: 'cloud',
 					remoteUrl: item.url,
+					remoteThumbnailUrl: item.thumbnail_url || item.poster_thumbnail_url || undefined,
 					offlineUrl: offlineMediaURL(this.workspaceId, id, asset.stable_media_id),
-					fileName: item.original_filename,
-					fileSize: item.size,
-					mimeType: item.mime_type,
-					duration: item.duration_ms / 1000,
-					width: item.width,
-					height: item.height,
-					fps: item.frame_rate,
-					codec: item.video_codec ?? item.container_format ?? '',
-					bitrate: item.bit_rate,
-					audioCodec: item.audio_codec,
-					tags: [mediaKind]
+					contentHash: asset.sha256 || undefined,
+					fileName: asset.original_filename,
+					fileSize,
+					mimeType,
+					duration,
+					width: item.width || probe?.width || 0,
+					height: item.height || probe?.height || 0,
+					fps: item.frame_rate || probe?.fps || 0,
+					codec:
+						mediaKind === 'lottie'
+							? 'lottie'
+							: item.video_codec || probe?.codec || item.container_format || '',
+					bitrate: Math.round((fileSize * 8) / Math.max(1, duration)),
+					audioCodec: item.audio_codec || probe?.audioCodec,
+					hasAudio: probe?.hasAudio,
+					audioCodecSupported: isAudioCodecSupported(item.audio_codec || probe?.audioCodec),
+					videoCodecSupported: isProResCodec(item.video_codec || probe?.codec) ? false : undefined,
+					lottieTotalFrames: probe?.lottieTotalFrames,
+					lottieMarkers: probe?.lottieMarkers,
+					animationFrameCount: probe?.animationFrameCount,
+					attribution: probe?.attribution,
+					tags: [
+						...new Set([
+							mediaKind,
+							...(probe?.tags.filter(
+								(tag) => !['audio', 'video', 'image', 'font', 'lottie'].includes(tag)
+							) ?? [])
+						])
+					]
 				});
 			}
-			if ((data.media?.length ?? 0) < 200) break;
 		}
 		return media;
+	}
+
+	async listAssets(id: string): Promise<components['schemas']['ProjectAssetResponse'][]> {
+		return queryClient.query(
+			videoProjectAssetsQueryOptions(videoProjectQueryAPI, this.workspaceId, id)
+		);
+	}
+
+	async deleteAssetForMedia(id: string, stableMediaId: string): Promise<void> {
+		const asset = (await this.listAssets(id)).find(
+			(candidate) => candidate.stable_media_id === stableMediaId
+		);
+		if (!asset) return;
+
+		const { error } = await client.DELETE('/video-projects/{id}/assets/{asset_id}', {
+			params: {
+				path: { id, asset_id: asset.id },
+				query: { workspace_id: this.workspaceId }
+			}
+		});
+		if (error) throw new Error('Could not delete Cloud Video Project asset');
+		await Promise.all([
+			queryClient.invalidateQueries({
+				queryKey: videoProjectQueryKeys.assets(this.workspaceId, id),
+				refetchType: 'none'
+			}),
+			queryClient.invalidateQueries({
+				queryKey: mediaQueryKeys.lists(this.workspaceId),
+				refetchType: 'none'
+			})
+		]);
 	}
 
 	async reserveAsset(
@@ -491,6 +584,7 @@ export class CloudVideoProjectRepository<TDocument extends object> {
 			mimeType: string;
 			size: number;
 			sha256: string;
+			mediaMetadata?: EditorAssetMetadata;
 		}
 	): Promise<string> {
 		const { data, error } = await client.POST('/video-projects/{id}/assets', {
@@ -502,7 +596,14 @@ export class CloudVideoProjectRepository<TDocument extends object> {
 				mime_type: input.mimeType,
 				size: input.size,
 				sha256: input.sha256,
-				preparation: {},
+				preparation: input.mediaMetadata
+					? {
+							editorMedia: editorAssetMetadataSchema.parse({
+								version: 1,
+								...input.mediaMetadata
+							})
+						}
+					: {},
 				device_id: deviceId()
 			}
 		});

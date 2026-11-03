@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
 	import { LockKeyhole, UserRoundCheck, ShieldCheck, ArrowUpRight } from '@lucide/svelte';
-	import { Button } from '$lib/components/ui/button';
+	import { Button } from '@openpost/ui/components/button';
 	import { formatLegalDate, securityAssurance } from '@openpost/legal-policy';
 	import { githubUrl } from '../_marketing';
 	import HeroAccent from '../_components/HeroAccent.svelte';
@@ -36,7 +36,7 @@
 			controls you have.
 		</p>
 		<div class="actions">
-			<Button href="https://docs.openpo.st/guides/workspaces" size="lg"
+			<Button href="https://openpo.st/docs/guides/workspaces" size="lg" data-sveltekit-reload
 				>Protect your account <ArrowUpRight data-icon="inline-end" /></Button
 			><a class="focus-ring" href={resolve('/trust')}>See how we handle your data</a>
 		</div>

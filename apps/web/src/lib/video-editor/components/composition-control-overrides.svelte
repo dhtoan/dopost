@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { resizeReusableBlock } from '../sequences/reusable-block';
+	import { showToast } from '$lib/toast';
 	import { Button } from '$lib/components/ui/button';
 	import ColorPicker from '$lib/components/color-picker.svelte';
 	import { Input } from '$lib/components/ui/input';
@@ -55,17 +57,33 @@
 	}
 </script>
 
-{#if activeItem.type === 'composition' && controls.length > 0}
+{#if activeItem.type === 'composition' && (controls.length > 0 || composition?.reusableHold)}
 	<section
 		class="rounded border border-[var(--video-editor-border)] bg-[var(--video-editor-panel)] p-2.5"
 	>
-		<h3 class="text-[10px] font-semibold tracking-wider text-[var(--video-editor-muted)] uppercase">
+		<h3 class="text-xs font-medium text-[var(--video-editor-muted)]">
 			{m.video_editor_motion_overrides_title()}
 		</h3>
 		<p class="mt-1 text-[10px] leading-4 text-[var(--video-editor-muted)]">
 			{m.video_editor_motion_overrides_hint()}
 		</p>
 		<div class="mt-2 space-y-2">
+			{#if composition?.reusableHold}
+				<label class="grid gap-1 text-xs"
+					>{m.video_editor_timer_length()}
+					<Input
+						type="number"
+						min={0.1}
+						max={3600}
+						step={0.1}
+						value={composition.durationInFrames / composition.fps}
+						onchange={(event) => {
+							if (resizeReusableBlock(activeItem.id, Number(event.currentTarget.value))) onedit();
+							else showToast(m.video_editor_repeat_blocked(), 'error');
+						}}
+					/>
+				</label>
+			{/if}
 			{#each controls as control (control.id)}
 				<div class="block text-[10px] text-[var(--video-editor-muted)]">
 					<span class="flex items-center gap-1.5">
@@ -81,6 +99,7 @@
 						{#if control.kind === 'text'}
 							<Input
 								class="h-8 min-w-0 flex-1 text-xs"
+								aria-label={control.name}
 								value={value(control)}
 								onchange={(event) => setValue(control, event.currentTarget.value)}
 							/>

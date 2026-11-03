@@ -1,4 +1,20 @@
+import { browserExtensions } from "./extensions.js";
+export { browserExtensions } from "./extensions.js";
+import { counterPlatforms } from "./counter-platforms.js";
+export { counterPlatforms } from "./counter-platforms.js";
+import { previewTools } from "./preview-tools.js";
+export { previewTools } from "./preview-tools.js";
 import { marketingGuides } from "./guides.js";
+import { mediaTools } from "./media-tools.js";
+export {
+  mediaTools,
+  imageConversions,
+  imageFormats,
+  mediaConversionTools,
+  mediaToolThumbnailTone,
+  videoFormats,
+  audioFormats,
+} from "./media-tools.js";
 export { marketingGuides } from "./guides.js";
 import { docsPageCatalog } from "./docs-catalog.js";
 import { docsRouteFromPage } from "./docs-route.js";
@@ -6,13 +22,24 @@ import { docsRouteFromPage } from "./docs-route.js";
 export { docsRouteFromPage } from "./docs-route.js";
 
 export const marketingSiteUrl = "https://openpo.st";
-export const docsSiteUrl = "https://docs.openpo.st";
+export const docsBasePath = "/docs";
+export const docsSiteUrl = `${marketingSiteUrl}${docsBasePath}`;
+
+export function docsPath(pathname = "/") {
+  const normalized = pathname === "/" ? "" : `/${pathname.replace(/^\/+/, "")}`;
+  return `${docsBasePath}${normalized}`;
+}
 
 export function docsSocialImageKey(route) {
-  const normalized =
-    !route || route === "/"
+  const routeWithoutBase = route?.startsWith(`${docsBasePath}/`)
+    ? route.slice(docsBasePath.length)
+    : route === docsBasePath
       ? "/"
-      : `/${route
+      : route;
+  const normalized =
+    !routeWithoutBase || routeWithoutBase === "/"
+      ? "/"
+      : `/${routeWithoutBase
           .split("?")[0]
           .split("#")[0]
           .replace(/^\/+|\/+$/g, "")}`;
@@ -43,11 +70,16 @@ const platformNames = [
   ["tiktok", "TikTok"],
   ["youtube", "YouTube"],
   ["pinterest", "Pinterest"],
+  ["googlebusiness", "Google Business"],
   ["telegram", "Telegram"],
   ["discord", "Discord"],
+  ["devnull", "dev/null"],
 ];
 
 const toolPages = [
+  ...browserExtensions,
+  ...previewTools,
+  ...mediaTools,
   {
     slug: "social-media-video-editor",
     name: "Social media video editor",
@@ -65,7 +97,7 @@ const toolPages = [
     slug: "multi-platform-character-counter",
     name: "Multi-platform character counter",
     title: "Free social media character counter - OpenPost",
-    description: `Check one draft against the limits and counting rules for ${platformNames.length} social networks.`,
+    description: `Check one draft against the limits and counting rules for ${counterPlatforms.length} social networks.`,
   },
   {
     slug: "post-preview-generator",
@@ -76,9 +108,9 @@ const toolPages = [
   {
     slug: "thread-splitter",
     name: "Thread splitter",
-    title: "Free social media thread splitter - OpenPost",
+    title: "Free thread splitter for X, Bluesky & Threads - OpenPost",
     description:
-      "Split long drafts into clean parts for X, Bluesky, Mastodon, Threads, or LinkedIn.",
+      "Split a long post into numbered parts within each network's character limit. Review, copy, or continue your thread in OpenPost.",
   },
   {
     slug: "fediverse-handle-checker",
@@ -111,11 +143,24 @@ const staticMarketingEntries = [
   {
     path: "/guides",
     key: "guides",
-    title: "Social media tool guides - OpenPost",
-    socialTitle: "Make more of what you make.",
+    title: "Guides and tool comparisons - OpenPost",
+    socialTitle: "Make more of your work. Find a better way.",
     description:
       "Practical guides to choosing social tools, writing useful posts, and planning your content.",
-    label: "Publishing guides",
+    label: "Guides & comparisons",
+    kind: "document",
+    agentRepresentation: "static",
+    agentDiscovery: { membership: "primary" },
+    priority: "0.8",
+  },
+  {
+    path: "/comparisons",
+    key: "comparisons",
+    title: "Compare publishing, image and video tools - OpenPost",
+    socialTitle: "Compare your tools. Choose for the job.",
+    description:
+      "Compare OpenPost with Buffer, Postiz, Metricool, Hootsuite, Photoshop, DaVinci Resolve and Premiere Pro. Sourced costs, limits, and reasons to choose each tool.",
+    label: "Comparisons",
     kind: "document",
     agentRepresentation: "static",
     agentDiscovery: { membership: "primary" },
@@ -127,7 +172,7 @@ const staticMarketingEntries = [
     title: `${guide.question} - OpenPost`,
     socialTitle: guide.question,
     description: guide.socialDescription,
-    label: "Social media guide",
+    label: guide.comparison ? "Tool comparison" : "Content guide",
     kind: "document",
     agentRepresentation: "static",
     agentDiscovery: { membership: "primary" },
@@ -137,9 +182,9 @@ const staticMarketingEntries = [
     path: "/",
     key: "home",
     title: "OpenPost - The all-in-one content team for solo founders",
-    socialTitle: "Turn what you’re building into content. Publish it everywhere.",
+    socialTitle: "Your socials, on steroids.",
     description:
-      "OpenPost helps solo founders create, adapt, schedule, and track content from one workspace.",
+      "Create, edit, and schedule social content in OpenPost. Turn GitHub releases and RSS feeds into drafts with visual workflows, AI, and review steps.",
     label: "The content team for companies of one",
     kind: "home",
     agentRepresentation: "static",
@@ -175,9 +220,10 @@ const staticMarketingEntries = [
   {
     path: "/tools",
     key: "tools",
-    title: "Free social media tools - OpenPost",
+    title: "OpenPost free tools: post previews, threads, image & video editors",
     socialTitle: "Useful social tools. No account required.",
-    description: "Preview, write, prepare, edit, and plan social content in your browser.",
+    description:
+      "Preview social posts, split threads, format LinkedIn text, edit images and videos, or convert files. Use OpenPost's free browser tools without an account.",
     label: "OpenPost free tools",
     kind: "tools-index",
     agentRepresentation: "static",
@@ -306,7 +352,7 @@ const platformEntries = platformNames.map(([slug, name]) => ({
   path: `/platforms/${slug}`,
   key: `platform-${slug}`,
   title: `${name} content and scheduling - OpenPost`,
-  socialTitle: `Make your next ${name} post with OpenPost.`,
+  socialTitle: name,
   description: `Explore ideas, editing tools, and posting options for your business on ${name}.`,
   label: "Channel guide",
   kind: "platform",
@@ -368,6 +414,13 @@ export function normalizeMarketingPath(pathname) {
     .split("?")[0]
     .split("#")[0]
     .replace(/^\/+|\/+$/g, "")}`;
+}
+
+// Only catalogue-owned public paths are safe analytics dimensions. Unknown
+// paths can contain user data and must never be forwarded to analytics.
+export function marketingTelemetryPath(pathname) {
+  const path = normalizeMarketingPath(pathname);
+  return marketingByPath.has(path) ? path : "/unknown";
 }
 
 export function canonicalMarketingUrl(pathname) {
@@ -473,3 +526,16 @@ export const docsSocialEntries = Object.freeze(
     agentCorpus: entry.agentCorpus,
   })),
 );
+
+const documentationRoutes = new Set(docsSocialEntries.map((entry) => entry.route));
+
+export function documentationTelemetryPath(pathname) {
+  const path = normalizeMarketingPath(pathname);
+  const route =
+    path === docsBasePath
+      ? "/"
+      : path.startsWith(`${docsBasePath}/`)
+        ? path.slice(docsBasePath.length)
+        : path;
+  return documentationRoutes.has(route) ? docsPath(route) : `${docsBasePath}/unknown`;
+}

@@ -1,4 +1,5 @@
 import createClient from "openapi-fetch";
+import { nativeTelemetry } from "../telemetry";
 import type { paths } from "@openpost/api-contract";
 
 import {
@@ -50,6 +51,24 @@ function rebuild() {
     baseUrl: server ? `${server.baseUrl}/api/v1` : "",
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
+  client.use({
+    onRequest({ request }) {
+      if (server && getServer()?.baseUrl === server.baseUrl && getToken() === token) {
+        request.headers.set("X-OpenPost-Client", "native");
+        for (const [name, value] of Object.entries(nativeTelemetry.headers(server.baseUrl)))
+          request.headers.set(name, value);
+      }
+      return request;
+    },
+    onError({ error, schemaPath }) {
+      if (
+        getServer()?.baseUrl === server?.baseUrl &&
+        getToken() === token &&
+        !(error instanceof Error && error.name === "AbortError")
+      )
+        nativeTelemetry.exception(error, schemaPath);
+    },
+  });
   return client;
 }
 
@@ -59,12 +78,6 @@ subscribeToken(rebuild);
 /** Typed API client bound to the current server + bearer token. */
 export function api(): Api {
   return rebuild();
-}
-
-export function apiUrl(path: string): string {
-  const server = getServer();
-  if (!server) throw new Error("No server configured");
-  return `${server.baseUrl}${path}`;
 }
 
 export function captureApiRequestIdentity(): ApiRequestIdentity {
@@ -158,12 +171,32 @@ export async function settleApiUnauthorized(
 export async function errorMessage(
   response: Response | undefined,
   fallback: string,
+  problem?: unknown,
 ): Promise<string> {
-  if (!response) return fallback;
-  try {
-    const body = (await response.json()) as { message?: string; title?: string };
-    return body.message ?? body.title ?? fallback;
-  } catch {
-    return `${fallback} (${response.status})`;
+  if (problem === undefined && response && !response.bodyUsed) {
+    try {
+      problem = await response.json();
+    } catch {
+      // Non-JSON responses still need a readable status fallback.
+    }
   }
+  if (problem && typeof problem === "object") {
+    if ("errors" in problem && Array.isArray(problem.errors)) {
+      const details = problem.errors.flatMap((error: unknown) => {
+        if (!error || typeof error !== "object" || !("message" in error)) return [];
+        if (typeof error.message !== "string" || !error.message.trim()) return [];
+        const location =
+          "location" in error && typeof error.location === "string" ? error.location : "";
+        return [location ? `${location}: ${error.message}` : error.message];
+      });
+      if (details.length) return details.join("\n");
+    }
+    for (const field of ["message", "detail", "title"] as const) {
+      if (field in problem) {
+        const value: unknown = Reflect.get(problem, field);
+        if (typeof value === "string" && value.trim()) return value;
+      }
+    }
+  }
+  return response ? `${fallback} (${response.status})` : fallback;
 }

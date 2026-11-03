@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/openpost/backend/internal/legalpolicy"
+	"github.com/openpost/backend/internal/netguard"
 	"github.com/openpost/backend/internal/platform"
 )
 
@@ -21,12 +22,6 @@ type MastodonServerConfig struct {
 	ClientID     string `json:"client_id"`
 	ClientSecret string `json:"client_secret"`
 	InstanceURL  string `json:"instance_url"`
-}
-
-type AnalyticsSourceConfig struct {
-	Platform    string `json:"platform"`
-	BaseURL     string `json:"base_url"`
-	BearerToken string `json:"bearer_token"`
 }
 
 // defaultDiagnosticsReceiverURL is the official OpenPost diagnostics
@@ -52,11 +47,16 @@ type Config struct {
 	ProxyAuthSecret          string
 	ProxyAuthWorkspaceName   string
 	DisableRegistrations     bool
+	HostedWaitlistEnabled    bool
 	OAuthDCR                 bool
+	MCPMode                  string
 	PublicProfilesEnabled    bool
 	FrontendURL              string
 	PublicURL                string
 	CORSOrigins              []string
+	TrustedProxyCIDRs        []string
+	WorkflowsAIEnabled       bool
+	WorkflowsAIMonthlyCalls  int64
 	WebAuthnRPID             string
 	LegalAcceptanceRequired  bool
 	TermsURL                 string
@@ -65,12 +65,15 @@ type Config struct {
 	PrivacyVersion           string
 	SupportEmail             string
 	OpenRouterAPIKey         string
+	FalAPIKey                string
 	ContentAIProvider        string
 	ContentAIRequireZDR      bool
 	ImageCaptionModel        string
 	ImageCaptionProvider     string
 	ImageCaptionRequireZDR   bool
 	TextGenerationModel      string
+	EditorAgentModel         string
+	WorkflowDecisionModel    string
 	MemeGeneratorEnabled     bool
 	MemeGenerationModel      string
 	ImageEditorEnabled       bool
@@ -83,6 +86,7 @@ type Config struct {
 	FeedbackDestinationURL   string
 	FeedbackRecipient        string
 	FeedbackSupportURL       string
+	DiscordPresenceStreamURL string
 	DiagnosticsEnabled       bool
 	DiagnosticsEnvSet        bool
 	DiagnosticsReceiverURL   string
@@ -128,32 +132,35 @@ type Config struct {
 	SMTPTLSMode    string
 	SMTPServerName string
 
-	TwitterClientID                   string
-	TwitterClientSecret               string
-	TwitterRedirectURI                string
-	XMonthlyBudgetMicrousd            int64
-	XPostCreateCostMicrousd           int64
-	XPostCreateWithURLCostMicrousd    int64
-	XEngagementDailyReadBudget        int
-	XAccountHistoryReadRequestsPerDay int
-	ProviderUsageRetentionDays        int
+	TwitterClientID                string
+	TwitterClientSecret            string
+	TwitterRedirectURI             string
+	XMonthlyBudgetMicrousd         int64
+	XPostCreateCostMicrousd        int64
+	XPostCreateWithURLCostMicrousd int64
+	XEngagementDailyReadBudget     int
+	ProviderUsageRetentionDays     int
 
 	MastodonRedirectURI string
 	MastodonServers     []MastodonServerConfig
 	PixelfedServers     []MastodonServerConfig
 
-	LinkedInClientID             string
-	LinkedInClientSecret         string
-	LinkedInRedirectURI          string
-	DisableLinkedInThreadReplies bool
-	EnableLinkedInOrganizations  bool
+	LinkedInClientID              string
+	LinkedInClientSecret          string
+	LinkedInRedirectURI           string
+	LinkedInAuthMode              string
+	DisableLinkedInThreadReplies  bool
+	EnableLinkedInOrganizations   bool
+	EnableLinkedInMemberReads     bool
+	EnableLinkedInMemberAnalytics bool
 
 	ThreadsClientID     string
 	ThreadsClientSecret string
 	ThreadsRedirectURI  string
 
+	DisableTikTokDisplayAPI bool
+
 	ProviderApps                  []platform.AppConfig
-	AnalyticsSources              []AnalyticsSourceConfig
 	ConnectorsFile                string
 	DisabledProviders             []string
 	ProviderCertificationEnforced bool
@@ -174,6 +181,7 @@ type Config struct {
 	PaddleEnvironment           string
 	PaddleClientToken           string
 	PaddleWebhookSecret         string
+	BillingDiscordWebhookURL    string
 	PaddleCheckoutReturnURL     string
 	PaddleFounderMonthlyPriceID string
 	PaddleFounderAnnualPriceID  string
@@ -182,7 +190,6 @@ type Config struct {
 	PaddleAgencyMonthlyPriceID  string
 	PaddleAgencyAnnualPriceID   string
 
-	analyticsSourcesParseErr error
 	encryptionKeyringLoadErr error
 }
 
@@ -201,6 +208,10 @@ const (
 
 	StorageDriverLocal = "local"
 	StorageDriverS3    = "s3"
+
+	MCPModeDirect = "direct"
+	MCPModeSearch = "search"
+	MCPModeBoth   = "both"
 )
 
 func Load() *Config {
@@ -243,7 +254,9 @@ func Load() *Config {
 		ProxyAuthSecret:         getEnvDefault("OPENPOST_PROXY_AUTH_SECRET", ""),
 		ProxyAuthWorkspaceName:  strings.TrimSpace(getEnvDefault("OPENPOST_PROXY_AUTH_WORKSPACE_NAME", "My Workspace")),
 		DisableRegistrations:    getEnvBoolWithAliases(false, "OPENPOST_DISABLE_REGISTRATIONS"),
+		HostedWaitlistEnabled:   edition == EditionCloud && getEnvBoolWithAliases(true, "OPENPOST_HOSTED_WAITLIST_ENABLED"),
 		OAuthDCR:                getEnvBoolWithAliases(false, "OPENPOST_OAUTH_DYNAMIC_REGISTRATION_ENABLED"),
+		MCPMode:                 getEnvEnum("OPENPOST_MCP_MODE", MCPModeDirect, MCPModeDirect, MCPModeSearch, MCPModeBoth),
 		PublicProfilesEnabled:   getEnvBoolWithAliases(true, "OPENPOST_PUBLIC_PROFILES_ENABLED"),
 		FrontendURL:             frontendURL,
 		PublicURL:               getEnvWithFallbacks("OPENPOST_PUBLIC_URL", "", "OPENPOST_APP_URL", "OPENPOST_FRONTEND_URL"),
@@ -254,14 +267,17 @@ func Load() *Config {
 		PrivacyVersion:          getEnvDefault("OPENPOST_PRIVACY_VERSION", defaultPrivacyVersion),
 		SupportEmail:            getEnvDefault("OPENPOST_SUPPORT_EMAIL", defaultSupportEmail),
 		OpenRouterAPIKey:        strings.TrimSpace(getEnvDefault("OPENROUTER_API_KEY", "")),
+		FalAPIKey:               strings.TrimSpace(getEnvDefault("FAL_KEY", "")),
 		ContentAIProvider:       strings.TrimSpace(getEnvWithFallbacks("OPENPOST_CONTENT_AI_PROVIDER", "", "OPENPOST_IMAGE_CAPTION_PROVIDER")),
 		ContentAIRequireZDR:     getEnvBoolWithAliases(false, "OPENPOST_CONTENT_AI_REQUIRE_ZDR", "OPENPOST_IMAGE_CAPTION_REQUIRE_ZDR"),
-		ImageCaptionModel:       strings.TrimSpace(getEnvDefault("OPENPOST_IMAGE_CAPTION_MODEL", "openai/gpt-5.6-luna")),
+		ImageCaptionModel:       strings.TrimSpace(getEnvDefault("OPENPOST_IMAGE_CAPTION_MODEL", "openai/gpt-6-luna")),
 		ImageCaptionProvider:    strings.TrimSpace(getEnvDefault("OPENPOST_IMAGE_CAPTION_PROVIDER", "")),
 		ImageCaptionRequireZDR:  getEnvBoolWithAliases(false, "OPENPOST_IMAGE_CAPTION_REQUIRE_ZDR"),
-		TextGenerationModel:     strings.TrimSpace(getEnvDefault("OPENPOST_TEXT_GENERATION_MODEL", "openai/gpt-5.6-luna")),
+		WorkflowDecisionModel:   strings.TrimSpace(getEnvDefault("OPENPOST_WORKFLOW_DECISION_MODEL", "typesafe/jev-1.13")),
+		TextGenerationModel:     strings.TrimSpace(getEnvDefault("OPENPOST_TEXT_GENERATION_MODEL", "openai/gpt-6-luna")),
+		EditorAgentModel:        strings.TrimSpace(getEnvDefault("OPENPOST_EDITOR_AGENT_MODEL", "google/gemini-3.8-flash")),
 		MemeGeneratorEnabled:    getEnvBoolWithAliases(true, "OPENPOST_MEME_GENERATOR_ENABLED"),
-		MemeGenerationModel:     strings.TrimSpace(getEnvDefault("OPENPOST_MEME_GENERATION_MODEL", "openai/gpt-5.6-luna")),
+		MemeGenerationModel:     strings.TrimSpace(getEnvDefault("OPENPOST_MEME_GENERATION_MODEL", "openai/gpt-6-luna")),
 		ImageEditorEnabled: getEnvBoolWithAliases(
 			true,
 			"OPENPOST_IMAGE_EDITOR_ENABLED",
@@ -282,7 +298,8 @@ func Load() *Config {
 		FeedbackEnabled:              getEnvBoolWithAliases(false, "OPENPOST_FEEDBACK_ENABLED"),
 		FeedbackDestinationURL:       getEnvDefault("OPENPOST_FEEDBACK_DESTINATION_URL", ""),
 		FeedbackRecipient:            getEnvDefault("OPENPOST_FEEDBACK_RECIPIENT", ""),
-		FeedbackSupportURL:           getEnvDefault("OPENPOST_FEEDBACK_SUPPORT_URL", "https://github.com/dhtoan/AunoStudio/issues/new"),
+		FeedbackSupportURL:           getEnvDefault("OPENPOST_FEEDBACK_SUPPORT_URL", "https://github.com/dhtoan/dopost/issues/new"),
+		DiscordPresenceStreamURL:     strings.TrimSpace(getEnvDefault("OPENPOST_DISCORD_PRESENCE_STREAM_URL", "")),
 		DiagnosticsEnabled:           getEnvBoolWithAliases(false, "OPENPOST_DIAGNOSTICS_ENABLED"),
 		DiagnosticsEnvSet:            isEnvSet("OPENPOST_DIAGNOSTICS_ENABLED"),
 		DiagnosticsReceiverURL:       strings.TrimRight(strings.TrimSpace(getEnvDefault("OPENPOST_DIAGNOSTICS_RECEIVER_URL", defaultDiagnosticsReceiverURL)), "/"),
@@ -326,30 +343,33 @@ func Load() *Config {
 		SMTPTLSMode:    getEnvEnum("OPENPOST_SMTP_TLS_MODE", "starttls", "starttls", "tls", "none"),
 		SMTPServerName: getEnvDefault("OPENPOST_SMTP_SERVER_NAME", ""),
 
-		TwitterClientID:                   getEnvWithFallbacks("X_CLIENT_ID", "", "TWITTER_CLIENT_ID"),
-		TwitterClientSecret:               getEnvWithFallbacks("X_CLIENT_SECRET", "", "TWITTER_CLIENT_SECRET"),
-		TwitterRedirectURI:                oauthRedirectFromFrontend("X_REDIRECT_URI", "TWITTER_REDIRECT_URI", frontendURL, "/api/v1/accounts/x/callback"),
-		XMonthlyBudgetMicrousd:            getEnvInt64("OPENPOST_X_MONTHLY_BUDGET_MICROUSD", 5_000_000),
-		XPostCreateCostMicrousd:           getEnvInt64("OPENPOST_X_POST_CREATE_COST_MICROUSD", 15_000),
-		XPostCreateWithURLCostMicrousd:    getEnvInt64("OPENPOST_X_POST_CREATE_WITH_URL_COST_MICROUSD", 200_000),
-		XEngagementDailyReadBudget:        getEnvInt("OPENPOST_X_ENGAGEMENT_DAILY_READ_BUDGET", 12),
-		XAccountHistoryReadRequestsPerDay: getEnvInt("OPENPOST_X_ACCOUNT_HISTORY_READ_REQUESTS_PER_DAY", 0),
-		ProviderUsageRetentionDays:        getEnvInt("OPENPOST_PROVIDER_USAGE_RETENTION_DAYS", 180),
+		TwitterClientID:                getEnvWithFallbacks("X_CLIENT_ID", "", "TWITTER_CLIENT_ID"),
+		TwitterClientSecret:            getEnvWithFallbacks("X_CLIENT_SECRET", "", "TWITTER_CLIENT_SECRET"),
+		TwitterRedirectURI:             oauthRedirectFromFrontend("X_REDIRECT_URI", "TWITTER_REDIRECT_URI", frontendURL, "/api/v1/accounts/x/callback"),
+		XMonthlyBudgetMicrousd:         getEnvInt64("OPENPOST_X_MONTHLY_BUDGET_MICROUSD", 5_000_000),
+		XPostCreateCostMicrousd:        getEnvInt64("OPENPOST_X_POST_CREATE_COST_MICROUSD", 15_000),
+		XPostCreateWithURLCostMicrousd: getEnvInt64("OPENPOST_X_POST_CREATE_WITH_URL_COST_MICROUSD", 200_000),
+		XEngagementDailyReadBudget:     getEnvInt("OPENPOST_X_ENGAGEMENT_DAILY_READ_BUDGET", 12),
+		ProviderUsageRetentionDays:     getEnvInt("OPENPOST_PROVIDER_USAGE_RETENTION_DAYS", 180),
 
 		// Mastodon's OOB flow uses a special URI scheme rather than a
 		// real callback URL, so we don't derive from FrontendURL here.
 		// Operators who need a real URL can still override via env.
 		MastodonRedirectURI: getEnvDefault("MASTODON_REDIRECT_URI", "urn:ietf:wg:oauth:2.0:oob"),
 
-		LinkedInClientID:             getEnvWithFallbacks("LINKEDIN_CLIENT_ID", ""),
-		LinkedInClientSecret:         getEnvWithFallbacks("LINKEDIN_CLIENT_SECRET", ""),
-		LinkedInRedirectURI:          oauthRedirectFromFrontend("LINKEDIN_REDIRECT_URI", "", frontendURL, "/api/v1/accounts/linkedin/callback"),
-		DisableLinkedInThreadReplies: getEnvBoolWithAliases(false, "OPENPOST_DISABLE_LINKEDIN_THREAD_REPLIES", "LINKEDIN_DISABLE_THREAD_REPLIES"),
-		EnableLinkedInOrganizations:  getEnvBoolWithAliases(false, "OPENPOST_LINKEDIN_ORGANIZATIONS_ENABLED"),
+		LinkedInClientID:              getEnvWithFallbacks("LINKEDIN_CLIENT_ID", ""),
+		LinkedInClientSecret:          getEnvWithFallbacks("LINKEDIN_CLIENT_SECRET", ""),
+		LinkedInRedirectURI:           oauthRedirectFromFrontend("LINKEDIN_REDIRECT_URI", "", frontendURL, "/api/v1/accounts/linkedin/callback"),
+		DisableLinkedInThreadReplies:  getEnvBoolWithAliases(false, "OPENPOST_DISABLE_LINKEDIN_THREAD_REPLIES", "LINKEDIN_DISABLE_THREAD_REPLIES"),
+		LinkedInAuthMode:              getEnvDefault("OPENPOST_LINKEDIN_AUTH_MODE", "openid"),
+		EnableLinkedInOrganizations:   getEnvBoolWithAliases(false, "OPENPOST_LINKEDIN_ORGANIZATIONS_ENABLED"),
+		EnableLinkedInMemberReads:     getEnvBoolWithAliases(false, "OPENPOST_LINKEDIN_MEMBER_READS_ENABLED"),
+		EnableLinkedInMemberAnalytics: getEnvBoolWithAliases(false, "OPENPOST_LINKEDIN_MEMBER_ANALYTICS_ENABLED"),
 
 		ThreadsClientID:               getEnvWithFallbacks("THREADS_CLIENT_ID", ""),
 		ThreadsClientSecret:           getEnvWithFallbacks("THREADS_CLIENT_SECRET", ""),
 		ThreadsRedirectURI:            oauthRedirectFromFrontend("THREADS_REDIRECT_URI", "", frontendURL, "/api/v1/accounts/threads/callback"),
+		DisableTikTokDisplayAPI:       getEnvBoolWithAliases(false, "OPENPOST_DISABLE_TIKTOK_DISPLAY_API"),
 		DisabledProviders:             parseStringList(getEnvDefault("OPENPOST_DISABLED_PROVIDERS", "")),
 		ProviderCertificationEnforced: getEnvBoolWithAliases(false, "OPENPOST_PROVIDER_CERTIFICATION_ENFORCED"),
 
@@ -371,6 +391,7 @@ func Load() *Config {
 		PaddleEnvironment:           strings.ToLower(strings.TrimSpace(getEnvDefault("OPENPOST_PADDLE_ENVIRONMENT", ""))),
 		PaddleClientToken:           getEnvDefault("OPENPOST_PADDLE_CLIENT_TOKEN", ""),
 		PaddleWebhookSecret:         getEnvDefault("OPENPOST_PADDLE_WEBHOOK_SECRET", ""),
+		BillingDiscordWebhookURL:    strings.TrimSpace(getEnvDefault("OPENPOST_BILLING_DISCORD_WEBHOOK_URL", "")),
 		PaddleCheckoutReturnURL:     strings.TrimSpace(getEnvDefault("OPENPOST_PADDLE_CHECKOUT_RETURN_URL", "")),
 		PaddleFounderMonthlyPriceID: getEnvDefault("OPENPOST_PADDLE_FOUNDER_MONTHLY_PRICE_ID", ""),
 		PaddleFounderAnnualPriceID:  getEnvDefault("OPENPOST_PADDLE_FOUNDER_ANNUAL_PRICE_ID", ""),
@@ -406,11 +427,18 @@ func finalizeLoadedConfig(cfg *Config, encryptionKeyIDErr error) {
 			cfg.ProviderApps = mergeProviderApps(cfg.ProviderApps, defaultProviderAppConfig(cfg, apps)...)
 		}
 	}
-	loadAnalyticsSources(cfg)
 	loadPreviousEncryptionKeys(cfg)
 	mediaSigningKey, mediaSigningKeyErr := getEncryptionKeyringEnvDefault("OPENPOST_MEDIA_SIGNING_KEY", cfg.EncryptionKey)
 	cfg.MediaSigningKey = mediaSigningKey
 	cfg.setEncryptionKeyringLoadError(mediaSigningKeyErr)
+	cfg.TrustedProxyCIDRs = nil
+	for _, cidr := range strings.Split(getEnvDefault("OPENPOST_TRUSTED_PROXY_CIDRS", ""), ",") {
+		if cidr = strings.TrimSpace(cidr); cidr != "" {
+			cfg.TrustedProxyCIDRs = append(cfg.TrustedProxyCIDRs, cidr)
+		}
+	}
+	cfg.WorkflowsAIEnabled = getEnvBoolWithAliases(true, "OPENPOST_WORKFLOWS_AI_ENABLED")
+	cfg.WorkflowsAIMonthlyCalls = getEnvInt64("OPENPOST_WORKFLOWS_AI_MONTHLY_CALL_LIMIT", 1000)
 	cfg.CORSOrigins = buildCORSOrigins(
 		cfg.Edition,
 		cfg.FrontendURL,
@@ -481,7 +509,7 @@ func resolveMediaURL(mediaURL, publicURL string) string {
 }
 
 func providerAppsFromLegacyConfig(cfg *Config) []platform.AppConfig {
-	apps := []platform.AppConfig{{Provider: "bluesky"}, {Provider: "discord"}, {Provider: "peertube"}, {Provider: "lemmy"}, {Provider: "piefed"}}
+	apps := []platform.AppConfig{{Provider: "bluesky"}, {Provider: "devnull"}, {Provider: "discord"}, {Provider: "peertube"}, {Provider: "lemmy"}, {Provider: "piefed"}}
 	if cfg.TwitterClientID != "" {
 		apps = append(apps, platform.AppConfig{
 			Provider:     "x",
@@ -543,17 +571,18 @@ func defaultProviderAppConfig(cfg *Config, apps []platform.AppConfig) []platform
 
 func providerRedirectURI(cfg *Config, provider string) string {
 	redirects := map[string]string{
-		"x":         cfg.TwitterRedirectURI,
-		"discord":   oauthRedirectFromFrontend("", "", cfg.FrontendURL, "/api/v1/accounts/discord/callback"),
-		"facebook":  oauthRedirectFromFrontend("", "", cfg.FrontendURL, "/api/v1/accounts/facebook/callback"),
-		"instagram": oauthRedirectFromFrontend("", "", cfg.FrontendURL, "/api/v1/accounts/instagram/callback"),
-		"mastodon":  cfg.MastodonRedirectURI,
-		"pixelfed":  cfg.MastodonRedirectURI,
-		"pinterest": oauthRedirectFromFrontend("", "", cfg.FrontendURL, "/api/v1/accounts/pinterest/callback"),
-		"linkedin":  cfg.LinkedInRedirectURI,
-		"threads":   cfg.ThreadsRedirectURI,
-		"tiktok":    oauthRedirectFromFrontend("", "", cfg.FrontendURL, "/api/v1/accounts/tiktok/callback"),
-		"youtube":   oauthRedirectFromFrontend("", "", cfg.FrontendURL, "/api/v1/accounts/youtube/callback"),
+		"x":              cfg.TwitterRedirectURI,
+		"discord":        oauthRedirectFromFrontend("", "", cfg.FrontendURL, "/api/v1/accounts/discord/callback"),
+		"facebook":       oauthRedirectFromFrontend("", "", cfg.FrontendURL, "/api/v1/accounts/facebook/callback"),
+		"googlebusiness": oauthRedirectFromFrontend("", "", cfg.FrontendURL, "/api/v1/accounts/googlebusiness/callback"),
+		"instagram":      oauthRedirectFromFrontend("", "", cfg.FrontendURL, "/api/v1/accounts/instagram/callback"),
+		"mastodon":       cfg.MastodonRedirectURI,
+		"pixelfed":       cfg.MastodonRedirectURI,
+		"pinterest":      oauthRedirectFromFrontend("", "", cfg.FrontendURL, "/api/v1/accounts/pinterest/callback"),
+		"linkedin":       cfg.LinkedInRedirectURI,
+		"threads":        cfg.ThreadsRedirectURI,
+		"tiktok":         oauthRedirectFromFrontend("", "", cfg.FrontendURL, "/api/v1/accounts/tiktok/callback"),
+		"youtube":        oauthRedirectFromFrontend("", "", cfg.FrontendURL, "/api/v1/accounts/youtube/callback"),
 	}
 	return redirects[provider]
 }
@@ -578,6 +607,10 @@ func buildCORSOrigins(edition, frontendURL, extraRaw string) []string {
 	}
 
 	addOrigin(frontendURL)
+	if edition == EditionCloud && frontendURL == "https://app.openpo.st" {
+		// The hosted marketing site reads the cached public GitHub count from the app API.
+		addOrigin("https://openpo.st")
+	}
 	if edition != EditionCloud {
 		addOrigin("http://localhost:5173")
 		addOrigin("http://localhost")
@@ -604,30 +637,6 @@ func parseStringList(raw string) []string {
 		}
 	}
 	return values
-}
-
-func normalizeAnalyticsSources(sources []AnalyticsSourceConfig) []AnalyticsSourceConfig {
-	normalized := make([]AnalyticsSourceConfig, 0, len(sources))
-	for _, source := range sources {
-		source.Platform = strings.ToLower(strings.TrimSpace(source.Platform))
-		source.BaseURL = strings.TrimRight(strings.TrimSpace(source.BaseURL), "/")
-		source.BearerToken = strings.TrimSpace(source.BearerToken)
-		normalized = append(normalized, source)
-	}
-	return normalized
-}
-
-func loadAnalyticsSources(cfg *Config) {
-	raw := getEnvDefault("OPENPOST_ANALYTICS_SOURCES", "")
-	if raw == "" {
-		return
-	}
-	var sources []AnalyticsSourceConfig
-	if err := json.Unmarshal([]byte(raw), &sources); err != nil {
-		cfg.analyticsSourcesParseErr = fmt.Errorf("OPENPOST_ANALYTICS_SOURCES must be valid JSON: %w", err)
-		return
-	}
-	cfg.AnalyticsSources = normalizeAnalyticsSources(sources)
 }
 
 func loadPreviousEncryptionKeys(cfg *Config) {
@@ -696,15 +705,19 @@ func (c *Config) ValidateRuntime() error {
 	if err := c.ValidateManagedSettings(); err != nil {
 		return err
 	}
-	if err := c.validateAnalyticsSources(); err != nil {
-		return err
-	}
 	if err := c.validateProxyAuthentication(); err != nil {
 		return err
 	}
-	if c.XAccountHistoryReadRequestsPerDay < 0 {
-		return fmt.Errorf("OPENPOST_X_ACCOUNT_HISTORY_READ_REQUESTS_PER_DAY must be >= 0")
+	if err := validateBillingDiscordWebhookURL(c.BillingDiscordWebhookURL); err != nil {
+		return err
 	}
+	if _, err := platform.NormalizeDiscordPresenceStreamURL(c.DiscordPresenceStreamURL); err != nil {
+		return fmt.Errorf("OPENPOST_DISCORD_PRESENCE_STREAM_URL: %w", err)
+	}
+	if err := c.validateSecurityRuntime(); err != nil {
+		return err
+	}
+
 	if c.Edition != EditionCloud {
 		return nil
 	}
@@ -732,6 +745,25 @@ func (c *Config) ValidateRuntime() error {
 	}
 	if len(missing) > 0 {
 		return fmt.Errorf("OPENPOST_EDITION=cloud requires: %s", strings.Join(missing, ", "))
+	}
+	return nil
+}
+
+func validateBillingDiscordWebhookURL(rawURL string) error {
+	rawURL = strings.TrimSpace(rawURL)
+	if rawURL == "" {
+		return nil
+	}
+	parsed, err := url.Parse(rawURL)
+	if err != nil || parsed.Scheme != "https" || parsed.User != nil || parsed.Hostname() == "" {
+		return fmt.Errorf("OPENPOST_BILLING_DISCORD_WEBHOOK_URL must be an HTTPS Discord webhook URL")
+	}
+	host := strings.ToLower(parsed.Hostname())
+	if host != "discord.com" && host != "discordapp.com" {
+		return fmt.Errorf("OPENPOST_BILLING_DISCORD_WEBHOOK_URL must use discord.com or discordapp.com")
+	}
+	if !strings.HasPrefix(parsed.EscapedPath(), "/api/webhooks/") {
+		return fmt.Errorf("OPENPOST_BILLING_DISCORD_WEBHOOK_URL must point to a Discord webhook")
 	}
 	return nil
 }
@@ -816,48 +848,6 @@ func validateEncryptionKeyID(keyID string) error {
 		return fmt.Errorf("key IDs may contain only letters, numbers, periods, underscores, and hyphens")
 	}
 	return nil
-}
-
-func (c *Config) validateAnalyticsSources() error {
-	if c.analyticsSourcesParseErr != nil {
-		return c.analyticsSourcesParseErr
-	}
-	if len(c.AnalyticsSources) == 0 {
-		return nil
-	}
-	invalid := make([]string, 0, len(c.AnalyticsSources))
-	seenPlatforms := make(map[string]struct{}, len(c.AnalyticsSources))
-	for _, source := range c.AnalyticsSources {
-		invalid = append(invalid, analyticsSourceValidationIssues(source, seenPlatforms)...)
-	}
-	if len(invalid) == 0 {
-		return nil
-	}
-	sort.Strings(invalid)
-	return fmt.Errorf("OPENPOST_ANALYTICS_SOURCES invalid: %s", strings.Join(invalid, ", "))
-}
-
-func analyticsSourceValidationIssues(source AnalyticsSourceConfig, seenPlatforms map[string]struct{}) []string {
-	platformName := strings.TrimSpace(source.Platform)
-	invalid := make([]string, 0, 3)
-	if platformName == "" {
-		invalid = append(invalid, "platform is required")
-	} else if _, exists := seenPlatforms[platformName]; exists {
-		invalid = append(invalid, fmt.Sprintf("duplicate platform %q", platformName))
-	} else {
-		seenPlatforms[platformName] = struct{}{}
-	}
-	if strings.TrimSpace(source.BearerToken) == "" {
-		invalid = append(invalid, fmt.Sprintf("platform %q requires bearer_token", platformName))
-	}
-	parsed, err := url.Parse(strings.TrimSpace(source.BaseURL))
-	if err != nil || parsed == nil || !parsed.IsAbs() || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
-		return append(invalid, fmt.Sprintf("platform %q requires an absolute http(s) URL", platformName))
-	}
-	if parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
-		invalid = append(invalid, fmt.Sprintf("platform %q base_url must not include credentials, query, or fragment", platformName))
-	}
-	return invalid
 }
 
 func (c *Config) missingCloudTelemetryConfig() []string {
@@ -1324,4 +1314,26 @@ func validateBootstrapSecrets(jwtSecret, encryptionKey string) error {
 		}
 	}
 	return nil
+}
+
+func (c *Config) validateSecurityRuntime() error {
+	for _, cidr := range c.TrustedProxyCIDRs {
+		if _, err := netguard.ParseTrustedProxyPrefix(cidr); err != nil {
+			return fmt.Errorf("OPENPOST_TRUSTED_PROXY_CIDRS contains an invalid CIDR")
+		}
+	}
+	if c.WorkflowsAIMonthlyCalls < 0 {
+		return fmt.Errorf("OPENPOST_WORKFLOWS_AI_MONTHLY_CALL_LIMIT must be >= 0")
+	}
+	if invalid := c.invalidCloudCORSConfig(); len(invalid) > 0 {
+		return fmt.Errorf("%s", strings.Join(invalid, ", "))
+	}
+	return nil
+}
+
+// ClientReviewsEnabled is a rollout gate, not a permission. Enable only after
+// every web and worker process enforces publication reviews. Existing reviews
+// remain enforced even when admission is disabled.
+func ClientReviewsEnabled() bool {
+	return getEnvBoolWithAliases(false, "OPENPOST_CLIENT_REVIEWS_ENABLED")
 }

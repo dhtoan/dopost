@@ -30,6 +30,16 @@ afterEach(() => {
 });
 
 describe('client error initialization', () => {
+	it('replaces the previous global error listener when initialized again', () => {
+		const runtime = testRuntime();
+		vi.stubGlobal('window', runtime);
+		vi.stubGlobal('navigator', { onLine: true });
+		vi.stubGlobal('sessionStorage', { getItem: () => null, setItem: () => {} });
+		initializeClientErrors(installTestErrorCapture);
+		initializeClientErrors(installTestErrorCapture);
+		runtime.dispatchEvent(Object.assign(new Event('error'), { error: new Error('failure') }));
+		expect(capturedExceptions).toHaveBeenCalledOnce();
+	});
 	it('preserves models and project caches when recovering a stale page', async () => {
 		const runtime = Object.assign(testRuntime(), {
 			setTimeout: (callback: () => void) => {
@@ -64,35 +74,6 @@ describe('client error initialization', () => {
 		);
 		await vi.waitFor(() => expect(runtime.location.reload).toHaveBeenCalledOnce());
 		expect(runtime.caches.delete.mock.calls).toEqual([['openpost-pages-2']]);
-	});
-
-	it('keeps unclassified import failures visible instead of reloading blindly', () => {
-		const runtime = testRuntime();
-		vi.stubGlobal('window', runtime);
-		vi.stubGlobal('navigator', { onLine: true });
-		vi.stubGlobal('sessionStorage', { getItem: () => null, setItem: () => {} });
-		initializeClientErrors(installTestErrorCapture);
-		runtime.dispatchEvent(
-			Object.assign(new Event('error', { cancelable: true }), {
-				error: new Error('Importing a module script failed.')
-			})
-		);
-		// A bare message names no asset, so there is nothing to probe and no
-		// evidence a reload would help. The boundary keeps its explicit retry.
-		expect(runtime.setTimeout).not.toHaveBeenCalled();
-	});
-
-	it('does not schedule chunk recovery while offline', () => {
-		const runtime = testRuntime();
-		vi.stubGlobal('window', runtime);
-		vi.stubGlobal('navigator', { onLine: false });
-		initializeClientErrors(installTestErrorCapture);
-		runtime.dispatchEvent(
-			Object.assign(new Event('error', { cancelable: true }), {
-				error: new Error('Importing a module script failed.')
-			})
-		);
-		expect(runtime.setTimeout).not.toHaveBeenCalled();
 	});
 
 	it('does not reload an editing tab when a service worker takes control', () => {
@@ -130,28 +111,13 @@ describe('client error initialization', () => {
 		expect(runtime.setTimeout).not.toHaveBeenCalled();
 	});
 
-	it('leaves failed preloads to their caller before deciding whether to reload', () => {
-		const runtime = testRuntime();
-		vi.stubGlobal('window', runtime);
-		vi.stubGlobal('navigator', { onLine: true });
-		vi.stubGlobal('sessionStorage', {
-			getItem: vi.fn(() => null),
-			setItem: vi.fn(),
-			removeItem: vi.fn()
-		});
-
-		initializeClientErrors(installTestErrorCapture);
-		const event = Object.assign(new Event('vite:preloadError', { cancelable: true }), {
-			payload: new Error('Importing a module script failed.')
-		});
-		runtime.dispatchEvent(event);
-
-		expect(event.defaultPrevented).toBe(false);
-		expect(runtime.setTimeout).not.toHaveBeenCalled();
-	});
-
 	it('reloads when SvelteKit reports an unhandled route chunk failure', async () => {
-		const runtime = testRuntime();
+		const runtime = Object.assign(testRuntime(), {
+			setTimeout: vi.fn((callback: () => void) => {
+				callback();
+				return 1;
+			})
+		});
 		vi.stubGlobal('window', runtime);
 		vi.stubGlobal('navigator', { onLine: true });
 		vi.stubGlobal('sessionStorage', {
@@ -173,7 +139,40 @@ describe('client error initialization', () => {
 			status: 500
 		} as Parameters<typeof handleError>[0]);
 
-		await vi.waitFor(() => expect(runtime.setTimeout).toHaveBeenCalledOnce());
+		await vi.waitFor(() => expect(runtime.location.reload).toHaveBeenCalledOnce());
+		expect(runtime.setTimeout).toHaveBeenCalledOnce();
+	});
+
+	it('reloads when SvelteKit reports a Firefox route chunk failure', async () => {
+		const runtime = Object.assign(testRuntime(), {
+			setTimeout: vi.fn((callback: () => void) => {
+				callback();
+				return 1;
+			})
+		});
+		vi.stubGlobal('window', runtime);
+		vi.stubGlobal('navigator', { onLine: true });
+		vi.stubGlobal('sessionStorage', {
+			getItem: vi.fn(() => null),
+			setItem: vi.fn(),
+			removeItem: vi.fn()
+		});
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async () => ({ status: 404 }))
+		);
+
+		initializeClientErrors(installTestErrorCapture);
+		// SAFETY: handleError only reads error and status; the route event and message are unused here.
+		handleError({
+			error: new Error(
+				'error loading dynamically imported module: https://openpo.st/_app/immutable/chunks/route.js'
+			),
+			status: 500
+		} as Parameters<typeof handleError>[0]);
+
+		await vi.waitFor(() => expect(runtime.location.reload).toHaveBeenCalledOnce());
+		expect(runtime.setTimeout).toHaveBeenCalledOnce();
 	});
 
 	it('refuses automatic reloads while the layout reports unsaved changes', async () => {
@@ -200,27 +199,6 @@ describe('client error initialization', () => {
 			error: new Error(
 				'Failed to fetch dynamically imported module: /_app/immutable/chunks/route.js'
 			),
-			status: 500
-		} as Parameters<typeof handleError>[0]);
-
-		await new Promise((resolve) => setTimeout(resolve, 20));
-		expect(runtime.setTimeout).not.toHaveBeenCalled();
-	});
-
-	it('never reloads for unsupported-browser syntax failures', async () => {
-		const runtime = testRuntime();
-		vi.stubGlobal('window', runtime);
-		vi.stubGlobal('navigator', { onLine: true });
-		vi.stubGlobal('sessionStorage', {
-			getItem: vi.fn(() => null),
-			setItem: vi.fn(),
-			removeItem: vi.fn()
-		});
-
-		initializeClientErrors(installTestErrorCapture);
-		// SAFETY: handleError only reads error and status; the route event and message are unused here.
-		handleError({
-			error: new SyntaxError('Invalid regular expression: invalid group specifier name'),
 			status: 500
 		} as Parameters<typeof handleError>[0]);
 

@@ -1,11 +1,9 @@
-import { forwardRef, useCallback, useEffect, useRef, useState } from "react";
+import { NativeText as Text } from "@/components/native-text";
+import { forwardRef, useCallback, useMemo, useRef } from "react";
 import {
-  AccessibilityInfo,
   ActivityIndicator,
-  Animated,
   Pressable,
   StyleSheet,
-  Text,
   TextInput,
   useWindowDimensions,
   View,
@@ -15,6 +13,11 @@ import {
 } from "react-native";
 import { Image, type ImageContentFit } from "expo-image";
 import { SafeAreaView, type Edge } from "react-native-safe-area-context";
+
+import { DitherPressable } from "./dither-pressable";
+import { ProtectedIcon } from "./protected-icon";
+import type { NativeProtectedIconRole } from "@/theme/protected-icons";
+import { nativeDitherActionMaterial } from "@/theme/validation";
 
 import { STATUS_LABEL } from "@/lib/format";
 import { pressHaptic } from "@/lib/haptics";
@@ -29,13 +32,13 @@ import {
   cardPresentation,
   emptyStatePresentation,
   inputPresentation,
-  loadingStatePresentation,
   NATIVE_CONTROL_METRICS,
   sidebarDecorationWidth,
   themeAssetFor,
   type NativeActionIntent,
   type NativeColorRoles,
   type NativeIconRole,
+  NATIVE_ICON_ROLES,
   type NativeThemeAssetSlot,
   useNativeTheme,
   withAlpha,
@@ -105,6 +108,14 @@ export function Card({ children, style, ...props }: React.ComponentProps<typeof 
   );
 }
 
+/** Content groups sit on the canvas; reserve Card for an isolated surface. */
+export function ContentSection({ style, ...props }: React.ComponentProps<typeof View>) {
+  const { spacing } = useNativeTheme().manifest;
+  return (
+    <View {...props} style={[{ gap: spacing.small, paddingVertical: spacing.medium }, style]} />
+  );
+}
+
 export function SectionHeader({ label }: { label: string }) {
   const theme = useNativeTheme();
   return (
@@ -164,6 +175,8 @@ export function ContentTitle({
 
 export function Button({
   title,
+  icon,
+  display = "label",
   onPress,
   intent = "primary",
   disabled,
@@ -174,6 +187,8 @@ export function Button({
   style,
 }: {
   title: string;
+  icon?: NativeProtectedIconRole | NativeIconRole;
+  display?: "label" | "icon";
   onPress: () => void;
   intent?: NativeActionIntent;
   disabled?: boolean;
@@ -184,11 +199,25 @@ export function Button({
   style?: StyleProp<ViewStyle>;
 }) {
   const theme = useNativeTheme();
-  const presentation = actionPresentation(theme.manifest, intent);
+  const presentation = actionPresentation(
+    theme.manifest,
+    intent === "quiet" || intent === "link" ? "ordinary" : intent,
+  );
   const inactive = disabled || loading;
-  const hasDepth = presentation.depth > 0;
+  const material = useMemo(
+    () =>
+      nativeDitherActionMaterial(presentation, theme.manifest.colors.background, {
+        focusColor: theme.manifest.colors.focus,
+      }),
+    [presentation, theme.manifest.colors.background, theme.manifest.colors.focus],
+  );
+  const hasDepth = !inactive && presentation.depth > 0;
   return (
-    <Pressable
+    <DitherPressable
+      radius={buttonRadius(theme.manifest)}
+      textureInk={inactive ? undefined : material?.ink}
+      textureOpacity={material?.opacity}
+      focusColor={material?.focus ?? theme.manifest.colors.focus}
       accessibilityRole={accessibilityRole}
       accessibilityLabel={title}
       accessibilityHint={accessibilityHint}
@@ -203,7 +232,9 @@ export function Button({
       style={({ pressed }) => [
         styles.button,
         {
-          backgroundColor: pressed ? presentation.pressedContainer : presentation.container,
+          backgroundColor: inactive
+            ? theme.manifest.colors.surfaceContainerHigh
+            : presentation.container,
           borderColor: presentation.border,
           borderBottomColor: hasDepth ? presentation.depthColor : presentation.border,
           borderBottomWidth: hasDepth
@@ -211,32 +242,61 @@ export function Button({
             : presentation.borderWidth,
           borderRadius: buttonRadius(theme.manifest),
           borderWidth: presentation.borderWidth,
-          opacity: inactive ? presentation.disabledOpacity : 1,
-          paddingHorizontal: theme.manifest.spacing.large,
+          opacity: 1,
+          paddingHorizontal:
+            display === "icon" ? theme.manifest.spacing.medium : theme.manifest.spacing.large,
+          paddingVertical: theme.manifest.spacing.small,
           transform: pressed && hasDepth ? [{ translateY: presentation.depth }] : undefined,
         },
         style,
       ]}
     >
-      {({ pressed }) => {
-        const contentColor = pressed ? presentation.pressedContent : presentation.content;
+      {() => {
+        const contentColor = inactive
+          ? theme.manifest.colors.onSurfaceVariant
+          : (material?.content ?? presentation.content);
         return loading ? (
           <ActivityIndicator color={contentColor} />
         ) : (
-          <Text
-            style={[
-              theme.manifest.typography.labelLarge,
-              {
-                color: contentColor,
-                textDecorationLine: presentation.underline ? "underline" : "none",
-              },
-            ]}
+          <View
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: theme.manifest.spacing.small,
+              flexShrink: 1,
+            }}
           >
-            {title}
-          </Text>
+            {icon ? (
+              NATIVE_ICON_ROLES.includes(icon as NativeIconRole) ? (
+                <ThemeIcon role={icon as NativeIconRole} size={20} tintColor={contentColor} />
+              ) : (
+                <ProtectedIcon
+                  role={icon as NativeProtectedIconRole}
+                  size={20}
+                  tintColor={contentColor}
+                />
+              )
+            ) : null}
+            {display === "icon" && icon ? null : (
+              <Text
+                style={[
+                  theme.manifest.typography.labelLarge,
+                  {
+                    color: contentColor,
+                    flexShrink: 1,
+                    textAlign: "center",
+                    textDecorationLine: presentation.underline ? "underline" : "none",
+                  },
+                ]}
+              >
+                {title}
+              </Text>
+            )}
+          </View>
         );
       }}
-    </Pressable>
+    </DitherPressable>
   );
 }
 
@@ -309,99 +369,15 @@ export function ThemeAsset({
   );
 }
 
-export function LoadingState({ label }: { label?: string }) {
-  const theme = useNativeTheme();
-  const illustration = themeAssetFor(theme, "loading-illustration");
-  const presentation = loadingStatePresentation(theme.manifest);
-  const reduceMotion = useReduceMotion();
-  const [opacity] = useState(() => new Animated.Value(1));
-
-  useEffect(() => {
-    opacity.stopAnimation();
-    opacity.setValue(1);
-    if (presentation.kind === "spinner" || reduceMotion || presentation.animationDuration === 0) {
-      return;
-    }
-    const animation = Animated.loop(
-      Animated.sequence([
-        Animated.timing(opacity, {
-          duration: presentation.animationDuration,
-          toValue: 0.42,
-          useNativeDriver: true,
-        }),
-        Animated.timing(opacity, {
-          duration: presentation.animationDuration,
-          toValue: 1,
-          useNativeDriver: true,
-        }),
-      ]),
-    );
-    animation.start();
-    return () => animation.stop();
-  }, [opacity, presentation.animationDuration, presentation.kind, reduceMotion]);
-
-  return (
-    <View
-      accessible
-      accessibilityLabel={label ?? "Loading"}
-      accessibilityLiveRegion="polite"
-      accessibilityRole="progressbar"
-      style={[
-        styles.state,
-        {
-          gap: theme.manifest.spacing.medium,
-          padding: theme.manifest.spacing.large,
-        },
-      ]}
-    >
-      {illustration ? (
-        <ThemeAsset slot="loading-illustration" style={styles.stateIllustration} />
-      ) : null}
-      {presentation.kind === "spinner" ? (
-        <ActivityIndicator color={theme.manifest.colors.primary} />
-      ) : presentation.kind === "pulse" ? (
-        <Animated.View
-          importantForAccessibility="no-hide-descendants"
-          style={[
-            styles.loadingPulse,
-            {
-              backgroundColor: theme.manifest.colors.primaryContainer,
-              borderRadius: theme.manifest.shape.full,
-              opacity,
-            },
-          ]}
-        />
-      ) : (
-        <Animated.View
-          importantForAccessibility="no-hide-descendants"
-          style={[styles.loadingSkeleton, { gap: theme.manifest.spacing.small, opacity }]}
-        >
-          <View
-            style={[
-              styles.skeletonLine,
-              {
-                backgroundColor: theme.manifest.colors.surfaceContainerHigh,
-                borderRadius: theme.manifest.shape.small,
-              },
-            ]}
-          />
-          <View
-            style={[
-              styles.skeletonBlock,
-              {
-                backgroundColor: theme.manifest.colors.surfaceContainerHigh,
-                borderRadius: theme.manifest.shape.medium,
-              },
-            ]}
-          />
-        </Animated.View>
-      )}
-      {label ? <BodyText>{label}</BodyText> : null}
-    </View>
-  );
-}
-
-export function EmptyState({ body, title }: { body?: string; title: string }) {
+export function EmptyState({
+  body,
+  iconRole = "drafts",
+  title,
+}: {
+  body?: string;
+  iconRole?: NativeIconRole;
+  title: string;
+}) {
   const theme = useNativeTheme();
   const presentation = emptyStatePresentation(theme.manifest);
   const illustration = themeAssetFor(theme, "empty-state-illustration");
@@ -432,7 +408,11 @@ export function EmptyState({ body, title }: { body?: string; title: string }) {
             },
           ]}
         >
-          <ThemeIcon role="drafts" size={36} tintColor={theme.manifest.colors.onPrimaryContainer} />
+          <ThemeIcon
+            role={iconRole}
+            size={36}
+            tintColor={theme.manifest.colors.onPrimaryContainer}
+          />
         </View>
       ) : null}
       <ContentTitle style={styles.stateText}>{title}</ContentTitle>
@@ -454,21 +434,41 @@ export function IconButton({
 }) {
   const theme = useNativeTheme();
   const colors = theme.manifest.colors;
+  const presentation = actionPresentation(theme.manifest, "ordinary");
+  const material = useMemo(
+    () =>
+      nativeDitherActionMaterial(
+        { ...presentation, content: color ?? presentation.content },
+        colors.background,
+        { focusColor: colors.focus },
+      ),
+    [presentation, color, colors.background, colors.focus],
+  );
   return (
-    <Pressable
+    <DitherPressable
+      radius={buttonRadius(theme.manifest)}
+      textureInk={material?.ink}
+      textureOpacity={material?.opacity}
+      focusColor={material?.focus ?? theme.manifest.colors.focus}
       accessibilityRole="button"
       accessibilityLabel={label}
       hitSlop={4}
       onPressIn={() => void pressHaptic()}
       onPress={onPress}
-      style={({ pressed }) => [
+      style={[
         styles.iconButton,
-        { borderRadius: theme.manifest.shape.full },
-        pressed && { backgroundColor: colors.primaryContainer },
+        {
+          borderRadius: buttonRadius(theme.manifest),
+          backgroundColor: presentation.container,
+        },
       ]}
     >
-      <ThemeIcon role={role} size={24} tintColor={color ?? colors.onSurface} />
-    </Pressable>
+      <ThemeIcon
+        role={role}
+        size={24}
+        tintColor={material?.content ?? color ?? presentation.content}
+      />
+    </DitherPressable>
   );
 }
 
@@ -596,21 +596,3 @@ const styles = StyleSheet.create({
     width: 72,
   },
 });
-
-function useReduceMotion(): boolean {
-  const [reduceMotion, setReduceMotion] = useState(false);
-
-  useEffect(() => {
-    let current = true;
-    void AccessibilityInfo.isReduceMotionEnabled().then((enabled) => {
-      if (current) setReduceMotion(enabled);
-    });
-    const subscription = AccessibilityInfo.addEventListener("reduceMotionChanged", setReduceMotion);
-    return () => {
-      current = false;
-      subscription.remove();
-    };
-  }, []);
-
-  return reduceMotion;
-}

@@ -72,7 +72,7 @@ func knownPublicationApplicationError(err error) error {
 	switch {
 	case errors.Is(err, errPublicationNotFound):
 		return publicationservice.NewError(publicationservice.ErrorNotFound, err)
-	case errors.Is(err, errPublicationNotEditable), errors.Is(err, errPublicationNotScheduled),
+	case errors.Is(err, publicationauth.ErrReviewRequired), errors.Is(err, errPublicationNotEditable), errors.Is(err, errPublicationNotScheduled),
 		errors.Is(err, errPublicationAlreadyProcessing):
 		return publicationservice.NewError(publicationservice.ErrorInvalidLifecycleState, err)
 	case errors.Is(err, errPublicationScheduleConflict), errors.Is(err, errPublicationScheduleFuture),
@@ -110,7 +110,7 @@ func categorizePublicationError(err *error) {
 
 var _ publicationservice.Application = publicationApplication{}
 
-func (h *PublicationHandler) publicationApplication() publicationservice.Application {
+func (h *PublicationHandler) publicationApplication() publicationApplication {
 	return h.publicationApplicationForTesting()
 }
 
@@ -178,12 +178,15 @@ func (commands publicationApplication) Create(
 	userID string,
 	input CreatePublicationBody,
 ) (publicationResult PublicationResponse, err error) {
+	ctx, cleanupTextCards := commands.handler.textCards.Mutation(ctx)
+	defer cleanupTextCards()
+
 	defer categorizePublicationError(&err)
 	prepared, err := commands.prepareCreate(ctx, userID, input)
 	if err != nil {
 		return PublicationResponse{}, err
 	}
-	publication := publicationModelFromCreate(prepared.input, userID, prepared.repostOverrideJSON, prepared.now)
+	publication := publicationModelFromCreate(prepared.input, userID, publicationCreationSource(ctx, userID), prepared.repostOverrideJSON, prepared.now)
 	result, err := commands.persistCreate(ctx, publication, prepared)
 	if err != nil {
 		return PublicationResponse{}, fmt.Errorf("persist publication creation: %w", err)
@@ -197,12 +200,15 @@ func (commands publicationApplication) CreateIdempotent(
 	input CreatePublicationBody,
 	request idempotency.Request,
 ) (publicationResult PublicationResponse, replayed bool, err error) {
+	ctx, cleanupTextCards := commands.handler.textCards.Mutation(ctx)
+	defer cleanupTextCards()
+
 	defer categorizePublicationError(&err)
 	prepared, err := commands.prepareCreate(ctx, userID, input)
 	if err != nil {
 		return PublicationResponse{}, false, err
 	}
-	publication := publicationModelFromCreate(prepared.input, userID, prepared.repostOverrideJSON, prepared.now)
+	publication := publicationModelFromCreate(prepared.input, userID, publicationCreationSource(ctx, userID), prepared.repostOverrideJSON, prepared.now)
 	request.RequestHash, err = idempotency.Hash(prepared.input)
 	if err != nil {
 		return PublicationResponse{}, false, err
@@ -217,6 +223,36 @@ func (commands publicationApplication) CreateIdempotent(
 	return result.Value, result.Replayed, nil
 }
 
+// CreateFromWorkflow replays the accepted draft before resolving mutable Social
+// Set defaults. A run's frozen input remains the identity across worker restarts.
+func (commands publicationApplication) CreateFromWorkflow(ctx context.Context, userID string, input CreatePublicationBody, request idempotency.Request) (PublicationResponse, error) {
+	ctx, cleanupTextCards := commands.handler.textCards.Mutation(ctx)
+	defer cleanupTextCards()
+
+	if err := commands.handler.checkWorkspaceEditAccess(ctx, input.WorkspaceID, userID); err != nil {
+		return PublicationResponse{}, err
+	}
+	hash, err := idempotency.Hash(input)
+	if err != nil {
+		return PublicationResponse{}, err
+	}
+	request.RequestHash = hash
+	replay, found, err := idempotency.Replay[PublicationResponse](ctx, commands.handler.db, request)
+	if found || err != nil {
+		return replay.Value, err
+	}
+	prepared, err := commands.prepareCreate(ctx, userID, input)
+	if err != nil {
+		return PublicationResponse{}, err
+	}
+	publication := publicationModelFromCreate(prepared.input, userID, publicationCreationSource(ctx, userID), prepared.repostOverrideJSON, prepared.now)
+	request.ResourceID = publication.ID
+	result, err := idempotency.Execute(ctx, commands.handler.db, request, func(txCtx context.Context, tx bun.Tx) (PublicationResponse, error) {
+		return commands.persistCreateTx(txCtx, tx, publication, prepared)
+	})
+	return result.Value, err
+}
+
 // CreateFromBuild commits one ready AI build through the canonical Publication
 // application. The build ID is the durable idempotency key, and source media is
 // rechecked in the same transaction that creates its references.
@@ -227,12 +263,15 @@ func (commands publicationApplication) CreateFromBuild(
 	input CreatePublicationBody,
 	readyMediaIDs []string,
 ) (publicationResult PublicationResponse, err error) {
+	ctx, cleanupTextCards := commands.handler.textCards.Mutation(ctx)
+	defer cleanupTextCards()
+
 	defer categorizePublicationError(&err)
 	prepared, err := commands.prepareCreate(ctx, userID, input)
 	if err != nil {
 		return PublicationResponse{}, err
 	}
-	publication := publicationModelFromCreate(prepared.input, userID, prepared.repostOverrideJSON, prepared.now)
+	publication := publicationModelFromCreate(prepared.input, userID, publicationCreationSource(ctx, userID), prepared.repostOverrideJSON, prepared.now)
 	request := idempotency.Request{
 		PrincipalID: "user:" + strings.TrimSpace(userID),
 		WorkspaceID: prepared.input.WorkspaceID,
@@ -274,6 +313,9 @@ func (commands publicationApplication) Update(
 	publicationID string,
 	input PublicationUpdateBody,
 ) (err error) {
+	ctx, cleanupTextCards := commands.handler.textCards.Mutation(ctx)
+	defer cleanupTextCards()
+
 	defer categorizePublicationError(&err)
 	prepared, err := commands.prepareUpdate(ctx, userID, publicationID, input)
 	if err != nil {
@@ -292,6 +334,9 @@ func (commands publicationApplication) UpdateIdempotent(
 	input PublicationUpdateBody,
 	request idempotency.Request,
 ) (publicationResult PublicationResponse, replayed bool, err error) {
+	ctx, cleanupTextCards := commands.handler.textCards.Mutation(ctx)
+	defer cleanupTextCards()
+
 	defer categorizePublicationError(&err)
 	prepared, err := commands.prepareUpdate(ctx, userID, publicationID, input)
 	if err != nil {
@@ -398,6 +443,10 @@ func (commands publicationApplication) updateTx(
 	if publication.Revision != prepared.input.ExpectedRevision {
 		return PublicationResponse{}, commands.handler.publicationRevisionConflict(ctx, tx, publication, prepared.input.ExpectedRevision)
 	}
+	before, err := commands.handler.loadPublicationRevisionResponseTx(ctx, tx, publication)
+	if err != nil {
+		return PublicationResponse{}, err
+	}
 	clearQueuedSchedule, rescheduleQueuedJob, err := applyPublicationScheduleUpdate(
 		publication,
 		prepared.input.ScheduledAt,
@@ -407,7 +456,6 @@ func (commands publicationApplication) updateTx(
 	if err != nil {
 		return PublicationResponse{}, err
 	}
-	changedDomains := publicationChangedDomains(prepared.input)
 	applyPublicationFieldUpdates(publication, prepared.input)
 	publication.UpdatedAt = prepared.now
 	publication.Revision++
@@ -453,6 +501,23 @@ func (commands publicationApplication) updateTx(
 			return PublicationResponse{}, err
 		}
 	}
+	resolveFormats := prepared.input.Renditions == nil && (prepared.input.Segments != nil || prepared.input.SourceText != nil)
+	if err := commands.handler.refreshPublicationTextCards(ctx, tx, publication.ID, resolveFormats, publicationTextCardIDs(before.response)...); err != nil {
+		return PublicationResponse{}, err
+	}
+	response, err := commands.handler.loadPublicationRevisionResponseTx(ctx, tx, publication)
+	if err != nil {
+		return PublicationResponse{}, err
+	}
+	changedDomains := publicationservice.ChangedAuthoredDomains(before.authored, response.authored)
+	invalidated, err := commands.handler.invalidatePublicationReviewTx(ctx, tx, publication, changedDomains)
+	if err != nil {
+		return PublicationResponse{}, err
+	}
+	if invalidated {
+		rescheduleQueuedJob = false
+	}
+
 	if rescheduleQueuedJob {
 		runAt, effectiveDelay, err := commands.handler.resolveScheduledPublicationRunAtTx(
 			ctx, tx, publication, prepared.now,
@@ -474,18 +539,11 @@ func (commands publicationApplication) updateTx(
 			return PublicationResponse{}, err
 		}
 	}
-	if err := commands.handler.syncTextPostRevisionsTx(
-		ctx,
-		tx,
-		publication.ID,
-		prepared.input.ExpectedRevision,
-		publication.Revision,
-		changedDomains,
-		userID,
-		prepared.now,
-	); err != nil {
+	response, err = commands.handler.loadPublicationRevisionResponseTx(ctx, tx, publication)
+	if err != nil {
 		return PublicationResponse{}, err
 	}
+
 	if err := drafts.RecordChange(
 		ctx,
 		tx,
@@ -517,14 +575,7 @@ func (commands publicationApplication) updateTx(
 	}); err != nil {
 		return PublicationResponse{}, err
 	}
-	responses, err := commands.handler.loadPublicationResponsesWithDB(ctx, tx, []models.Publication{*publication})
-	if err != nil {
-		return PublicationResponse{}, err
-	}
-	if len(responses) != 1 {
-		return PublicationResponse{}, errors.New("failed to load updated publication")
-	}
-	return responses[0], nil
+	return response.response, nil
 }
 
 func (commands publicationApplication) ReplaceRenditions(
@@ -547,12 +598,15 @@ func (commands publicationApplication) Delete(
 	expectedRevision int,
 ) (err error) {
 	defer categorizePublicationError(&err)
-	publication, err := commands.handler.loadPublicationForEdit(ctx, publicationID, userID)
+	publication, err := commands.handler.loadPublication(ctx, publicationID, userID)
 	if err != nil {
 		return err
 	}
+	if err := commands.handler.checkWorkspaceEditAccess(ctx, publication.WorkspaceID, userID); err != nil {
+		return err
+	}
 	return commands.handler.db.RunInTx(ctx, &sql.TxOptions{}, func(txCtx context.Context, tx bun.Tx) error {
-		current, err := commands.handler.loadEditablePublicationTx(txCtx, tx, publication.ID)
+		current, err := commands.handler.loadPublicationForMutationTx(txCtx, tx, publication.ID, models.PublicationStatusPublished, models.PublicationStatusFailed)
 		if err != nil {
 			return err
 		}
@@ -573,7 +627,7 @@ func (commands publicationApplication) Delete(
 			return fmt.Errorf("delete publication: %w", err)
 		}
 		if affected, _ := result.RowsAffected(); affected == 0 {
-			latest, loadErr := commands.handler.loadEditablePublicationTx(txCtx, tx, current.ID)
+			latest, loadErr := commands.handler.loadPublicationForMutationTx(txCtx, tx, current.ID, models.PublicationStatusPublished, models.PublicationStatusFailed)
 			if loadErr != nil {
 				return loadErr
 			}
@@ -665,16 +719,18 @@ func (commands publicationApplication) Schedule(
 	if err := commands.validateForEnqueue(ctx, userID, publication.ID); err != nil {
 		return publicationEnqueueResult{}, err
 	}
-	metered, err := commands.handler.checkScheduledPublicationQuota(ctx, publication.WorkspaceID, publication.ScheduledAt)
+	err = commands.handler.checkScheduledPublicationQuota(ctx, publication.WorkspaceID, publication.ScheduledAt)
 	if err != nil {
 		return publicationEnqueueResult{}, err
 	}
-	result, err = commands.handler.queueScheduledPublicationExpected(ctx, publication.ID, expectedRevision, intent)
-	if err == nil && metered {
-		if usageErr := commands.handler.recordScheduledPublicationUsage(ctx, publication.WorkspaceID, publication.ScheduledAt); usageErr != nil {
-			return publicationEnqueueResult{}, usageErr
-		}
+	if err := commands.beforeQueueTransaction(ctx); err != nil {
+		return publicationEnqueueResult{}, err
 	}
+	err = commands.handler.db.RunInTx(ctx, &sql.TxOptions{}, func(txCtx context.Context, tx bun.Tx) error {
+		var queueErr error
+		result, queueErr = commands.handler.queueScheduledPublicationTx(txCtx, tx, publication.ID, expectedRevision, intent)
+		return queueErr
+	})
 	if err == nil {
 		commands.handler.captureActivationEvent(ctx, userID, publication.WorkspaceID, result)
 	}
@@ -702,7 +758,7 @@ func (commands publicationApplication) ScheduleIdempotent(
 	if err := commands.validateForEnqueue(ctx, userID, publication.ID); err != nil {
 		return publicationEnqueueResult{}, false, err
 	}
-	metered, err := commands.handler.checkScheduledPublicationQuota(ctx, publication.WorkspaceID, publication.ScheduledAt)
+	err = commands.handler.checkScheduledPublicationQuota(ctx, publication.WorkspaceID, publication.ScheduledAt)
 	if err != nil {
 		return publicationEnqueueResult{}, false, err
 	}
@@ -714,33 +770,12 @@ func (commands publicationApplication) ScheduleIdempotent(
 		commands.handler.db,
 		request,
 		func(txCtx context.Context, tx bun.Tx) (publicationEnqueueResult, error) {
-			return commands.handler.queuePublicationWithRunAtTx(
-				txCtx,
-				tx,
-				publication.ID,
-				expectedRevision,
-				publicationauth.PolicyScheduled,
-				intent,
-				func(current *models.Publication, now time.Time) (time.Time, error) {
-					if current.ScheduledAt.IsZero() {
-						return time.Time{}, errPublicationScheduleRequired
-					}
-					if err := validateFuturePublicationSchedule(current.ScheduledAt, now); err != nil {
-						return time.Time{}, err
-					}
-					return current.ScheduledAt, nil
-				},
-			)
+			return commands.handler.queueScheduledPublicationTx(txCtx, tx, publication.ID, expectedRevision, intent)
 		},
 		func(value publicationEnqueueResult) (string, string) { return publication.ID, value.JobID },
 	)
 	if err != nil {
 		return publicationEnqueueResult{}, false, err
-	}
-	if !result.Replayed && metered {
-		if err := commands.handler.recordScheduledPublicationUsage(ctx, publication.WorkspaceID, publication.ScheduledAt); err != nil {
-			return publicationEnqueueResult{}, false, err
-		}
 	}
 	if !result.Replayed {
 		commands.handler.captureActivationEvent(ctx, userID, publication.WorkspaceID, result.Value)
@@ -857,10 +892,7 @@ func (commands publicationApplication) validateForEnqueue(ctx context.Context, u
 	if err != nil {
 		return err
 	}
-	if hasBlockingIssues(issues) {
-		return errPublicationValidationBlocked
-	}
-	return nil
+	return publicationValidationError(issues)
 }
 
 func (commands publicationApplication) RetryRendition(
@@ -1133,7 +1165,7 @@ func (commands publicationApplication) retryFailedRenditionsTx(
 		Where("rendition.status = ?", models.RenditionStatusFailed).
 		Where("delivery.state = ?", providerwrite.DeliveryRejected).
 		Where("delivery.retry_safety IN (?, ?)", platform.PublishRetrySafe, platform.PublishRetryIdempotent).
-		Order("rendition.created_at ASC", "rendition.id ASC").
+		Order("rendition.position ASC", "rendition.id ASC").
 		Scan(ctx); err != nil {
 		return err
 	}

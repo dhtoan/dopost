@@ -1,8 +1,11 @@
 #!/usr/bin/env bun
 
 import { mkdir } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import path from "node:path";
 
+import { shardRunPattern } from "./go-test-shards.mjs";
+import { DEFAULT_STEP_TIMEOUT_MS, spawnTaskProcess } from "./task-process.mjs";
 import {
   formatPruneResult,
   pruneTurboCache,
@@ -24,33 +27,67 @@ const surfaceScopes = ["frontend", "backend", "cli", "marketing", "docs"];
 const browserScopes = ["e2e", "e2e-app"];
 
 const checks = {
-  contracts: stage("generated contracts", [bun("scripts/check-contracts.mjs")]),
+  contracts: stage("contracts", [
+    bun("scripts/check-contracts.mjs"),
+    bun("scripts/check-handwritten-contracts.mjs"),
+  ]),
+  // The payload assertions run after both builds because they inspect the
+  // built dist output that clean checkouts only produce here.
+  "npm-packages": stage("npm packages", [
+    bunTest(
+      "scripts/npm-package-release.test.mjs",
+      "scripts/npm-pack-result.test.mjs",
+      "scripts/npm-view-result.test.mjs",
+    ),
+    commandStep("bun", "run", "check", { cwd: "packages/sdk" }),
+    commandStep("bun", "run", "test", { cwd: "packages/sdk" }),
+    commandStep("bun", "run", "build", { cwd: "packages/sdk" }),
+    commandStep("bun", "run", "check", { cwd: "packages/cli" }),
+    commandStep("bun", "run", "test", { cwd: "packages/cli" }),
+    commandStep("bun", "run", "build", { cwd: "packages/cli" }),
+    bunTest("tests/build/npm-package-build.test.mjs"),
+    bun("scripts/check-npm-package-build.mjs"),
+  ]),
   "n8n-package": stage("n8n package", [
-    bunTest("scripts/n8n-package-release.test.mjs"),
+    bunTest(
+      "scripts/n8n-package-release.test.mjs",
+      "scripts/npm-pack-result.test.mjs",
+      "scripts/npm-view-result.test.mjs",
+    ),
     bunTest("scripts/generate-selected-automation-contract.test.mjs"),
     bun("scripts/generate-selected-automation-contract.mjs", "--check"),
     commandStep("bun", "run", "check", { cwd: "packages/n8n-nodes-openpost" }),
     commandStep("bun", "run", "test", { cwd: "packages/n8n-nodes-openpost" }),
     commandStep("bun", "run", "lint", { cwd: "packages/n8n-nodes-openpost" }),
     commandStep("bun", "run", "build", { cwd: "packages/n8n-nodes-openpost" }),
+    bunTest("tests/build/n8n-package-build.test.mjs"),
     bun("scripts/check-n8n-package-build.mjs"),
   ]),
   "build-graph": stage("build graph", [
     bunTest(
       "scripts/build-graph.test.mjs",
+      "scripts/ui-build-lock.test.mjs",
       "scripts/build-telemetry-env.test.mjs",
       "scripts/frontend-vite-build.test.mjs",
+      "scripts/component-browser-tests.test.mjs",
       "scripts/paraglide-offline.test.mjs",
+      "scripts/paraglide-declarations.test.mjs",
       "scripts/package-frontend.test.mjs",
       "scripts/precompress-static.test.mjs",
     ),
     bun("scripts/check-build-graph.mjs"),
   ]),
   assets: stage("asset surfaces", [
-    bunTest("scripts/asset-surfaces.test.mjs"),
+    bunTest("scripts/asset-surfaces.test.mjs", "scripts/readme-demos.test.mjs"),
     bun("scripts/asset-surfaces.mjs"),
   ]),
   workflows: stage("GitHub Actions workflows", [
+    bunTest(
+      "scripts/check-automation-paths.test.mjs",
+      "scripts/ci-browser-workflow-contract.test.mjs",
+      "scripts/app-e2e-shards.test.mjs",
+    ),
+    bun("scripts/check-automation-paths.mjs"),
     go("run", "github.com/rhysd/actionlint/cmd/actionlint@v1.7.12"),
   ]),
   "mcp-registry": stage("MCP registry", [
@@ -64,6 +101,7 @@ const checks = {
     bunTest(
       "scripts/check-doc-links.test.mjs",
       "scripts/check-doc-telemetry.test.mjs",
+      "scripts/docs-automation-examples.test.mjs",
       "scripts/sync-docs-external.test.mjs",
     ),
     bun("scripts/check-doc-links.mjs"),
@@ -72,16 +110,28 @@ const checks = {
     bunTest(
       "scripts/next-release-version.test.mjs",
       "scripts/n8n-package-release.test.mjs",
+      "scripts/npm-pack-result.test.mjs",
+      "scripts/npm-view-result.test.mjs",
       "scripts/mobile-release.test.mjs",
       "scripts/release-assets.test.mjs",
       "scripts/auno-container-release.test.mjs",
       "scripts/release-lifecycle.test.mjs",
       "scripts/ci-artifacts.test.mjs",
+      "scripts/ci-run-coordination.test.mjs",
+      "scripts/public-site-artifact.test.mjs",
+      "tests/build/public-site-delivery.test.mjs",
       "scripts/ci-plan.test.mjs",
+      "scripts/go-test-shards.test.mjs",
+      "scripts/release-proof.test.mjs",
+      "scripts/release-failures.test.mjs",
       "scripts/release-asset-upload.test.mjs",
       "scripts/release-ci-contract.test.mjs",
       "scripts/release-surfaces.test.mjs",
+      "scripts/release-ship.test.mjs",
+      "scripts/ci-setup-tools.test.mjs",
     ),
+    commandStep("node", "--test", "scripts/public-site-recording.test.mjs"),
+    bunTest("tests/build/posthog-source-maps.test.ts"),
     bun("scripts/release-surfaces.mjs"),
   ]),
   "app-routes": stage("application routes", [
@@ -92,7 +142,7 @@ const checks = {
     bunTest("scripts/cloudflare-edge-plan.test.mjs"),
     bunTest("scripts/check-marketing-route-manifest.test.mjs"),
     bunTest("scripts/marketing-agent-readiness.test.mjs"),
-    bunTest("scripts/generate-agent-surfaces.test.mjs"),
+    commandStep("bunx", "turbo", "run", "_test:public-build"),
     bunTest("scripts/public-deployment-proof.test.mjs"),
     bun("scripts/check-marketing-route-manifest.mjs"),
   ]),
@@ -110,8 +160,12 @@ const checks = {
     bun("scripts/provider-certification-manifest.mjs", "check"),
   ]),
   "provider-facts": stage("provider facts", [
-    bunTest("scripts/provider-catalog-facts.test.mjs"),
+    bunTest(
+      "scripts/provider-catalog-facts.test.mjs",
+      "scripts/check-platform-text-conformance.test.mjs",
+    ),
     bun("scripts/provider-catalog-facts.mjs"),
+    bun("scripts/check-platform-text-conformance.mjs"),
   ]),
   "plan-catalog": stage("plan catalog", [
     bun("scripts/plan-catalog.mjs", "--check"),
@@ -119,7 +173,12 @@ const checks = {
   ]),
   changelog: stage("changelog", [
     bun("scripts/check-changelog.mjs"),
-    bunTest("packages/changelog/src/index.test.mjs", "scripts/merge-changelog-fragments.test.mjs"),
+    bunTest(
+      "packages/changelog/src/index.test.mjs",
+      "scripts/merge-changelog-fragments.test.mjs",
+      "scripts/release-notes.test.mjs",
+      "scripts/record-release-changelog.test.mjs",
+    ),
   ]),
   "social-images": stage("social images", [
     bun("scripts/social-images/catalog.mjs", "--check"),
@@ -143,7 +202,11 @@ const checks = {
     bunTest("scripts/compatibility-surfaces.test.mjs"),
     bun("scripts/compatibility-surfaces.mjs"),
   ]),
-  "ui-consistency": stage("UI consistency", [bun("scripts/check-ui-consistency.mjs")]),
+  "ui-consistency": stage("UI consistency", [
+    bun("scripts/check-ui-consistency.mjs"),
+    bun("scripts/sync-static-ui.mjs", "--check"),
+    commandStep("bun", "scripts/sync-static-404.mjs", "--check", { cwd: "apps/marketing" }),
+  ]),
   "query-migration": stage("Query migration", [
     bunTest("scripts/check-query-migration.test.mjs"),
     bun("scripts/check-query-migration.mjs"),
@@ -157,9 +220,12 @@ const checks = {
   tasks: stage("task interface", [
     bunTest(
       "scripts/tasks.test.mjs",
+      "scripts/task-process.test.mjs",
+      "scripts/affected-checks.test.mjs",
       "scripts/changed-files-check.test.mjs",
       "scripts/secret-scan-contract.test.mjs",
       "scripts/turbo-cache.test.mjs",
+      "scripts/docs-input-cache.test.mjs",
     ),
   ]),
   "frontend-build-cache": stage("frontend build cache", [
@@ -167,9 +233,12 @@ const checks = {
   ]),
 };
 
+// Public routes build both production sites twice, so they stay out of the
+// policy aggregate. CI proves them in a dedicated job; local `check` still
+// runs them as their own phase.
 const policyGroups = [
   ["build-graph", "assets", "workflows", "mcp-registry", "docs", "release-version", "secret-scan"],
-  ["app-routes", "public-routes", "legal-policy", "provider-certification", "provider-facts"],
+  ["app-routes", "legal-policy", "provider-certification", "provider-facts"],
   [
     "plan-catalog",
     "changelog",
@@ -184,10 +253,16 @@ const policyGroups = [
 
 if (import.meta.main) {
   try {
-    const plan = resolvePlan(command, scope, options);
+    const plan =
+      command === "check:affected"
+        ? affectedPlan(
+            (await import("./affected-checks.mjs")).affectedSelection(process.argv.slice(3), root),
+          )
+        : resolvePlan(command, scope, options);
     if (options.has("--plan")) {
       console.log(JSON.stringify(publicPlan(plan), null, 2));
     } else {
+      if (plan.affected) console.log(JSON.stringify(publicPlan(plan), null, 2));
       const cacheDirectory = resolveTurboCacheDirectory({ repositoryRoot: root });
       if (process.env.OPENPOST_ROOT_TASK_LOCKED === "1") {
         await execute(plan, { cacheDirectory, enforceCacheLimit: false });
@@ -205,6 +280,14 @@ if (import.meta.main) {
           });
         }
       }
+      if (plan.affected) {
+        console.log(
+          plan.affected.files.length || plan.affected.fallback
+            ? "check:affected: selected checks passed"
+            : "check:affected: no local changes selected",
+        );
+        console.log(`Omitted: ${plan.affected.omitted.join("; ")}. ${plan.affected.proof}`);
+      }
     }
   } catch (error) {
     console.error(error.message);
@@ -214,6 +297,11 @@ if (import.meta.main) {
 
 export function resolvePlan(requestedCommand, requestedScope, requestedOptions = new Set()) {
   if (!requestedCommand) throw new Error(help());
+  if (requestedOptions.has("--non-browser")) {
+    throw new Error(
+      "--non-browser was removed; use test for the standard suite or select an explicit test scope",
+    );
+  }
   switch (requestedCommand) {
     case "dev":
       return devPlan(requestedScope);
@@ -222,23 +310,109 @@ export function resolvePlan(requestedCommand, requestedScope, requestedOptions =
       return formatPlan(requestedCommand, requestedScope);
     case "lint":
       return lintPlan(requestedScope);
+    case "fallow":
+      if (requestedScope) throw unsupported("fallow", requestedScope, []);
+      return fallowPlan();
     case "check":
       return checkPlan(requestedScope, requestedOptions);
     case "test":
-      return testPlan(requestedScope, requestedOptions);
+      return testPlan(requestedScope);
     case "build":
       return buildPlan(requestedScope);
+    case "preflight":
     case "verify":
-      if (requestedScope) throw unsupported("verify", requestedScope, []);
-      return plan("verify", undefined, [
+      if (requestedScope) throw unsupported(requestedCommand, requestedScope, []);
+      return plan(requestedCommand, undefined, [
+        ...(requestedCommand === "preflight" ? [[taskStage("format check", "format:check")]] : []),
         [taskStage("static checks", "check")],
-        [taskStage("format check", "format:check"), taskStage("lint", "lint")],
+        [
+          ...(requestedCommand === "verify" ? [taskStage("format check", "format:check")] : []),
+          taskStage("lint", "lint"),
+          ...(requestedCommand === "preflight"
+            ? [
+                withoutRepositoryTests(checks["npm-packages"]),
+                withoutRepositoryTests(checks["n8n-package"]),
+                stage("mobile source checks", [
+                  commandStep("bun", "run", "check:source", { cwd: "apps/mobile" }),
+                ]),
+              ]
+            : []),
+        ],
         [taskStage("tests", "test")],
-        [taskStage("production builds", "build")],
+        ...(requestedCommand === "verify" ? [[taskStage("production builds", "build")]] : []),
       ]);
     default:
       throw new Error(`unknown task ${JSON.stringify(requestedCommand)}\n${help()}`);
   }
+}
+
+function affectedPathPhases(selection) {
+  if (!selection.files.length) return [];
+  const phases = [];
+  if (selection.mergeBase)
+    phases.push([
+      stage("committed whitespace", [
+        commandStep("git", "diff", "--check", selection.mergeBase, selection.head),
+      ]),
+    ]);
+  phases.push([
+    stage("changed syntax and format", [
+      commandStep("bash", "scripts/changed-files-check.sh", "--files0", {
+        input: `${selection.files.join("\0")}\0`,
+      }),
+    ]),
+  ]);
+  return phases;
+}
+
+function affectedPlan(selection) {
+  const phases = affectedPathPhases(selection);
+  if (selection.fallback) {
+    const full = resolvePlan("preflight");
+    return {
+      ...full,
+      command: "check:affected",
+      affected: selection,
+      phases: [...phases, ...full.phases],
+    };
+  }
+  const used = new Set();
+  const commands = new Set();
+  const append = (selected) => {
+    for (const items of selected.phases) {
+      const fresh = items.flatMap((item) => {
+        if (used.has(item.label)) return [];
+        used.add(item.label);
+        const steps = item.steps.filter((step) => {
+          const key = JSON.stringify(step);
+          if (commands.has(key)) return false;
+          commands.add(key);
+          return true;
+        });
+        return steps.length ? [{ ...item, steps }] : [];
+      });
+      if (fresh.length) phases.push(fresh);
+    }
+  };
+  if (selection.files.length) {
+    for (const owner of selection.scopes) {
+      if (owner !== "mobile") append(checkPlan(owner, new Set()));
+    }
+    for (const owner of selection.scopes) {
+      if (owner === "mobile") {
+        append(
+          plan("check", "mobile", [
+            [
+              stage("mobile source checks", [
+                commandStep("bun", "run", "check:source", { cwd: "apps/mobile" }),
+              ]),
+            ],
+          ]),
+        );
+      } else append(testPlan(owner));
+    }
+  }
+  return { ...plan("check:affected", undefined, phases), affected: selection };
 }
 
 function devPlan(requestedScope) {
@@ -297,6 +471,52 @@ function formatPlan(requestedCommand, requestedScope) {
   ]);
 }
 
+function fallowPlan() {
+  // Dead-code findings gate changed sources; complexity remains a separate
+  // report. Fallow's combined audit enforces health thresholds even when
+  // dead-code rules are warn, so it cannot implement the advisory health policy.
+  const base = process.env.OPENPOST_FALLOW_BASE;
+  const historyArgs = process.env.OPENPOST_FALLOW_CI === "1" ? [] : ["--hotspots", "--targets"];
+  const auditArgs = [
+    "audit",
+    ...(base && !/^0+$/.test(base) ? ["--base", base] : []),
+    "--max-crap",
+    "400",
+  ];
+  return plan("fallow", undefined, [
+    [
+      stage("changed-code audit", [bun("scripts/fallow-dead-code-gate.mjs", ...auditArgs)]),
+      stage("complexity and hotspots", [
+        commandStep(
+          "bunx",
+          "fallow",
+          "health",
+          "--report-only",
+          "--complexity",
+          ...historyArgs,
+          "--file-scores",
+          "--score",
+        ),
+      ]),
+      stage("mobile audit and health", [
+        bun("scripts/fallow-dead-code-gate.mjs", "--root", "apps/mobile", ...auditArgs),
+        commandStep(
+          "bunx",
+          "fallow",
+          "--root",
+          "apps/mobile",
+          "health",
+          "--report-only",
+          "--complexity",
+          ...historyArgs,
+          "--file-scores",
+          "--score",
+        ),
+      ]),
+    ],
+  ]);
+}
+
 function lintPlan(requestedScope) {
   if (requestedScope && !surfaceScopes.includes(requestedScope)) {
     throw unsupported("lint", requestedScope, surfaceScopes);
@@ -326,7 +546,7 @@ function checkPlan(requestedScope, requestedOptions) {
   if (requestedScope && checks[requestedScope] && requestedScope !== "docs") {
     return plan("check", requestedScope, [[checks[requestedScope]]]);
   }
-  const supported = [...surfaceScopes, "policy", ...Object.keys(checks)];
+  const supported = [...surfaceScopes, "frontend-marketing", "policy", ...Object.keys(checks)];
   if (requestedScope && !supported.includes(requestedScope)) {
     throw unsupported("check", requestedScope, supported);
   }
@@ -345,6 +565,21 @@ function checkPlan(requestedScope, requestedOptions) {
       env: { OPENPOST_CHECK_PREPARED: "1" },
     }),
   ]);
+  // One dependency graph builds shared UI output before either consumer reads it.
+  // Separate Turbo processes can rebuild dist while the other checker is running.
+  const frontendAndMarketing = stage("frontend and marketing types", [
+    commandStep(
+      "bunx",
+      "turbo",
+      "run",
+      "check",
+      "--filter",
+      "@openpost/web",
+      "--filter",
+      "@openpost/site",
+      { env: { OPENPOST_CHECK_PREPARED: "1" } },
+    ),
+  ]);
   const backend = stage("backend types", [
     go("test", "-tags", "dev", "-run", "^$", "./...", { cwd: "apps/server" }),
   ]);
@@ -354,13 +589,18 @@ function checkPlan(requestedScope, requestedOptions) {
   if (requestedScope === "frontend") {
     return plan("check", requestedScope, [[contracts], [translations], [frontend]]);
   }
+  if (requestedScope === "frontend-marketing") {
+    return plan("check", requestedScope, [[contracts], [translations], [frontendAndMarketing]]);
+  }
   if (requestedScope === "backend") return plan("check", requestedScope, [[contracts], [backend]]);
   if (requestedScope === "cli") return plan("check", requestedScope, [[contracts], [cli]]);
   if (requestedScope === "marketing")
     return plan("check", requestedScope, [[translations], [marketing]]);
   if (requestedScope === "docs") return plan("check", requestedScope, [[checks.docs]]);
 
-  const groups = policyGroups.map((group) => group.map((name) => checks[name]));
+  const groups = policyGroups.map((group) =>
+    group.map((name) => withoutRepositoryTests(checks[name])),
+  );
   if (requestedScope === "policy") {
     if (requestedOptions.has("--policy-only")) {
       return plan("check", requestedScope, groups);
@@ -370,21 +610,32 @@ function checkPlan(requestedScope, requestedOptions) {
   return plan("check", undefined, [
     [contracts],
     [translations],
-    [frontend, marketing, backend, cli],
-    // Policy checks build public artifacts and rewrite Paraglide output.
+    [frontendAndMarketing, backend, cli],
+    // Policy checks rewrite Paraglide output, so they run after its readers.
     [policy],
+    // The production-artifact proof rebuilds both public sites, so it runs
+    // after policy work instead of inside the policy aggregate.
+    [withoutRepositoryTests(checks["public-routes"])],
   ]);
 }
 
-function testPlan(requestedScope, requestedOptions) {
+function testPlan(requestedScope) {
   const supported = [...surfaceScopes, ...browserScopes];
   if (requestedScope && !supported.includes(requestedScope)) {
     throw unsupported("test", requestedScope, supported);
   }
   const backendArguments = ["test", "-tags", "dev"];
-  if (process.env.OPENPOST_GO_TEST_RACE === "1") backendArguments.push("-race");
+  if (process.env.OPENPOST_GO_TEST_RACE === "1") {
+    backendArguments.push("-race", "-timeout=30m");
+  }
   if (process.env.OPENPOST_GO_COVERAGE_FILE) {
     backendArguments.push(`-coverprofile=${process.env.OPENPOST_GO_COVERAGE_FILE}`);
+  }
+  if (process.env.OPENPOST_GO_TEST_SHARD) {
+    backendArguments.push(
+      "-run",
+      shardRunPattern("apps/server", process.env.OPENPOST_GO_TEST_SHARD, root),
+    );
   }
   backendArguments.push("./...");
   const backend = stage("backend tests", [go(...backendArguments, { cwd: "apps/server" })]);
@@ -409,10 +660,8 @@ function testPlan(requestedScope, requestedOptions) {
     commandStep("bunx", "turbo", "run", "test", "--concurrency", "1"),
   ]);
   const repository = stage("repository tests", [bunTest("./scripts")]);
-  const nonBrowserFrontend = stage("frontend server tests", [
-    commandStep("bunx", "turbo", "run", "test:server", "--filter", "@openpost/web"),
-  ]);
   const marketing = stage("marketing tests", [
+    commandStep("bun", "run", "test", { cwd: "apps/marketing" }),
     bunTest(
       "scripts/check-marketing-route-manifest.test.mjs",
       "scripts/marketing-agent-readiness.test.mjs",
@@ -423,6 +672,7 @@ function testPlan(requestedScope, requestedOptions) {
     bunTest(
       "scripts/check-doc-links.test.mjs",
       "scripts/check-doc-telemetry.test.mjs",
+      "scripts/docs-automation-examples.test.mjs",
       "scripts/sync-docs-external.test.mjs",
     ),
   ]);
@@ -441,25 +691,13 @@ function testPlan(requestedScope, requestedOptions) {
     const byScope = { frontend, backend, cli, marketing, docs };
     return plan("test", requestedScope, [[byScope[requestedScope]]]);
   }
-  if (requestedOptions.has("--non-browser")) {
-    const nonBrowserWorkspace = stage("workspace tests", [
-      commandStep(
-        "bunx",
-        "turbo",
-        "run",
-        "test",
-        "--filter=!@openpost/web",
-        "--filter=!@openpost/social-preview",
-      ),
-    ]);
-    return plan("test", undefined, [[backend, cli, nonBrowserFrontend, nonBrowserWorkspace]]);
-  }
   return plan("test", undefined, [[backend, cli, repository], [workspace]]);
 }
 
 function buildPlan(requestedScope) {
-  if (requestedScope && !surfaceScopes.includes(requestedScope)) {
-    throw unsupported("build", requestedScope, surfaceScopes);
+  const buildScopes = [...surfaceScopes, "public-site"];
+  if (requestedScope && !buildScopes.includes(requestedScope)) {
+    throw unsupported("build", requestedScope, buildScopes);
   }
   const prepareDocs = stage("documentation inputs", [
     bun("scripts/sync-docs-external.mjs"),
@@ -478,8 +716,31 @@ function buildPlan(requestedScope) {
   const docs = stage("documentation build", [
     commandStep("bunx", "turbo", "run", "build", "--filter", "@openpost/docs"),
   ]);
+  const composePublicSite = stage("public site composition", [
+    bun("scripts/compose-public-site.mjs"),
+  ]);
   const byScope = { frontend, backend, cli, marketing, docs };
   if (requestedScope === "docs") return plan("build", requestedScope, [[prepareDocs], [docs]]);
+  if (requestedScope === "public-site") {
+    return plan("build", requestedScope, [
+      [prepareDocs],
+      [
+        stage("public builds", [
+          commandStep(
+            "bunx",
+            "turbo",
+            "run",
+            "build",
+            "--filter",
+            "@openpost/site",
+            "--filter",
+            "@openpost/docs",
+          ),
+        ]),
+      ],
+      [composePublicSite],
+    ]);
+  }
   if (requestedScope) return plan("build", requestedScope, [[byScope[requestedScope]]]);
   return plan("build", undefined, [
     [prepareDocs],
@@ -617,25 +878,24 @@ async function gitFiles(directory, pattern) {
   const result = await capture(["git", "ls-files", "-co", "--exclude-standard", "--", directory]);
   if (result.status !== 0) return [];
   const suffix = pattern.replace("*", "");
-  return result.stdout.split("\n").filter((file) => file && file.endsWith(suffix));
+  return result.stdout
+    .split("\n")
+    .filter((file) => file.endsWith(suffix) && existsSync(path.join(root, file)));
 }
 
+// Never attach stdin unless a step explicitly supplies input, so a missing
+// binary cannot sit on an install prompt.
 async function spawn(argv, step = {}, signal) {
-  if (signal?.aborted) return 1;
-  const child = Bun.spawn(argv, {
-    cwd: step.cwd ? path.join(root, step.cwd) : root,
-    env: { ...process.env, ...step.env },
-    stdin: "inherit",
-    stdout: "inherit",
-    stderr: "inherit",
-  });
-  const abort = () => child.kill();
-  signal?.addEventListener("abort", abort, { once: true });
-  try {
-    return await child.exited;
-  } finally {
-    signal?.removeEventListener("abort", abort);
-  }
+  return spawnTaskProcess(
+    argv,
+    {
+      cwd: step.cwd ? path.join(root, step.cwd) : root,
+      env: { ...process.env, ...step.env },
+      input: step.input,
+      timeoutMs: step.timeoutMs ?? DEFAULT_STEP_TIMEOUT_MS,
+    },
+    signal,
+  );
 }
 
 async function capture(argv) {
@@ -653,17 +913,40 @@ function plan(requestedCommand, requestedScope, phases) {
 }
 
 export function publicPlan(taskPlan) {
-  return {
+  const result = {
     command: taskPlan.command,
     scope: taskPlan.scope ?? null,
     stages: taskPlan.phases.flatMap((items, phase) =>
-      items.map((item) => ({
-        phase,
-        label: item.label,
-        commands: item.steps.map((step) => step.display ?? step.argv?.join(" ") ?? step.type),
-      })),
+      items.map((item) => {
+        const entry = {
+          phase,
+          label: item.label,
+          commands: item.steps.map((step) => step.display ?? step.argv?.join(" ") ?? step.type),
+        };
+        if (taskPlan.affected) entry.steps = item.steps.map(publicAffectedStep);
+        return entry;
+      }),
     ),
   };
+  if (taskPlan.affected) result.affected = taskPlan.affected;
+  return result;
+}
+
+function publicAffectedStep(step) {
+  const result = {
+    type: step.type,
+    cwd: step.cwd ? path.join(root, step.cwd) : root,
+    argv: step.argv ?? null,
+    env: { ...step.env, OPENPOST_ROOT_TASK_LOCKED: "1" },
+  };
+  if (step.type === "task") {
+    result.task = step.task;
+    result.scope = step.scope ?? null;
+    result.argv = ["bun", "scripts/tasks.mjs", step.task, ...(step.scope ? [step.scope] : [])];
+    result.cwd = root;
+    result.env = { OPENPOST_ROOT_TASK_LOCKED: "1" };
+  }
+  return result;
 }
 
 function stage(label, steps) {
@@ -697,6 +980,20 @@ function bunTest(...args) {
   return commandStep("bun", "test", ...exactPaths);
 }
 
+// Aggregate policy checks inspect the checkout. Repository regression tests
+// have one owner: the scripts sweep in `test` (and the CI policy job).
+// Explicit check selectors still include their focused regression tests.
+function withoutRepositoryTests(taskStage) {
+  return {
+    ...taskStage,
+    steps: taskStage.steps.flatMap((step) => {
+      if (step.argv?.[0] !== "bun" || step.argv[1] !== "test") return [step];
+      const files = step.argv.slice(2).filter((file) => !file.startsWith("./scripts/"));
+      return files.length ? [bunTest(...files)] : [];
+    }),
+  };
+}
+
 function go(...values) {
   return commandStep("go", ...values);
 }
@@ -710,7 +1007,8 @@ function unsupported(requestedCommand, requestedScope, supported) {
 function help() {
   return [
     "Usage: bun scripts/tasks.mjs <command> [scope] [--plan]",
-    "Commands: dev, format, format:check, lint, check, test, build, verify",
+    "Commands: dev, format, format:check, lint, fallow, check, test, build, preflight, verify, check:affected",
+    "Affected: bun run check:affected [--base REV] [--plan]",
     `Surface scopes: ${surfaceScopes.join(", ")}`,
     `Browser test scopes: ${browserScopes.join(", ")}`,
     `Policy selectors: ${Object.keys(checks).join(", ")}`,

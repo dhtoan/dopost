@@ -8,13 +8,21 @@ const downloads = [
   "openpost-server-darwin-arm64",
   "openpost-server-windows-amd64.exe",
   "openpost-cli-linux-amd64",
+  "openpost-cli-linux-amd64.sha256",
   "openpost-cli-linux-arm64",
+  "openpost-cli-linux-arm64.sha256",
   "openpost-cli-darwin-arm64",
+  "openpost-cli-darwin-arm64.sha256",
   "openpost-cli-windows-amd64.exe",
+  "openpost-cli-windows-amd64.exe.sha256",
   "openpost-mcp-linux-amd64",
+  "openpost-mcp-linux-amd64.sha256",
   "openpost-mcp-linux-arm64",
+  "openpost-mcp-linux-arm64.sha256",
   "openpost-mcp-darwin-arm64",
+  "openpost-mcp-darwin-arm64.sha256",
   "openpost-mcp-windows-amd64.exe",
+  "openpost-mcp-windows-amd64.exe.sha256",
   "openpost-app-android.apk",
 ];
 
@@ -36,6 +44,42 @@ function release(overrides = {}) {
 function asset(name) {
   return { name, state: "uploaded", size: 42 };
 }
+
+test("CLI assets are optional only when explicitly requested", () => {
+  const server = downloads.filter((name) => name.startsWith("openpost-server-"));
+  const candidate = release({ assets: server.map(asset) });
+  assert.deepEqual(
+    validateRelease(candidate, { tag, notes, core: true, complete: true, cli: false }),
+    [],
+  );
+  assert.ok(
+    validateRelease(candidate, { tag, notes, core: true, complete: true }).some((p) =>
+      p.includes("openpost-cli-"),
+    ),
+  );
+});
+
+test("a server-only release publishes its core assets without Android packaging", () => {
+  const core = downloads.filter((name) => name !== "openpost-app-android.apk");
+  assert.deepEqual(
+    validateRelease(release({ assets: core.map(asset) }), { tag, notes, core: true }),
+    [],
+  );
+  // The parallel Android job may upload the APK before promotion runs; the
+  // core check tolerates known full-set assets it does not require yet.
+  assert.deepEqual(
+    validateRelease(release({ assets: [...core, "openpost-app-android.apk"].map(asset) }), {
+      tag,
+      notes,
+      core: true,
+    }),
+    [],
+  );
+  assert.ok(
+    validateRelease(release({ assets: core.map(asset) }), { tag, notes, complete: true }).length >
+      0,
+  );
+});
 
 test("a consistent draft can be reused while its expected assets are partial", () => {
   assert.deepEqual(

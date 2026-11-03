@@ -73,6 +73,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/accounts/devnull/login": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Connect a dev/null account using an SSH private key */
+        post: operations["devnull-login"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/accounts/discord/webhook": {
         parameters: {
             query?: never;
@@ -280,6 +297,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/accounts/x/messaging/complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Complete X messaging authorization as the initiating user */
+        post: operations["complete-x-messaging"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/accounts/x/messaging/subscriptions/{subscription_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Stop a known X messaging subscription */
+        delete: operations["stop-x-messaging-subscription"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/accounts/{account_id}": {
         parameters: {
             query?: never;
@@ -327,6 +378,92 @@ export interface paths {
         post?: never;
         /** Revoke a provider grant and disconnect every destination that uses it */
         delete: operations["revoke-account-grant"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/accounts/{account_id}/mentions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Find native mention targets for one destination */
+        get: operations["lookup-account-mentions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/accounts/{account_id}/messaging/x": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Inspect supplemental X legacy messaging authorization */
+        get: operations["get-x-messaging-readiness"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/accounts/{account_id}/messaging/x/authorize": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Authorize supplemental X messaging without changing publishing */
+        post: operations["authorize-x-messaging"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/accounts/{account_id}/messaging/x/subscriptions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Explicitly activate an expiring X legacy DM subscription */
+        post: operations["subscribe-x-messaging"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/accounts/{account_id}/post-imports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read a connected account's native post imports */
+        get: operations["read-post-imports"];
+        /** Opt a connected account into or out of native post imports */
+        put: operations["save-post-imports"];
+        post?: never;
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -750,6 +887,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/analytics/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export stored analytics as CSV, Excel, or JSON
+         * @description Exports the same stored measurements shown in Analytics. Missing provider metrics stay empty instead of becoming zero.
+         */
+        get: operations["export-analytics"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/analytics/refresh": {
         parameters: {
             query?: never;
@@ -817,6 +974,74 @@ export interface paths {
         post?: never;
         /** Revoke an API token */
         delete: operations["revoke-api-token"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app-branding/{workspace_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get effective app branding and inheritance */
+        get: operations["get-app-branding"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app-branding/{workspace_id}/images/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read an authorized app branding image */
+        get: operations["get-app-branding-image"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app-branding/{workspace_id}/organization": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Set organization app branding and workspace policy */
+        put: operations["update-organization-app-branding"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/app-branding/{workspace_id}/workspace": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Set workspace app branding or restore inheritance */
+        put: operations["update-workspace-app-branding"];
+        post?: never;
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -1966,6 +2191,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/auth/waitlist": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Join the Hosted launch waitlist */
+        post: operations["join-hosted-waitlist"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/billing/checkout": {
         parameters: {
             query?: never;
@@ -2364,6 +2606,269 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/editor-agent/assistant": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Run a bounded editing assistant turn */
+        post: operations["run-editor-agent-assistant"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/editor-agent/assistant/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Check editor assistant availability */
+        get: operations["editor-agent-assistant-status"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/editor-agent/choices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["record-editor-library-choice"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/editor-agent/favorites": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["set-editor-library-favorite"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/editor-agent/learning": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["set-editor-learning"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/editor-agent/preferences": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get-editor-preferences"];
+        put?: never;
+        post: operations["save-editor-preference"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/editor-agent/preferences/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["delete-editor-preference"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/editor-agent/sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Connect an open browser editor to agent tools */
+        post: operations["register-editor-agent-session"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/editor-agent/sessions/{session_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Disconnect an editor from agent tools */
+        delete: operations["close-editor-agent-session"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/editor-agent/sessions/{session_id}/next": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Poll the next operation for the open editor */
+        get: operations["poll-editor-agent-session"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/editor-agent/sessions/{session_id}/requests/{request_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Check cancellation before applying an editor operation */
+        get: operations["get-editor-agent-browser-request"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/editor-agent/sessions/{session_id}/requests/{request_id}/response": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Return the result of a live editor operation */
+        post: operations["respond-editor-agent-request"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/editor-agent/styles": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["save-editor-style"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/editor-agent/styles/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get-editor-style"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/editor-agent/styles/{id}/archive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["archive-editor-style"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/editor-agent/usage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list-editor-ai-usage"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/engagement": {
         parameters: {
             query?: never;
@@ -2398,6 +2903,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/engagement/read": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Mark all matching engagement read across every page */
+        post: operations["mark-engagement-read"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/engagement/refresh": {
         parameters: {
             query?: never;
@@ -2426,6 +2948,57 @@ export interface paths {
         put?: never;
         /** Mark engagement read or archived */
         post: operations["set-engagement-state"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/engagement/{id}/automation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Inspect automatic replies for a comment */
+        get: operations["list-engagement-automation"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/engagement/{id}/automation/stop": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Take over a comment and stop pending automatic replies */
+        post: operations["stop-engagement-automation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/engagement/{item_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read a stored comment and its known parent chain */
+        get: operations["get-engagement-item"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -2623,6 +3196,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/github-stars": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get the OpenPost GitHub star count
+         * @description Returns a cached public count for the OpenPost GitHub repository when GitHub is available.
+         */
+        get: operations["get-github-star-count"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/growth": {
         parameters: {
             query?: never;
@@ -2809,6 +3402,23 @@ export interface paths {
         patch: operations["toggle-image-editor-design-favorite"];
         trace?: never;
     };
+    "/image-editor/designs/{id}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Restore a trashed OpenPost Image Editor design */
+        post: operations["restore-image-editor-design"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/image-editor/designs/{id}/revisions": {
         parameters: {
             query?: never;
@@ -2838,7 +3448,11 @@ export interface paths {
         get: operations["get-image-editor-design-revision"];
         put?: never;
         post?: never;
-        delete?: never;
+        /**
+         * Remove a named OpenPost Image Editor checkpoint
+         * @description Removes only the selected named checkpoint and its snapshot references. The current design and other versions remain unchanged.
+         */
+        delete: operations["delete-image-editor-design-checkpoint"];
         options?: never;
         head?: never;
         patch?: never;
@@ -2856,6 +3470,24 @@ export interface paths {
         /** Restore an OpenPost Image Editor design revision as a new head */
         post: operations["restore-image-editor-design-revision"];
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/image-editor/effect-presets/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Save a workspace layer effect preset */
+        put: operations["save-image-editor-effect-preset"];
+        post?: never;
+        /** Delete a workspace layer effect preset */
+        delete: operations["delete-image-editor-effect-preset"];
         options?: never;
         head?: never;
         patch?: never;
@@ -2993,6 +3625,109 @@ export interface paths {
         put?: never;
         /** Create an OpenPost Image Editor design from a template */
         post: operations["instantiate-image-editor-template"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/image-generations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read the current user's image generation history */
+        get: operations["list-image-generations"];
+        put?: never;
+        /** Generate, edit or fill an image for review */
+        post: operations["create-image-generation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/image-generations/config": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read signed-in image generation capabilities */
+        get: operations["image-generation-config"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/image-generations/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read a saved image generation request */
+        get: operations["get-image-generation"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/inbox/activity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Keep an inbox view fresh while it is open */
+        post: operations["inbox-activity"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/inbox/changes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Wait for stored inbox changes */
+        get: operations["inbox-changes"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/inbox/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read Workspace unread conversation and comment counts */
+        get: operations["inbox-summary"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -3277,6 +4012,40 @@ export interface paths {
         patch: operations["update-media-favorite"];
         trace?: never;
     };
+    "/media/{id}/optimize-image": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create a smaller lossless image copy while retaining the original */
+        post: operations["optimize-media-image"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/media/{id}/prepare-image": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create a ready image copy fitted to a connected destination */
+        post: operations["prepare-media-image"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/media/{id}/restore": {
         parameters: {
             query?: never;
@@ -3461,6 +4230,40 @@ export interface paths {
         get: operations["list-conversation-messages"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/messages/{conversation_id}/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Collect an older page of conversation history */
+        post: operations["collect-conversation-history"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/messages/{conversation_id}/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Retry a definitely rejected message */
+        post: operations["retry-conversation-message"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4046,6 +4849,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/posting-schedules/batch-delete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Atomically delete a weekly posting time row */
+        post: operations["batch-delete-posting-schedules"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/posting-schedules/next-slot": {
         parameters: {
             query?: never;
@@ -4158,7 +4978,8 @@ export interface paths {
             cookie?: never;
         };
         get?: never;
-        put?: never;
+        /** Update a custom writing prompt */
+        put: operations["update-prompt"];
         post?: never;
         /** Delete a custom prompt */
         delete: operations["delete-prompt"];
@@ -4286,6 +5107,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/publication-builds/{id}/options/{option_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Save author edits to one alternative */
+        put: operations["save-publication-option"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/publication-builds/{id}/options/{option_id}/commit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Choose one creative alternative and create a draft */
+        post: operations["commit-publication-option"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/publication-builds/{id}/retry": {
         parameters: {
             query?: never;
@@ -4297,6 +5152,40 @@ export interface paths {
         put?: never;
         /** Retry a failed publication build */
         post: operations["retry-publication-build"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/publication-builds/{id}/series/{item_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Edit a series concept before generating its post */
+        put: operations["update-series-concept"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/publication-builds/{id}/series/{item_id}/generate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Generate one explicitly selected series post */
+        post: operations["generate-series-post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4341,6 +5230,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/publications/batch-schedule/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Schedule selected dates with independently replayable post receipts */
+        post: operations["confirm-batch-schedule"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/publications/batch-schedule/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Preview exact dates for selected drafts without queuing them */
+        post: operations["preview-batch-schedule"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/publications/preview-text-card": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Preview text as publishing images */
+        post: operations["preview-text-card"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/publications/{id}": {
         parameters: {
             query?: never;
@@ -4355,7 +5295,7 @@ export interface paths {
         post?: never;
         /**
          * Delete a publication
-         * @description Permanently deletes an editable publication, its destinations, and any linked draft post.
+         * @description Permanently removes a publication and its destinations from OpenPost. Published posts remain on the social networks. Publications with active delivery cannot be removed.
          */
         delete: operations["delete-publication"];
         options?: never;
@@ -4512,6 +5452,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/publications/{id}/reviews": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read the last 50 review requests and submitted versions */
+        get: operations["list-publication-reviews"];
+        put?: never;
+        /** Send this version to a client for required approval */
+        post: operations["request-publication-review"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/publications/{id}/reviews/{review_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Approve a submitted version or request changes */
+        put: operations["decide-publication-review"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/publications/{id}/schedule": {
         parameters: {
             query?: never;
@@ -4625,6 +5600,145 @@ export interface paths {
         get: operations["get-repost-automation"];
         /** Replace workspace repost rules */
         put: operations["save-repost-automation"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/repurpose-suggestions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Suggest up to three source-grounded clips for review */
+        post: operations["create-repurpose-suggestions"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/repurpose-suggestions/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read clip suggestion progress and candidates */
+        get: operations["get-repurpose-suggestions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/repurpose-suggestions/{id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Cancel the current clip suggestion revision */
+        post: operations["cancel-repurpose-suggestions"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/repurpose-suggestions/{id}/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Retry a failed or cancelled clip suggestion revision */
+        post: operations["retry-repurpose-suggestions"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/screenshot-templates/designs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List screenshot template designs */
+        get: operations["list-screenshot-template-designs"];
+        put?: never;
+        /** Create a screenshot template design */
+        post: operations["create-screenshot-template-design"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/screenshot-templates/designs/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get a screenshot template design */
+        get: operations["get-screenshot-template-design"];
+        /** Save a screenshot template design */
+        put: operations["update-screenshot-template-design"];
+        post?: never;
+        /** Delete a screenshot template design */
+        delete: operations["delete-screenshot-template-design"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/screenshot-templates/designs/{id}/exports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Save the editable recipe for a screenshot export */
+        post: operations["save-screenshot-template-export"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/screenshot-templates/recipes/{media_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get the editable recipe for a screenshot export */
+        get: operations["get-screenshot-template-recipe"];
+        put?: never;
         post?: never;
         delete?: never;
         options?: never;
@@ -5087,6 +6201,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/video-project-summaries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Cloud Video Project summaries
+         * @description Project metadata for browsing, without the authored editing documents. Load a project by ID when opening it.
+         */
+        get: operations["list-video-project-summaries"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/video-projects": {
         parameters: {
             query?: never;
@@ -5138,6 +6272,26 @@ export interface paths {
          */
         post: operations["reserve-video-project-asset"];
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/video-projects/{id}/assets/{asset_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete a Project Asset
+         * @description Removes a Project Asset after the editor no longer references it. Shared media remains available to other projects.
+         */
+        delete: operations["delete-video-project-asset"];
         options?: never;
         head?: never;
         patch?: never;
@@ -5416,6 +6570,266 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/workflow-connections": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List workflow connections without secrets */
+        get: operations["list-workflow-connections"];
+        put?: never;
+        /** Store an encrypted workflow credential */
+        post: operations["create-workflow-connection"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/workflow-connections/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Replace a connection secret without changing its permitted host */
+        put: operations["rotate-workflow-connection"];
+        post?: never;
+        /** Delete an unused workflow connection */
+        delete: operations["delete-workflow-connection"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/workflow-run-summaries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List the latest 50 workflow runs without source data or step payloads */
+        get: operations["list-workflow-run-summaries"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/workflow-runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List the latest 50 workspace workflow runs */
+        get: operations["list-workflow-runs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/workflow-runs/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Inspect a workflow run and its step results */
+        get: operations["get-workflow-run"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/workflow-runs/{id}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Approve the exact reviewed post revision and continue */
+        post: operations["approve-workflow-run"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/workflow-runs/{id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Cancel remaining steps; an action already dispatched may finish */
+        post: operations["cancel-workflow-run"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/workflow-sources/sample": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Read source examples without advancing a production cursor */
+        post: operations["sample-workflow-source"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/workflows": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List workspace workflows */
+        get: operations["list-workflows"];
+        put?: never;
+        /** Create a workflow draft */
+        post: operations["create-workflow"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/workflows/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get a workflow draft */
+        get: operations["get-workflow"];
+        /** Save a workflow draft with revision checking */
+        put: operations["save-workflow"];
+        post?: never;
+        /** Delete a paused workflow with no active runs */
+        delete: operations["delete-workflow"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/workflows/{id}/pause": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Stop new automatic runs; existing runs continue */
+        post: operations["pause-workflow"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/workflows/{id}/publish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Publish this workflow revision and enable its source */
+        post: operations["publish-workflow"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/workflows/{id}/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Preview a workflow without effects or explicitly start a live run */
+        post: operations["start-workflow-run"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/workflows/{id}/stop-replies": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Stop new runs and pending automatic replies */
+        post: operations["stop-workflow-replies"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/workflows/{id}/test-node": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Execute one data or tool node with supplied input data */
+        post: operations["test-workflow-node"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/workspace-invitations/accept": {
         parameters: {
             query?: never;
@@ -5684,6 +7098,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/workspaces/{workspace_id}/mentions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List reusable Workspace mentions */
+        get: operations["list-saved-mentions"];
+        put?: never;
+        /** Save a reusable Workspace mention */
+        post: operations["save-saved-mention"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/workspaces/{workspace_id}/mentions/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete a saved mention without changing existing posts */
+        delete: operations["delete-saved-mention"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -5814,27 +7263,6 @@ export interface components {
             social_accounts: number;
             /** Format: int64 */
             workspaces: number;
-        };
-        AccountDiscoveryCoverage: {
-            account_id: string;
-            /** Format: date-time */
-            backfill_watermark?: string;
-            description?: string;
-            failure_code?: string;
-            failure_message?: string;
-            /** Format: date-time */
-            initial_completed_at?: string;
-            /** Format: int64 */
-            initial_items_discovered: number;
-            /** Format: date-time */
-            last_attempted_at?: string;
-            /** Format: date-time */
-            last_success_at?: string;
-            /** Format: date-time */
-            next_eligible_at?: string;
-            platform: string;
-            /** @enum {string} */
-            status: "complete" | "partial" | "permission_required" | "rate_limited" | "cost_limited" | "unsupported" | "failed";
         };
         AccountExport: {
             /**
@@ -6019,6 +7447,23 @@ export interface components {
             status: string;
             username: string;
         };
+        AccountPerformance: {
+            account_id: string;
+            avatar_url?: string;
+            engagement: components["schemas"]["MetricSummary"];
+            /** Format: int64 */
+            follower_delta?: number;
+            /** Format: int64 */
+            followers?: number;
+            platform: string;
+            /** Format: int64 */
+            publication_count: number;
+            /** Format: int64 */
+            published: number;
+            status: string;
+            username: string;
+            visibility: components["schemas"]["MetricSummary"];
+        };
         AccountReauthenticationInputBody: {
             /**
              * Format: uri
@@ -6046,6 +7491,8 @@ export interface components {
             account_kind?: string;
             /** @description Account username */
             account_username: string;
+            /** @description Internal account label. Does not change the provider identity. */
+            alias?: string;
             /**
              * Format: date-time
              * @description When account-specific publishing limits were last verified
@@ -6107,6 +7554,8 @@ export interface components {
             account_kind?: string;
             /** @description Account username */
             account_username: string;
+            /** @description Internal account label. Does not change the provider identity. */
+            alias?: string;
             /**
              * Format: date-time
              * @description When account-specific publishing limits were last verified
@@ -6342,6 +7791,63 @@ export interface components {
             /** Format: int64 */
             week_start: number;
         } | null;
+        AppBrandingImage: {
+            id: string;
+            url?: string;
+        };
+        AppBrandingImageInput: {
+            /** @description PNG, JPEG or WebP, at most 1 MiB; normalized to PNG */
+            content_base64?: string;
+            /** @description Retain an image from this profile or copy the current organization image */
+            id?: string;
+        };
+        AppBrandingProfile: {
+            dark_logo?: components["schemas"]["AppBrandingImage"];
+            dark_wordmark?: components["schemas"]["AppBrandingImage"];
+            display_name: string;
+            logo?: components["schemas"]["AppBrandingImage"];
+            wordmark?: components["schemas"]["AppBrandingImage"];
+        };
+        AppBrandingProfileInput: {
+            dark_logo?: components["schemas"]["AppBrandingImageInput"];
+            dark_wordmark?: components["schemas"]["AppBrandingImageInput"];
+            display_name: string;
+            logo?: components["schemas"]["AppBrandingImageInput"];
+            wordmark?: components["schemas"]["AppBrandingImageInput"];
+        };
+        AppBrandingSettings: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/AppBrandingSettings.json
+             */
+            readonly $schema?: string;
+            allow_workspace_override: boolean;
+            can_manage_organization: boolean;
+            can_manage_workspace: boolean;
+            effective: components["schemas"]["AppBrandingProfile"];
+            organization_default: components["schemas"]["AppBrandingProfile"];
+            organization_id: string;
+            /** Format: int64 */
+            organization_revision: number;
+            workspace_id: string;
+            workspace_override?: components["schemas"]["AppBrandingProfile"];
+            /** Format: int64 */
+            workspace_revision: number;
+        };
+        AppBrandingUpdate: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/AppBrandingUpdate.json
+             */
+            readonly $schema?: string;
+            allow_workspace_override?: boolean;
+            /** Format: int64 */
+            expected_revision: number;
+            /** @description Null restores OpenPost for an organization or inheritance for a workspace */
+            profile?: components["schemas"]["AppBrandingProfileInput"];
+        };
         AppendProviderApprovalReviewInputBody: {
             /**
              * Format: uri
@@ -6543,6 +8049,7 @@ export interface components {
             support_email?: string;
             terms_url?: string;
             terms_version?: string;
+            waitlist_enabled: boolean;
         };
         AuthOutputBody: {
             /**
@@ -6644,6 +8151,22 @@ export interface components {
             url?: string;
             value: string;
         };
+        AutomationReply: {
+            body: string;
+            channel: string;
+            /** Format: date-time */
+            created_at: string;
+            id: string;
+            item_id: string;
+            job_id?: string;
+            run_id: string;
+            state: string;
+            step_id: string;
+            /** Format: date-time */
+            updated_at: string;
+            workflow_id: string;
+            workspace_id: string;
+        };
         BatchDeleteMediaInputBody: {
             /**
              * Format: uri
@@ -6668,6 +8191,75 @@ export interface components {
             deleted: number;
             /** @description IDs that could not be deleted (in use) */
             failed_ids: string[] | null;
+        };
+        BatchDeletePostingSchedulesInputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/BatchDeletePostingSchedulesInputBody.json
+             */
+            readonly $schema?: string;
+            /** @description Schedule slot IDs from one weekly time row. Missing IDs are ignored for safe retries. */
+            ids: string[] | null;
+            /** @description Workspace owning the schedule slots */
+            workspace_id: string;
+        };
+        BatchScheduleConfirmInputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/BatchScheduleConfirmInputBody.json
+             */
+            readonly $schema?: string;
+            batch_id: string;
+            items: components["schemas"]["BatchScheduleItem"][] | null;
+            workspace_id: string;
+        };
+        BatchScheduleItem: {
+            error?: string;
+            /** Format: int64 */
+            expected_revision: number;
+            preserved: boolean;
+            publication_id: string;
+            scheduled_at?: string;
+            title?: string;
+        };
+        BatchScheduleOutcome: {
+            error?: string;
+            publication_id: string;
+            /** @enum {string} */
+            state: "scheduled" | "failed";
+        };
+        BatchSchedulePreviewInputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/BatchSchedulePreviewInputBody.json
+             */
+            readonly $schema?: string;
+            /** Format: date */
+            end_date: string;
+            /** Format: int64 */
+            hour: number;
+            /** Format: int64 */
+            interval_days: number;
+            /** Format: int64 */
+            minute: number;
+            publication_ids: string[] | null;
+            /** Format: date */
+            start_date: string;
+            use_slots: boolean;
+            workspace_id: string;
+        };
+        BatchSchedulePreviewOutputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/BatchSchedulePreviewOutputBody.json
+             */
+            readonly $schema?: string;
+            items: components["schemas"]["BatchScheduleItem"][] | null;
+            timezone: string;
         };
         Beat: {
             core_idea: string;
@@ -6903,6 +8495,7 @@ export interface components {
             result?: components["schemas"]["BuildResult"];
             /** Format: int64 */
             revision: number;
+            series_origin?: components["schemas"]["SeriesOrigin"];
             social_set_id?: string;
             state: string;
             /** Format: date-time */
@@ -6921,13 +8514,25 @@ export interface components {
             destinations: components["schemas"]["Destination"][] | null;
             direction: components["schemas"]["DirectionInput"];
             idea: string;
+            /**
+             * Format: int64
+             * @description Generate four complete alternatives; zero keeps the single-package workflow
+             * @enum {integer}
+             */
+            option_count?: 0 | 4;
+            /** Format: int64 */
+            series_count?: number;
             sources?: components["schemas"]["SourceMaterial"][] | null;
         };
         BuildResult: {
             canonical_text: string;
             destinations: components["schemas"]["DestinationPlan"][] | null;
             direction: components["schemas"]["DirectorPlan"];
+            /** @description Four complete alternatives. Choosing one is an explicit author action */
+            options?: components["schemas"]["PostOption"][] | null;
             review_flags: components["schemas"]["ReviewFlag"][] | null;
+            selected_option_id?: string;
+            series?: components["schemas"]["SeriesConcept"][] | null;
             skipped: components["schemas"]["SkippedDestination"][] | null;
             sources?: components["schemas"]["ResolvedSource"][] | null;
         };
@@ -6997,6 +8602,16 @@ export interface components {
             title_required?: boolean;
             unavailable_reason?: string;
             validation_categories?: string[] | null;
+        };
+        Change: {
+            conversation_id?: string;
+            deleted?: boolean;
+            engagement_id?: string;
+            /** @enum {string} */
+            kind: "conversation" | "message" | "engagement";
+            message_id?: string;
+            /** Format: int64 */
+            revision: number;
         };
         ChangeNotificationsInputBody: {
             /**
@@ -7070,6 +8685,53 @@ export interface components {
             name: string;
             timestamp: string;
         };
+        ClipCandidate: {
+            context_warning: string;
+            /**
+             * Format: double
+             * @description Exact end of last_word in source seconds, never generated by AI.
+             */
+            end: number;
+            /**
+             * Format: int64
+             * @description Inclusive zero-based index in the submitted source words.
+             */
+            first_word: number;
+            id: string;
+            /**
+             * Format: int64
+             * @description Inclusive zero-based index in the submitted source words.
+             */
+            last_word: number;
+            rationale: string;
+            /**
+             * Format: double
+             * @description Exact start of first_word in source seconds, never generated by AI.
+             */
+            start: number;
+            title: string;
+        };
+        ClipSuggestions: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/ClipSuggestions.json
+             */
+            readonly $schema?: string;
+            candidates: components["schemas"]["ClipCandidate"][] | null;
+            error_message?: string;
+            id: string;
+            /** Format: int64 */
+            revision: number;
+            source_id: string;
+            /** @description The caller snapshot fingerprint captured at submission. */
+            source_revision: string;
+            /** @enum {string} */
+            state: "queued" | "analyzing" | "ready" | "failed" | "cancelled";
+            /** Format: date-time */
+            updated_at: string;
+            workspace_id: string;
+        };
         CommentActionOutputBody: {
             /**
              * Format: uri
@@ -7124,6 +8786,23 @@ export interface components {
             href: string;
             /** @description Draft Publication created from the approved build */
             publication_id: string;
+        };
+        CommitPublicationOptionInputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/CommitPublicationOptionInputBody.json
+             */
+            readonly $schema?: string;
+            /** @description Author-edited text and visual recipes for the chosen alternative */
+            edits?: components["schemas"]["OptionEdit"][] | null;
+            /**
+             * Format: int64
+             * @description Revision read with the selected option snapshot
+             */
+            expected_revision: number;
+            /** @description Rendered Workspace image IDs for the selected alternative */
+            media?: components["schemas"]["OptionMedia"][] | null;
         };
         CompleteAccountSelectionInputBody: {
             /**
@@ -7362,22 +9041,38 @@ export interface components {
             published_at: string;
             reference: components["schemas"]["ContentReference"];
             rendition_id?: string;
-            /** @enum {string} */
-            source: "openpost" | "external";
             stale: boolean;
             status: string;
             title: string;
             username: string;
+            visibility?: components["schemas"]["ContentVisibility"];
         };
         ContentReference: {
-            account_content_id: string;
-            /** @enum {string} */
-            type: "external";
-        } | {
-            publication_id: string;
-            rendition_id: string;
+            publication_id?: string;
+            rendition_id?: string;
             /** @enum {string} */
             type: "openpost";
+        };
+        ContentVisibility: {
+            /** @enum {string} */
+            basis: "post_displays" | "content_views" | "video_views";
+            /** @enum {string} */
+            metric: "views" | "impressions";
+            /** Format: int64 */
+            value: number;
+        };
+        Context: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/Context.json
+             */
+            readonly $schema?: string;
+            favorites: components["schemas"]["Favorite"][] | null;
+            learning_enabled: boolean;
+            preferences: components["schemas"]["Preference"][] | null;
+            styles: components["schemas"]["Style"][] | null;
+            suggestions: components["schemas"]["Suggestion"][] | null;
         };
         Conversation: {
             /** Format: date-time */
@@ -7584,6 +9279,7 @@ export interface components {
             /** Format: int64 */
             height_px: number;
             preset_key: string;
+            /** @description Source library image. Reopens its active editing design when one exists. */
             source_media_id?: string;
             title: string;
             /** Format: int64 */
@@ -7650,7 +9346,7 @@ export interface components {
             resource?: string;
             /** @description OAuth response type. Must be code. */
             response_type: string;
-            /** @description Space-separated MCP scopes: mcp:read and mcp:full. Requesting both grants mcp:full. Defaults to mcp:full. */
+            /** @description Space-separated MCP scopes: mcp:read and mcp:full. Requesting both returns both scopes while enforcing mcp:full. Defaults to mcp:full. */
             scope?: string;
             /** @description Opaque client state to echo to the redirect URI */
             state?: string;
@@ -7719,7 +9415,7 @@ export interface components {
              * @description Media provenance
              * @enum {string}
              */
-            source?: "upload" | "camera" | "image_editor_export" | "image_editor_edit" | "background_removal" | "video_editor_source" | "video_editor_export" | "stock_import" | "meme_generator";
+            source?: "upload" | "media_copy" | "image_optimization" | "image_fit" | "camera" | "image_editor_export" | "image_editor_edit" | "background_removal" | "video_editor_source" | "video_editor_export" | "stock_import" | "meme_generator" | "screenshot_template" | "image_generation";
             /** @description License and creator provenance for a selected stock asset */
             stock_provenance?: components["schemas"]["StockMediaProvenance"];
             /** @description Optional tag to assign to this upload */
@@ -7901,10 +9597,21 @@ export interface components {
              * @enum {string}
              */
             destination_policy?: "recommend" | "require_all";
-            /** @description Optional outcome, audience, angle, tone, and media direction */
+            /** @description Optional writing instructions, outcome, audience, angle, tone, and media direction */
             direction?: components["schemas"]["DirectionInput"];
             /** @description Idea, note, update, or Markdown source text */
             idea?: string;
+            /**
+             * Format: int64
+             * @description Four complete creative alternatives, or the existing single package
+             * @enum {integer}
+             */
+            option_count?: 0 | 4;
+            /**
+             * Format: int64
+             * @description Plan up to three complementary posts before generating selected drafts
+             */
+            series_count?: number;
             /** @description Optional Social Set candidate snapshot */
             social_set_id?: string;
             /** @description Optional build-level Voice Profile override */
@@ -7928,6 +9635,16 @@ export interface components {
             plan_id: string;
             /** @description Existing integrity-protected choice to validate against the supplied plan and period */
             purchase_choice_token?: string;
+        };
+        CreateScreenshotTemplateDesignInputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/CreateScreenshotTemplateDesignInputBody.json
+             */
+            readonly $schema?: string;
+            document: components["schemas"]["ScreenshotTemplateDocument"];
+            workspace_id: string;
         };
         CreateSocialSetInputBody: {
             /**
@@ -8004,6 +9721,8 @@ export interface components {
             id?: string;
             /** @description Project name */
             name: string;
+            /** @description Copy asset references from a project in the same Workspace */
+            source_project_id?: string;
             /** @description Owning Workspace ID */
             workspace_id: string;
         };
@@ -8051,7 +9770,7 @@ export interface components {
              * @description Workspace role to grant
              * @enum {string}
              */
-            role: "admin" | "editor" | "viewer";
+            role: "admin" | "editor" | "client" | "viewer";
         };
         CreateWorkspaceOutputBody: {
             /**
@@ -8066,6 +9785,7 @@ export interface components {
             organization_id: string;
         };
         DailyBreakdownItem: {
+            account_id?: string;
             key: string;
             label: string;
             platform: string;
@@ -8195,6 +9915,15 @@ export interface components {
             readonly $schema?: string;
             deleted: boolean;
         };
+        DeleteImageEditorRevisionOutputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/DeleteImageEditorRevisionOutputBody.json
+             */
+            readonly $schema?: string;
+            deleted: boolean;
+        };
         DeleteImageEditorTemplateOutputBody: {
             /**
              * Format: uri
@@ -8232,6 +9961,16 @@ export interface components {
             readonly $schema?: string;
             /** @description Success message */
             message: string;
+        };
+        DeleteProjectAssetOutputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/DeleteProjectAssetOutputBody.json
+             */
+            readonly $schema?: string;
+            /** @description Whether the Project Asset was removed */
+            deleted: boolean;
         };
         DeletePromptOutputBody: {
             /**
@@ -8346,6 +10085,8 @@ export interface components {
         DestinationDecision: {
             account_id: string;
             include: boolean;
+            /** @description Optional destination-specific visual choice for a creative alternative */
+            media?: components["schemas"]["MediaPlan"];
             reason: string;
         };
         DestinationFormat: {
@@ -8382,6 +10123,25 @@ export interface components {
             segments: components["schemas"]["SegmentPlan"][] | null;
             warnings: string[] | null;
         };
+        DevNullLoginInputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/DevNullLoginInputBody.json
+             */
+            readonly $schema?: string;
+            /**
+             * @description Typed execution intent; certification_test requires an unscoped instance administrator
+             * @enum {string}
+             */
+            intent?: "production" | "certification_test";
+            /** @description OpenSSH private key whose public half is on your GitHub account (stored encrypted, used only to sign commits) */
+            private_key: string;
+            /** @description dev/null username (your GitHub username) */
+            username: string;
+            /** @description Workspace ID */
+            workspace_id: string;
+        };
         Diagnostics: {
             browser: string;
             component?: string;
@@ -8392,6 +10152,11 @@ export interface components {
             viewport: components["schemas"]["Viewport"];
         };
         DiagnosticsFrame: {
+            /**
+             * Format: int64
+             * @description Source column, when available
+             */
+            column?: number;
             /** @description Function name */
             function: string;
             /**
@@ -8426,12 +10191,17 @@ export interface components {
             attachments_json: string;
             author_remote_id: string;
             body: string;
+            client_operation_id?: string;
             conversation_id: string;
             /** Format: date-time */
             created_at: string;
+            /** Format: date-time */
+            deleted_at?: string;
             direction: string;
             error_message: string;
             id: string;
+            /** Format: date-time */
+            provider_read_at?: string;
             /** Format: date-time */
             remote_created_at: string;
             remote_message_id: string;
@@ -8443,6 +10213,8 @@ export interface components {
         DirectionInput: {
             angle?: string;
             audience?: string;
+            /** @description Author's writing requirements, kept separate from source evidence and the short outcome */
+            instructions?: string;
             media_preference?: string;
             outcome?: string;
             tone_adjustment?: string;
@@ -8546,9 +10318,222 @@ export interface components {
             /** @description Dismiss status */
             status: string;
         };
+        EditorAgentEmptyOutputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/EditorAgentEmptyOutputBody.json
+             */
+            readonly $schema?: string;
+            ok: boolean;
+        };
+        EditorAgentNextOutputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/EditorAgentNextOutputBody.json
+             */
+            readonly $schema?: string;
+            request: components["schemas"]["Request"];
+        };
+        EditorAgentRegisterInputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/EditorAgentRegisterInputBody.json
+             */
+            readonly $schema?: string;
+            /** @enum {string} */
+            editor_kind: "video" | "image";
+            project_id: string;
+            workspace_id: string;
+        };
+        EditorAgentRegisterOutputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/EditorAgentRegisterOutputBody.json
+             */
+            readonly $schema?: string;
+            epoch: string;
+            session: components["schemas"]["Session"];
+        };
+        EditorAgentRespondInputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/EditorAgentRespondInputBody.json
+             */
+            readonly $schema?: string;
+            epoch: string;
+            error: unknown;
+            result: unknown;
+        };
+        EditorAssistantInputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/EditorAssistantInputBody.json
+             */
+            readonly $schema?: string;
+            context?: string;
+            history?: components["schemas"]["EditorAssistantMessage"][] | null;
+            project_id: string;
+            prompt: string;
+            session_id: string;
+            style_id?: string;
+            /** Format: int64 */
+            style_version?: number;
+            workspace_id: string;
+        };
+        EditorAssistantMessage: {
+            content: string;
+            /** @enum {string} */
+            role: "user" | "assistant";
+        };
+        EditorAssistantOutputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/EditorAssistantOutputBody.json
+             */
+            readonly $schema?: string;
+            /** Format: int64 */
+            input_tokens: number;
+            model: string;
+            /** Format: int64 */
+            output_tokens: number;
+            pending_request_id?: string;
+            reply: string;
+            steps: components["schemas"]["EditorAssistantStep"][] | null;
+        };
+        EditorAssistantStatusOutputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/EditorAssistantStatusOutputBody.json
+             */
+            readonly $schema?: string;
+            available: boolean;
+            reason?: string;
+        };
+        EditorAssistantStep: {
+            operation: string;
+            result: unknown;
+        };
+        EditorCall: {
+            /** Format: int64 */
+            cost_microusd: number | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            finished_at: string | null;
+            id: string;
+            /** Format: int64 */
+            input_tokens: number | null;
+            model: string;
+            operation: string;
+            organization_id: string;
+            /** Format: int64 */
+            output_tokens: number | null;
+            project_id: string;
+            provider: string;
+            provider_request_id: string;
+            requested_model: string;
+            run_id: string;
+            state: string;
+            /** Format: int64 */
+            step: number;
+            /** Format: int64 */
+            total_tokens: number | null;
+            user_id: string;
+            workspace_id: string;
+        };
+        EditorChoiceInputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/EditorChoiceInputBody.json
+             */
+            readonly $schema?: string;
+            context: string;
+            /** @enum {string} */
+            editor_kind: "video" | "image";
+            entry_id: string;
+            entry_name: string;
+            project_id: string;
+            workspace_id: string;
+        };
+        EditorFavoriteInputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/EditorFavoriteInputBody.json
+             */
+            readonly $schema?: string;
+            favorite: components["schemas"]["Favorite"];
+            workspace_id: string;
+        };
+        EditorLearningInputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/EditorLearningInputBody.json
+             */
+            readonly $schema?: string;
+            enabled: boolean;
+            project_id?: string;
+            reset: boolean;
+            workspace_id: string;
+        };
+        EditorPreferenceSaveInputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/EditorPreferenceSaveInputBody.json
+             */
+            readonly $schema?: string;
+            /** Format: int64 */
+            expected_revision: number;
+            preference: components["schemas"]["Preference"];
+            workspace_id: string;
+        };
         EditorRevisionActor: {
             is_current_user: boolean;
             name: string;
+        };
+        EditorStyleArchiveInputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/EditorStyleArchiveInputBody.json
+             */
+            readonly $schema?: string;
+            archived: boolean;
+            /** Format: int64 */
+            expected_version: number;
+            workspace_id: string;
+        };
+        EditorStyleSaveInputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/EditorStyleSaveInputBody.json
+             */
+            readonly $schema?: string;
+            /** Format: int64 */
+            expected_version: number;
+            style: components["schemas"]["Style"];
+            workspace_id: string;
+        };
+        EditorUsageOutputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/EditorUsageOutputBody.json
+             */
+            readonly $schema?: string;
+            calls: components["schemas"]["EditorCall"][] | null;
         };
         EffectiveProfile: {
             /**
@@ -8600,9 +10585,19 @@ export interface components {
              */
             readonly $schema?: string;
             /** @enum {string} */
-            action: "reply" | "hide" | "delete" | "like" | "unlike";
+            action: "reply" | "delete_reply" | "hide" | "delete" | "like" | "unlike";
+            client_operation_id?: string;
             message?: string;
             workspace_id: string;
+        };
+        EngagementActionOutputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/EngagementActionOutputBody.json
+             */
+            readonly $schema?: string;
+            job_id: string;
         };
         EngagementAttachment: {
             alt_text?: string;
@@ -8611,6 +10606,16 @@ export interface components {
             thumbnail?: string;
             type: string;
             url: string;
+        };
+        EngagementDetail: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/EngagementDetail.json
+             */
+            readonly $schema?: string;
+            item: components["schemas"]["EngagementItem"];
+            parents: components["schemas"]["EngagementItem"][] | null;
         };
         EngagementItem: {
             account_username?: string;
@@ -8621,8 +10626,13 @@ export interface components {
             author_handle: string;
             author_name: string;
             author_remote_id: string;
+            automation_run_id?: string;
+            automation_state?: string;
+            /** Format: date-time */
+            automation_stopped_at?: string;
             body: string;
             can_delete: boolean;
+            can_delete_reply?: boolean;
             can_hide: boolean;
             can_like: boolean;
             can_reply: boolean;
@@ -8637,6 +10647,7 @@ export interface components {
             hidden: boolean;
             id: string;
             is_ours: boolean;
+            kind?: string;
             /** Format: date-time */
             last_seen_at: string;
             liked: boolean;
@@ -8651,8 +10662,13 @@ export interface components {
             /** Format: date-time */
             remote_created_at?: string;
             remote_id: string;
-            rendition_id: string;
+            rendition_id?: string;
+            /** Format: date-time */
+            replied_at?: string;
+            reply_job_id?: string;
+            reply_operation_state?: string;
             social_account_id: string;
+            subject?: components["schemas"]["EngagementSubject"];
             /** Format: date-time */
             updated_at: string;
             workspace_id: string;
@@ -8670,9 +10686,19 @@ export interface components {
             /** Format: int64 */
             total: number;
         };
+        EngagementSubject: {
+            kind: string;
+            parent?: components["schemas"]["PostReference"];
+            remote_id: string;
+            review?: components["schemas"]["ReviewContext"];
+            root?: components["schemas"]["PostReference"];
+            url?: string;
+            visibility?: string;
+        };
         EngagementSyncState: {
             error_code: string;
             error_message: string;
+            feed?: string;
             id: string;
             /** Format: date-time */
             last_success_at?: string;
@@ -8850,6 +10876,15 @@ export interface components {
             readonly $schema?: string;
             dismissed_at?: string;
             id: string;
+        };
+        Favorite: {
+            device_local: boolean;
+            editor_kind: string;
+            entry_id: string;
+            entry_name: string;
+            favorite: boolean;
+            /** Format: date-time */
+            updated_at?: string;
         };
         FeatureStateResponse: {
             /**
@@ -9216,6 +11251,8 @@ export interface components {
              * @description Storage limit, or zero when no fixed limit is exposed
              */
             limit_bytes: number;
+            /** @description Per-kind upload ceilings matching the enforced admission limits */
+            upload_limits: components["schemas"]["MediaUploadLimits"];
             /**
              * Format: int64
              * @description Quota-counted media bytes
@@ -9277,6 +11314,19 @@ export interface components {
             /** Format: int64 */
             week_start: number;
         };
+        GitHubStarsResponse: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/GitHubStarsResponse.json
+             */
+            readonly $schema?: string;
+            /**
+             * Format: int64
+             * @description Current public repository star count
+             */
+            count?: number;
+        };
         GrantResponse: {
             created_at: string;
             /** @enum {string} */
@@ -9335,6 +11385,19 @@ export interface components {
             /** Format: date-time */
             verified_at?: string;
         };
+        ImageEditorAnimation: {
+            frames: components["schemas"]["ImageEditorAnimationFrame"][] | null;
+            /** Format: int64 */
+            repeat: number;
+            /** Format: int64 */
+            source_frame_count: number;
+        };
+        ImageEditorAnimationFrame: {
+            /** Format: int64 */
+            duration_ms: number;
+            /** Format: int64 */
+            source_index: number;
+        };
         ImageEditorBrandColor: {
             id: string;
             name: string;
@@ -9363,6 +11426,7 @@ export interface components {
             backgrounds: string[] | null;
             can_edit: boolean;
             colors: components["schemas"]["ImageEditorBrandColor"][] | null;
+            effect_presets: components["schemas"]["ImageEditorEffectPresetResponse"][] | null;
             exists: boolean;
             fonts: components["schemas"]["ImageEditorBrandFont"][] | null;
             id?: string;
@@ -9483,6 +11547,7 @@ export interface components {
             preset_key: string;
             /** Format: int64 */
             schema_version: number;
+            template_slots?: components["schemas"]["ImageEditorTemplateSlot"][] | null;
             title: string;
             /** Format: int64 */
             width_px: number;
@@ -9505,6 +11570,11 @@ export interface components {
             updated_at: string;
             workspace_id: string;
         };
+        ImageEditorEffectPresetResponse: {
+            effects: components["schemas"]["ImageEditorLayerEffects"];
+            id: string;
+            name: string;
+        };
         ImageEditorEraseMask: {
             /** Format: double */
             source_height: number;
@@ -9520,7 +11590,7 @@ export interface components {
         };
         ImageEditorExportDefaults: {
             /** @enum {string} */
-            format: "png" | "jpeg" | "webp";
+            format: "png" | "jpeg" | "webp" | "gif";
             matte_color: string;
             /** Format: double */
             quality: number;
@@ -9566,6 +11636,7 @@ export interface components {
         };
         ImageEditorImageValue: {
             adjustments: components["schemas"]["ImageEditorImageAdjustments"];
+            animation?: components["schemas"]["ImageEditorAnimation"];
             /**
              * Format: int64
              * @enum {integer}
@@ -9575,6 +11646,7 @@ export interface components {
             /** @enum {string} */
             fit: "cover" | "contain" | "stretch";
             intrinsic_pending?: boolean;
+            lens_effect?: components["schemas"]["ImageEditorLensEffect"];
             media_id: string;
             /** Format: int64 */
             source_height: number;
@@ -9615,6 +11687,20 @@ export interface components {
             /** @enum {string} */
             shape: "rectangle" | "rounded_rectangle" | "circle" | "ellipse" | "diamond";
         };
+        ImageEditorLensEffect: {
+            /** Format: double */
+            amount: number;
+            /** Format: double */
+            angle: number;
+            /** Format: int64 */
+            blades: number;
+            /** @enum {string} */
+            kind: "flare" | "starburst" | "mist" | "prism" | "bokeh";
+            /** Format: double */
+            size: number;
+            /** Format: double */
+            threshold: number;
+        };
         ImageEditorPageBackground: {
             color?: string;
             gradient?: components["schemas"]["ImageEditorGradientValue"];
@@ -9643,11 +11729,15 @@ export interface components {
              */
             color_grade_version?: 1;
             guides?: components["schemas"]["ImageEditorPageGuides"];
+            /** Format: int64 */
+            height_px?: number;
             id: string;
             latest_export_media_id?: string;
             layers: components["schemas"]["ImageEditorLayer"][] | null;
             name: string;
             preview_media_id?: string;
+            /** Format: int64 */
+            width_px?: number;
         };
         ImageEditorPaintPoint: {
             /** Format: double */
@@ -9790,6 +11880,12 @@ export interface components {
             updated_at?: string;
             workspace_id?: string;
         };
+        ImageEditorTemplateSlot: {
+            /** Format: int64 */
+            max_characters: number;
+            name: string;
+            target_id: string;
+        };
         ImageEditorTextCurve: {
             /** Format: double */
             offset: number;
@@ -9798,6 +11894,17 @@ export interface components {
             strength: number;
             /** @enum {string} */
             type: "none" | "arc_up" | "arc_down" | "wave" | "circle" | "ellipse";
+        };
+        ImageEditorTextRun: {
+            color?: string;
+            /** Format: int64 */
+            end: number;
+            font_style?: string;
+            /** Format: int64 */
+            font_weight?: number;
+            /** Format: int64 */
+            start: number;
+            underline?: boolean;
         };
         ImageEditorTextShadow: {
             /** Format: double */
@@ -9824,6 +11931,7 @@ export interface components {
             letter_spacing: number;
             /** Format: double */
             line_height: number;
+            runs?: components["schemas"]["ImageEditorTextRun"][] | null;
             shadow: components["schemas"]["ImageEditorTextShadow"];
             strike?: boolean;
             stroke_color?: string;
@@ -9848,6 +11956,122 @@ export interface components {
             /** Format: double */
             y: number;
         };
+        ImageGenerationConfigOutputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/ImageGenerationConfigOutputBody.json
+             */
+            readonly $schema?: string;
+            available: boolean;
+            default_model: string;
+            models: components["schemas"]["ImageModel"][] | null;
+        };
+        ImageGenerationRequest: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/ImageGenerationRequest.json
+             */
+            readonly $schema?: string;
+            /** @enum {string} */
+            background: "auto" | "opaque" | "transparent";
+            /** @description Base64 PNG; transparent pixels are selected. Fill only. */
+            mask_png?: string;
+            /** @enum {string} */
+            model: "gpt-image-2.5-flare" | "gpt-image-2.5-sunburst";
+            /** @enum {string} */
+            operation: "generate" | "edit" | "fill";
+            page_id: string;
+            project_id: string;
+            prompt: string;
+            /** @enum {string} */
+            quality: "low" | "medium" | "high" | "xhigh" | "max" | "auto";
+            /** @enum {string} */
+            size: "square_hd" | "portrait_4_3" | "portrait_16_9" | "landscape_4_3" | "landscape_16_9" | "auto";
+            source_media_id?: string;
+            /** @description Browser snapshot fingerprint used to prevent stale application */
+            target_fingerprint?: string;
+            target_layer_id?: string;
+            workspace_id: string;
+        };
+        ImageGenerationRun: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/ImageGenerationRun.json
+             */
+            readonly $schema?: string;
+            billing_state: string;
+            /** Format: int64 */
+            cost_microusd: number | null;
+            /** Format: date-time */
+            created_at: string;
+            error_message: string;
+            id: string;
+            model: string;
+            operation: string;
+            page_id: string;
+            project_id: string;
+            prompt: string;
+            result_media_id: string;
+            source_media_id: string;
+            state: string;
+            target_fingerprint: string;
+            target_layer_id: string;
+            workspace_id: string;
+        };
+        ImageModel: {
+            id: string;
+            name: string;
+        };
+        ImportedPostResponse: {
+            external_id: string;
+            external_url: string;
+            id: string;
+            /** Format: date-time */
+            published_at: string;
+            text: string;
+            title: string;
+        };
+        InboxActivityInputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/InboxActivityInputBody.json
+             */
+            readonly $schema?: string;
+            client_id: string;
+            conversation_id?: string;
+            /** @enum {string} */
+            view: "chats" | "comments" | "conversation" | "away";
+            workspace_id: string;
+        };
+        InboxChangePage: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/InboxChangePage.json
+             */
+            readonly $schema?: string;
+            changes: components["schemas"]["Change"][] | null;
+            conversations: components["schemas"]["Conversation"][] | null;
+            cursor: string;
+            messages: components["schemas"]["DirectMessage"][] | null;
+            reset: boolean;
+        };
+        InboxSummary: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/InboxSummary.json
+             */
+            readonly $schema?: string;
+            /** Format: int64 */
+            unread_comments: number;
+            /** Format: int64 */
+            unread_conversations: number;
+        };
         IngestDiagnosticsInputBody: {
             /**
              * Format: uri
@@ -9864,10 +12088,20 @@ export interface components {
             db_driver?: string;
             /** @description Normalized error code from the diagnostics catalog */
             error_code: string;
+            /**
+             * @description Allowlisted error type, never message text
+             * @enum {string}
+             */
+            error_kind?: "deadline_exceeded" | "canceled" | "not_found" | "permission_denied" | "connection_refused" | "connection_reset" | "unexpected_eof" | "dns_error" | "network_timeout" | "runtime_error" | "type_error" | "reference_error" | "range_error" | "syntax_error" | "quota_exceeded" | "security_error" | "not_supported" | "invalid_state" | "abort_error" | "network_error";
             /** @description RFC3339 first observation, when known */
             first_seen?: string;
             /** @description Sanitized stack frames without domains or local paths */
             frames?: components["schemas"]["DiagnosticsFrame"][] | null;
+            /**
+             * @description HTTP request method, when relevant
+             * @enum {string}
+             */
+            http_method?: "GET" | "HEAD" | "POST" | "PUT" | "PATCH" | "DELETE" | "OPTIONS" | "CONNECT" | "TRACE";
             /**
              * Format: int64
              * @description HTTP status, when relevant
@@ -9959,8 +12193,6 @@ export interface components {
             /** Format: date-time */
             published_at: string;
             reference: components["schemas"]["ContentReference"];
-            /** @enum {string} */
-            source: "openpost" | "external";
             title: string;
             username: string;
         };
@@ -10262,6 +12494,30 @@ export interface components {
             /** @description Job type */
             type: string;
         };
+        JoinWaitlistInputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/JoinWaitlistInputBody.json
+             */
+            readonly $schema?: string;
+            /** @description Email address to notify when Hosted registration opens */
+            email: string;
+        };
+        JoinWaitlistOutputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/JoinWaitlistOutputBody.json
+             */
+            readonly $schema?: string;
+            joined: boolean;
+        };
+        LibraryReference: {
+            id?: string;
+            role: string;
+            version?: string;
+        };
         ListImageEditorDesignsOutputBody: {
             /**
              * Format: uri
@@ -10293,6 +12549,15 @@ export interface components {
             readonly $schema?: string;
             can_edit: boolean;
             templates: components["schemas"]["ImageEditorTemplateResponse"][] | null;
+        };
+        ListImageGenerationsOutputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/ListImageGenerationsOutputBody.json
+             */
+            readonly $schema?: string;
+            runs: components["schemas"]["ImageGenerationRun"][] | null;
         };
         ListMediaOutputBody: {
             /**
@@ -10352,6 +12617,18 @@ export interface components {
             follow_updates: components["schemas"]["FollowUpdateView"][] | null;
             items: components["schemas"]["RecommendationView"][] | null;
             sync_state: components["schemas"]["SyncStateView"];
+        };
+        ListScreenshotTemplateDesignsOutputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/ListScreenshotTemplateDesignsOutputBody.json
+             */
+            readonly $schema?: string;
+            can_edit: boolean;
+            designs: components["schemas"]["ScreenshotTemplateDesignSummary"][] | null;
+            /** Format: int64 */
+            total: number;
         };
         ListStockProvidersOutputBody: {
             /**
@@ -10414,6 +12691,34 @@ export interface components {
             /** @description Workspace associated with the call, when provided */
             workspace_id?: string;
         };
+        MarkEngagementReadInputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/MarkEngagementReadInputBody.json
+             */
+            readonly $schema?: string;
+            account_id?: string;
+            archived?: boolean;
+            /** @enum {string} */
+            kind?: "comment" | "mention" | "review";
+            platform?: string;
+            publication_id?: string;
+            workspace_id: string;
+        };
+        MarkEngagementReadOutputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/MarkEngagementReadOutputBody.json
+             */
+            readonly $schema?: string;
+            /**
+             * Format: int64
+             * @description Number of matching unread items marked read across all pages. Read state is shared by the Workspace.
+             */
+            updated_count: number;
+        };
         MastodonServerInfo: {
             /** @description Mastodon instance URL */
             instance_url: string;
@@ -10437,6 +12742,16 @@ export interface components {
             max_height?: number;
             /** Format: int64 */
             max_image_size_bytes?: number;
+            /**
+             * Format: int64
+             * @description Maximum total decoded image pixels, width times height
+             */
+            max_pixels?: number;
+            /**
+             * Format: int64
+             * @description Maximum image dimension on its shorter side
+             */
+            max_short_side?: number;
             /** Format: int64 */
             max_size_bytes?: number;
             max_video_aspect_ratio?: string;
@@ -10584,10 +12899,14 @@ export interface components {
             workspace_id: string;
         };
         MediaPlan: {
+            alt_text?: string;
             brief: string;
+            /** @description Validated editable visual recipe, awaiting rendering and upload */
+            document?: components["schemas"]["ScreenshotTemplateDocument"];
             role: string;
             /** @description Exact source ID for source-bound media treatments */
             source_ref?: string;
+            template_id?: string;
             treatment: string;
         };
         MediaSummary: {
@@ -10639,6 +12958,23 @@ export interface components {
             name: string;
             workspace_id: string;
         };
+        MediaUploadLimits: {
+            /**
+             * Format: int64
+             * @description Upload ceiling in bytes for brand-font assets
+             */
+            brand_font_bytes: number;
+            /**
+             * Format: int64
+             * @description Upload ceiling in bytes for non-video, non-brand-font assets
+             */
+            default_bytes: number;
+            /**
+             * Format: int64
+             * @description Upload ceiling in bytes for video assets
+             */
+            video_bytes: number;
+        };
         MediaUploadResult: {
             /**
              * Format: uri
@@ -10660,6 +12996,11 @@ export interface components {
             design_document_id?: string;
             /** @description Producing OpenPost Image Editor page ID */
             design_page_id?: string;
+            /**
+             * Format: int64
+             * @description Known image height in pixels
+             */
+            height?: number;
             /** @description Media ID */
             id: string;
             /** @description MIME type */
@@ -10691,6 +13032,11 @@ export interface components {
             source: string;
             /** @description URL to access the media */
             url: string;
+            /**
+             * Format: int64
+             * @description Known image width in pixels
+             */
+            width?: number;
         };
         MediaUsageItem: {
             /** @description Publication content (truncated) */
@@ -10776,6 +13122,77 @@ export interface components {
             template: components["schemas"]["Template"];
             template_id: string;
         };
+        MentionCandidate: {
+            /** @description Provider account address or company vanity name */
+            detail: string;
+            /** @description Exact visible text inserted into the post */
+            label: string;
+            target: components["schemas"]["MentionTarget"];
+        };
+        MentionLookupOutputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/MentionLookupOutputBody.json
+             */
+            readonly $schema?: string;
+            candidates: components["schemas"]["MentionCandidate"][] | null;
+            /** @enum {string} */
+            mode: "accounts" | "exact_company";
+        };
+        MentionProfile: {
+            authority?: string;
+            provider: string;
+            /** @description Validated native identity, or omitted for an ordinary text replacement */
+            target?: components["schemas"]["NativeMentionTarget"];
+            text: string;
+        };
+        MentionSpan: {
+            /**
+             * Format: int64
+             * @description Exclusive UTF-8 byte offset
+             */
+            end: number;
+            /**
+             * Format: int64
+             * @description Inclusive UTF-8 byte offset in the exact authored text
+             */
+            start: number;
+            target: components["schemas"]["MentionTarget"];
+            /** @description Exact visible text covered by the range */
+            text: string;
+        };
+        MentionTarget: {
+            /** @description Connected instance origin for Mastodon; empty for global identity namespaces */
+            authority?: string;
+            /** @description Native account address returned by the provider lookup */
+            handle?: string;
+            id: string;
+            /** @enum {string} */
+            kind: "person" | "page" | "profile";
+            /** @description Immutable per-network snapshot for a reusable Workspace mention */
+            profiles?: components["schemas"]["MentionProfile"][] | null;
+            /** @enum {string} */
+            provider: "bluesky" | "mastodon" | "linkedin" | "workspace";
+        };
+        Mentions: {
+            /** @description Ordered, nonoverlapping native mention selections; an empty list explicitly contains no selected mentions */
+            spans: components["schemas"]["MentionSpan"][];
+            /**
+             * Format: int64
+             * @enum {integer}
+             */
+            version: 1;
+        };
+        MessageHistoryInputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/MessageHistoryInputBody.json
+             */
+            readonly $schema?: string;
+            workspace_id: string;
+        };
         MessageOutputBody: {
             /**
              * Format: uri
@@ -10792,6 +13209,8 @@ export interface components {
              * @example https://example.com/api/v1/schemas/MessagePage.json
              */
             readonly $schema?: string;
+            conversation?: components["schemas"]["Conversation"];
+            history_available?: boolean;
             items: components["schemas"]["DirectMessage"][] | null;
             next_cursor?: string;
         };
@@ -10844,6 +13263,15 @@ export interface components {
             format: "ttf" | "otf";
             identity: string;
             sourceUrl: string;
+        };
+        NativeMentionTarget: {
+            authority?: string;
+            handle?: string;
+            id: string;
+            /** @enum {string} */
+            kind: "person" | "page";
+            /** @enum {string} */
+            provider: "bluesky" | "mastodon" | "linkedin";
         };
         NextAvailableSlotOutputBody: {
             /**
@@ -11116,9 +13544,29 @@ export interface components {
             why_it_fits: string;
             why_now: string;
         };
+        OptimizeMediaImageOutputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/OptimizeMediaImageOutputBody.json
+             */
+            readonly $schema?: string;
+            media: components["schemas"]["MediaUploadResult"];
+            /** @description True only when a smaller lossless copy was created or reused */
+            optimized: boolean;
+        };
         Option: {
             label: string;
             value: string;
+        };
+        OptionEdit: {
+            account_id: string;
+            document?: components["schemas"]["ScreenshotTemplateDocument"];
+            segments: components["schemas"]["SegmentPlan"][] | null;
+        };
+        OptionMedia: {
+            account_id: string;
+            media_id: string;
         };
         OrganizationAuditEvent: {
             action: string;
@@ -11263,6 +13711,8 @@ export interface components {
             /** Format: int64 */
             media_max_count: number;
             /** Format: int64 */
+            media_min_count?: number;
+            /** Format: int64 */
             text_limit: number;
         };
         Override: {
@@ -11287,26 +13737,32 @@ export interface components {
             account_growth_scope: "account_wide";
             accounts: components["schemas"]["AccountOverview"][] | null;
             content: components["schemas"]["ContentOverview"][] | null;
+            content_metric_keys?: string[] | null;
             content_next_cursor?: string;
             /** Format: int64 */
             content_total: number;
-            coverage: components["schemas"]["AccountDiscoveryCoverage"][] | null;
             follower_series: components["schemas"]["SeriesPoint"][] | null;
             /** Format: date-time */
             generated_at: string;
+            highlights: components["schemas"]["ContentOverview"][] | null;
             insights: components["schemas"]["Insight"][] | null;
             /** Format: date-time */
             last_synced_at?: string;
+            performance: components["schemas"]["AccountPerformance"][] | null;
             publication_next_cursor?: string;
             /** Format: int64 */
             publication_total: number;
             publications: components["schemas"]["PublicationOverview"][] | null;
             /** Format: int64 */
             range_days: number;
-            /** @enum {string} */
-            source: "all" | "openpost" | "external";
+            /** Format: date-time */
+            range_end?: string;
+            /** Format: date-time */
+            range_start?: string;
             summary: components["schemas"]["Summary"];
+            takeaways: components["schemas"]["Takeaway"][] | null;
             trends: components["schemas"]["TrendSeries"];
+            visibility_breakdown: components["schemas"]["VisibilityBreakdown"][] | null;
         };
         OwnershipTransferResponse: {
             /**
@@ -11454,6 +13910,40 @@ export interface components {
             status: string;
             token?: string;
         };
+        PostImportOverviewResponse: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/PostImportOverviewResponse.json
+             */
+            readonly $schema?: string;
+            account_id: string;
+            enabled: boolean;
+            failure_message?: string;
+            /** Format: date-time */
+            last_success_at?: string;
+            next_cursor?: string;
+            /** Format: date-time */
+            next_eligible_at?: string;
+            platform: string;
+            posts: components["schemas"]["ImportedPostResponse"][] | null;
+            status: string;
+            supported: boolean;
+            unavailable_reason?: string;
+        };
+        PostOption: {
+            canonical_text: string;
+            destinations: components["schemas"]["DestinationPlan"][] | null;
+            direction: components["schemas"]["DirectorPlan"];
+            id: string;
+            label: string;
+            review_flags: components["schemas"]["ReviewFlag"][] | null;
+            skipped: components["schemas"]["SkippedDestination"][] | null;
+        };
+        PostReference: {
+            cid: string;
+            uri: string;
+        };
         PostingScheduleResponse: {
             /**
              * Format: uri
@@ -11502,6 +13992,27 @@ export interface components {
             /** @description Workspace ID */
             workspace_id: string;
         };
+        Preference: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/Preference.json
+             */
+            readonly $schema?: string;
+            context: string;
+            /** @enum {string} */
+            editor_kind: "video" | "image" | "both";
+            enabled: boolean;
+            id?: string;
+            project_id: string;
+            /** Format: int64 */
+            revision?: number;
+            rule: string;
+            source_instruction: string;
+            /** Format: date-time */
+            updated_at?: string;
+            workspace_id?: string;
+        };
         PreferenceSettings: {
             /**
              * Format: uri
@@ -11534,6 +14045,38 @@ export interface components {
             preferences: {
                 [key: string]: components["schemas"]["ChannelPreference"];
             };
+        };
+        PrepareMediaImageBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/PrepareMediaImageBody.json
+             */
+            readonly $schema?: string;
+            /** @description Connected destination in the original image's Workspace */
+            account_id: string;
+            /** @description Optional alt text for the fitted copy */
+            alt_text?: string;
+            /** @description Explicit destination format from resolve-capabilities */
+            output_profile: string;
+            /** @description Destination settings used when resolving its limits */
+            settings?: {
+                [key: string]: unknown;
+            };
+        };
+        PrepareMediaImageOutputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/PrepareMediaImageOutputBody.json
+             */
+            readonly $schema?: string;
+            media: components["schemas"]["MediaUploadResult"];
+            /**
+             * @description The derivative is fully processed before returning. Select its media ID explicitly when authoring a post.
+             * @enum {string}
+             */
+            status: "ready";
         };
         PreviewMemeInputBody: {
             /**
@@ -11568,6 +14111,38 @@ export interface components {
             data_base64: string;
             mime_type: string;
             template_id: string;
+        };
+        PreviewTextCardInputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/PreviewTextCardInputBody.json
+             */
+            readonly $schema?: string;
+            /**
+             * Format: int64
+             * @description Following attachments; adds a next-slide arrow
+             */
+            attachment_count?: number;
+            /** @description Provider format, including instagram.story for a vertical Story */
+            output_profile?: string;
+            /** @description Text card style settings, also accepted in rendition and Social Set defaults */
+            settings?: {
+                [key: string]: unknown;
+            };
+            /** @description Connected account whose name, handle and profile photo appear on the card */
+            social_account_id: string;
+            /** @description Effective destination text */
+            text: string;
+        };
+        PreviewTextCardOutputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/PreviewTextCardOutputBody.json
+             */
+            readonly $schema?: string;
+            images: components["schemas"]["TextCardPreviewImage"][] | null;
         };
         Profile: {
             description: string;
@@ -11803,8 +14378,6 @@ export interface components {
         };
         ProviderReadinessAccount: {
             analytics?: components["schemas"]["Decision"];
-            discovery?: components["schemas"]["Decision"];
-            observation?: components["schemas"]["Decision"];
             social_account_id: string;
         };
         ProviderReadinessItem: {
@@ -11923,6 +14496,8 @@ export interface components {
             origin?: string;
         };
         PublicationLifecycleDestination: {
+            /** @description Stored account avatar URL, empty when the account has no photo */
+            avatar_url?: string;
             label: string;
             platform: string;
             rendition_id: string;
@@ -12015,6 +14590,7 @@ export interface components {
             published_at: string;
             renditions: components["schemas"]["ContentOverview"][] | null;
             title: string;
+            visibility: components["schemas"]["MetricSummary"];
         };
         PublicationResponse: {
             /**
@@ -12029,6 +14605,11 @@ export interface components {
             created_at: string;
             created_by: string;
             creation_preset: string;
+            /**
+             * @description Low-cardinality channel that created the Publication
+             * @enum {string}
+             */
+            creation_source: "web" | "api" | "sdk" | "mcp" | "cli" | "autopost" | "unknown";
             failure_dismissed_at?: string;
             goal?: string;
             id: string;
@@ -12043,6 +14624,11 @@ export interface components {
             renditions: components["schemas"]["RenditionResponse"][] | null;
             repost_override: components["schemas"]["Override"];
             /** Format: int64 */
+            review_epoch?: number;
+            review_id?: string;
+            /** @enum {string} */
+            review_state?: "pending" | "approved" | "changes_requested" | "needs_review";
+            /** Format: int64 */
             revision: number;
             scheduled_at?: string;
             segments: components["schemas"]["PublicationSegmentResponse"][] | null;
@@ -12052,6 +14638,56 @@ export interface components {
             status: string;
             title: string;
             updated_at: string;
+            workspace_id: string;
+        };
+        PublicationReviewDecisionInputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/PublicationReviewDecisionInputBody.json
+             */
+            readonly $schema?: string;
+            /** @enum {string} */
+            decision: "approved" | "changes_requested";
+            /** Format: int64 */
+            expected_epoch: number;
+            feedback: string;
+        };
+        PublicationReviewInputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/PublicationReviewInputBody.json
+             */
+            readonly $schema?: string;
+            /** Format: int64 */
+            expected_revision: number;
+            note: string;
+            reviewer_id: string;
+        };
+        PublicationReviewResponse: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/PublicationReviewResponse.json
+             */
+            readonly $schema?: string;
+            /** Format: date-time */
+            created_at: string;
+            current: boolean;
+            /** Format: date-time */
+            decided_at?: string;
+            decision?: string;
+            /** Format: int64 */
+            epoch: number;
+            feedback?: string;
+            id: string;
+            includes_schedule: boolean;
+            note: string;
+            publication_id: string;
+            requested_by: string;
+            reviewer_id: string;
+            snapshot: components["schemas"]["PublicationResponse"];
             workspace_id: string;
         };
         PublicationSegmentInput: {
@@ -12065,6 +14701,8 @@ export interface components {
             media?: components["schemas"]["PublicationMediaInput"][] | null;
             /** @description Canonical segment settings */
             settings?: {
+                mentions?: components["schemas"]["Mentions"];
+            } & {
                 [key: string]: unknown;
             };
             /** @description Canonical segment title */
@@ -12080,10 +14718,24 @@ export interface components {
             /** Format: int64 */
             position: number;
             settings: {
+                mentions?: components["schemas"]["Mentions"];
+            } & {
                 [key: string]: unknown;
             };
             title: string;
             url?: string;
+        };
+        PublicationSeriesConceptInputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/PublicationSeriesConceptInputBody.json
+             */
+            readonly $schema?: string;
+            brief: string;
+            /** Format: int64 */
+            expected_revision: number;
+            title: string;
         };
         PublicationUpdateBody: {
             /**
@@ -12295,6 +14947,19 @@ export interface components {
             /** Format: int64 */
             runway_days: number;
         };
+        Readiness: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/Readiness.json
+             */
+            readonly $schema?: string;
+            authorized: boolean;
+            can_send: boolean;
+            can_subscribe: boolean;
+            encrypted_chat: boolean;
+            reason?: string;
+        };
         "Readiness-checkResponse": {
             /**
              * Format: uri
@@ -12453,6 +15118,8 @@ export interface components {
              */
             readonly $schema?: string;
             error_code?: string;
+            /** @description Durable collection jobs to observe before presenting upstream refresh completion */
+            job_ids?: string[] | null;
             /** Format: int64 */
             queued: number;
             /** @enum {string} */
@@ -12547,6 +15214,8 @@ export interface components {
             alt_text?: string;
             /** @description Caption values in template order */
             captions: string[] | null;
+            /** @description Output filename; its extension must match the rendered format (.jpg for jpg or jpeg). Defaults to the template-based filename. */
+            filename?: string;
             /**
              * @description Rendered image format
              * @default png
@@ -12557,6 +15226,12 @@ export interface components {
             overlay_media_ids?: string[] | null;
             /** @description Prior generated media when this is an edited version */
             parent_media_id?: string;
+            /**
+             * @description Keep in the library or manage as temporary post media
+             * @default temporary
+             * @enum {string}
+             */
+            retention_class: "library" | "temporary";
             /** @description OpenPost meme template ID */
             template_id: string;
             /** @description Workspace ID */
@@ -12575,6 +15250,14 @@ export interface components {
         Rendition: {
             body: string;
             social_account_id: string;
+        };
+        RenditionAccountIdentity: {
+            /** @description Stored account avatar URL, empty when the account has no photo */
+            avatar_url?: string;
+            /** @description Account slug, @username, or platform fallback */
+            display_name: string;
+            /** @description Destination platform */
+            platform: string;
         };
         RenditionActionOutcome: {
             delivery?: components["schemas"]["ProviderDeliveryResponse"];
@@ -12618,6 +15301,8 @@ export interface components {
             title?: string;
         };
         RenditionResponse: {
+            /** @description Bounded destination account identity resolved from stored account state; no provider I/O */
+            account?: components["schemas"]["RenditionAccountIdentity"];
             body: string;
             delivery?: components["schemas"]["ProviderDeliveryResponse"];
             description: string;
@@ -12667,8 +15352,12 @@ export interface components {
             publication_segment_id?: string;
             /** @description Segment-scoped destination settings */
             settings?: {
+                mentions?: components["schemas"]["Mentions"];
+            } & {
                 [key: string]: unknown;
             };
+            /** @description Authored canonical-source overrides for a single joined destination output */
+            source_overrides?: components["schemas"]["RenditionSourceOverride"][] | null;
             /** @description Destination segment title override */
             title?: string;
             /** @description Explicit destination title; omit or null to inherit */
@@ -12696,17 +15385,34 @@ export interface components {
             id: string;
             media: components["schemas"]["MediaSummary"][] | null;
             media_inherited: boolean;
+            /** @description Ordered delivery media, including generated text cards. Use media for editing source attachments. */
+            output_media?: components["schemas"]["MediaSummary"][] | null;
             /** Format: int64 */
             position: number;
             publication_segment_id: string;
             settings: {
+                mentions?: components["schemas"]["Mentions"];
+            } & {
                 [key: string]: unknown;
             };
+            source_overrides?: components["schemas"]["RenditionSourceOverride"][] | null;
             status: string;
             title: string;
             title_override?: string;
             url?: string;
             url_override?: string;
+        };
+        RenditionSourceOverride: {
+            /** @description Explicit source body; omit or null to inherit */
+            body_override?: string;
+            /** @description Independent source media, including an explicit empty list */
+            media?: components["schemas"]["PublicationMediaInput"][] | null;
+            /** @description Whether this source contributes its canonical media */
+            media_inherited: boolean;
+            /** @description Mention selections paired with this explicit source body; omit to inherit */
+            mentions?: components["schemas"]["Mentions"];
+            /** @description Canonical source segment ID, or matching client reference in the same request */
+            publication_segment_id: string;
         };
         ReplaceMediaTagItemsInputBody: {
             /**
@@ -12755,6 +15461,25 @@ export interface components {
                 [key: string]: unknown;
             };
         };
+        RepostExecutionResponse: {
+            /** Format: date-time */
+            created_at: string;
+            /** Format: int64 */
+            current_stage: number;
+            error?: string;
+            history: components["schemas"]["StageHistoryEntry"][] | null;
+            id: string;
+            /** Format: date-time */
+            next_check_at?: string;
+            policy_id?: string;
+            policy_name?: string;
+            publication_id: string;
+            rule: components["schemas"]["Rule"];
+            status: string;
+            target_account_id: string;
+            /** Format: int64 */
+            total_stages: number;
+        };
         RepostGrantOutputBody: {
             /**
              * Format: uri
@@ -12790,7 +15515,7 @@ export interface components {
         };
         RepurposeProvenance: {
             /** @enum {string} */
-            origin: "openpost" | "external";
+            origin: "openpost";
             platform: string;
             /** Format: date-time */
             published_at: string;
@@ -12799,10 +15524,12 @@ export interface components {
         RepurposeRange: {
             /**
              * Format: int64
-             * @description Reporting window in days
+             * @description Reporting window in days; 0 means all time
              * @enum {integer}
              */
-            days: 7 | 30 | 90;
+            days: 0 | 7 | 30 | 90 | 365;
+            from?: string;
+            to?: string;
         };
         RepurposeSource: {
             /**
@@ -12819,6 +15546,39 @@ export interface components {
             range: components["schemas"]["RepurposeRange"];
             source_text: string;
             title: string;
+            workspace_id: string;
+        };
+        RepurposeSuggestionsRevisionInputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/RepurposeSuggestionsRevisionInputBody.json
+             */
+            readonly $schema?: string;
+            /** Format: int64 */
+            revision: number;
+        };
+        Request: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/Request.json
+             */
+            readonly $schema?: string;
+            arguments: unknown;
+            /** Format: date-time */
+            created_at: string;
+            error?: unknown;
+            /** Format: date-time */
+            expires_at: string;
+            id: string;
+            operation: string;
+            request_key: string;
+            result?: unknown;
+            session_id: string;
+            status: string;
+            /** Format: date-time */
+            updated_at: string;
             workspace_id: string;
         };
         RequestPasswordResetInputBody: {
@@ -12915,6 +15675,10 @@ export interface components {
             readonly $schema?: string;
             /** @description Connected account IDs */
             account_ids: string[] | null;
+            /** @description Effective segments for customized destinations, keyed by selected connected account ID */
+            account_segments?: {
+                [key: string]: components["schemas"]["ResolveCapabilitySegmentInput"][] | null;
+            };
             /** @description Destination settings keyed by connected account ID */
             account_settings?: {
                 [key: string]: {
@@ -12968,6 +15732,10 @@ export interface components {
             id: string;
             /** @description Ordered segment media */
             media?: components["schemas"]["ResolveCapabilityMediaInput"][] | null;
+            /** @description Authored segment settings, including attachment requirements */
+            settings?: {
+                [key: string]: unknown;
+            };
             /** @description Canonical segment title */
             title?: string;
             /** @description Canonical segment URL */
@@ -13110,6 +15878,7 @@ export interface components {
             id: string;
             kind: string;
             label: string;
+            mime_type?: string;
             publishable: boolean;
         };
         ResolvedTheme: {
@@ -13182,11 +15951,34 @@ export interface components {
             /** @description Current processing status */
             processing_status: string;
         };
+        RetryMessageInputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/RetryMessageInputBody.json
+             */
+            readonly $schema?: string;
+            message_id: string;
+            workspace_id: string;
+        };
+        ReviewContext: {
+            anonymous: boolean;
+            owner_reply?: components["schemas"]["ReviewReply"];
+            /** Format: int64 */
+            stars?: number;
+        };
         ReviewFlag: {
             account_id?: string;
             field: string;
             message: string;
             severity: string;
+        };
+        ReviewReply: {
+            policy_violation?: string;
+            state: string;
+            text: string;
+            /** Format: date-time */
+            updated_at?: string;
         };
         "Revoke-organization-ownership-transferResponse": {
             /**
@@ -13379,6 +16171,17 @@ export interface components {
             /** @description Workspace ID */
             workspace_id: string;
         };
+        SaveImageEditorEffectPresetInputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/SaveImageEditorEffectPresetInputBody.json
+             */
+            readonly $schema?: string;
+            effects: components["schemas"]["ImageEditorLayerEffects"];
+            name: string;
+            workspace_id: string;
+        };
         SaveInstanceSettingsInputBody: {
             /**
              * Format: uri
@@ -13388,6 +16191,18 @@ export interface components {
             readonly $schema?: string;
             /** @description Settings to update atomically */
             settings: components["schemas"]["InstanceSettingUpdateInput"][] | null;
+        };
+        SavePostImportsInputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/SavePostImportsInputBody.json
+             */
+            readonly $schema?: string;
+            /** @description Whether native post imports are enabled */
+            enabled: boolean;
+            /** @description Workspace ID */
+            workspace_id: string;
         };
         SaveProviderAppInputBody: {
             /**
@@ -13432,6 +16247,17 @@ export interface components {
             /** @description Whether the server must restart before adapter changes apply */
             requires_restart: boolean;
         };
+        SavePublicationOptionInputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/SavePublicationOptionInputBody.json
+             */
+            readonly $schema?: string;
+            edits: components["schemas"]["OptionEdit"][] | null;
+            /** Format: int64 */
+            expected_revision: number;
+        };
         SaveRepostSettingsInputBody: {
             /**
              * Format: uri
@@ -13439,10 +16265,45 @@ export interface components {
              * @example https://example.com/api/v1/schemas/SaveRepostSettingsInputBody.json
              */
             readonly $schema?: string;
+            /** @description Revision returned by the last read; stale updates fail with 409 */
+            expected_revision?: string;
             /** @description Complete replacement set of workspace repost rules */
             policies: components["schemas"]["PolicyInput"][] | null;
             /** @description Workspace ID */
             workspace_id: string;
+        };
+        SaveScreenshotTemplateExportInputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/SaveScreenshotTemplateExportInputBody.json
+             */
+            readonly $schema?: string;
+            media_id: string;
+            /** Format: int64 */
+            revision: number;
+        };
+        SavedMentionResponse: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/SavedMentionResponse.json
+             */
+            readonly $schema?: string;
+            id: string;
+            name: string;
+            profiles: components["schemas"]["MentionProfile"][] | null;
+        };
+        SavedMentionSaveInputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/SavedMentionSaveInputBody.json
+             */
+            readonly $schema?: string;
+            id?: string;
+            name: string;
+            profiles: components["schemas"]["MentionProfile"][] | null;
         };
         Scene: {
             /** Format: double */
@@ -13457,6 +16318,130 @@ export interface components {
         Screenshot: {
             data: string;
             mime_type: string;
+        };
+        ScreenshotTemplateConversation: {
+            messages: components["schemas"]["ScreenshotTemplateMessage"][];
+            name: string;
+            people: components["schemas"]["ScreenshotTemplatePerson"][];
+            read_receipt: string;
+            self_id: string;
+            show_header: boolean;
+            timestamp: string;
+        };
+        ScreenshotTemplateDesignResponse: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/ScreenshotTemplateDesignResponse.json
+             */
+            readonly $schema?: string;
+            can_edit: boolean;
+            document: components["schemas"]["ScreenshotTemplateDocument"];
+            id: string;
+            /** Format: int64 */
+            revision: number;
+            template_id: string;
+            title: string;
+            /** Format: date-time */
+            updated_at: string;
+            workspace_id: string;
+        };
+        ScreenshotTemplateDesignSummary: {
+            id: string;
+            /** Format: int64 */
+            revision: number;
+            template_id: string;
+            title: string;
+            /** Format: date-time */
+            updated_at: string;
+            workspace_id: string;
+        };
+        ScreenshotTemplateDocument: {
+            /** @enum {string} */
+            appearance: "light" | "dark";
+            conversation?: components["schemas"]["ScreenshotTemplateConversation"];
+            /** @enum {string} */
+            frame: "natural" | "square" | "portrait";
+            meme?: components["schemas"]["ScreenshotTemplateMeme"];
+            receipt?: components["schemas"]["ScreenshotTemplateReceipt"];
+            /**
+             * Format: int64
+             * @enum {integer}
+             */
+            schema_version: 1;
+            status_page?: components["schemas"]["ScreenshotTemplateStatus"];
+            /** @enum {string} */
+            template_id: "messages" | "group-chat" | "receipt" | "status-page" | "meme";
+            /** @enum {string} */
+            text_size: "small" | "normal" | "large";
+            title: string;
+        };
+        ScreenshotTemplateMeme: {
+            alt_text?: string;
+            captions: string[];
+            /** @enum {string} */
+            format: "png" | "webp" | "gif";
+            name: string;
+            overlay_media_ids: string[];
+            /** Format: int64 */
+            overlay_slots: number;
+            parent_media_id?: string;
+            template_id: string;
+        };
+        ScreenshotTemplateMessage: {
+            id: string;
+            image_media_id?: string;
+            sender_id: string;
+            text: string;
+        };
+        ScreenshotTemplatePerson: {
+            avatar_media_id?: string;
+            id: string;
+            name: string;
+        };
+        ScreenshotTemplateReceipt: {
+            address: string;
+            business: string;
+            /** @enum {string} */
+            currency: "USD" | "EUR" | "GBP" | "BRL" | "JPY";
+            custom_total: string;
+            footer: string;
+            items: components["schemas"]["ScreenshotTemplateReceiptItem"][];
+            order: string;
+            /** Format: double */
+            tax_percent: number;
+            timestamp: string;
+        };
+        ScreenshotTemplateReceiptItem: {
+            /** Format: int64 */
+            amount_cents: number;
+            id: string;
+            name: string;
+            /** Format: int64 */
+            quantity: number;
+        };
+        ScreenshotTemplateRecipeOutputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/ScreenshotTemplateRecipeOutputBody.json
+             */
+            readonly $schema?: string;
+            document: components["schemas"]["ScreenshotTemplateDocument"];
+            workspace_id: string;
+        };
+        ScreenshotTemplateStatus: {
+            headline: string;
+            name: string;
+            /** @enum {string} */
+            severity: "operational" | "degraded" | "outage";
+            updates: components["schemas"]["ScreenshotTemplateStatusUpdate"][];
+        };
+        ScreenshotTemplateStatusUpdate: {
+            id: string;
+            stage: string;
+            text: string;
+            timestamp: string;
         };
         Script: {
             diagnostics?: string[] | null;
@@ -13523,13 +16508,42 @@ export interface components {
              * @example https://example.com/api/v1/schemas/SendMessageInputBody.json
              */
             readonly $schema?: string;
+            client_operation_id?: string;
             message: string;
             workspace_id: string;
+        };
+        SeriesConcept: {
+            brief: string;
+            child_build_id?: string;
+            evidence: string;
+            id: string;
+            /** Format: int64 */
+            revision: number;
+            source_refs: string[] | null;
+            title: string;
+        };
+        SeriesOrigin: {
+            build_id: string;
+            item_id: string;
+            /** Format: int64 */
+            item_revision: number;
         };
         SeriesPoint: {
             date: string;
             /** Format: int64 */
             value: number;
+        };
+        Session: {
+            /** Format: date-time */
+            created_at: string;
+            editor_kind: string;
+            /** Format: date-time */
+            expires_at: string;
+            id: string;
+            /** Format: date-time */
+            last_seen_at: string;
+            project_id: string;
+            workspace_id: string;
         };
         SetConversationStateInputBody: {
             /**
@@ -13599,6 +16613,8 @@ export interface components {
         };
         SettingConstraint: {
             accept?: string[] | null;
+            /** @description Value must be an RFC 3339 timestamp with a timezone */
+            date_time?: boolean;
             local_date_time?: boolean;
             /** Format: int64 */
             max_items?: number;
@@ -13634,6 +16650,8 @@ export interface components {
             options?: string[] | null;
             options_source?: string;
             output_profiles?: string[] | null;
+            /** @description Choose this setting on each post, never in reusable Social Set defaults */
+            post_only?: boolean;
             required: boolean;
             /** @enum {string} */
             required_policy?: "never" | "always" | "when_available";
@@ -13651,8 +16669,10 @@ export interface components {
             readonly $schema?: string;
             accounts: components["schemas"]["AccountOption"][] | null;
             can_manage: boolean;
+            executions?: components["schemas"]["RepostExecutionResponse"][] | null;
             grants: components["schemas"]["GrantResponse"][] | null;
             policies: components["schemas"]["PolicyResponse"][] | null;
+            revision?: string;
             supported_platforms: string[] | null;
             workspace_id: string;
         };
@@ -13756,6 +16776,19 @@ export interface components {
             /** @description Remove the preceding repost before creating this one */
             unrepost_previous: boolean;
         };
+        StageHistoryEntry: {
+            /** Format: int64 */
+            delay_seconds: number;
+            /** Format: date-time */
+            executed_at: string;
+            external_url?: string;
+            repost_external_id?: string;
+            /** Format: int64 */
+            stage: number;
+            unrepost_previous: boolean;
+            /** Format: date-time */
+            unreposted_at?: string;
+        };
         StartCLIAuthInputBody: {
             /**
              * Format: uri
@@ -13786,6 +16819,16 @@ export interface components {
             interval: number;
             user_code: string;
             verification_url: string;
+        };
+        StartPublicationSeriesConceptInputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/StartPublicationSeriesConceptInputBody.json
+             */
+            readonly $schema?: string;
+            /** Format: int64 */
+            expected_revision: number;
         };
         StartWorkspaceCompositionInputBody: {
             /**
@@ -13859,6 +16902,39 @@ export interface components {
             /** Format: int64 */
             version: number;
         };
+        Style: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/Style.json
+             */
+            readonly $schema?: string;
+            archived?: boolean;
+            built_in?: boolean;
+            context: string;
+            /** Format: date-time */
+            created_at?: string;
+            definition: components["schemas"]["StyleDefinition"];
+            /** @enum {string} */
+            editor_kind: "video" | "image" | "both";
+            id?: string;
+            name: string;
+            shared?: boolean;
+            source_instruction: string;
+            /** Format: int64 */
+            version?: number;
+            workspace_id?: string;
+        };
+        StyleDefinition: {
+            captions: components["schemas"]["TextStyle"];
+            guidance: string[];
+            interpretations: string[];
+            library: components["schemas"]["LibraryReference"][];
+            palette: string[];
+            source_project_id?: string;
+            source_revision?: string;
+            typography: components["schemas"]["TextStyle"];
+        };
         SubmitDiagnosticsInputBody: {
             /**
              * Format: uri
@@ -13873,8 +16949,18 @@ export interface components {
             attempt_count?: number;
             /** @description Normalized error code from the diagnostics catalog */
             error_code: string;
+            /**
+             * @description Allowlisted error type, never message text
+             * @enum {string}
+             */
+            error_kind?: "deadline_exceeded" | "canceled" | "not_found" | "permission_denied" | "connection_refused" | "connection_reset" | "unexpected_eof" | "dns_error" | "network_timeout" | "runtime_error" | "type_error" | "reference_error" | "range_error" | "syntax_error" | "quota_exceeded" | "security_error" | "not_supported" | "invalid_state" | "abort_error" | "network_error";
             /** @description Sanitized stack frames without domains or local paths */
             frames?: components["schemas"]["DiagnosticsFrame"][] | null;
+            /**
+             * @description HTTP request method, when relevant
+             * @enum {string}
+             */
+            http_method?: "GET" | "HEAD" | "POST" | "PUT" | "PATCH" | "DELETE" | "OPTIONS" | "CONNECT" | "TRACE";
             /**
              * Format: int64
              * @description HTTP status, when relevant
@@ -13935,6 +17021,19 @@ export interface components {
             queued: boolean;
             recipient: string;
         };
+        SubscriptionResult: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/SubscriptionResult.json
+             */
+            readonly $schema?: string;
+            /** Format: date-time */
+            expires_at: string;
+            id: string;
+            /** Format: int64 */
+            reserved_events: number;
+        };
         SuggestScheduleInputBody: {
             /**
              * Format: uri
@@ -13962,6 +17061,32 @@ export interface components {
             /** @description Created schedule slots */
             schedules: components["schemas"]["PostingScheduleResponse"][] | null;
         };
+        Suggestion: {
+            context: string;
+            entry_id: string;
+            entry_name: string;
+            /** Format: date-time */
+            last_used_at: string;
+            /** Format: int64 */
+            projects: number;
+        };
+        SuggestionRequest: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/SuggestionRequest.json
+             */
+            readonly $schema?: string;
+            audience?: string;
+            /**
+             * Format: int64
+             * @description Preferred clip duration, not a forced length. Defaults to 45 seconds; shorter complete thoughts are allowed.
+             */
+            desired_duration_seconds?: number;
+            source: components["schemas"]["TranscriptSource"];
+            topic?: string;
+            workspace_id: string;
+        };
         Summary: {
             engagement: components["schemas"]["MetricSummary"];
             /** @enum {string} */
@@ -13972,6 +17097,7 @@ export interface components {
             published: number;
             reach: components["schemas"]["MetricSummary"];
             views: components["schemas"]["MetricSummary"];
+            visibility: components["schemas"]["MetricSummary"];
         };
         SyncStateView: {
             /** Format: date-time */
@@ -13991,6 +17117,25 @@ export interface components {
             /** Format: date-time */
             updated_at: string;
             workspace_id: string;
+        };
+        Takeaway: {
+            account_id: string;
+            /** Format: double */
+            baseline?: number;
+            /** Format: int64 */
+            comparison_sample: number;
+            excerpt?: string;
+            /** @enum {string} */
+            kind: "repurpose_post" | "restore_measurements";
+            /** Format: int64 */
+            measured_count: number;
+            platform: string;
+            reason: string;
+            reference?: components["schemas"]["ContentReference"];
+            title?: string;
+            username: string;
+            /** Format: int64 */
+            value: number;
         };
         Template: {
             animated: boolean;
@@ -14019,6 +17164,14 @@ export interface components {
             tags: string[] | null;
             visual: string;
         };
+        TextCardPreviewImage: {
+            /** @description Private JPEG preview generated by the publishing renderer */
+            data_url: string;
+            /** Format: int64 */
+            height: number;
+            /** Format: int64 */
+            width: number;
+        };
         TextConstraint: {
             /** Format: int64 */
             max_length?: number;
@@ -14027,6 +17180,15 @@ export interface components {
             /** Format: int64 */
             recommended_max_length?: number;
             required: boolean;
+        };
+        TextStyle: {
+            /** @enum {string} */
+            align?: "left" | "center" | "right" | "";
+            color?: string;
+            font_asset_id?: string;
+            font_family?: string;
+            /** Format: double */
+            font_size?: number;
         };
         Theme: {
             /**
@@ -14480,10 +17642,30 @@ export interface components {
             presentation_key: string;
             transactional: boolean;
         };
+        TranscriptSource: {
+            /** Format: int64 */
+            audio_track_index: number;
+            /** Format: double */
+            duration: number;
+            id: string;
+            /** @description Set for workspace Media sources. Access and availability are rechecked before analysis. */
+            media_id?: string;
+            /** @description Caller snapshot fingerprint, not a server-verified media revision. Compare with the current source before applying. */
+            revision: string;
+            words: components["schemas"]["TranscriptWord"][] | null;
+        };
+        TranscriptWord: {
+            /** Format: double */
+            end: number;
+            /** Format: double */
+            start: number;
+            text: string;
+        };
         TrendSeries: {
             engagement: components["schemas"]["DailyBreakdownPoint"][] | null;
             followers: components["schemas"]["DailyBreakdownPoint"][] | null;
             views: components["schemas"]["DailyBreakdownPoint"][] | null;
+            visibility: components["schemas"]["DailyBreakdownPoint"][] | null;
         };
         UpdateAccountInputBody: {
             /**
@@ -14492,6 +17674,8 @@ export interface components {
              * @example https://example.com/api/v1/schemas/UpdateAccountInputBody.json
              */
             readonly $schema?: string;
+            /** @description Internal account label. An empty value clears it; omission preserves it. */
+            alias?: string;
             /**
              * @deprecated
              * @description Deprecated shim. Use POST /account-features to change messaging preference.
@@ -14658,6 +17842,31 @@ export interface components {
             /** @description Unique public username */
             username?: string;
         };
+        UpdatePromptInputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/UpdatePromptInputBody.json
+             */
+            readonly $schema?: string;
+            /** @description Prompt category */
+            category: string;
+            /** @description Full example post for the prompt */
+            example: string;
+            /** @description Prompt text */
+            text: string;
+        };
+        UpdateScreenshotTemplateDesignInputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/UpdateScreenshotTemplateDesignInputBody.json
+             */
+            readonly $schema?: string;
+            document: components["schemas"]["ScreenshotTemplateDocument"];
+            /** Format: int64 */
+            revision: number;
+        };
         UpdateSocialSetInputBody: {
             /**
              * Format: uri
@@ -14766,7 +17975,7 @@ export interface components {
              * @description Replacement workspace role
              * @enum {string}
              */
-            role?: "admin" | "editor" | "viewer";
+            role?: "admin" | "editor" | "client" | "viewer";
             /**
              * @description Replacement workspace access state
              * @enum {string}
@@ -14929,7 +18138,7 @@ export interface components {
             id: string;
             payload_json: string;
             /** Format: date-time */
-            read_at: string;
+            read_at?: string;
             title: string;
             type: string;
             user_id: string;
@@ -15163,6 +18372,25 @@ export interface components {
             revision: number;
             touched_targets: string[] | null;
         };
+        VideoProjectSummaryResponse: {
+            attention_reason?: string;
+            created_at: string;
+            created_by_user_id: string;
+            /** Format: int64 */
+            head_revision: number;
+            id: string;
+            name: string;
+            preview_object_key?: string;
+            retention_expires_at?: string;
+            /** @description Editor document family; empty for legacy projects without a string family */
+            schema_family: string;
+            /** @enum {string} */
+            sync_status: "pending" | "uploading" | "saving" | "synced" | "needs_attention";
+            trashed_at?: string;
+            updated_at: string;
+            updated_by_user_id: string;
+            workspace_id: string;
+        };
         Viewport: {
             /** Format: int64 */
             height: number;
@@ -15170,6 +18398,17 @@ export interface components {
             pixel_ratio: number;
             /** Format: int64 */
             width: number;
+        };
+        VisibilityBreakdown: {
+            /** @enum {string} */
+            basis: "post_displays" | "content_views" | "video_views";
+            /** Format: int64 */
+            measured: number;
+            /** @enum {string} */
+            metric: "views" | "impressions";
+            platform: string;
+            /** Format: int64 */
+            value: number;
         };
         VisualPlan: {
             animation: components["schemas"]["AnimationBrief"];
@@ -15240,6 +18479,273 @@ export interface components {
             name?: string;
             /** Format: int64 */
             revision?: number;
+        };
+        Workflow: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/Workflow.json
+             */
+            readonly $schema?: string;
+            /** Format: date-time */
+            created_at: string;
+            definition: components["schemas"]["WorkflowDefinition"];
+            description: string;
+            enabled: boolean;
+            has_comment_replies?: boolean;
+            id: string;
+            /** Format: date-time */
+            last_checked_at?: string;
+            name: string;
+            /** Format: int64 */
+            published_revision: number;
+            /** Format: int64 */
+            revision: number;
+            source_error?: string;
+            /** Format: date-time */
+            updated_at: string;
+            workspace_id: string;
+        };
+        WorkflowConnection: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/WorkflowConnection.json
+             */
+            readonly $schema?: string;
+            /** Format: date-time */
+            created_at: string;
+            header_name?: string;
+            host?: string;
+            id: string;
+            kind: string;
+            name: string;
+        };
+        WorkflowCredentialRequest: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/WorkflowCredentialRequest.json
+             */
+            readonly $schema?: string;
+            header_name?: string;
+            host?: string;
+            /** @enum {string} */
+            kind?: "github" | "bearer" | "header" | "basic";
+            name: string;
+            token: string;
+        };
+        WorkflowDefinition: {
+            /** Format: int64 */
+            schema: number;
+            source: components["schemas"]["WorkflowSource"];
+            steps: components["schemas"]["WorkflowStep"][] | null;
+        };
+        WorkflowDeleteOutputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/WorkflowDeleteOutputBody.json
+             */
+            readonly $schema?: string;
+            deleted: boolean;
+        };
+        WorkflowNodeTestRequest: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/WorkflowNodeTestRequest.json
+             */
+            readonly $schema?: string;
+            data: {
+                [key: string]: unknown;
+            };
+            /** Format: int64 */
+            expected_revision: number;
+            step_id: string;
+        };
+        WorkflowRevisionInputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/WorkflowRevisionInputBody.json
+             */
+            readonly $schema?: string;
+            /** Format: int64 */
+            expected_revision: number;
+            /** Format: int64 */
+            publication_revision?: number;
+            reply_text?: string;
+        };
+        WorkflowRotateCredentialInputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/WorkflowRotateCredentialInputBody.json
+             */
+            readonly $schema?: string;
+            token: string;
+        };
+        WorkflowRun: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/WorkflowRun.json
+             */
+            readonly $schema?: string;
+            /** Format: date-time */
+            created_at: string;
+            current_step_id?: string;
+            definition: components["schemas"]["WorkflowDefinition"];
+            error?: string;
+            id: string;
+            mode: string;
+            /** Format: int64 */
+            revision: number;
+            source: {
+                [key: string]: unknown;
+            };
+            state: string;
+            steps: components["schemas"]["WorkflowStepResult"][] | null;
+            /** Format: date-time */
+            updated_at: string;
+            /** Format: date-time */
+            wake_at?: string;
+            workflow_id: string;
+            workflow_name: string;
+            /** Format: int64 */
+            workflow_revision: number;
+            workspace_id: string;
+        };
+        WorkflowRunSummary: {
+            /** Format: date-time */
+            created_at: string;
+            current_step_id?: string;
+            definition: components["schemas"]["WorkflowDefinition"];
+            error?: string;
+            id: string;
+            mode: string;
+            /** Format: int64 */
+            revision: number;
+            state: string;
+            steps: components["schemas"]["WorkflowStepSummary"][] | null;
+            /** Format: date-time */
+            updated_at: string;
+            /** Format: date-time */
+            wake_at?: string;
+            workflow_id: string;
+            workflow_name: string;
+            /** Format: int64 */
+            workflow_revision: number;
+            workspace_id: string;
+        };
+        WorkflowSaveRequest: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/WorkflowSaveRequest.json
+             */
+            readonly $schema?: string;
+            definition: components["schemas"]["WorkflowDefinition"];
+            description: string;
+            /** Format: int64 */
+            expected_revision: number;
+            name: string;
+        };
+        WorkflowSource: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/WorkflowSource.json
+             */
+            readonly $schema?: string;
+            account_ids?: string[] | null;
+            connection_id?: string;
+            /** Format: int64 */
+            daily_limit?: number;
+            excluded_keywords?: string[] | null;
+            include_prereleases?: boolean;
+            /** Format: int64 */
+            interval_minutes?: number;
+            keywords?: string[] | null;
+            /** @enum {string} */
+            kind: "manual" | "github_release" | "rss" | "rendition_published" | "interval" | "publication_created" | "rendition_failed" | "comment_received";
+            /** @enum {string} */
+            match_mode?: "word" | "exact" | "contains";
+            post_ids?: string[] | null;
+            /** @enum {string} */
+            post_scope?: "all" | "selected";
+            /** Format: int64 */
+            priority?: number;
+            rendition_ids?: string[] | null;
+            repository?: string;
+            top_level_only?: boolean;
+            url?: string;
+        };
+        WorkflowSourceItem: {
+            account_id?: string;
+            author_name?: string;
+            body: string;
+            created_at?: string;
+            engagement_id?: string;
+            id: string;
+            platform?: string;
+            publication_id?: string;
+            published_at?: string;
+            rendition_id?: string;
+            title: string;
+            url: string;
+        };
+        WorkflowStartInputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/WorkflowStartInputBody.json
+             */
+            readonly $schema?: string;
+            /** Format: int64 */
+            expected_revision: number;
+            /** @enum {string} */
+            mode: "preview" | "live";
+            source: {
+                [key: string]: unknown;
+            };
+        };
+        WorkflowStep: {
+            else?: components["schemas"]["WorkflowStep"][] | null;
+            id: string;
+            inputs: {
+                [key: string]: components["schemas"]["WorkflowValue"];
+            };
+            /** @enum {string} */
+            kind: "create_draft" | "build_draft" | "approval" | "schedule" | "reply" | "comment_reply" | "private_comment_reply" | "comment_handoff" | "wait" | "condition" | "metrics" | "http_request" | "code" | "ai_text" | "ai_decision" | "set_fields" | "text" | "parse_json" | "list_filter" | "list_sort" | "list_limit" | "merge" | "date" | "tracking_link" | "read_feed";
+            name: string;
+            then?: components["schemas"]["WorkflowStep"][] | null;
+        };
+        WorkflowStepResult: {
+            /** Format: date-time */
+            completed_at?: string;
+            error?: string;
+            inputs: {
+                [key: string]: unknown;
+            };
+            kind: string;
+            name: string;
+            output: {
+                [key: string]: unknown;
+            };
+            /** Format: date-time */
+            started_at: string;
+            state: string;
+            step_id: string;
+        };
+        WorkflowStepSummary: {
+            state: string;
+            step_id: string;
+        };
+        WorkflowValue: {
+            literal?: unknown;
+            reference?: string;
         };
         WorkspaceAccessAuditResponse: {
             action: string;
@@ -15339,7 +18845,7 @@ export interface components {
              * @description Workspace role
              * @enum {string}
              */
-            role: "admin" | "editor" | "viewer";
+            role: "admin" | "editor" | "client" | "viewer";
             /**
              * @description Workspace access state
              * @enum {string}
@@ -15352,8 +18858,14 @@ export interface components {
         };
         WorkspaceResponse: {
             avatar_url: string;
+            /** @description Whether the current user can decide an assigned publication review */
+            can_approve: boolean;
+            /** @description Whether the current user can connect or reconnect social accounts */
+            can_connect: boolean;
             /** @description Whether the current user can change workspace content */
             can_edit: boolean;
+            /** @description Whether this deployment accepts new client review requests */
+            client_reviews_enabled?: boolean;
             color: string;
             created_at: string;
             id: string;
@@ -15364,7 +18876,7 @@ export interface components {
              * @description Current user's workspace role
              * @enum {string}
              */
-            role: "admin" | "editor" | "viewer";
+            role: "admin" | "editor" | "client" | "viewer";
             /** @description Whether the current credential satisfies organization SSO */
             sso_authenticated: boolean;
             /** @description Whether the required provider is explicitly linked to this user */
@@ -15434,6 +18946,65 @@ export interface components {
             current_seats: number;
             invitations: components["schemas"]["WorkspaceInvitationResponse"][] | null;
             members: components["schemas"]["WorkspaceMemberResponse"][] | null;
+        };
+        XMessagingAuthorizeInputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/XMessagingAuthorizeInputBody.json
+             */
+            readonly $schema?: string;
+            workspace_id: string;
+        };
+        XMessagingAuthorizeOutputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/XMessagingAuthorizeOutputBody.json
+             */
+            readonly $schema?: string;
+            url: string;
+        };
+        XMessagingCompleteInputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/XMessagingCompleteInputBody.json
+             */
+            readonly $schema?: string;
+            code: string;
+            state: string;
+        };
+        XMessagingCompleteOutputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/XMessagingCompleteOutputBody.json
+             */
+            readonly $schema?: string;
+            workspace_id: string;
+        };
+        XMessagingStopInputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/XMessagingStopInputBody.json
+             */
+            readonly $schema?: string;
+            workspace_id: string;
+        };
+        XMessagingSubscribeInputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/XMessagingSubscribeInputBody.json
+             */
+            readonly $schema?: string;
+            /** Format: int64 */
+            event_limit: number;
+            /** @enum {string} */
+            event_type: "dm.received" | "dm.sent";
+            workspace_id: string;
         };
     };
     responses: never;
@@ -15774,6 +19345,75 @@ export interface operations {
             };
             /** @description Service Unavailable */
             503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "devnull-login": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DevNullLoginInputBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountConnectionResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Bad Gateway */
+            502: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -16415,6 +20055,72 @@ export interface operations {
             };
         };
     };
+    "complete-x-messaging": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["XMessagingCompleteInputBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["XMessagingCompleteOutputBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "stop-x-messaging-subscription": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                subscription_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["XMessagingStopInputBody"];
+            };
+        };
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
     "disconnect-account": {
         parameters: {
             query?: never;
@@ -16698,6 +20404,354 @@ export interface operations {
             };
         };
     };
+    "lookup-account-mentions": {
+        parameters: {
+            query?: {
+                /** @description Account search, or exact LinkedIn company vanity name */
+                query?: string;
+            };
+            header?: never;
+            path: {
+                /** @description Connected destination account */
+                account_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MentionLookupOutputBody"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Bad Gateway */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "get-x-messaging-readiness": {
+        parameters: {
+            query: {
+                workspace_id: string;
+            };
+            header?: never;
+            path: {
+                account_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Readiness"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "authorize-x-messaging": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                account_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["XMessagingAuthorizeInputBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["XMessagingAuthorizeOutputBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "subscribe-x-messaging": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                account_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["XMessagingSubscribeInputBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SubscriptionResult"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "read-post-imports": {
+        parameters: {
+            query: {
+                /** @description Workspace ID */
+                workspace_id: string;
+                /** @description Opaque cursor for older imported posts */
+                cursor?: string;
+                /** @description Imported posts per page */
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                /** @description Connected account ID */
+                account_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PostImportOverviewResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "save-post-imports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Connected account ID */
+                account_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SavePostImportsInputBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PostImportOverviewResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
     "search-account-publishing-options": {
         parameters: {
             query?: {
@@ -16879,6 +20933,8 @@ export interface operations {
     "get-auth-url": {
         parameters: {
             query: {
+                /** @description Instagram login method. Omitted or oauth uses Facebook Login; instagram_login signs in directly with Instagram. */
+                connection_mode?: "oauth" | "instagram_login";
                 /** @description Workspace ID to link account to */
                 workspace_id: string;
                 /** @description Mastodon server name from config (required for mastodon) */
@@ -18189,14 +22245,18 @@ export interface operations {
             query: {
                 /** @description Workspace ID */
                 workspace_id: string;
-                /** @description Reporting window in days (7, 30, or 90) */
+                /** @description Reporting window: 7, 30, 90, 365 days, or 0 for all time. Custom dates override days. */
                 days?: number;
+                /** @description Inclusive start date (YYYY-MM-DD, UTC), supplied together with to */
+                from?: string;
+                /** @description Inclusive end date (YYYY-MM-DD, UTC), supplied together with from */
+                to?: string;
                 /** @description Optional social account ID used to filter results and content totals */
                 account_id?: string;
-                /** @description Content source filter; account growth remains account-wide */
-                source?: "all" | "openpost" | "external";
+                /** @description Optional comma-separated social account IDs, combined with account_id */
+                account_ids?: string;
                 /** @description Stored result ordering */
-                sort?: "engagement" | "views" | "newest";
+                sort?: "engagement" | "views" | "visibility" | "newest";
                 /** @description Opaque source-bound content cursor */
                 cursor?: string;
                 /** @description Content results per page */
@@ -18215,6 +22275,91 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Overview"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "export-analytics": {
+        parameters: {
+            query: {
+                /** @description Workspace ID */
+                workspace_id: string;
+                /** @description Reporting window: 7, 30, 90, 365 days, or 0 for all time. Custom dates override days. */
+                days?: number;
+                /** @description Inclusive start date (YYYY-MM-DD, UTC), supplied together with to */
+                from?: string;
+                /** @description Inclusive end date (YYYY-MM-DD, UTC), supplied together with from */
+                to?: string;
+                /** @description Optional comma-separated social account IDs. Intersects with account_id and platforms when supplied. */
+                account_ids?: string;
+                /** @description Optional social account ID to export */
+                account_id?: string;
+                /** @description Optional comma-separated platform filter, for example x,bluesky */
+                platforms?: string;
+                /** @description File format. xlsx contains every table plus charts. */
+                format?: "csv" | "xlsx" | "json";
+                /** @description IANA timezone used for publish times and day, week and month grouping */
+                timezone?: string;
+                /** @description Row grouping for the report */
+                group_by?: "post" | "day" | "week" | "month" | "platform" | "account";
+                /** @description Table to export for csv and json. report follows group_by; xlsx always includes all tables. */
+                dataset?: "report" | "posts" | "daily" | "accounts";
+                /** @description Optional comma-separated post metric columns for posts and grouped reports. Defaults to every measured metric. Daily and accounts tables retain their fixed columns. */
+                metrics?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Analytics export file */
+            200: {
+                headers: {
+                    "Content-Disposition"?: string;
+                    "Content-Type"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": string;
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": string;
+                    "text/csv": string;
                 };
             };
             /** @description Bad Request */
@@ -18523,6 +22668,291 @@ export interface operations {
             };
             /** @description Internal Server Error */
             500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "get-app-branding": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    "Cache-Control"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AppBrandingSettings"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "get-app-branding-image": {
+        parameters: {
+            query?: {
+                organization_default?: boolean;
+            };
+            header?: never;
+            path: {
+                workspace_id: string;
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description PNG branding image */
+            200: {
+                headers: {
+                    "Cache-Control"?: string;
+                    "Content-Type"?: string;
+                    "X-Content-Type-Options"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "image/png": string;
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "update-organization-app-branding": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AppBrandingUpdate"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    "Cache-Control"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AppBrandingSettings"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "update-workspace-app-branding": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AppBrandingUpdate"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    "Cache-Control"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AppBrandingSettings"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -20929,6 +25359,15 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ErrorModel"];
                 };
             };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
             /** @description Internal Server Error */
             500: {
                 headers: {
@@ -20982,6 +25421,15 @@ export interface operations {
             };
             /** @description Unprocessable Entity */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -21043,6 +25491,15 @@ export interface operations {
             };
             /** @description Unprocessable Entity */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -21174,6 +25631,15 @@ export interface operations {
             };
             /** @description Unprocessable Entity */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -23136,6 +27602,84 @@ export interface operations {
             };
         };
     };
+    "join-hosted-waitlist": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["JoinWaitlistInputBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JoinWaitlistOutputBody"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
     "create-billing-checkout": {
         parameters: {
             query?: never;
@@ -24503,9 +29047,1217 @@ export interface operations {
             };
         };
     };
+    "run-editor-agent-assistant": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EditorAssistantInputBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EditorAssistantOutputBody"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Bad Gateway */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "editor-agent-assistant-status": {
+        parameters: {
+            query: {
+                workspace_id: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EditorAssistantStatusOutputBody"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "record-editor-library-choice": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EditorChoiceInputBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EditorAgentEmptyOutputBody"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "set-editor-library-favorite": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EditorFavoriteInputBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EditorAgentEmptyOutputBody"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "set-editor-learning": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EditorLearningInputBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EditorAgentEmptyOutputBody"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "get-editor-preferences": {
+        parameters: {
+            query: {
+                workspace_id: string;
+                project_id?: string;
+                editor_kind?: "video" | "image";
+                context?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Context"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "save-editor-preference": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EditorPreferenceSaveInputBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Preference"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "delete-editor-preference": {
+        parameters: {
+            query: {
+                workspace_id: string;
+                project_id?: string;
+                expected_revision: number;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EditorAgentEmptyOutputBody"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "register-editor-agent-session": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EditorAgentRegisterInputBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EditorAgentRegisterOutputBody"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "close-editor-agent-session": {
+        parameters: {
+            query: {
+                epoch: string;
+            };
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EditorAgentEmptyOutputBody"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "poll-editor-agent-session": {
+        parameters: {
+            query: {
+                epoch: string;
+            };
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EditorAgentNextOutputBody"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "get-editor-agent-browser-request": {
+        parameters: {
+            query: {
+                epoch: string;
+            };
+            header?: never;
+            path: {
+                session_id: string;
+                request_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Request"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "respond-editor-agent-request": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+                request_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EditorAgentRespondInputBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EditorAgentEmptyOutputBody"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "save-editor-style": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EditorStyleSaveInputBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Style"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "get-editor-style": {
+        parameters: {
+            query: {
+                workspace_id: string;
+                version?: number;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Style"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "archive-editor-style": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EditorStyleArchiveInputBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EditorAgentEmptyOutputBody"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "list-editor-ai-usage": {
+        parameters: {
+            query: {
+                workspace_id: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EditorUsageOutputBody"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
     "list-engagement": {
         parameters: {
             query: {
+                /** @description Filter account activity by kind; omit for all engagement */
+                kind?: "comment" | "mention" | "review";
                 workspace_id: string;
                 platform?: string;
                 account_id?: string;
@@ -24567,6 +30319,66 @@ export interface operations {
             };
             /** @description Error */
             default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "mark-engagement-read": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MarkEngagementReadInputBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MarkEngagementReadOutputBody"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -24640,6 +30452,177 @@ export interface operations {
             };
         };
     };
+    "list-engagement-automation": {
+        parameters: {
+            query: {
+                workspace_id: string;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AutomationReply"][] | null;
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "stop-engagement-automation": {
+        parameters: {
+            query: {
+                workspace_id: string;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AutomationReply"][] | null;
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "get-engagement-item": {
+        parameters: {
+            query: {
+                workspace_id: string;
+            };
+            header?: never;
+            path: {
+                item_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EngagementDetail"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
     "queue-engagement-action": {
         parameters: {
             query?: never;
@@ -24655,12 +30638,14 @@ export interface operations {
             };
         };
         responses: {
-            /** @description No Content */
-            204: {
+            /** @description OK */
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["EngagementActionOutputBody"];
+                };
             };
             /** @description Error */
             default: {
@@ -25190,6 +31175,35 @@ export interface operations {
             };
         };
     };
+    "get-github-star-count": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GitHubStarsResponse"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
     "list-growth-recommendations": {
         parameters: {
             query: {
@@ -25634,6 +31648,8 @@ export interface operations {
             query: {
                 workspace_id: string;
                 search?: string;
+                /** @description List recoverable deleted designs instead of active designs. */
+                trashed?: boolean;
                 limit?: number;
                 offset?: number;
             };
@@ -26071,6 +32087,64 @@ export interface operations {
             };
         };
     };
+    "restore-image-editor-design": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImageEditorDocumentResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
     "list-image-editor-design-revisions": {
         parameters: {
             query?: {
@@ -26289,6 +32363,77 @@ export interface operations {
             };
         };
     };
+    "delete-image-editor-design-checkpoint": {
+        parameters: {
+            query: {
+                /** @description Confirm permanent removal of this named checkpoint */
+                confirm: boolean;
+            };
+            header?: never;
+            path: {
+                id: string;
+                revision_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeleteImageEditorRevisionOutputBody"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
     "restore-image-editor-design-revision": {
         parameters: {
             query?: never;
@@ -26343,6 +32488,128 @@ export interface operations {
             };
             /** @description Conflict */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "save-image-editor-effect-preset": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SaveImageEditorEffectPresetInputBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImageEditorBrandKitResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "delete-image-editor-effect-preset": {
+        parameters: {
+            query: {
+                workspace_id: string;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImageEditorBrandKitResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -26953,6 +33220,435 @@ export interface operations {
             };
             /** @description Internal Server Error */
             500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "list-image-generations": {
+        parameters: {
+            query: {
+                workspace_id: string;
+                project_id: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListImageGenerationsOutputBody"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "create-image-generation": {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ImageGenerationRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImageGenerationRun"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "image-generation-config": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImageGenerationConfigOutputBody"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "get-image-generation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImageGenerationRun"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "inbox-activity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InboxActivityInputBody"];
+            };
+        };
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "inbox-changes": {
+        parameters: {
+            query: {
+                workspace_id: string;
+                cursor?: string;
+                wait_seconds?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InboxChangePage"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "inbox-summary": {
+        parameters: {
+            query: {
+                workspace_id: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InboxSummary"];
+                };
+            };
+            /** @description Error */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -28061,6 +34757,154 @@ export interface operations {
             };
         };
     };
+    "optimize-media-image": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Original image ID */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OptimizeMediaImageOutputBody"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Request Entity Too Large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "prepare-media-image": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PrepareMediaImageBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PrepareMediaImageOutputBody"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Request Entity Too Large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
     "restore-media": {
         parameters: {
             query?: never;
@@ -28755,6 +35599,8 @@ export interface operations {
                 workspace_id: string;
                 platform?: string;
                 account_id?: string;
+                search?: string;
+                unread_only?: boolean;
                 archived?: boolean;
                 limit?: number;
                 offset?: number;
@@ -28844,6 +35690,74 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MessagePage"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "collect-conversation-history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MessageHistoryInputBody"];
+            };
+        };
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "retry-conversation-message": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                conversation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RetryMessageInputBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DirectMessage"];
                 };
             };
             /** @description Error */
@@ -31267,6 +38181,66 @@ export interface operations {
             };
         };
     };
+    "batch-delete-posting-schedules": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BatchDeletePostingSchedulesInputBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeletePostingScheduleOutputBody"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
     "get-next-available-slot": {
         parameters: {
             query?: {
@@ -31674,6 +38648,78 @@ export interface operations {
             };
             /** @description Forbidden */
             403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "update-prompt": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Prompt ID */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdatePromptInputBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PromptResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -32268,6 +39314,186 @@ export interface operations {
             };
         };
     };
+    "save-publication-option": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                option_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SavePublicationOptionInputBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Build"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "commit-publication-option": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                option_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CommitPublicationOptionInputBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CommitPublicationBuildOutputBody"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
     "retry-publication-build": {
         parameters: {
             query?: never;
@@ -32345,6 +39571,78 @@ export interface operations {
             };
             /** @description Service Unavailable */
             503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "update-series-concept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                item_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PublicationSeriesConceptInputBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Build"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "generate-series-post": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                item_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StartPublicationSeriesConceptInputBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Build"];
+                };
+            };
+            /** @description Error */
+            default: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -32575,6 +39873,160 @@ export interface operations {
             };
             /** @description Internal Server Error */
             500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "confirm-batch-schedule": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BatchScheduleConfirmInputBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BatchScheduleOutcome"][] | null;
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "preview-batch-schedule": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BatchSchedulePreviewInputBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BatchSchedulePreviewOutputBody"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "preview-text-card": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PreviewTextCardInputBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    "Cache-Control"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PreviewTextCardOutputBody"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -33358,6 +40810,180 @@ export interface operations {
             };
         };
     };
+    "list-publication-reviews": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicationReviewResponse"][] | null;
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "request-publication-review": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PublicationReviewInputBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicationReviewResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "decide-publication-review": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                review_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PublicationReviewDecisionInputBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicationReviewResponse"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
     "schedule-publication": {
         parameters: {
             query?: never;
@@ -33708,6 +41334,15 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ErrorModel"];
                 };
             };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
             /** @description Unprocessable Entity */
             422: {
                 headers: {
@@ -33761,6 +41396,1008 @@ export interface operations {
             };
             /** @description Forbidden */
             403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "create-repurpose-suggestions": {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SuggestionRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClipSuggestions"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "get-repurpose-suggestions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClipSuggestions"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "cancel-repurpose-suggestions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RepurposeSuggestionsRevisionInputBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClipSuggestions"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "retry-repurpose-suggestions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RepurposeSuggestionsRevisionInputBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClipSuggestions"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "list-screenshot-template-designs": {
+        parameters: {
+            query: {
+                workspace_id: string;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListScreenshotTemplateDesignsOutputBody"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "create-screenshot-template-design": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateScreenshotTemplateDesignInputBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScreenshotTemplateDesignResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "get-screenshot-template-design": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScreenshotTemplateDesignResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "update-screenshot-template-design": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateScreenshotTemplateDesignInputBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScreenshotTemplateDesignResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "delete-screenshot-template-design": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "save-screenshot-template-export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SaveScreenshotTemplateExportInputBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScreenshotTemplateRecipeOutputBody"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "get-screenshot-template-recipe": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                media_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScreenshotTemplateRecipeOutputBody"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Conflict */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -36017,6 +44654,58 @@ export interface operations {
             };
         };
     };
+    "list-video-project-summaries": {
+        parameters: {
+            query: {
+                /** @description Workspace ID */
+                workspace_id: string;
+                /** @description Include projects in Trash */
+                include_trash?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VideoProjectSummaryResponse"][] | null;
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
     "list-video-projects": {
         parameters: {
             query: {
@@ -36102,6 +44791,24 @@ export interface operations {
             };
             /** @description Forbidden */
             403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Conflict */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -36276,6 +44983,79 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ProjectAssetResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "delete-video-project-asset": {
+        parameters: {
+            query: {
+                /** @description Workspace ID */
+                workspace_id: string;
+            };
+            header?: never;
+            path: {
+                /** @description Video project ID */
+                id: string;
+                /** @description Project Asset ID */
+                asset_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeleteProjectAssetOutputBody"];
                 };
             };
             /** @description Bad Request */
@@ -37724,6 +46504,1784 @@ export interface operations {
             };
         };
     };
+    "list-workflow-connections": {
+        parameters: {
+            query: {
+                workspace_id: string;
+                workflow_id?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowConnection"][] | null;
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "create-workflow-connection": {
+        parameters: {
+            query: {
+                workspace_id: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkflowCredentialRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowConnection"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "rotate-workflow-connection": {
+        parameters: {
+            query: {
+                workspace_id: string;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkflowRotateCredentialInputBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowConnection"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "delete-workflow-connection": {
+        parameters: {
+            query: {
+                workspace_id: string;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowDeleteOutputBody"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "list-workflow-run-summaries": {
+        parameters: {
+            query: {
+                workspace_id: string;
+                workflow_id?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowRunSummary"][] | null;
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "list-workflow-runs": {
+        parameters: {
+            query: {
+                workspace_id: string;
+                workflow_id?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowRun"][] | null;
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "get-workflow-run": {
+        parameters: {
+            query: {
+                workspace_id: string;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowRun"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "approve-workflow-run": {
+        parameters: {
+            query: {
+                workspace_id: string;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkflowRevisionInputBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowRun"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "cancel-workflow-run": {
+        parameters: {
+            query: {
+                workspace_id: string;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkflowRevisionInputBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowRun"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "sample-workflow-source": {
+        parameters: {
+            query: {
+                workspace_id: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkflowSource"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowSourceItem"][] | null;
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "list-workflows": {
+        parameters: {
+            query: {
+                workspace_id: string;
+                workflow_id?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Workflow"][] | null;
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "create-workflow": {
+        parameters: {
+            query: {
+                workspace_id: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkflowSaveRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Workflow"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "get-workflow": {
+        parameters: {
+            query: {
+                workspace_id: string;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Workflow"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "save-workflow": {
+        parameters: {
+            query: {
+                workspace_id: string;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkflowSaveRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Workflow"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "delete-workflow": {
+        parameters: {
+            query: {
+                workspace_id: string;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowDeleteOutputBody"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "pause-workflow": {
+        parameters: {
+            query: {
+                workspace_id: string;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkflowRevisionInputBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Workflow"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "publish-workflow": {
+        parameters: {
+            query: {
+                workspace_id: string;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkflowRevisionInputBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Workflow"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "start-workflow-run": {
+        parameters: {
+            query: {
+                workspace_id: string;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkflowStartInputBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowRun"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "stop-workflow-replies": {
+        parameters: {
+            query: {
+                workspace_id: string;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkflowRevisionInputBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Workflow"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "test-workflow-node": {
+        parameters: {
+            query: {
+                workspace_id: string;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkflowNodeTestRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowRun"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
     "accept-workspace-invitation": {
         parameters: {
             query?: never;
@@ -38848,7 +49406,7 @@ export interface operations {
                 /** @description Case-insensitive member or invitation email search */
                 q?: string;
                 /** @description Filter by role */
-                role?: "all" | "admin" | "editor" | "viewer";
+                role?: "all" | "admin" | "editor" | "client" | "viewer";
                 /** @description Filter by member access or exact invitation lifecycle state */
                 status?: "all" | "active" | "inactive" | "pending" | "created" | "queued" | "sent" | "delivered" | "delivery_failed" | "delivery_unavailable" | "expired" | "revoked" | "accepted";
             };
@@ -38869,6 +49427,192 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["WorkspaceTeamOutputBody"];
                 };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "list-saved-mentions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SavedMentionResponse"][] | null;
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "save-saved-mention": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SavedMentionSaveInputBody"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SavedMentionResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "delete-saved-mention": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: string;
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Forbidden */
             403: {

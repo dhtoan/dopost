@@ -1,6 +1,13 @@
 import type { components } from '$lib/api/types';
 import { m } from '$lib/paraglide/messages';
 
+export type {
+	DeliveryOutcomeBucket,
+	DeliveryOutcomeCounts,
+	DeliveryOutcomeInput
+} from './delivery-outcome';
+export { deliveryOutcomeBucket, deliveryOutcomeSummary } from './delivery-outcome';
+
 export type DeliveryRecoveryAction =
 	components['schemas']['ProviderDeliveryResponse']['recovery_action'];
 
@@ -12,6 +19,7 @@ export type DeliveryPresentation = {
 export function deliveryStateLabel(state: string) {
 	if (state === 'queued') return m.publication_delivery_queued();
 	if (state === 'submitted') return m.publication_delivery_submitted();
+	if (state === 'awaiting_user') return m.publication_delivery_awaiting_user();
 	if (state === 'processing') return m.publication_delivery_processing();
 	if (state === 'provider_scheduled') return m.publication_delivery_provider_scheduled();
 	if (state === 'live') return m.publication_delivery_live();
@@ -41,13 +49,18 @@ export function deliveryRecoveryAction(
 
 export function deliveryStatusClass(state: string) {
 	if (state === 'live' || state === 'published' || state === 'success') {
-		return 'text-emerald-800 dark:text-emerald-300';
+		return 'text-success-foreground';
 	}
 	if (state === 'rejected' || state === 'failed' || state === 'manual_resolution') {
 		return 'text-destructive';
 	}
-	if (state === 'queued' || state === 'submitted' || state === 'processing') {
-		return 'text-blue-700 dark:text-blue-300';
+	if (
+		state === 'queued' ||
+		state === 'submitted' ||
+		state === 'processing' ||
+		state === 'awaiting_user'
+	) {
+		return 'text-info-foreground';
 	}
 	return 'text-muted-foreground';
 }

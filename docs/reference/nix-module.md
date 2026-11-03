@@ -105,6 +105,12 @@ let
       value = config.sops.placeholder.openpost_diagnostics_discord_webhook;
     }
     {
+      name = "billing-discord-webhook";
+      env = "OPENPOST_BILLING_DISCORD_WEBHOOK_URL_FILE";
+      target = "/run/secrets/openpost_billing_discord_webhook";
+      value = config.sops.placeholder.openpost_billing_discord_webhook;
+    }
+    {
       name = "smtp-password";
       env = "OPENPOST_SMTP_PASSWORD_FILE";
       target = "/run/secrets/openpost_smtp_password";
@@ -157,6 +163,12 @@ let
       env = "OPENROUTER_API_KEY_FILE";
       target = "/run/secrets/openpost_openrouter_api_key";
       value = config.sops.placeholder.openpost_openrouter_api_key;
+    }
+    {
+      name = "fal-api-key";
+      env = "FAL_KEY_FILE";
+      target = "/run/secrets/openpost_fal_api_key";
+      value = config.sops.placeholder.openpost_fal_api_key;
     }
   ];
 
@@ -398,6 +410,7 @@ in
         "openpost_unsplash_access_key"
         "openpost_feedback_webhook"
         "openpost_diagnostics_discord_webhook"
+        "openpost_billing_discord_webhook"
         "openpost_smtp_password"
         "openpost_twitter_client_id"
         "openpost_twitter_client_secret"
@@ -406,6 +419,7 @@ in
         "openpost_threads_client_id"
         "openpost_threads_client_secret"
         "openpost_openrouter_api_key"
+        "openpost_fal_api_key"
       ]
       ++ lib.optionals isCloud [
         "openpost_postgres_password"
@@ -568,6 +582,7 @@ in
           ]
           ++ openpostApplicationUnits;
         };
+        # Each binary owns its policy versions, including rollback images.
         "openpost-cloud-env" = {
           content = ''
             OPENPOST_DATABASE_URL=postgres://${openpostPostgresUser}:${config.sops.placeholder.openpost_postgres_password}@openpost-postgres:5432/${openpostPostgresDatabase}?sslmode=disable
@@ -580,8 +595,6 @@ in
             OPENPOST_LEGAL_ACCEPTANCE_REQUIRED=true
             OPENPOST_TERMS_URL=https://openpo.st/terms
             OPENPOST_PRIVACY_URL=https://openpo.st/privacy
-            OPENPOST_TERMS_VERSION=2026-08-05
-            OPENPOST_PRIVACY_VERSION=2026-09-01
             OPENPOST_TELEMETRY_ENABLED=true
             OPENPOST_POSTHOG_API_HOST=https://eu.i.posthog.com
             OPENPOST_POSTHOG_BROWSER_HOST=https://cool.openpo.st

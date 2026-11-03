@@ -1,3 +1,4 @@
+import { sliceClipFades } from '../media/clip-fades';
 /** Undoable sequence and compound-clip editing actions. */
 
 import { createDefaultTracks } from '../project/defaults';
@@ -17,6 +18,7 @@ import {
 } from '../timeline/actions/transform-parenting';
 import { transitionsStore } from '../timeline/actions/transitions.svelte';
 import { timelineStore } from '../timeline/stores/timeline-store.svelte';
+import { trackRangeIsOpen } from '../timeline/track-occupancy';
 import { expandSelectionWithLinkedItems } from '../timeline/utils/linked-items';
 import { snapshotTimelineState } from '../timeline/utils/state-snapshot.svelte';
 import { effectiveMediaTracks } from '../timeline/utils/track-groups';
@@ -26,13 +28,23 @@ import {
 } from '../timeline/utils/source-calculations';
 import { wouldCreateCompositionCycle } from './composition-graph';
 import { sequenceStore } from './sequence-store.svelte';
+import { applyCompositionControlOverrides } from './composition-controls';
 
 function hasVisual(items: TimelineItem[]): boolean {
 	return items.some((item) => item.type !== 'audio');
 }
 
 function hasAudio(items: TimelineItem[]): boolean {
-	return items.some((item) => item.type === 'audio' || item.type === 'video');
+	return items.some(
+		(item) => item.type === 'audio' || item.type === 'video' || item.timer?.warningSound
+	);
+}
+
+function nestedDuration(composition: SubComposition): number {
+	return Math.max(
+		1,
+		Math.round((composition.durationInFrames * timelineStore.fps) / composition.fps)
+	);
 }
 
 function wrapperSourceFields(composition: SubComposition) {
@@ -60,11 +72,12 @@ function nestedSequenceWrappers(
 			type: 'composition',
 			trackId: visualTrack.id,
 			from,
-			durationInFrames: Math.max(1, composition.durationInFrames),
+			durationInFrames: nestedDuration(composition),
 			label: composition.name,
 			compositionId: composition.id,
 			compositionWidth: composition.width,
 			compositionHeight: composition.height,
+			audioDetached: Boolean(audioTrack && hasAudio(composition.items)),
 			linkedGroupId,
 			transform: { x: 0, y: 0, rotation: 0, opacity: 1 },
 			...wrapperSourceFields(composition)
@@ -76,7 +89,7 @@ function nestedSequenceWrappers(
 			type: 'audio',
 			trackId: audioTrack.id,
 			from,
-			durationInFrames: Math.max(1, composition.durationInFrames),
+			durationInFrames: nestedDuration(composition),
 			label: composition.name,
 			compositionId: composition.id,
 			linkedGroupId,
@@ -150,7 +163,9 @@ export function updateCompositeCompositionCanvas(
 		...(patch.height !== undefined && {
 			height: Math.round(Math.min(4320, Math.max(1, patch.height)))
 		}),
-		...(patch.backgroundColor !== undefined && { backgroundColor: patch.backgroundColor })
+		...(patch.backgroundColor !== undefined && {
+			backgroundColor: patch.backgroundColor
+		})
 	};
 	if (
 		(normalized.width === undefined || normalized.width === composition.width) &&
@@ -270,28 +285,34 @@ export function sequenceDeletionImpactFor(compositionIds: string[]): SequenceDel
 	};
 }
 
-export function nestSequence(compositionId: string, from = timelineStore.currentFrame): string[] {
+export function nestSequence(
+	compositionId: string,
+	from = timelineStore.currentFrame,
+	preferredTrackId?: string
+): string[] {
 	return execute('NEST_SEQUENCE', () => {
 		const composition = assertCompositionCanNest(compositionId);
-		const durationInFrames = Math.max(1, composition.durationInFrames);
-		const effectiveTracks = effectiveMediaTracks(timelineStore.tracks);
-		const preferredVisualTrack = effectiveTracks
-			.filter((track) => track.kind !== 'audio' && !track.locked)
-			.toSorted((left, right) => left.order - right.order)[0];
-		const visualTrack =
-			hasVisual(composition.items) && preferredVisualTrack
-				? ensureOpenTrackForRange({
-						kind: 'video',
-						itemType: 'composition',
-						from,
-						durationInFrames,
-						label: composition.name,
-						preferredTrackId: preferredVisualTrack.id
-					})
-				: undefined;
-		const audioTrack = effectiveTracks
-			.filter((track) => track.kind === 'audio' && !track.locked)
-			.toSorted((left, right) => right.order - left.order)[0];
+		const durationInFrames = nestedDuration(composition);
+		const visualTrack = hasVisual(composition.items)
+			? ensureOpenTrackForRange({
+					kind: 'video',
+					itemType: 'composition',
+					from,
+					durationInFrames,
+					label: composition.name,
+					preferredTrackId
+				})
+			: undefined;
+		const audioTrack = hasAudio(composition.items)
+			? ensureOpenTrackForRange({
+					kind: 'audio',
+					itemType: 'audio',
+					from,
+					durationInFrames,
+					label: composition.name,
+					preferredTrackId: hasVisual(composition.items) ? undefined : preferredTrackId
+				})
+			: undefined;
 		const wrappers = nestedSequenceWrappers(composition, from, visualTrack, audioTrack);
 		if (wrappers.length === 0) throw new Error('No compatible unlocked track is available.');
 		timelineStore._setItems([...timelineStore.items, ...wrappers]);
@@ -313,8 +334,7 @@ export function nestSequenceOnExactTracks(
 	return execute('NEST_SEQUENCE', () => {
 		const composition = assertCompositionCanNest(compositionId);
 		const exactFrom = Math.max(0, Math.round(from));
-		const duration = Math.max(1, composition.durationInFrames);
-		const end = exactFrom + duration;
+		const duration = nestedDuration(composition);
 		const effectiveTracks = effectiveMediaTracks(timelineStore.tracks);
 		const exactTrack = (trackId: string | undefined, kind: 'video' | 'audio') => {
 			if (!trackId) return undefined;
@@ -322,8 +342,12 @@ export function nestSequenceOnExactTracks(
 			if (!track || track.kind !== kind || track.locked || track.visible === false) {
 				throw new Error('Exact sequence placement target is unavailable.');
 			}
-			const occupied = (timelineStore.itemsByTrackId.get(track.id) ?? []).some(
-				(item) => item.from < end && item.from + item.durationInFrames > exactFrom
+			const occupied = !trackRangeIsOpen(
+				timelineStore.items,
+				track.id,
+				exactFrom,
+				duration,
+				'composition'
 			);
 			if (occupied) throw new Error('Exact sequence placement target is occupied.');
 			return track;
@@ -361,6 +385,7 @@ export function createCompoundClip(
 			id: compositionId,
 			name,
 			editorKind,
+			...(editorKind === 'composite-2d' && { backgroundColor: '#00000000' }),
 			items: selected.map((item) => {
 				const snapshot = snapshotTimelineState(item);
 				const propertyLinks = snapshot.propertyLinks?.filter((link) =>
@@ -428,6 +453,7 @@ export function createCompoundClip(
 				compositionId,
 				compositionWidth: composition.width,
 				compositionHeight: composition.height,
+				audioDetached: Boolean(audioTrack && hasAudio(selected)),
 				linkedGroupId,
 				transform: { x: 0, y: 0, rotation: 0, opacity: 1 },
 				...wrapperSourceFields(composition)
@@ -483,10 +509,27 @@ function mapItemThroughWrapper(
 
 	const mapped: TimelineItem = {
 		...snapshotTimelineState(item),
+		...sliceClipFades(
+			item,
+			mapping.clippedStartFrames,
+			item.durationInFrames - mapping.clippedEndFrames,
+			compositionFps
+		),
 		from: wrapper.from + mapping.mappedFrom,
 		durationInFrames: mapping.mappedDuration,
 		speed: (item.speed ?? 1) * mapping.wrapperSpeed
 	};
+	for (const key of ['fadeIn', 'fadeOut', 'audioFadeIn', 'audioFadeOut'] as const) {
+		if (mapped[key] !== undefined) mapped[key] /= mapping.wrapperSpeed;
+	}
+	for (const key of ['videoFadeOffsets', 'audioFadeOffsets'] as const) {
+		const offsets = mapped[key];
+		if (offsets)
+			mapped[key] = {
+				in: offsets.in / mapping.wrapperSpeed,
+				out: offsets.out / mapping.wrapperSpeed
+			};
+	}
 	if (item.type === 'video' || item.type === 'audio' || item.type === 'composition') {
 		const childSourceFps =
 			item.sourceFps ??
@@ -523,6 +566,25 @@ function itemTrackKind(item: TimelineItem): 'video' | 'audio' {
 	return item.type === 'audio' ? 'audio' : 'video';
 }
 
+/** Restore only the channels owned by the selected wrapper(s). */
+function projectDissolvedItems(items: TimelineItem[], wrappers: TimelineItem[]): TimelineItem[] {
+	const includeVisual = wrappers.some((item) => item.type === 'composition');
+	const includeAudio = wrappers.some((item) => item.type === 'audio' || !item.audioDetached);
+	return items.flatMap((item): TimelineItem[] => {
+		if (!includeVisual) {
+			if (item.type !== 'audio' && item.audioDetached) return [];
+			const hasAudioSource =
+				item.type === 'audio' ||
+				(item.type === 'video' && item.mediaId) ||
+				item.compositionId ||
+				item.timer?.warningSound;
+			return hasAudioSource ? [{ ...item, type: 'audio' }] : [];
+		}
+		if (includeAudio) return [item];
+		return item.type === 'audio' ? [] : [{ ...item, audioDetached: true }];
+	});
+}
+
 interface DissolveTrackMap {
 	trackMap: Map<string, string>;
 	tracks: TimelineTrack[];
@@ -544,9 +606,9 @@ function buildDissolveTrackMap(
 		(left, right) => left.order - right.order
 	)) {
 		const sourceItems = composition.items.filter((item) => item.trackId === sourceTrack.id);
+		if (sourceItems.length === 0) continue;
 		const kind =
-			sourceTrack.kind === 'audio' ||
-			(sourceItems.length > 0 && sourceItems.every((item) => itemTrackKind(item) === 'audio'))
+			sourceTrack.kind === 'audio' || sourceItems.every((item) => itemTrackKind(item) === 'audio')
 				? 'audio'
 				: 'video';
 		const existingTrack = existingIds.has(sourceTrack.id)
@@ -593,13 +655,21 @@ export function dissolveCompoundClip(wrapperId: string): string[] {
 		const windowAnchor =
 			wrapperItems.find((item) => item.type === 'composition') ?? wrapperItems[0];
 		if (!windowAnchor) return [];
+		const idMap = new Map<string, string>();
+		const resolvedItems = projectDissolvedItems(
+			applyCompositionControlOverrides(
+				composition.items,
+				composition.compositionControls,
+				windowAnchor.compositionControlOverrides
+			),
+			wrapperItems
+		);
 		const { trackMap, tracks } = buildDissolveTrackMap(
-			composition,
+			{ ...composition, items: resolvedItems },
 			wrapperItems,
 			timelineStore.tracks
 		);
-		const idMap = new Map<string, string>();
-		const mappedItems = composition.items.flatMap((item) => {
+		const mappedItems = resolvedItems.flatMap((item) => {
 			const mapped = mapItemThroughWrapper(item, windowAnchor, timelineStore.fps, composition.fps);
 			if (!mapped) return [];
 			const id = crypto.randomUUID();

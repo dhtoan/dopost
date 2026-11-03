@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { ditherSurface } from '@openpost/dither';
 	import Logo from '$lib/components/Logo.svelte';
 	import AppSelect from '$lib/components/app-select.svelte';
 	import { Button } from '$lib/components/ui/button';
@@ -337,9 +338,7 @@
 								<div class="h-3 w-1/3 rounded-full bg-muted"></div>
 								<div class="h-20 rounded-[var(--theme-radius-md,var(--radius))] bg-muted"></div>
 							</div>
-							<div
-								class="absolute inset-0 grid place-items-center bg-[var(--theme-scrim,rgba(0,0,0,0.42))] p-4"
-							>
+							<div class="absolute inset-0 grid place-items-center bg-black/60 p-4">
 								<div
 									data-slot="dialog-content"
 									role="dialog"
@@ -401,7 +400,12 @@
 							</div>
 						</div>
 					{:else if scene === 'loading'}
-						<div class="space-y-3" aria-busy="true" aria-label={copy.loadingWorkspace}>
+						<div
+							class="space-y-3"
+							role="status"
+							aria-busy="true"
+							aria-label={copy.loadingWorkspace}
+						>
 							{#if loadingAsset}
 								<img
 									data-theme-loading-art
@@ -443,6 +447,7 @@
 											class="min-w-0 flex-1 rounded-t-[var(--theme-radius-sm,var(--radius))]"
 											style={`height: ${height}%; background-color: var(--chart-${(index % 5) + 1})`}
 											data-preview-chart-series
+											use:ditherSurface
 										></div>
 									{/each}
 								</div>

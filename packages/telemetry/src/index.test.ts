@@ -114,6 +114,118 @@ const configuredApp: BrowserTelemetryConfig = {
 };
 
 describe("BrowserTelemetry", () => {
+  it("SDK failures cannot interrupt identity changes, requests, or declining consent", () => {
+    for (const method of [
+      "identify",
+      "reset",
+      "get_distinct_id",
+      "get_session_id",
+      "opt_out_capturing",
+    ] as const) {
+      const sdk = new FakeSDK();
+      const store = new FakePreferenceStore();
+      const subject = new BrowserTelemetry(sdk, () => true, store);
+      subject.configure(configuredApp);
+      subject.identify("actor-a");
+      vi.spyOn(sdk, method).mockImplementation(() => {
+        throw new Error("SDK unavailable");
+      });
+      expect(() => subject.identify("actor-b")).not.toThrow();
+      expect(() => subject.resetIdentity()).not.toThrow();
+      expect(() => subject.requestHeaders()).not.toThrow();
+      expect(() => subject.setPreference("off")).not.toThrow();
+      expect(subject.requestHeaders()).toEqual({});
+      expect(store.preference).toBe("off");
+      const beforeSend = sdk.initialized[0]!.options.before_send as (event: {
+        event: string;
+        properties: Record<string, unknown>;
+      }) => unknown;
+      expect(beforeSend({ event: "signup started", properties: {} })).toBeNull();
+    }
+  });
+
+  it("delayed browser SDK loading cannot attribute an earlier actor's events to a new actor", async () => {
+    const sdk = new FakeSDK();
+    let finish!: (sdk: FakeSDK) => void;
+    const subject = new BrowserTelemetry(
+      () =>
+        new Promise<FakeSDK>((resolve) => {
+          finish = resolve;
+        }),
+      () => true,
+      new FakePreferenceStore(),
+    );
+    subject.configure(configuredApp);
+    subject.identify("actor-a");
+    subject.capture("publication publish requested", {
+      account_count: 1,
+      is_thread: false,
+    });
+    subject.captureException(new Error("actor-a failure"));
+    subject.resetIdentity();
+    subject.identify("actor-b");
+    finish(sdk);
+    await vi.waitFor(() => expect(sdk.identified).toEqual(["actor-b"]));
+    expect(sdk.events).toEqual([]);
+    expect(sdk.exceptions).toEqual([]);
+  });
+
+  it("reconfiguration respects a later stored decline or privacy signal", () => {
+    for (const privacy of [false, true]) {
+      const sdk = new FakeSDK();
+      const store = new FakePreferenceStore();
+      const subject = new BrowserTelemetry(sdk, () => true, store);
+      subject.configure(configuredApp);
+      if (privacy) store.privacySignal = true;
+      else store.preference = "off";
+      subject.configure(configuredApp);
+      subject.capture("signup started");
+      expect(subject.preferenceStatus()).toBe("off");
+      expect(sdk.events).toEqual([]);
+      expect(subject.requestHeaders()).toEqual({});
+      expect(sdk.optOutCount).toBe(1);
+    }
+  });
+
+  it("acceptance records the current safe route after navigation without consent", () => {
+    vi.stubGlobal("window", {
+      location: { origin: "https://example.test", pathname: "/pricing" },
+    });
+    try {
+      const sdk = new FakeSDK();
+      const subject = configuredTelemetry(sdk, null);
+      subject.configure(configuredApp);
+      subject.capturePageView("/");
+      subject.capturePageView("/pricing");
+      expect(sdk.events).toEqual([]);
+      subject.setPreference("persistent");
+      expect(sdk.events.map((event) => event.properties?.path)).toEqual(["/pricing"]);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("new consent queues actions and retries the first SDK download failure", async () => {
+    vi.useFakeTimers();
+    try {
+      const sdk = new FakeSDK();
+      let loads = 0;
+      const subject = new BrowserTelemetry(
+        () => (++loads === 1 ? Promise.reject(new Error("offline")) : Promise.resolve(sdk)),
+        () => true,
+        new FakePreferenceStore(null),
+      );
+      subject.configure(configuredApp);
+      subject.setPreference("persistent");
+      subject.capture("signup started");
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(loads).toBe(2);
+      expect(sdk.events.map((event) => event.event)).toEqual(["signup started"]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("downloads only after consent and preserves capture while loading", async () => {
     const sdk = new FakeSDK();
     const preference = new FakePreferenceStore(null);
@@ -172,20 +284,55 @@ describe("BrowserTelemetry", () => {
     },
   );
 
-  it("recovers from a failed download without replaying its queued events", async () => {
-    const sdk = new FakeSDK();
-    let loads = 0;
-    const subject = new BrowserTelemetry(
-      () => (++loads === 1 ? Promise.reject(new Error("offline")) : Promise.resolve(sdk)),
-      () => true,
-      new FakePreferenceStore(),
-    );
-    subject.configure(configuredApp);
-    subject.capture("signup started");
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    subject.configure(configuredApp);
-    await vi.waitFor(() => expect(sdk.initialized).toHaveLength(1));
-    expect(sdk.events).toEqual([]);
+  it("retries a temporary SDK download failure and delivers consented events once", async () => {
+    vi.useFakeTimers();
+    try {
+      const sdk = new FakeSDK();
+      let loads = 0;
+      const subject = new BrowserTelemetry(
+        () => (++loads === 1 ? Promise.reject(new Error("offline")) : Promise.resolve(sdk)),
+        () => true,
+        new FakePreferenceStore(),
+      );
+      subject.configure(configuredApp);
+      subject.capture("signup started");
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(sdk.initialized).toHaveLength(1);
+      expect(sdk.events.map((event) => event.event)).toEqual(["signup started"]);
+      expect(loads).toBe(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it.each(["retained", "declined"])("bounds SDK retries with %s consent", async (consent) => {
+    vi.useFakeTimers();
+    try {
+      let loads = 0;
+      const subject = new BrowserTelemetry(
+        () => {
+          loads++;
+          return Promise.reject(new Error("offline"));
+        },
+        () => true,
+        new FakePreferenceStore(),
+      );
+      subject.configure(configuredApp);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(loads).toBe(1);
+      if (consent === "declined") subject.setPreference("off");
+      await vi.advanceTimersByTimeAsync(60000);
+      if (consent === "declined") expect(loads).toBe(1);
+      else {
+        expect(loads).toBeGreaterThan(1);
+        expect(loads).toBeLessThanOrEqual(4);
+      }
+      const stoppedAt = loads;
+      await vi.advanceTimersByTimeAsync(60000);
+      expect(loads).toBe(stoppedAt);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("uses private browser defaults and flushes queued identity and events", () => {
@@ -291,22 +438,11 @@ describe("BrowserTelemetry", () => {
 
     subject.setPreference("off");
 
-    expect(sdk.optOutCount).toBe(0);
+    // Revocation must discard buffered SDK requests, not just reset identity.
+    expect(sdk.optOutCount).toBe(1);
     expect(sdk.resetCount).toBe(1);
     expect(store.clearedTokens).toEqual(["phc_test"]);
     expect(store.reloadCount).toBe(1);
-  });
-
-  it("resets before switching identified users and on logout", () => {
-    const sdk = new FakeSDK();
-    const subject = configuredTelemetry(sdk);
-    subject.configure(configuredApp);
-    subject.identify("user-1");
-    subject.identify("user-2");
-    subject.resetIdentity();
-
-    expect(sdk.identified).toEqual(["user-1", "user-2"]);
-    expect(sdk.resetCount).toBe(2);
   });
 
   it("uses the originating route template for SDK-owned lifecycle and Web Vitals URLs", () => {
@@ -403,29 +539,20 @@ describe("BrowserTelemetry", () => {
     expect(sdk.events).toHaveLength(0);
   });
 
-  it("rejects non-allowlisted first composition properties at runtime", () => {
+  it("does not capture the server-owned first composition milestone", () => {
     const sdk = new FakeSDK();
     const subject = configuredTelemetry(sdk);
     subject.configure(configuredApp);
 
-    subject.capture("first composition started", {
-      signal: "text",
-      content: "private draft",
-      media_url: "https://example.com/private.jpg",
-      workspace_id: "ws-secret",
-    } as never);
+    // First composition is a server-owned observation; the browser
+    // catalogue must not retain it as a capturable event.
+    const captureUnchecked = subject.capture.bind(subject) as (
+      name: string,
+      properties: Record<string, unknown>,
+    ) => void;
+    captureUnchecked("first composition started", { signal: "text" });
 
     expect(sdk.events).toHaveLength(0);
-
-    subject.capture("first composition started", { signal: "text" });
-    expect(sdk.events).toEqual([
-      { event: "first composition started", properties: { signal: "text" } },
-    ]);
-
-    subject.capture("first composition started", {
-      signal: "https://example.com/private?token=secret",
-    } as never);
-    expect(sdk.events).toHaveLength(1);
   });
 
   it("rejects unknown events and properties at runtime", () => {
@@ -455,21 +582,104 @@ describe("BrowserTelemetry", () => {
     const sdk = new FakeSDK();
     const subject = configuredTelemetry(sdk);
     subject.configure(configuredApp);
-
-    subject.capture("billing checkout opened", {
-      billing_period: "monthly",
-      plan_id: "https://example.com/checkout?token=secret",
-    });
+    for (const platform of [
+      "https://bsky.app/profile/jane",
+      "person@example.com",
+      "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjMifQ.signature",
+      "token=private-token",
+    ]) {
+      subject.capture("growth recommendation shown", {
+        platform,
+        rank_bucket: "1-3",
+        mutual_count_bucket: "2-3",
+        follows_viewer: true,
+      });
+    }
     subject.capture("billing checkout opened", {
       billing_period: "monthly",
       plan_id: "private draft",
     });
-    subject.capture("billing checkout opened", {
-      billing_period: "monthly",
-      plan_id: "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjMifQ.signature",
+    expect(sdk.events).toEqual([]);
+    subject.capture("growth recommendation shown", {
+      platform: "bluesky",
+      rank_bucket: "1-3",
+      mutual_count_bucket: "2-3",
+      follows_viewer: true,
     });
+    expect(sdk.events).toEqual([
+      {
+        event: "growth recommendation shown",
+        properties: {
+          platform: "bluesky",
+          rank_bucket: "1-3",
+          mutual_count_bucket: "2-3",
+          follows_viewer: true,
+        },
+      },
+    ]);
+  });
 
-    expect(sdk.events).toHaveLength(0);
+  it("allows only privacy-safe growth properties and drops IDs/handles", () => {
+    const sdk = new FakeSDK();
+    const subject = configuredTelemetry(sdk);
+    subject.configure(configuredApp);
+    subject.capture("growth opened", { platform_count: 2 });
+    subject.capture("growth recommendation shown", {
+      platform: "bluesky",
+      rank_bucket: "1-3",
+      mutual_count_bucket: "2-3",
+      follows_viewer: true,
+    });
+    subject.capture("growth profile opened", {
+      platform: "mastodon",
+      rank_bucket: "4-6",
+      mutual_count_bucket: "0",
+      follows_viewer: false,
+    });
+    expect(sdk.events).toEqual([
+      { event: "growth opened", properties: { platform_count: 2 } },
+      {
+        event: "growth recommendation shown",
+        properties: {
+          platform: "bluesky",
+          rank_bucket: "1-3",
+          mutual_count_bucket: "2-3",
+          follows_viewer: true,
+        },
+      },
+      {
+        event: "growth profile opened",
+        properties: {
+          platform: "mastodon",
+          rank_bucket: "4-6",
+          mutual_count_bucket: "0",
+          follows_viewer: false,
+        },
+      },
+    ]);
+    // SAFETY: Exercise the runtime boundary with independently forbidden properties.
+    const captureUnchecked = subject.capture.bind(subject) as (
+      name: string,
+      properties: Record<string, unknown>,
+    ) => void;
+    for (const [key, value] of Object.entries({
+      handle: "@jane",
+      account_id: "acc-123",
+      recommendation_id: "rec-1",
+      bio: "secret bio",
+      workspace_id: "ws-1",
+    })) {
+      captureUnchecked("growth recommendation shown", {
+        platform: "bluesky",
+        rank_bucket: "1-3",
+        mutual_count_bucket: "2-3",
+        follows_viewer: true,
+        [key]: value,
+      });
+      expect(sdk.events).toHaveLength(3);
+    }
+    captureUnchecked("growth opened", { platform_count: 2, workspace_id: "ws-1" });
+    expect(sdk.events).toHaveLength(3);
   });
 
   it("scrubs common secrets and captures the same error object once", () => {
@@ -494,8 +704,23 @@ describe("BrowserTelemetry", () => {
     expect(sdk.exceptions[0]?.error.message).toBe("Svelte error: each_key_duplicate");
   });
 
+  it("preserves safe messages from non-Error rejection reasons", () => {
+    const sdk = new FakeSDK();
+    const subject = configuredTelemetry(sdk);
+    subject.configure(configuredApp);
+    subject.captureException({
+      name: "AbortError",
+      message: "Storage failed at https://example.com/?token=secret",
+    });
+    expect(sdk.exceptions[0]?.error.name).toBe("AbortError");
+    expect(sdk.exceptions[0]?.error.message).toContain("Storage failed");
+    expect(sdk.exceptions[0]?.error.message).not.toContain("secret");
+  });
+
   it("retains source-map asset locations through the SDK before_send boundary", () => {
-    vi.stubGlobal("window", { location: { origin: "https://app.openpo.st", pathname: "/" } });
+    vi.stubGlobal("window", {
+      location: { origin: "https://app.openpo.st", pathname: "/" },
+    });
     try {
       const sdk = new FakeSDK();
       const subject = configuredTelemetry(sdk);
@@ -549,7 +774,9 @@ describe("BrowserTelemetry", () => {
   });
 
   it("redacts foreign stack URLs while retaining source-map asset URLs", () => {
-    vi.stubGlobal("window", { location: { origin: "https://app.openpo.st", pathname: "/" } });
+    vi.stubGlobal("window", {
+      location: { origin: "https://app.openpo.st", pathname: "/" },
+    });
     const sdk = new FakeSDK();
     const subject = configuredTelemetry(sdk);
     subject.configure(configuredApp);
@@ -569,12 +796,140 @@ describe("BrowserTelemetry", () => {
     expect(stack).not.toContain("token=secret");
     vi.unstubAllGlobals();
   });
+
+  it("retains same-origin public Next chunks while redacting other same-origin paths", () => {
+    vi.stubGlobal("window", {
+      location: { origin: "https://openpo.st", pathname: "/docs" },
+    });
+    const sdk = new FakeSDK();
+    const subject = configuredTelemetry(sdk);
+    subject.configure(configuredApp);
+    const error = new Error("Docs navigation failed");
+    error.stack = [
+      "Error: Docs navigation failed",
+      "    at load (https://openpo.st/_next/static/chunks/webpack.ABC123.js:1:100?token=secret)",
+      "    at render (https://openpo.st/docs/_next/static/chunks/main.ABC123.js:2:200#secret)",
+      "    at open (https://openpo.st/docs/guide?token=secret:3:4)",
+      "    at remote (https://cdn.example/assets/widget.js:5:6)",
+    ].join("\n");
+
+    subject.captureException(error);
+
+    const stack = sdk.exceptions[0]?.error.stack ?? "";
+    expect(stack).toContain("https://openpo.st/_next/static/chunks/webpack.ABC123.js:1:100");
+    expect(stack).toContain("https://openpo.st/docs/_next/static/chunks/main.ABC123.js:2:200");
+    expect(stack).not.toContain("token=secret");
+    expect(stack).not.toContain("#secret");
+    expect(stack).not.toContain("openpo.st/docs/guide");
+    expect(stack).not.toContain("cdn.example/assets/widget.js");
+    vi.unstubAllGlobals();
+  });
+
+  it("strips advertising click identifiers from the outgoing SDK payload", () => {
+    vi.stubGlobal("window", {
+      location: { origin: "https://app.openpo.st", pathname: "/settings" },
+    });
+    try {
+      const sdk = new FakeSDK();
+      const subject = configuredTelemetry(sdk);
+      subject.configure(configuredApp);
+      const beforeSend = sdk.initialized[0]?.options.before_send as (event: {
+        event: string;
+        properties: Record<string, unknown>;
+      }) => { properties: Record<string, unknown> };
+      const event = beforeSend({
+        event: "$pageview",
+        properties: {
+          $current_url: "https://app.openpo.st/settings",
+          fbclid: "ad-click-id",
+          gclid: "ad-click-id",
+          gclsrc: "ad-click-id",
+          dclid: "ad-click-id",
+          gbraid: "ad-click-id",
+          wbraid: "ad-click-id",
+          msclkid: "ad-click-id",
+          ttclid: "ad-click-id",
+          twclid: "ad-click-id",
+          li_fat_id: "ad-click-id",
+          igshid: "ad-click-id",
+          mc_cid: "ad-click-id",
+          rdt_cid: "ad-click-id",
+          epik: "ad-click-id",
+          qclid: "ad-click-id",
+          sccid: "ad-click-id",
+          irclid: "ad-click-id",
+          _kx: "ad-click-id",
+          $set: { fbclid: "ad-click-id", gclid: "ad-click-id" },
+          $set_once: {
+            $initial_fbclid: "ad-click-id",
+            $initial_gclid: "ad-click-id",
+            $initial_kx: "ad-click-id",
+          },
+          $initial_fbclid: "ad-click-id",
+          $initial_msclkid: "ad-click-id",
+          $exception_list: [{ fbclid: "ad-click-id", lineno: 12 }],
+          distinct_id: "browser-user-1",
+          $session_id: "session-1",
+          surface: "app",
+        },
+      });
+      const serialized = JSON.stringify(event.properties);
+      for (const key of [
+        "fbclid",
+        "gclid",
+        "gclsrc",
+        "dclid",
+        "gbraid",
+        "wbraid",
+        "msclkid",
+        "ttclid",
+        "twclid",
+        "li_fat_id",
+        "igshid",
+        "mc_cid",
+        "rdt_cid",
+        "epik",
+        "qclid",
+        "sccid",
+        "irclid",
+        "_kx",
+        "$initial_fbclid",
+        "$initial_msclkid",
+        "$initial_kx",
+      ]) {
+        expect(event.properties).not.toHaveProperty(key);
+      }
+      expect(serialized).not.toContain("ad-click-id");
+      // Protocol and application identifiers keep their own policies.
+      expect(event.properties).toMatchObject({
+        distinct_id: "browser-user-1",
+        $session_id: "session-1",
+        surface: "app",
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("passes click identifiers to the SDK property denylist", () => {
+    const sdk = new FakeSDK();
+    const subject = configuredTelemetry(sdk);
+    subject.configure(configuredApp);
+    const denylist = sdk.initialized[0]?.options.property_denylist as unknown;
+    expect(Array.isArray(denylist)).toBe(true);
+    for (const key of ["fbclid", "gclid", "msclkid", "$initial_fbclid"]) {
+      expect(denylist).toContain(key);
+    }
+  });
 });
 
 describe("installGlobalErrorCapture", () => {
   it("ignores a ResizeObserver delivery warning but captures a real window error", async () => {
     const runtime = Object.assign(new EventTarget(), {
-      location: { origin: "https://app.openpo.st", pathname: "/image-editor/[id]" },
+      location: {
+        origin: "https://app.openpo.st",
+        pathname: "/image-editor/[id]",
+      },
     });
     vi.stubGlobal("window", runtime);
     vi.stubGlobal("document", { cookie: "openpost_analytics=v1:persistent" });
@@ -598,15 +953,34 @@ describe("installGlobalErrorCapture", () => {
       );
       expect(globalSDK.captureException).not.toHaveBeenCalled();
 
+      // Contentless cross-origin "Script error." carries no stack and only
+      // fuses unrelated routes into one noisy issue, so it is dropped. A
+      // real error object with the same text is still captured.
       runtime.dispatchEvent(
-        Object.assign(new Event("error"), { error: null, message: "Script error." }),
+        Object.assign(new Event("error"), {
+          error: null,
+          message: "Script error.",
+        }),
+      );
+      expect(globalSDK.captureException).not.toHaveBeenCalled();
+
+      const scriptFailure = new Error("Script error.");
+      runtime.dispatchEvent(
+        Object.assign(new Event("error"), {
+          error: scriptFailure,
+          message: scriptFailure.message,
+        }),
       );
       expect(globalSDK.captureException).toHaveBeenCalledOnce();
-      expect(globalSDK.captureException.mock.calls[0]?.[0].message).toBe("Script error.");
+      const capturedScriptError = globalSDK.captureException.mock.calls[0]?.[0] as Error;
+      expect(capturedScriptError.message).toBe("Script error.");
 
       const failure = new Error("Canvas failed");
       runtime.dispatchEvent(
-        Object.assign(new Event("error"), { error: failure, message: failure.message }),
+        Object.assign(new Event("error"), {
+          error: failure,
+          message: failure.message,
+        }),
       );
       expect(globalSDK.captureException).toHaveBeenCalledTimes(2);
       expect(globalSDK.captureException.mock.calls[1]?.[0].message).toBe("Canvas failed");
@@ -617,25 +991,42 @@ describe("installGlobalErrorCapture", () => {
     }
   });
 
-  it("does not report an error already handled by an earlier listener", () => {
+  it("does not report an error already handled by an earlier listener", async () => {
     const runtime = new EventTarget();
     vi.stubGlobal("window", runtime);
+    vi.stubGlobal("document", { cookie: "openpost_analytics=v1:persistent" });
+    vi.stubGlobal("navigator", {});
+    globalSDK.captureException.mockClear();
+    globalSDK.init.mockClear();
+    let removeCapture = () => {};
+    const prevent = (event: Event) => event.preventDefault();
     try {
       configureTelemetry(configuredApp);
-      runtime.addEventListener("error", (event) => event.preventDefault());
-      const removeCapture = installGlobalErrorCapture();
-      const event = new Event("error", { cancelable: true }) as Event & {
-        error: Error;
-        message: string;
-      };
-      event.error = new Error("Importing a module script failed.");
-      event.message = event.error.message;
-
-      runtime.dispatchEvent(event);
-
+      await vi.waitFor(() => expect(globalSDK.init).toHaveBeenCalledOnce());
+      runtime.addEventListener("error", prevent);
+      removeCapture = installGlobalErrorCapture();
+      const handled = Object.assign(new Event("error", { cancelable: true }), {
+        error: new Error("Importing a module script failed."),
+        message: "Importing a module script failed.",
+      });
+      runtime.dispatchEvent(handled);
+      expect(handled.defaultPrevented).toBe(true);
       expect(globalSDK.captureException).not.toHaveBeenCalled();
-      removeCapture();
+      runtime.removeEventListener("error", prevent);
+      runtime.dispatchEvent(
+        Object.assign(new Event("error"), {
+          error: new Error("Unhandled canvas failure"),
+          message: "Unhandled canvas failure",
+        }),
+      );
+      expect(globalSDK.captureException).toHaveBeenCalledOnce();
+      expect(globalSDK.captureException.mock.calls[0]?.[0].message).toBe(
+        "Unhandled canvas failure",
+      );
     } finally {
+      removeCapture();
+      runtime.removeEventListener("error", prevent);
+      globalSDK.captureException.mockClear();
       vi.unstubAllGlobals();
     }
   });
@@ -654,6 +1045,7 @@ describe("deployment context", () => {
 
     expect(sdk.resetCount).toBe(2);
     // One restore per identify plus one per explicit reset.
+    expect(sdk.identified).toEqual(["user-1", "user-2"]);
     expect(sdk.registered.length).toBe(initialRegisters + 3);
     expect(sdk.registered.at(-1)).toMatchObject({
       surface: "app",
@@ -668,7 +1060,9 @@ describe("deployment context", () => {
     const immediateSDK = new FakeSDK();
     const immediate = configuredTelemetry(immediateSDK);
     immediate.configure(configuredApp);
-    immediate.captureException(new Error("immediate failure"), { error_boundary: "window_error" });
+    immediate.captureException(new Error("immediate failure"), {
+      error_boundary: "window_error",
+    });
     expect(immediateSDK.exceptions[0]?.properties).toMatchObject({
       error_boundary: "window_error",
       surface: "app",
@@ -713,11 +1107,15 @@ describe("installConsoleErrorBridge", () => {
     expect(original).toHaveBeenCalledTimes(2);
     expect(original).toHaveBeenNthCalledWith(1, failure);
     expect(capture).toHaveBeenCalledTimes(2);
-    expect(capture).toHaveBeenNthCalledWith(1, failure, { error_boundary: "console_error" });
+    expect(capture).toHaveBeenNthCalledWith(1, failure, {
+      error_boundary: "console_error",
+    });
     const synthetic = capture.mock.calls[1]?.[0] as Error;
     expect(synthetic).toBeInstanceOf(Error);
     expect(synthetic.message).toBe('Failed to save draft: {"draft":1}');
-    expect(capture.mock.calls[1]?.[1]).toEqual({ error_boundary: "console_error" });
+    expect(capture.mock.calls[1]?.[1]).toEqual({
+      error_boundary: "console_error",
+    });
 
     uninstall();
     expect(target.error).toBe(original);
@@ -729,6 +1127,27 @@ describe("installConsoleErrorBridge", () => {
     installConsoleErrorBridge(capture, target);
     const failure = new DOMException("The cached file changed", "InvalidStateError");
     target.error("[video-editor:WorkspaceFS]", "createProject failed", failure);
+    expect(capture).toHaveBeenCalledWith(failure, {
+      error_boundary: "console_error",
+    });
+  });
+
+  it("drops benign browser delivery noise but keeps real failures", () => {
+    const capture = vi.fn();
+    const original = vi.fn();
+    const target = { error: original };
+    installConsoleErrorBridge(capture, target);
+
+    target.error("ResizeObserver loop completed with undelivered notifications.");
+    target.error("Script error.");
+    target.error(new Error("ResizeObserver loop completed with undelivered notifications."));
+    expect(capture).not.toHaveBeenCalled();
+    // Console output is always preserved.
+    expect(original).toHaveBeenCalledTimes(3);
+
+    const failure = new Error("Canvas failed");
+    target.error(failure);
+    expect(capture).toHaveBeenCalledOnce();
     expect(capture).toHaveBeenCalledWith(failure, {
       error_boundary: "console_error",
     });

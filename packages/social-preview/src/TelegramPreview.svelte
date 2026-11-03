@@ -1,8 +1,12 @@
 <script lang="ts">
+  import { previewEditing } from "./editing";
+  import Eye from "@lucide/svelte/icons/eye";
   import FileText from "@lucide/svelte/icons/file-text";
   import type { PreviewModel } from "./model";
   import PreviewAvatar from "./PreviewAvatar.svelte";
   import PreviewMedia from "./PreviewMedia.svelte";
+
+  const editing = previewEditing();
 
   interface Props {
     model: PreviewModel;
@@ -11,7 +15,7 @@
 
   let { model, compact = false }: Props = $props();
   const segment = $derived(model.segments[0]);
-  const media = $derived(segment?.media?.length ? segment.media : model.media);
+  const media = $derived(segment?.media ?? model.media);
   const document = $derived(
     media.length === 1 && media[0]?.kind === "document" ? media[0] : undefined,
   );
@@ -35,12 +39,13 @@
           >
         </div>
       {:else if media.length > 0}
-        <PreviewMedia {media} layout={media.length > 1 ? "grid" : "single"} />
+        <PreviewMedia {media} layout="album" />
       {:else if model.format === "video"}
         <PreviewMedia media={[]} emptyLabel="Video preview" />
       {/if}
-      <p>{segment?.text || "Your message will appear here."}</p>
+      {#if editing()?.text && segment}{@render editing()!.text(segment)}{:else if segment?.text}<p dir="auto">{segment.text}</p>{/if}
       <footer>
+        <span class="views"><Eye aria-hidden="true" />0</span>
         <span>{model.createdAtLabel}</span>
       </footer>
     </div>
@@ -49,6 +54,10 @@
 
 <style>
   .telegram-preview {
+    --native-fg: light-dark(#18242b, #f5f5f5);
+    --native-muted: light-dark(#52636b, #a1b3c1);
+    --native-border: light-dark(#d8dde1, #34495b);
+    --native-soft: light-dark(#f1f5f7, #20364b);
     width: min(100%, 42rem);
     min-height: 16rem;
     display: grid;
@@ -65,8 +74,8 @@
         rgb(255 255 255 / 25%) 0 0.16rem,
         transparent 0.18rem
       ),
-      #d8e5e4;
-    color: #18242b;
+      light-dark(#d8e5e4, #0e1621);
+    color: var(--native-fg);
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   }
 
@@ -81,7 +90,7 @@
   .bubble {
     min-width: 0;
     border-radius: 0.9rem 0.9rem 0.9rem 0.3rem;
-    background: #fff;
+    background: light-dark(#fff, #182533);
     box-shadow: 0 1px 2px rgb(27 48 54 / 13%);
     padding: 0.55rem 0.65rem 0.4rem;
   }
@@ -89,7 +98,7 @@
   .sender {
     display: block;
     overflow: hidden;
-    color: #2678a7;
+    color: light-dark(#2678a7, #6ab3f3);
     font-size: 0.82rem;
     font-weight: 700;
     text-overflow: ellipsis;
@@ -102,16 +111,29 @@
     line-height: 1.45;
     overflow-wrap: anywhere;
     white-space: pre-wrap;
+    unicode-bidi: plaintext;
+    text-align: start;
   }
 
   footer {
     display: flex;
     align-items: center;
     justify-content: flex-end;
-    gap: 0.2rem;
+    gap: 0.55rem;
     margin-top: 0.2rem;
-    color: #52636b;
+    color: var(--native-muted);
     font-size: 0.66rem;
+  }
+
+  .views {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.2rem;
+  }
+
+  .views :global(svg) {
+    width: 0.8rem;
+    height: 0.8rem;
   }
 
   .bubble :global(.single-media),
@@ -126,7 +148,7 @@
     gap: 0.7rem;
     margin-top: 0.5rem;
     border-radius: 0.55rem;
-    background: #f1f5f7;
+    background: var(--native-soft);
     padding: 0.65rem;
   }
 
@@ -159,7 +181,7 @@
   }
 
   .document small {
-    color: #52636b;
+    color: var(--native-muted);
     font-size: 0.7rem;
   }
 
@@ -167,7 +189,7 @@
     padding: 0.85rem 0.65rem;
   }
 
-  @media (max-width: 32rem) {
+  @container (max-width: 32rem) {
     .telegram-preview {
       padding: 1rem 0.65rem;
     }

@@ -15,6 +15,7 @@ import (
 	"github.com/openpost/backend/internal/api/middleware"
 	"github.com/openpost/backend/internal/models"
 	"github.com/openpost/backend/internal/services/apitokens"
+	"github.com/openpost/backend/internal/services/videoprojects"
 	"github.com/stretchr/testify/require"
 	"github.com/uptrace/bun"
 )
@@ -52,7 +53,7 @@ func TestCloudVideoProjectCreateLoadAndWorkspaceAuthorization(t *testing.T) {
 	require.Equal(t, int64(1), project.HeadRevision)
 	require.Equal(t, "user-editor", project.UpdatedByUserID)
 	require.Equal(t, "synced", project.SyncStatus)
-	require.NotContains(t, project.Document, "rootFolderName")
+	require.NotContains(t, projectDocument(t, project.Document), "rootFolderName")
 	require.NotContains(t, projectItem(t, project.Document, 0), "panelLayout")
 
 	replayed := server.request(t, "editor-token", http.MethodPost, "/api/v1/video-projects", map[string]any{
@@ -81,6 +82,161 @@ func TestCloudVideoProjectCreateLoadAndWorkspaceAuthorization(t *testing.T) {
 
 	otherWorkspace := server.request(t, "editor-token", http.MethodGet, "/api/v1/video-projects/"+project.ID+"?workspace_id=ws-2", nil)
 	require.Equal(t, http.StatusNotFound, otherWorkspace.Code, otherWorkspace.Body.String())
+}
+
+func TestCloudVideoProjectCopyRetainsIndependentAssetReferences(t *testing.T) {
+	server := newVideoProjectTestServer(t)
+	created := server.request(t, "editor-token", http.MethodPost, "/api/v1/video-projects", map[string]any{
+		"id": "original-project", "workspace_id": "ws-1", "name": "Original",
+		"document": map[string]any{"id": "original-project"},
+	})
+	require.Equal(t, http.StatusOK, created.Code, created.Body.String())
+	asset := &models.ProjectAsset{
+		ID: "original-asset", ProjectID: "original-project", WorkspaceID: "ws-1",
+		StableMediaID: "clip-source", MediaID: "workspace-video", OriginalFilename: "recording.webm", MimeType: "video/webm",
+		Size: 1234, SHA256: "original-hash", Status: models.ProjectAssetStatusReady,
+		PreparationJSON: `{"duration":3}`, Required: true, UploadedByUserID: "user-editor",
+	}
+	_, err := server.db.NewInsert().Model(asset).Exec(t.Context())
+	require.NoError(t, err)
+	payload := map[string]any{
+		"id": "copied-project", "workspace_id": "ws-1", "name": "Conflict copy",
+		"source_project_id": "original-project",
+		"document": map[string]any{"id": "copied-project", "timeline": map[string]any{
+			"items": []any{map[string]any{"id": "clip", "mediaId": "clip-source"}},
+		}},
+	}
+	for range 2 {
+		copied := server.request(t, "editor-token", http.MethodPost, "/api/v1/video-projects", payload)
+		require.Equal(t, http.StatusOK, copied.Code, copied.Body.String())
+	}
+	var assets []models.ProjectAsset
+	require.NoError(t, server.db.NewSelect().Model(&assets).Where("project_id = ?", "copied-project").Scan(t.Context()))
+	require.Len(t, assets, 1, "copy must retain the clip source and retries must not duplicate it")
+	require.NotEqual(t, asset.ID, assets[0].ID)
+	require.Equal(t, asset.StableMediaID, assets[0].StableMediaID)
+	require.Equal(t, asset.MediaID, assets[0].MediaID)
+	require.Equal(t, asset.PreparationJSON, assets[0].PreparationJSON)
+	require.Equal(t, asset.SHA256, assets[0].SHA256)
+	require.Equal(t, asset.Status, assets[0].Status)
+	for _, transition := range []struct {
+		name   string
+		apply  func() error
+		status string
+		sync   string
+	}{
+		{"storage failure", func() error {
+			return videoprojects.MarkAssetNeedsStorageForMedia(t.Context(), server.db, "ws-1", asset.MediaID, "storage quota exceeded")
+		}, models.ProjectAssetStatusNeedsStorage, models.VideoProjectSyncNeedsAttention},
+		{"upload completion", func() error {
+			return videoprojects.CompleteAssetForMedia(t.Context(), server.db, "ws-1", asset.MediaID, "completed-hash")
+		}, models.ProjectAssetStatusReady, models.VideoProjectSyncSynced},
+	} {
+		require.NoError(t, transition.apply())
+		for _, projectID := range []string{"original-project", "copied-project"} {
+			var stored models.ProjectAsset
+			require.NoError(t, server.db.NewSelect().Model(&stored).Where("project_id = ?", projectID).Scan(t.Context()))
+			require.Equal(t, transition.status, stored.Status, "%s must reach %s", transition.name, projectID)
+			var project models.VideoProject
+			require.NoError(t, server.db.NewSelect().Model(&project).Where("id = ?", projectID).Scan(t.Context()))
+			require.Equal(t, transition.sync, project.SyncStatus, "%s must refresh %s", transition.name, projectID)
+		}
+	}
+	_, err = server.db.NewDelete().Model(asset).WherePK().Exec(t.Context())
+	require.NoError(t, err)
+	require.NoError(t, server.db.NewSelect().Model(&assets).Where("project_id = ?", "copied-project").Scan(t.Context()))
+	require.Len(t, assets, 1, "removing an original reference must not remove the copy's reference")
+}
+
+func TestCloudVideoProjectCopyWaitsForUnlinkedSourceUploads(t *testing.T) {
+	server := newVideoProjectTestServer(t)
+	created := server.request(t, "editor-token", http.MethodPost, "/api/v1/video-projects", map[string]any{
+		"id": "uploading-project", "workspace_id": "ws-1", "name": "Uploading", "document": map[string]any{"id": "uploading-project"},
+	})
+	require.Equal(t, http.StatusOK, created.Code, created.Body.String())
+	asset := &models.ProjectAsset{ID: "unlinked-source", ProjectID: "uploading-project", WorkspaceID: "ws-1", StableMediaID: "source", Status: models.ProjectAssetStatusUploading, Required: true}
+	_, err := server.db.NewInsert().Model(asset).Exec(t.Context())
+	require.NoError(t, err)
+	copied := server.request(t, "editor-token", http.MethodPost, "/api/v1/video-projects", map[string]any{
+		"id": "blocked-copy", "workspace_id": "ws-1", "name": "Copy", "source_project_id": "uploading-project", "document": map[string]any{"id": "blocked-copy"},
+	})
+	require.Equal(t, http.StatusConflict, copied.Code, copied.Body.String())
+	count, err := server.db.NewSelect().Model((*models.VideoProject)(nil)).Where("id = ?", "blocked-copy").Count(t.Context())
+	require.NoError(t, err)
+	require.Zero(t, count, "an unlinked source cannot leave a copy stuck uploading forever")
+}
+
+func TestCloudVideoProjectCopyRejectsMissingOrForeignSourcesWithoutCreatingAProject(t *testing.T) {
+	server := newVideoProjectTestServer(t)
+	foreign := &models.VideoProject{
+		ID: "foreign-source", WorkspaceID: "ws-2", Name: "Private source", DocumentJSON: `{}`,
+		CreatedByUserID: "user-editor", UpdatedByUserID: "user-editor",
+	}
+	_, err := server.db.NewInsert().Model(foreign).Exec(t.Context())
+	require.NoError(t, err)
+	for _, sourceID := range []string{"missing-source", "foreign-source"} {
+		t.Run(sourceID, func(t *testing.T) {
+			id := "copy-" + sourceID
+			copied := server.request(t, "editor-token", http.MethodPost, "/api/v1/video-projects", map[string]any{
+				"id": id, "workspace_id": "ws-1", "name": "Copy", "source_project_id": sourceID,
+				"document": map[string]any{"id": id},
+			})
+			require.Equal(t, http.StatusNotFound, copied.Code, copied.Body.String())
+			count, err := server.db.NewSelect().Model((*models.VideoProject)(nil)).Where("id = ?", id).Count(t.Context())
+			require.NoError(t, err)
+			require.Zero(t, count, "failed source lookup must roll back the copy")
+		})
+	}
+}
+
+func TestCloudVideoProjectAssetDeleteRemovesAssetAndIsIdempotent(t *testing.T) {
+	server := newVideoProjectTestServer(t)
+	created := server.request(t, "editor-token", http.MethodPost, "/api/v1/video-projects", map[string]any{
+		"workspace_id": "ws-1",
+		"name":         "Delete asset",
+		"document":     map[string]any{"id": "delete-asset"},
+	})
+	require.Equal(t, http.StatusOK, created.Code, created.Body.String())
+	var project VideoProjectResponse
+	require.NoError(t, json.Unmarshal(created.Body.Bytes(), &project))
+
+	asset := &models.ProjectAsset{
+		ID:               "asset-delete-1",
+		ProjectID:        project.ID,
+		WorkspaceID:      "ws-1",
+		StableMediaID:    "stable-delete-1",
+		OriginalFilename: "recording.webm",
+		MimeType:         "video/webm",
+		Size:             12,
+		Status:           models.ProjectAssetStatusReady,
+		PreparationJSON:  `{}`,
+		Required:         true,
+		UploadedByUserID: "user-editor",
+	}
+	_, err := server.db.NewInsert().Model(asset).Exec(t.Context())
+	require.NoError(t, err)
+
+	deleted := server.request(
+		t,
+		"editor-token",
+		http.MethodDelete,
+		"/api/v1/video-projects/"+project.ID+"/assets/"+asset.ID+"?workspace_id=ws-1",
+		nil,
+	)
+	require.Equal(t, http.StatusOK, deleted.Code, deleted.Body.String())
+	var remaining int
+	remaining, err = server.db.NewSelect().Model((*models.ProjectAsset)(nil)).Where("id = ?", asset.ID).Count(t.Context())
+	require.NoError(t, err)
+	require.Zero(t, remaining)
+
+	replayed := server.request(
+		t,
+		"editor-token",
+		http.MethodDelete,
+		"/api/v1/video-projects/"+project.ID+"/assets/"+asset.ID+"?workspace_id=ws-1",
+		nil,
+	)
+	require.Equal(t, http.StatusOK, replayed.Code, replayed.Body.String())
 }
 
 func TestCloudVideoProjectNameFollowsEditsAndRestoredRevision(t *testing.T) {
@@ -228,6 +384,7 @@ func TestCloudVideoProjectRebasesDisjointEditsAndPreservesOverlappingConflict(t 
 	require.Equal(t, http.StatusOK, revisions.Code, revisions.Body.String())
 	var history []VideoProjectRevisionResponse
 	require.NoError(t, json.Unmarshal(revisions.Body.Bytes(), &history))
+	require.Len(t, history, 4, "authoring must record one revision per applied and resolved mutation")
 	require.Equal(t, []int64{4, 3, 2, 1}, []int64{history[0].Revision, history[1].Revision, history[2].Revision, history[3].Revision})
 	require.Equal(t, "conflict_resolution", history[0].Kind)
 	require.Equal(t, []string{"user-editor", "user-editor", "user-editor", "user-editor"}, []string{history[0].AuthorUserID, history[1].AuthorUserID, history[2].AuthorUserID, history[3].AuthorUserID})
@@ -254,6 +411,8 @@ func TestCloudVideoProjectCanDismissConflictWithoutChangingHead(t *testing.T) {
 	require.Equal(t, http.StatusOK, second.Code, second.Body.String())
 	var conflict VideoProjectMutationResponse
 	require.NoError(t, json.Unmarshal(second.Body.Bytes(), &conflict))
+	require.Equal(t, "conflict", conflict.Outcome)
+	require.NotEmpty(t, conflict.ConflictID, "the stale edit must be stored as a resolvable conflict")
 
 	dismissed := server.request(t, "editor-token", http.MethodPost, "/api/v1/video-projects/"+project.ID+"/conflicts/"+conflict.ConflictID+"/resolve", map[string]any{
 		"workspace_id": "ws-1", "resolution": "keep_current",
@@ -262,7 +421,13 @@ func TestCloudVideoProjectCanDismissConflictWithoutChangingHead(t *testing.T) {
 	var dismissedProject VideoProjectResponse
 	require.NoError(t, json.Unmarshal(dismissed.Body.Bytes(), &dismissedProject))
 	require.Equal(t, int64(2), dismissedProject.HeadRevision)
-	require.Equal(t, "Desktop", dismissedProject.Document["title"])
+	require.Equal(t, "Desktop", projectDocument(t, dismissedProject.Document)["title"])
+
+	remaining := server.request(t, "editor-token", http.MethodGet, "/api/v1/video-projects/"+project.ID+"/conflicts?workspace_id=ws-1", nil)
+	require.Equal(t, http.StatusOK, remaining.Code, remaining.Body.String())
+	var branches []VideoProjectConflictResponse
+	require.NoError(t, json.Unmarshal(remaining.Body.Bytes(), &branches))
+	require.Empty(t, branches, "keeping the current head must dismiss the stored conflict")
 }
 
 func TestCloudVideoProjectTreatsTimelineMembershipAsOverlappingEntityEdits(t *testing.T) {
@@ -443,7 +608,7 @@ type videoProjectTestServer struct {
 	db   *bun.DB
 }
 
-func newVideoProjectTestServer(t *testing.T) *videoProjectTestServer {
+func newVideoProjectTestServer(t testing.TB) *videoProjectTestServer {
 	t.Helper()
 	db := createHandlerTestDB(t,
 		(*models.Workspace)(nil),
@@ -456,6 +621,11 @@ func newVideoProjectTestServer(t *testing.T) *videoProjectTestServer {
 		(*models.VideoProjectCheckpoint)(nil),
 		(*models.ProjectAsset)(nil),
 	)
+	return videoProjectTestServerWithDB(t, db)
+}
+
+func videoProjectTestServerWithDB(t testing.TB, db *bun.DB) *videoProjectTestServer {
+	t.Helper()
 	ctx := context.Background()
 	users := []models.User{
 		{ID: "user-editor", Email: "editor@example.com", PasswordHash: "hash"},
@@ -475,11 +645,11 @@ func newVideoProjectTestServer(t *testing.T) *videoProjectTestServer {
 
 	e := echo.New()
 	api := humaecho.NewWithGroup(e, e.Group("/api/v1"), huma.DefaultConfig("Test", "1.0.0"))
-	NewVideoProjectHandler(db, videoProjectTestAuthenticator{}).RegisterRoutes(api)
+	NewVideoProjectHandler(db, videoProjectTestAuthenticator{}, nil).RegisterRoutes(api)
 	return &videoProjectTestServer{echo: e, db: db}
 }
 
-func (s *videoProjectTestServer) request(t *testing.T, token, method, path string, body any) *httptest.ResponseRecorder {
+func (s *videoProjectTestServer) request(t testing.TB, token, method, path string, body any) *httptest.ResponseRecorder {
 	t.Helper()
 	var payload bytes.Buffer
 	if body != nil {
@@ -506,9 +676,16 @@ func (videoProjectTestAuthenticator) AuthenticateBearer(_ context.Context, token
 	}
 }
 
-func projectItem(t *testing.T, document map[string]any, index int) map[string]any {
+func projectDocument(t *testing.T, document videoProjectDocument) map[string]any {
 	t.Helper()
-	timeline, ok := document["timeline"].(map[string]any)
+	var decoded map[string]any
+	require.NoError(t, json.Unmarshal(document.RawMessage, &decoded))
+	return decoded
+}
+
+func projectItem(t *testing.T, document videoProjectDocument, index int) map[string]any {
+	t.Helper()
+	timeline, ok := projectDocument(t, document)["timeline"].(map[string]any)
 	require.True(t, ok)
 	items, ok := timeline["items"].([]any)
 	require.True(t, ok)

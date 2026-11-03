@@ -50,11 +50,22 @@
     },
     "delivery": {
       "description": "Build, test, image, deployment, release, certification, and repository environment contracts",
-      "prefixes": [".github/", "changes/", "config/", "deploy/", "patches/", "scripts/"],
+      "prefixes": [
+        ".github/",
+        "changes/",
+        "config/",
+        "deploy/",
+        "patches/",
+        "scripts/",
+        "tests/helpers/",
+        "tests/build/",
+        "tests/browser-tooling/"
+      ],
       "paths": [
         ".dockerignore",
         ".env.example",
         ".envrc",
+        ".fallowrc.jsonc",
         ".gitleaks.toml",
         ".oxfmtrc.json",
         "bun.lock",

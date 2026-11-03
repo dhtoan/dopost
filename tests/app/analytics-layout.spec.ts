@@ -4,6 +4,73 @@ import builtins from "../../apps/server/internal/services/themes/builtins.v1.jso
 import { authenticatePage, createWorkspace, registerUser } from "./helpers";
 
 const platforms = ["x", "threads", "bluesky", "mastodon", "linkedin"];
+
+test("native repurpose restores its authorized Workspace before resolving the source", async ({
+  page,
+  request,
+}) => {
+  const { token } = await registerUser(request, `analytics-handoff-${randomUUID()}@example.com`);
+  const first = await createWorkspace(request, token, "Browser workspace");
+  const target = await createWorkspace(request, token, "Native workspace");
+  await authenticatePage(page, token);
+  await page.addInitScript((workspace) => {
+    localStorage.setItem("openpost_current_workspace", JSON.stringify(workspace));
+  }, first);
+  const reads: string[] = [];
+  await page.route("**/api/v1/account-features?**", (route) => route.fulfill({ json: [] }));
+  await page.route("**/api/v1/analytics?**", (route) => {
+    reads.push(new URL(route.request().url()).searchParams.get("workspace_id") ?? "");
+    return route.fulfill({
+      json: {
+        range_days: 30,
+        publication_total: 0,
+        content_total: 0,
+        accounts: [],
+        content: [],
+        publications: [],
+        insights: [],
+        takeaways: [],
+        performance: [],
+        highlights: [],
+        visibility_breakdown: [],
+        follower_series: [],
+        trends: { followers: [], engagement: [], views: [], visibility: [] },
+        summary: {
+          followers: { value: 0, measured: 0 },
+          engagement: { value: 0, measured: 0 },
+          views: { value: 0, measured: 0 },
+          visibility: { value: 0, measured: 0 },
+          impressions: { value: 0, measured: 0 },
+          reach: { value: 0, measured: 0 },
+          published: 0,
+        },
+      },
+    });
+  });
+  let resolved: Record<string, unknown> | undefined;
+  await page.route("**/api/v1/analytics/repurpose", (route) => {
+    resolved = route.request().postDataJSON();
+    return route.fulfill({ status: 422, json: { detail: "Source fixture reached" } });
+  });
+  const source = { type: "openpost", publication_id: randomUUID(), rendition_id: randomUUID() };
+  const query = new URLSearchParams({
+    workspace: target.id,
+    repurpose_type: source.type,
+    repurpose_publication_id: source.publication_id,
+    repurpose_rendition_id: source.rendition_id,
+    days: "30",
+  });
+  await page.goto(`/analytics?${query}`);
+  await expect
+    .poll(() => resolved, { timeout: 15_000 })
+    .toEqual({
+      workspace_id: target.id,
+      reference: source,
+      range: { days: 30 },
+    });
+  expect(reads).toContain(target.id);
+  expect(page.url()).not.toContain("repurpose_type");
+});
 const content = platforms.map((platform, index) => ({
   reference: {
     type: "openpost",
@@ -15,7 +82,7 @@ const content = platforms.map((platform, index) => ({
   account_id: `account-${index}`,
   username: "@rodrgds",
   title: [
-    "Just started using a US VPN for normal day-to-day work",
+    "A long post with enough detail to wrap across many lines. ".repeat(12),
     "This felt SOOOO good.",
     "Approval prompts FEEL safe because they ask a human.",
     "Looking clean ay?",
@@ -40,6 +107,111 @@ const trend = Array.from({ length: 30 }, (_, index) => ({
     },
   ],
 }));
+
+for (const scheme of ["light", "dark"] as const) {
+  for (const width of [1280, 390, 320]) {
+    test.describe(`account filter ${scheme} ${width}`, () => {
+      test.use({ colorScheme: scheme, hasTouch: width < 768 });
+      test("account filter keeps reset reachable after selecting the last account", async ({
+        page,
+        request,
+      }, testInfo) => {
+        const { token } = await registerUser(
+          request,
+          `analytics-filter-${randomUUID()}@example.com`,
+        );
+        const workspace = await createWorkspace(request, token, "Analytics filter");
+        await authenticatePage(page, token);
+        await page.setViewportSize({ width, height: 600 });
+        await page.emulateMedia({ colorScheme: scheme, reducedMotion: "reduce" });
+        const errors: string[] = [];
+        page.on("pageerror", (error) => errors.push(error.message));
+        const requests: string[] = [];
+        await page.route("**/api/v1/account-features?**", (route) => route.fulfill({ json: [] }));
+        await page.route("**/api/v1/analytics?**", (route) => {
+          requests.push(new URL(route.request().url()).searchParams.get("account_ids") ?? "all");
+          return route.fulfill({
+            json: {
+              range_days: 30,
+              content_total: 0,
+              summary: {
+                followers: { value: 0, measured: 0 },
+                engagement: { value: 0, measured: 0 },
+                views: { value: 0, measured: 0 },
+                impressions: { value: 774, measured: 16 },
+                reach: { value: 0, measured: 0 },
+                published: 0,
+              },
+              accounts: Array.from({ length: 9 }, (_, index) => ({
+                id: `account-${index}`,
+                platform: platforms[index % platforms.length],
+                username: `account${index}`,
+                status: "ok",
+                account_supported: true,
+                content_supported: true,
+                metrics: {},
+              })),
+              content: [],
+              trends: {},
+              insights: [],
+            },
+          });
+        });
+        await page.route("**/api/v1/social-sets?**", (route) =>
+          route.fulfill({
+            json: [
+              {
+                id: "historical-set",
+                workspace_id: workspace.id,
+                name: "Historical set",
+                is_default: false,
+                accounts: [
+                  { social_account_id: "inactive-account", platform: "linkedin", display_order: 0 },
+                ],
+                created_at: "2026-09-01T00:00:00Z",
+                updated_at: "2026-09-01T00:00:00Z",
+              },
+            ],
+          }),
+        );
+        await page.goto(`/analytics?workspace=${workspace.id}`);
+        const filter = page.getByRole("button", { name: /^Account filter/ });
+        await filter.click();
+        const menu = page
+          .locator('[data-slot="popover-content"]')
+          .filter({ hasText: "Account filter" });
+        await menu.getByRole("searchbox").fill("account8");
+        await menu.getByRole("checkbox", { name: /account8/ }).click();
+        await expect.poll(() => requests.at(-1)).toBe("account-8");
+        await menu.getByRole("searchbox").fill("account2");
+        await menu.getByRole("checkbox", { name: /account2/ }).click();
+        await expect.poll(() => requests.at(-1)).toBe("account-2,account-8");
+        await expect(filter).toContainText("2 accounts");
+        await expect(page.getByText(/^Impressions/)).toHaveCount(0);
+        const reset = menu.getByRole("checkbox", { name: "All accounts", exact: true });
+        await expect(reset).toBeInViewport();
+        if (width < 768)
+          expect((await reset.locator("..").boundingBox())!.height).toBeGreaterThanOrEqual(44);
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+          true,
+        );
+        await page.screenshot({ path: testInfo.outputPath("account-reset-menu.png") });
+        await reset.click();
+        await expect(filter).toContainText("All accounts");
+        await page.keyboard.press("Escape");
+        await expect(filter).toBeFocused();
+        await page.getByRole("button", { name: /^Reporting window:/ }).click();
+        await page.getByRole("button", { name: "7 days", exact: true }).click();
+        await expect.poll(() => requests.at(-1)).toBe("all");
+        await filter.click();
+        await menu.getByRole("button", { name: "Historical set", exact: true }).click();
+        await expect.poll(() => requests.at(-1)).toBe("inactive-account");
+        await expect(filter).toContainText("Historical set");
+        expect(errors).toEqual([]);
+      });
+    });
+  }
+}
 
 for (const [themeID, scheme] of [
   ["dither", "light"],
@@ -70,8 +242,9 @@ for (const [themeID, scheme] of [
           route.fulfill({
             json: {
               range_days: 30,
-              source: "all",
               content_total: content.length,
+              publication_total: content.length,
+              highlights: content.slice(0, 2),
               summary: {
                 followers: {
                   value:
@@ -79,8 +252,9 @@ for (const [themeID, scheme] of [
                   measured: 5,
                 },
                 engagement: { value: 30, measured: 5 },
+                visibility: { value: 6000, measured: 5 },
                 views: { value: 6000, measured: 5 },
-                impressions: { value: 0, measured: 0 },
+                impressions: { value: 774, measured: 16 },
                 reach: { value: 0, measured: 0 },
                 published: 5,
               },
@@ -88,14 +262,49 @@ for (const [themeID, scheme] of [
                 id: `account-${index}`,
                 platform,
                 username: "@rodrgds",
-                status: "ok",
+                status: index === 4 ? "permission_required" : "ok",
+                error_message: index === 4 ? "Reconnect LinkedIn to collect analytics." : undefined,
+                last_synced_at: "2026-09-04T12:00:00Z",
                 account_supported: true,
                 content_supported: true,
                 metrics: { followers: 20 },
               })),
               content,
-              trends: { views: trend, engagement: trend, followers: trend },
-              insights: [],
+              trends: { views: trend, visibility: trend, engagement: trend, followers: trend },
+              insights: [
+                {
+                  kind: "most_engagement_actions",
+                  status: "available",
+                  value: 1500,
+                  metric: "engagement",
+                  content: content[0],
+                },
+                {
+                  kind: "strongest_measured_destination",
+                  status: "available",
+                  value: 1600,
+                  metric: "engagement",
+                  account_id: "account-1",
+                  platform: "threads",
+                  username: "rodrgds",
+                },
+                {
+                  kind: "follower_decline",
+                  status: "insufficient_data",
+                  reason: "incompatible_semantics",
+                  value: 0,
+                  metric: "followers",
+                },
+              ].map((insight) => ({
+                ...insight,
+                measured_count: 5,
+                comparison_sample: 5,
+                period: {
+                  filter_start: "2026-09-01T00:00:00Z",
+                  filter_end: "2026-09-30T00:00:00Z",
+                  aggregation: "lifetime_total",
+                },
+              })),
             },
           }),
         );
@@ -122,10 +331,52 @@ for (const [themeID, scheme] of [
           reducedMotion: width === 320 ? "reduce" : "no-preference",
         });
         await page.goto(`/analytics?workspace=${workspace.id}`);
+        await expect(page.getByRole("heading", { name: "What to do next" })).toHaveCount(0);
+        await expect(page.locator("summary").filter({ hasText: "Data notes" })).toHaveCount(0);
         const section = page.locator('section[aria-labelledby="analytics-content-heading"]');
         const row = page.getByTestId("analytics-content-row").first();
         await expect(row).toBeVisible();
+        await page.evaluate(() => document.fonts.ready);
+        await page
+          .getByRole("heading", { name: "Analytics", exact: true })
+          .scrollIntoViewIfNeeded();
+        await page.screenshot({ path: testInfo.outputPath("overview.png") });
+        // The shell owns scrolling: the document must not grow past the viewport
+        // while the page content is taller than it.
+        await expect
+          .poll(() => page.evaluate(() => document.documentElement.scrollHeight <= innerHeight))
+          .toBe(true);
+        if (width >= 1200) {
+          await expect(page.getByTestId("analytics-content-table-header")).toBeVisible();
+        }
+        expect((await row.boundingBox())!.height).toBeLessThanOrEqual(width < 768 ? 180 : 100);
+        const insights = page.locator('section[aria-labelledby="analytics-insights-heading"]');
+        expect((await insights.boundingBox())!.height).toBeLessThanOrEqual(width < 768 ? 650 : 330);
+        await insights.screenshot({ path: testInfo.outputPath("insights.png") });
+        const warning = page.getByText("Reconnect LinkedIn to collect analytics.", {
+          exact: false,
+        });
+        await expect(warning).not.toBeVisible();
+        const audience = page.locator('section[aria-labelledby="analytics-composition-heading"]');
+        const highlights = page.getByRole("heading", { name: "Top posts", exact: true });
+        expect((await audience.boundingBox())!.y).toBeLessThan((await highlights.boundingBox())!.y);
+        const exportButton = page.getByTestId("analytics-export");
+        expect((await exportButton.boundingBox())!.width).toBeLessThanOrEqual(44);
+        const warnings = page.getByRole("button", { name: /Warnings/ });
+        await warnings.focus();
+        await warnings.press("Enter");
+        await expect(warning).toBeVisible();
+        await expect(
+          page.getByText("Views are plays or opens reported by the platform.", { exact: false }),
+        ).toBeVisible();
+        await page
+          .locator('[data-slot="popover-content"][aria-label="Data notes"]')
+          .screenshot({ path: testInfo.outputPath("warnings.png") });
+        await page.keyboard.press("Escape");
+        await expect(warnings).toBeFocused();
+        await expect(warning).not.toBeVisible();
         await expect(page.getByRole("img", { name: "100", exact: true })).toBeVisible();
+        await page.getByRole("button", { name: /^Reporting window:/ }).click();
         await page.getByRole("button", { name: "7 days", exact: true }).click();
         await expect(page.getByRole("img", { name: "200", exact: true })).toBeVisible();
         let finishRefresh!: () => void;
@@ -164,10 +415,47 @@ for (const [themeID, scheme] of [
         expect((await refresh.boundingBox())!.width).toBe(refreshWidth);
         await expect(page.locator("html")).toHaveAttribute("data-theme-id", themeID);
         await expect(page.locator("html")).toHaveAttribute("data-theme-scheme", scheme);
-        await page.getByRole("img", { name: "Daily views" }).scrollIntoViewIfNeeded();
+        const metrics = page.getByRole("group", { name: "Chart metric", exact: true });
+        await metrics.scrollIntoViewIfNeeded();
+        expect(
+          await metrics.evaluate(
+            (group) =>
+              group.getBoundingClientRect().right <=
+              group.closest("section")!.getBoundingClientRect().right,
+          ),
+        ).toBe(true);
+        for (const metric of await metrics.getByRole("button").all()) {
+          const bounds = await metric.evaluate((button) => {
+            const range = document.createRange();
+            range.selectNodeContents(button);
+            const label = range.getBoundingClientRect();
+            const control = button.getBoundingClientRect();
+            return {
+              leftInset: label.left - control.left,
+              rightInset: control.right - label.right,
+              height: control.height,
+            };
+          });
+          expect(bounds.leftInset).toBeGreaterThanOrEqual(4);
+          expect(bounds.rightInset).toBeGreaterThanOrEqual(4);
+          if (width < 768) expect(bounds.height).toBeGreaterThanOrEqual(44);
+        }
+        const engagement = metrics.getByRole("button", { name: /^Engagement/ });
+        await engagement.focus();
+        await engagement.press("Enter");
+        await expect(engagement).toHaveAttribute("aria-pressed", "true");
+        await expect(
+          page.getByRole("img", { name: "Daily engagement", exact: true }),
+        ).toBeVisible();
+        const views = metrics.getByRole("button", { name: /^Visibility/ });
+        await views.focus();
+        await views.press("Enter");
+        await expect(views).toHaveAttribute("aria-pressed", "true");
+        await metrics.screenshot({ path: testInfo.outputPath("metric-controls.png") });
+        await page.getByRole("img", { name: "Visibility" }).scrollIntoViewIfNeeded();
         await page.screenshot({ path: testInfo.outputPath("chart.png") });
         if (themeID === "dither") {
-          const figure = page.getByRole("figure", { name: "Daily views" });
+          const figure = page.getByRole("figure", { name: "Visibility" });
           const day = figure.getByRole("button").nth(width < 768 ? 6 : 15);
           const bar = day.locator("[data-chart-fill]").first();
           const before = await bar.evaluate((el: SVGRectElement) => ({
@@ -214,17 +502,7 @@ for (const [themeID, scheme] of [
         ).toBeVisible();
         await details.click();
         await expect(details).toHaveAttribute("aria-expanded", "false");
-        const source = page.getByRole("group", { name: "Content source" });
-        const filtered = page.waitForRequest(
-          (req) =>
-            req.url().includes("/analytics?") &&
-            new URL(req.url()).searchParams.get("source") === "external",
-        );
-        await source.getByRole("button", { name: "Elsewhere", exact: true }).click();
-        await filtered;
-        await expect(
-          source.getByRole("button", { name: "Elsewhere", exact: true }),
-        ).toHaveAttribute("aria-pressed", "true");
+        await expect(page.getByRole("group", { name: "Content source" })).toHaveCount(0);
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
           true,
         );
