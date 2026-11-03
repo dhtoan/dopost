@@ -17,6 +17,7 @@
 		type RenderExportProgress,
 		type RenderExportResult
 	} from '$lib/video-editor/media/render-export';
+	import { isExportLoudness, type ExportLoudness } from '$lib/video-editor/audio/loudness-settings';
 	import {
 		renderAudioExport,
 		renderVideoExport,
@@ -130,6 +131,7 @@
 	let resolutionProjectId: string | null = null;
 	let useRange = $state(false);
 	let subtitleMode = $state<NonNullable<RenderExportOptions['subtitleMode']>>('burn');
+	let loudness = $state<ExportLoudness>('off');
 	let sequenceDestination = $state<'directory' | 'zip'>(
 		getDirectoryPickerAvailable() ? 'directory' : 'zip'
 	);
@@ -196,6 +198,12 @@
 		{ value: 'burn', label: m.video_editor_export_subtitles_burn() },
 		{ value: 'sidecar', label: m.video_editor_export_subtitles_sidecar() },
 		{ value: 'embedded', label: m.video_editor_export_subtitles_embedded() }
+	]);
+	const loudnessOptions = $derived([
+		{ value: 'off', label: m.video_editor_export_loudness_off() },
+		{ value: 'social', label: m.video_editor_export_loudness_social() },
+		{ value: 'podcast', label: m.video_editor_export_loudness_podcast() },
+		{ value: 'broadcast', label: m.video_editor_export_loudness_broadcast() }
 	]);
 	const sequenceDestinationOptions = $derived([
 		{ value: 'directory', label: m.video_editor_export_sequence_destination_directory() },
@@ -464,6 +472,7 @@
 			width: outputDimensions.width,
 			height: outputDimensions.height,
 			subtitleMode,
+			loudness,
 			jpegQuality:
 				isSequenceFormat && (format === 'jpeg-sequence' || format === 'webp-sequence')
 					? jpegQualityFor(quality)
@@ -659,6 +668,7 @@
 				? await renderAudio(renderProject, {
 						format,
 						range,
+						loudness,
 						signal: abortController.signal,
 						onProgress: (value) => (progress = value)
 					})
@@ -669,6 +679,7 @@
 						width,
 						height,
 						subtitleMode,
+						loudness,
 						range,
 						signal: abortController.signal,
 						onProgress: (value) => (progress = value)
@@ -862,6 +873,19 @@
 							options={subtitleOptions}
 							disabled={rendering}
 							onValueChange={setSubtitleMode}
+						/>
+					</label>
+				{/if}
+				{#if !isSequenceFormat}
+					<label class="text-xs text-muted-foreground">
+						{m.video_editor_export_loudness()}<AppSelect
+							class="mt-1 h-8 w-full text-sm"
+							value={loudness}
+							options={loudnessOptions}
+							disabled={rendering}
+							onValueChange={(value) => {
+								if (isExportLoudness(value)) loudness = value;
+							}}
 						/>
 					</label>
 				{/if}

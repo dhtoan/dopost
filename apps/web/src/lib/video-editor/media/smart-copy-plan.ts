@@ -29,6 +29,8 @@ export interface SmartCopySettings {
 	height?: number;
 	range?: { startFrame: number; endFrame: number };
 	subtitleMode?: 'none' | 'burn' | 'sidecar' | 'embedded';
+	/** Any loudness target re-masters the audio, so the source cannot be copied. */
+	loudness?: string;
 }
 
 export type SmartCopyBlocker =
@@ -243,6 +245,9 @@ export function assessSmartCopy(
 ): SmartCopyAssessment {
 	const timeline = project.timeline;
 	if (!timeline) return { eligible: false, blocker: 'no-timeline' };
+	if (settings.loudness && settings.loudness !== 'off') {
+		return { eligible: false, blocker: 'edited-audio' };
+	}
 	if (timeline.masterMuted || !closeTo(timeline.masterVolumeDb ?? 0, 0)) {
 		return { eligible: false, blocker: 'edited-audio' };
 	}

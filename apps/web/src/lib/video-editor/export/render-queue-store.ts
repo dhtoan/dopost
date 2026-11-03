@@ -1,3 +1,4 @@
+import type { ExportLoudness } from '../audio/loudness-settings';
 import { get, writable, type Writable } from 'svelte/store';
 import type { VideoCodec } from 'mediabunny';
 import type {
@@ -36,6 +37,8 @@ export interface RenderQueueSettings {
 	width: number;
 	height: number;
 	subtitleMode: 'none' | 'burn' | 'sidecar' | 'embedded';
+	/** Loudness target for the mix; absent on jobs queued before it existed. */
+	loudness?: ExportLoudness;
 	range: { startFrame: number; endFrame: number };
 	jpegQuality?: number;
 }
