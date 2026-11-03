@@ -26,3 +26,14 @@ The pinned reference snapshot is kept under `third_party/bang-motion/`. The MIT 
 ## AI/media models and runtimes
 
 Code and model-weight licences must be recorded in `docs/compliance/third-party-inventory.md` before dopost adds new bundled weights, automatic downloads or release artifacts.
+
+## Donkey Cut
+
+Parts of the dopost video editor are adapted from Donkey Cut.
+
+- Source: https://github.com/DonkeyCut/Donkey
+- Reference commit: `cddf34f`
+- Licence: Apache License 2.0
+- Copyright: Copyright 2026 Donkey
+
+The licence text is kept at `licenses/donkey/LICENSE`. Each adapted file starts with a note naming the Donkey Cut source file and saying it was modified. The Donkey Cut name, logo and media are not used.
