@@ -1,5 +1,9 @@
 {
 	"analytics_export_youtube_retention": "다운로드한 YouTube API 데이터는 복사하거나 공유한 경우에도 YouTube에서 마지막으로 가져온 날부터 30일 이내에 갱신하거나 삭제해야 합니다.",
+	"dopost_auto_video_sync_conflict": "다른 탭이나 기기에서 이 프로젝트가 변경되어 이번 변경은 이 브라우저에만 저장되었습니다. 최신 버전으로 계속하려면 새로고침하세요.",
+	"dopost_auto_video_sync_local": "이 브라우저에만 저장했습니다. 워크스페이스에 연결할 수 없었으며 다음 변경 때 다시 시도합니다.",
+	"dopost_auto_video_documentary_unavailable": "이 다큐멘터리 실행 정보를 불러오지 못해 내레이션을 만들지 않았고 프로젝트는 그대로입니다. 편집기를 새로고침한 뒤 다시 시도하세요.",
+	"dopost_auto_video_source_uploaded": "업로드한 파일",
 	"analytics_export_youtube_terms": "YouTube 내보내기 약관",
 	"publishing_setting_publish_at": "YouTube 공개 시간",
 	"compose_setting_unset": "지정하지 않음",

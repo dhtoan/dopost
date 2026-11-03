@@ -6,6 +6,7 @@ on:
       - "packages/dopost-motion/**"
       - "apps/server/internal/dopostmotion/**"
       - "apps/server/internal/services/autovideo/**"
+      - "apps/server/internal/services/autovideoprojects/**"
       - "apps/server/internal/services/documentary/**"
       - "apps/server/internal/api/handlers/auto_video*.go"
       - "apps/server/internal/models/dopost_*.go"
@@ -67,6 +68,7 @@ jobs:
           ./internal/services/documentary
           ./internal/dopostmotion
           ./internal/services/autovideo
+          ./internal/services/autovideoprojects
           -v
       - name: Test deterministic dev planner fixture routing
         run: >-

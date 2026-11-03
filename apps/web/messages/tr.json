@@ -1,5 +1,9 @@
 {
 	"analytics_export_youtube_retention": "İndirilen YouTube API verileri, kopyalansa veya paylaşılsa bile YouTube’dan son alındıkları tarihten itibaren 30 gün içinde yenilenmeli veya silinmelidir.",
+	"dopost_auto_video_sync_conflict": "Bu proje başka bir sekmede veya cihazda değiştirildi; bu değişiklik yalnızca bu tarayıcıda tutuldu. En yeni sürümden devam etmek için yeniden yükle.",
+	"dopost_auto_video_sync_local": "Yalnızca bu tarayıcıda kaydedildi. Çalışma alanına ulaşılamadı; sonraki değişiklikte yeniden denenecek.",
+	"dopost_auto_video_documentary_unavailable": "Bu belgeselin çalışması yüklenemedi; anlatım üretilmedi ve proje değişmedi. Düzenleyiciyi yeniden yükleyip tekrar dene.",
+	"dopost_auto_video_source_uploaded": "Yüklenen dosya",
 	"analytics_export_youtube_terms": "YouTube dışa aktarma koşulları",
 	"publishing_setting_publish_at": "YouTube yayınlanma zamanı",
 	"compose_setting_unset": "Belirtilmedi",

@@ -156,12 +156,9 @@ export async function generateAutoVideoVoices(options: {
 	if (!isLocalTtsSupported(engine))
 		throw new Error(`${engine} TTS is not supported in this browser.`);
 	const voice = options.voice ?? defaultLocalTtsVoice(engine);
+	// Old voices stay on the timeline until every new one exists, so a failed
+	// scene leaves the project exactly as it was.
 	const previous = options.sidecar.generationGraph?.media?.voices ?? [];
-	if (previous.length > 0)
-		removeItems(
-			previous.map((asset) => asset.itemId),
-			false
-		);
 
 	const generated: Array<{ scene: AutoVideoScene; media: MediaMetadata; duration: number }> = [];
 	for (const [index, scene] of options.sidecar.storyboard.scenes.entries()) {
@@ -183,12 +180,17 @@ export async function generateAutoVideoVoices(options: {
 		options.onProgress?.(index + 1, options.sidecar.storyboard.scenes.length);
 	}
 
-	retimeScenes(
-		options.sidecar,
-		new Map(generated.map((entry) => [entry.scene.id, entry.duration]))
-	);
 	const assets: AutoVideoVoiceAsset[] = [];
-	execute('DOPOST_INSERT_VOICE_TRACK', () => {
+	executeAtomic('DOPOST_REPLACE_VOICE_TRACK', () => {
+		if (previous.length > 0)
+			removeItems(
+				previous.map((asset) => asset.itemId),
+				false
+			);
+		retimeScenes(
+			options.sidecar,
+			new Map(generated.map((entry) => [entry.scene.id, entry.duration]))
+		);
 		const items = [...timelineStore.items];
 		for (const entry of generated) {
 			const range = currentSceneFrames(entry.scene);

@@ -1,5 +1,9 @@
 {
 	"analytics_export_youtube_retention": "YouTube API data in downloads must be refreshed or deleted within 30 days of its last fetch from YouTube, even if copied or shared.",
+	"dopost_auto_video_sync_conflict": "This project was changed in another tab or device, so this change was kept only in this browser. Reload to continue from the newest version.",
+	"dopost_auto_video_sync_local": "Saved in this browser only. The workspace could not be reached; the next change will try again.",
+	"dopost_auto_video_documentary_unavailable": "This documentary's run could not be loaded, so no narration was generated and the project is unchanged. Reload the editor and try again.",
+	"dopost_auto_video_source_uploaded": "Uploaded file",
 	"analytics_export_youtube_terms": "YouTube export terms",
 	"publishing_setting_publish_at": "YouTube publish time",
 	"compose_setting_unset": "Not specified",

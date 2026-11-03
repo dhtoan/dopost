@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { untrack } from 'svelte';
+	import { m } from '$lib/paraglide/messages';
 	import { goto } from '$app/navigation';
 	import { resolveAppPath } from '$lib/app-path';
 	import InlineNotice from '$lib/components/inline-notice.svelte';
@@ -79,6 +81,31 @@
 	$effect(() => {
 		if (!motionStyleUserSelected) motionStyle = recommendMotionStyle({ format });
 	});
+
+	// A storyboard belongs to the inputs it was planned from: change any of them and
+	// it is planned again, so a stale storyboard is never the one that gets created.
+	$effect(() => {
+		void [sourceKind, sourceValue, sourceMediaId, format, language, targetDurationSeconds];
+		untrack(() => {
+			storyboard = null;
+			activeSource = null;
+		});
+	});
+
+	function changeSourceKind(): void {
+		const textSource =
+			sourceKind === 'text' ||
+			sourceKind === 'url' ||
+			sourceKind === 'markdown' ||
+			sourceKind === 'txt';
+		if (!textSource || !sourceMediaId) return;
+		// Leaving a file or Media Library source: drop it and the note that stood in for
+		// its text, so the planner never reads that note as the source.
+		sourceMediaId = '';
+		sourceMimeType = '';
+		selectedLibraryMediaId = '';
+		sourceValue = '';
+	}
 
 	async function loadMediaLibrary(): Promise<void> {
 		const workspaceId = workspaceCtx.currentWorkspace?.id?.trim() ?? '';
@@ -428,6 +455,7 @@
 						<span>Source type</span>
 						<select
 							bind:value={sourceKind}
+							onchange={changeSourceKind}
 							class="h-10 w-full rounded-md border bg-background px-3 text-sm"
 						>
 							<option value="text">Text</option>
@@ -435,6 +463,9 @@
 							<option value="markdown">Markdown</option>
 							<option value="txt">TXT file</option>
 							<option value="media">Media Library</option>
+							{#if sourceKind === 'pdf' || sourceKind === 'image' || sourceKind === 'video'}
+								<option value={sourceKind}>{m.dopost_auto_video_source_uploaded()}</option>
+							{/if}
 						</select>
 					</label>
 					<label class="space-y-2 text-sm font-medium">
