@@ -31,10 +31,10 @@ type AutoVideoHandler struct {
 }
 
 type autoVideoSourceBody struct {
-	ID    string `json:"id" required:"true"`
-	Kind  string `json:"kind" required:"true"`
-	Label string `json:"label" required:"true"`
-	Value string `json:"value" required:"true" minLength:"1" maxLength:"50000"`
+	ID       string `json:"id" required:"true"`
+	Kind     string `json:"kind" required:"true"`
+	Label    string `json:"label" required:"true"`
+	Value    string `json:"value" required:"true" minLength:"1" maxLength:"50000"`
 	URL      string `json:"url,omitempty"`
 	MIMEType string `json:"mime_type,omitempty"`
 	MediaID  string `json:"media_id,omitempty"`
@@ -74,19 +74,19 @@ type GenerateAutoVideoStoryboardOutput struct {
 
 type DopostAICapabilitiesOutput struct {
 	Body struct {
-		ProviderMode             string `json:"provider_mode"`
-		PlannerAvailable         bool   `json:"planner_available"`
-		ActiveProvider           string `json:"active_provider"`
-		ActiveModel              string `json:"active_model"`
-		GeminiConfigured         bool   `json:"gemini_configured"`
-		OpenRouterConfigured     bool   `json:"openrouter_configured"`
-		LocalStoryboardFallback             bool   `json:"local_storyboard_fallback"`
-		BrowserTTS                          bool   `json:"browser_tts"`
-		BrowserTranscription                bool   `json:"browser_transcription"`
-		BrowserMusicGeneration              bool   `json:"browser_music_generation"`
-		DocumentaryPlannerAvailable         bool   `json:"documentary_planner_available"`
-		DocumentaryServerImageGeneration   bool   `json:"documentary_server_image_generation"`
-		DocumentaryServerVideoGeneration   bool   `json:"documentary_server_video_generation"`
+		ProviderMode                     string `json:"provider_mode"`
+		PlannerAvailable                 bool   `json:"planner_available"`
+		ActiveProvider                   string `json:"active_provider"`
+		ActiveModel                      string `json:"active_model"`
+		GeminiConfigured                 bool   `json:"gemini_configured"`
+		OpenRouterConfigured             bool   `json:"openrouter_configured"`
+		LocalStoryboardFallback          bool   `json:"local_storyboard_fallback"`
+		BrowserTTS                       bool   `json:"browser_tts"`
+		BrowserTranscription             bool   `json:"browser_transcription"`
+		BrowserMusicGeneration           bool   `json:"browser_music_generation"`
+		DocumentaryPlannerAvailable      bool   `json:"documentary_planner_available"`
+		DocumentaryServerImageGeneration bool   `json:"documentary_server_image_generation"`
+		DocumentaryServerVideoGeneration bool   `json:"documentary_server_video_generation"`
 	}
 }
 

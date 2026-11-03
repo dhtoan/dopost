@@ -11,10 +11,10 @@ type SceneGraph struct {
 }
 
 type Brief struct {
-	Palette             []string `json:"palette"`
-	Typography          string   `json:"typography"`
-	CameraLanguage      string   `json:"cameraLanguage"`
-	MotionSignature     string   `json:"motionSignature"`
+	Palette            []string `json:"palette"`
+	Typography         string   `json:"typography"`
+	CameraLanguage     string   `json:"cameraLanguage"`
+	MotionSignature    string   `json:"motionSignature"`
 	BackgroundLanguage string   `json:"backgroundLanguage"`
 	TransitionLanguage []string `json:"transitionLanguage"`
 }

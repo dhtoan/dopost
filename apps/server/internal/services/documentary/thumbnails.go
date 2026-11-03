@@ -61,12 +61,12 @@ func (s *Service) GenerateThumbnails(ctx context.Context, input ThumbnailsInput)
 		return ThumbnailsResult{}, ErrInvalid
 	}
 	payload := map[string]any{
-		"run_id":             input.RunID,
-		"language":           input.Language,
-		"title":              strings.TrimSpace(input.Title),
+		"run_id":              input.RunID,
+		"language":            input.Language,
+		"title":               strings.TrimSpace(input.Title),
 		"script_summary_seed": documentaryCoreIdea(input.Script.Text),
-		"evidence_refs":      input.Script.EvidenceRefs,
-		"source":             sourcePayload(input.Source),
+		"evidence_refs":       input.Script.EvidenceRefs,
+		"source":              sourcePayload(input.Source),
 	}
 	var response thumbnailsResponse
 	model, err := s.generateStructured(ctx, thumbnailsSystemPrompt, payload, input.Parts, thumbnailsSchema, &response)

@@ -43,8 +43,8 @@ func CompileCompositionOverlays(graph SceneGraph, width, height int, fps float64
 			Label: "Motion field", Type: "shape", ShapeType: "circle",
 			FillEnabled: true, FillType: "solid", FillColor: accent,
 			Transform: NativeTransform{
-				X: float64(width) * choose(direction > 0, 0.74, 0.26),
-				Y: float64(height) * 0.48,
+				X:     float64(width) * choose(direction > 0, 0.74, 0.26),
+				Y:     float64(height) * 0.48,
 				Width: float64(width) * 0.54, Height: float64(width) * 0.54,
 				Opacity: 0.2, ScaleX: 1, ScaleY: 1,
 			},
@@ -92,8 +92,8 @@ func CompileCompositionOverlays(graph SceneGraph, width, height int, fps float64
 					},
 				},
 			}},
-			Items: []NativeItem{primary, accentShape},
-			Tracks: []NativeTrack{{ID: trackID, Name: "Motion layers", Kind: "video", Height: 72, Visible: true, Order: 0}},
+			Items:       []NativeItem{primary, accentShape},
+			Tracks:      []NativeTrack{{ID: trackID, Name: "Motion layers", Kind: "video", Height: 72, Visible: true, Order: 0}},
 			Transitions: []any{}, FPS: fps, Width: width, Height: height,
 			DurationInFrames: durationFrames, BackgroundColor: "#00000000",
 		}
@@ -103,7 +103,7 @@ func CompileCompositionOverlays(graph SceneGraph, width, height int, fps float64
 			Label: "Motion Composition · " + scene.SourceSceneID, Type: "composition",
 			CompositionID: compositionID, CompositionWidth: width, CompositionHeight: height,
 			CompositionControlOverrides: map[string]string{"primary-color": accent, "secondary-color": secondary},
-			Transform: NativeTransform{X: float64(width) / 2, Y: float64(height) / 2, Width: float64(width), Height: float64(height), Opacity: 1},
+			Transform:                   NativeTransform{X: float64(width) / 2, Y: float64(height) / 2, Width: float64(width), Height: float64(height), Opacity: 1},
 		}
 		overlays = append(overlays, NativeOverlay{Composition: composition, TimelineItem: item})
 	}
@@ -166,8 +166,8 @@ func compileDocumentaryPaperOverlay(scene Scene, accent, secondary string, width
 			{ID: "assembly-order", Name: "Assembly order", TargetItemID: heroID, Property: "motion.assemblyOrder", Kind: "select", DefaultValue: "back-to-front", Options: []NativeControlOption{{Value: "back-to-front", Label: "Back to front"}, {Value: "hero-first", Label: "Hero first"}}},
 			{ID: "primary-color", Name: "Paper accent", TargetItemID: heroID, Property: "shape.fillColor", Kind: "color", DefaultValue: accent},
 		}},
-		Items: []NativeItem{back, shadow, hero},
-		Tracks: []NativeTrack{{ID: trackID, Name: "Motion layers", Kind: "video", Height: 72, Visible: true, Order: 0}},
+		Items:       []NativeItem{back, shadow, hero},
+		Tracks:      []NativeTrack{{ID: trackID, Name: "Motion layers", Kind: "video", Height: 72, Visible: true, Order: 0}},
 		Transitions: []any{}, FPS: fps, Width: width, Height: height,
 		DurationInFrames: durationFrames, BackgroundColor: "#00000000",
 	}
@@ -177,7 +177,7 @@ func compileDocumentaryPaperOverlay(scene Scene, accent, secondary string, width
 		Label: "Motion Composition · " + scene.SourceSceneID, Type: "composition",
 		CompositionID: compositionID, CompositionWidth: width, CompositionHeight: height,
 		CompositionControlOverrides: map[string]string{},
-		Transform: NativeTransform{X: float64(width) / 2, Y: float64(height) / 2, Width: float64(width), Height: float64(height), Opacity: 1},
+		Transform:                   NativeTransform{X: float64(width) / 2, Y: float64(height) / 2, Width: float64(width), Height: float64(height), Opacity: 1},
 	}
 	return NativeOverlay{Composition: composition, TimelineItem: item}
 }
@@ -185,9 +185,9 @@ func compileDocumentaryPaperOverlay(scene Scene, accent, secondary string, width
 func track(scope string, from, to float64, durationFrames int) NativeKeyframeTrack {
 	end := maxInt(1, durationFrames-1)
 	return NativeKeyframeTrack{
-		Frames:   []int{0, end},
-		Values:   []float64{from, to},
-		IDs:      []string{fmt.Sprintf("dopost:%s:0", scope), fmt.Sprintf("dopost:%s:1", scope)},
+		Frames:  []int{0, end},
+		Values:  []float64{from, to},
+		IDs:     []string{fmt.Sprintf("dopost:%s:0", scope), fmt.Sprintf("dopost:%s:1", scope)},
 		Easings: []string{"ease-in-out", "ease-in-out"},
 	}
 }
@@ -201,9 +201,9 @@ func paperTrack(scope string, from, to float64, durationFrames int) NativeKeyfra
 		assembled = maxInt(1, minInt(end-1, assembled))
 	}
 	return NativeKeyframeTrack{
-		Frames:   []int{0, assembled, end},
-		Values:   []float64{from, to, to},
-		IDs:      []string{fmt.Sprintf("dopost:paper-jitter:%s:0", scope), fmt.Sprintf("dopost:assembly:%s:1", scope), fmt.Sprintf("dopost:assembly:%s:hold", scope)},
+		Frames:  []int{0, assembled, end},
+		Values:  []float64{from, to, to},
+		IDs:     []string{fmt.Sprintf("dopost:paper-jitter:%s:0", scope), fmt.Sprintf("dopost:assembly:%s:1", scope), fmt.Sprintf("dopost:assembly:%s:hold", scope)},
 		Easings: []string{"hold", "ease-out", "hold"},
 	}
 }

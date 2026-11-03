@@ -7,7 +7,7 @@ func TestCompileCompositionOverlaysDocumentaryPaperParity(t *testing.T) {
 		SchemaVersion: 1,
 		Style:         "documentary-paper-collage",
 		Seed:          42,
-		Brief: Brief{Palette: []string{"#111111", "#222222", "#cc3333"}},
+		Brief:         Brief{Palette: []string{"#111111", "#222222", "#cc3333"}},
 		Scenes: []Scene{{
 			ID:              "motion-beat-001",
 			SourceSceneID:   "beat-001",

@@ -14,8 +14,8 @@ import (
 )
 
 const (
-	maxDocumentaryStateBytes    = 4 * 1024 * 1024
-	maxProviderManifestBytes    = 64 * 1024
+	maxDocumentaryStateBytes = 4 * 1024 * 1024
+	maxProviderManifestBytes = 64 * 1024
 )
 
 var (

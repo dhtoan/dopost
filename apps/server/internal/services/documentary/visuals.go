@@ -49,7 +49,7 @@ var visualsSchema = ai.JSONSchema{
 		"required":             []string{"plans"},
 		"properties": map[string]any{
 			"plans": map[string]any{
-				"type":  "array",
+				"type": "array",
 				"items": map[string]any{
 					"type":                 "object",
 					"additionalProperties": false,

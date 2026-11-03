@@ -31,14 +31,14 @@ type Service struct {
 }
 
 type UpsertInput struct {
-	WorkspaceID      string
-	ProjectID        string
+	WorkspaceID       string
+	ProjectID         string
 	GenerationVersion int64
-	TemplateID       string
-	SourceManifest   json.RawMessage
-	Storyboard       json.RawMessage
-	ProviderManifest json.RawMessage
-	GenerationGraph  json.RawMessage
+	TemplateID        string
+	SourceManifest    json.RawMessage
+	Storyboard        json.RawMessage
+	ProviderManifest  json.RawMessage
+	GenerationGraph   json.RawMessage
 }
 
 type Record struct {

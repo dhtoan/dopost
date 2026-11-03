@@ -49,13 +49,13 @@ type IdeasResult struct {
 }
 
 type ScriptInput struct {
-	RunID                string
-	Language             string
-	Idea                 *Idea
-	CustomTopic          string
+	RunID                 string
+	Language              string
+	Idea                  *Idea
+	CustomTopic           string
 	TargetDurationSeconds int
-	Source               *autovideo.Source
-	Parts                []ai.MultimodalPart
+	Source                *autovideo.Source
+	Parts                 []ai.MultimodalPart
 }
 
 type ScriptResult struct {
@@ -64,8 +64,8 @@ type ScriptResult struct {
 }
 
 type BeatsInput struct {
-	RunID                string
-	Script               Script
+	RunID                 string
+	Script                Script
 	TargetDurationSeconds int
 }
 

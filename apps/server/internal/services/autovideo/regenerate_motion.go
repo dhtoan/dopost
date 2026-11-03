@@ -67,11 +67,11 @@ func RegenerateMotion(ctx context.Context, projects *videoprojects.Service, acto
 		return nil, err
 	}
 	return projects.ApplyMutation(ctx, actor, videoprojects.ApplyMutationInput{
-		WorkspaceID: input.WorkspaceID,
-		ProjectID: input.ProjectID,
-		MutationID: "dopost-motion-" + uuid.NewString(),
+		WorkspaceID:  input.WorkspaceID,
+		ProjectID:    input.ProjectID,
+		MutationID:   "dopost-motion-" + uuid.NewString(),
 		BaseRevision: project.HeadRevision,
-		DeviceID: strings.TrimSpace(input.DeviceID),
+		DeviceID:     strings.TrimSpace(input.DeviceID),
 		Operations: []videoprojects.MutationOperation{
 			{Kind: videoprojects.MutationSet, Target: "timeline:items", Path: "/timeline/items", Value: itemValue},
 			{Kind: videoprojects.MutationSet, Target: "timeline:compositions", Path: "/timeline/compositions", Value: compositionValue},
@@ -104,7 +104,9 @@ func readTimelineCollections(document json.RawMessage) (projectTimelineCollectio
 }
 
 func rawID(raw json.RawMessage) (string, error) {
-	var identity struct{ ID string `json:"id"` }
+	var identity struct {
+		ID string `json:"id"`
+	}
 	if err := json.Unmarshal(raw, &identity); err != nil {
 		return "", err
 	}
