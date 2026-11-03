@@ -20,7 +20,21 @@ const skipPrefixes = [
   "scripts/verify-published-n8n-package.mjs",
   "scripts/verify-published-npm-package.mjs",
 ];
+// Licence, notice, legal-policy and attribution files keep the upstream name;
+// so do historical dopost plans that describe the upstream relationship.
+const skipPatterns = [
+  /(^|\/)(LICENSE[^/]*|NOTICE[^/]*\.md|THIRD_PARTY[^/]*)$/,
+  /^docs\/compliance\//,
+  /^docs\/development\/third-party-notices\.md$/,
+  /^docs\/superpowers\//,
+  /^packages\/legal-policy\//,
+  /^scripts\/check-third-party-notices\.mjs$/,
+  // Generated from the CLI, which keeps its upstream name.
+  /^docs\/reference\/cli\.md$/,
+];
 const protectedPatterns = [
+  // Copyright and licence lines (AGPL §5 appropriate legal notices).
+  /^.*(?:Copyright|©|版权|AGPL-3\.0).*$/gm,
   /X-OpenPost-[\w-]+/g,
   /\bOpenPost-(?:Signature|Workflows|Timestamp|Event|Delivery)\b/g,
   /[\w.-]*\/OpenPost\b[\w./-]*/g,
@@ -46,7 +60,10 @@ const files = execFileSync(
   .split("\n")
   .filter(Boolean)
   .filter(
-    (file) => !skipFiles.has(file) && !skipPrefixes.some((prefix) => file.startsWith(prefix)),
+    (file) =>
+      !skipFiles.has(file) &&
+      !skipPrefixes.some((prefix) => file.startsWith(prefix)) &&
+      !skipPatterns.some((pattern) => pattern.test(file)),
   );
 
 function brand(text) {

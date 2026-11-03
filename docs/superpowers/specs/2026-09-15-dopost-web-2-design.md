@@ -4,17 +4,17 @@
 **Date:** 2026-09-15  
 **Target release line:** `2.0.0-alpha.1` → `2.0.0`  
 **Repository:** `dhtoan/dopost`  
-**Primary deployment:** self-hosted Docker on aaPanel
+**Primary deployment:** self-hosted Docker on aaPanel  
 
 ## 1. Purpose
 
-dopost Web 2.0 replaces the existing dopost photo/video editing foundation with dopost's editor and social-publishing stack, then adds dopost-owned AI Auto Video and motion-generation capabilities on top.
+dopost Web 2.0 replaces the existing dopost photo/video editing foundation with OpenPost's editor and social-publishing stack, then adds dopost-owned AI Auto Video and motion-generation capabilities on top.
 
 The central product promise is:
 
 > AI generation produces an editable project, not a dead MP4.
 
-Every generated scene must end as native editable project state in the dopost Video Editor wherever possible. Complex procedural motion that cannot reasonably be flattened into ordinary timeline items must remain editable through a native Motion Composition abstraction rather than being pre-rendered into an opaque video clip.
+Every generated scene must end as native editable project state in the OpenPost Video Editor wherever possible. Complex procedural motion that cannot reasonably be flattened into ordinary timeline items must remain editable through a native Motion Composition abstraction rather than being pre-rendered into an opaque video clip.
 
 The current `dhtoan/dopost` repository is intentionally minimal at the time of this design. This document defines the target architecture before source import and implementation begin.
 
@@ -22,7 +22,7 @@ The current `dhtoan/dopost` repository is intentionally minimal at the time of t
 
 dopost Web 2.0 will use and adapt the following projects:
 
-- dopost — https://github.com/dhtoan/dopost
+- OpenPost — https://github.com/getopenpost/openpost
   - Becomes the product foundation for app shell, workspaces, image editor, video editor, media library, recorder, composer, calendar/publications, inbox, analytics, project persistence, API/MCP/automation boundaries, and self-hosting patterns.
   - License: GNU AGPL-3.0-only. Compliance is a release requirement.
 - Bang Motion — https://github.com/bangtutorial/bang-motion
@@ -42,14 +42,14 @@ The following decisions are final for the 2.0 architecture unless a later approv
 
 1. The old dopost Photo Editor is removed from the production path.
 2. The old dopost Video Editor is removed from the production path.
-3. dopost's Photo/Image Editor becomes dopost Photo.
-4. dopost's Video Editor becomes dopost Video.
+3. OpenPost's Photo/Image Editor becomes dopost Photo.
+4. OpenPost's Video Editor becomes dopost Video.
 5. Old dopost photo/video project formats are not migrated.
 6. Old dopost photo/video presets are not migrated.
 7. Useful legacy media may be imported as Media Library assets only.
 8. Preset V2 is deferred; V1 uses Motion Styles, not the old preset model.
 9. AI Auto Video is a project generator, not a third editor.
-10. dopost native project state is the source of truth for editing and rendering.
+10. OpenPost native project state is the source of truth for editing and rendering.
 11. dopost AI metadata is an optional sidecar; losing it must not break the project.
 12. SQLite is the default database; PostgreSQL is optional.
 13. Local media storage is the default; S3/R2/MinIO are optional.
@@ -59,14 +59,14 @@ The following decisions are final for the 2.0 architecture unless a later approv
 17. AI provider routing is abstracted; the product is not hard-coded to one vendor.
 18. Gemini must use official supported authentication paths. Antigravity OAuth workarounds are not built in.
 19. Bang Motion is adapted into dopost Motion Engine; it is not exposed as a separate HTML-generator app.
-20. dopost should remain structurally close enough to dopost upstream to keep future merges practical.
+20. dopost should remain structurally close enough to OpenPost upstream to keep future merges practical.
 
 ## 4. High-level architecture
 
 ```text
 DOPOST STUDIO WEB 2.0
 │
-├── dopost Foundation
+├── OpenPost Foundation
 │   ├── Accounts / Auth / Workspaces
 │   ├── Media Library
 │   ├── Photo / Carousel Editor
@@ -117,13 +117,13 @@ DOPOST STUDIO WEB 2.0
     └── Docker profiles for optional AI workers
 ```
 
-## 5. dopost foundation strategy
+## 5. OpenPost foundation strategy
 
 ### 5.1 Import philosophy
 
-dopost will be based on the dopost codebase rather than embedding dopost as an iframe or keeping it as a separately branded companion application.
+dopost will be based on the OpenPost codebase rather than embedding OpenPost as an iframe or keeping it as a separately branded companion application.
 
-The goal is a unified product surface called **dopost** while preserving dopost's internal module boundaries and type names when renaming them would create unnecessary fork depth.
+The goal is a unified product surface called **dopost** while preserving OpenPost's internal module boundaries and type names when renaming them would create unnecessary fork depth.
 
 Public-facing brand changes include:
 
@@ -134,7 +134,7 @@ Public-facing brand changes include:
 - email branding;
 - documentation;
 - Docker image names;
-- "Send to dopost"-style copy changed to dopost equivalents.
+- "Send to OpenPost"-style copy changed to dopost equivalents.
 
 Internal symbols such as `OpenPostVideoProject` or package boundaries should remain unchanged unless functionality requires a change.
 
@@ -144,20 +144,20 @@ New functionality should preferentially live under focused dopost-owned packages
 
 ```text
 packages/
-├── video-project/           # dopost
+├── video-project/           # OpenPost
 ├── dopost-auto-video/
 ├── dopost-motion/
 ├── dopost-ai/
 └── dopost-brand/
 ```
 
-Core dopost patches must be minimized and documented as dopost patches with a reason, upstream seam, and regression coverage.
+Core OpenPost patches must be minimized and documented as dopost patches with a reason, upstream seam, and regression coverage.
 
 ## 6. Information architecture and UI
 
 ### 6.1 Main application shell
 
-Keep dopost workspace navigation patterns as intact as possible.
+Keep OpenPost workspace navigation patterns as intact as possible.
 
 Primary product areas:
 
@@ -185,10 +185,10 @@ Social Post
 The mapping is:
 
 - AI Auto Video → dopost Auto Video wizard.
-- Video → dopost Video Editor.
-- Photo / Carousel → dopost Image Editor.
-- Record → dopost Recorder.
-- Social Post → dopost Composer.
+- Video → OpenPost Video Editor.
+- Photo / Carousel → OpenPost Image Editor.
+- Record → OpenPost Recorder.
+- Social Post → OpenPost Composer.
 
 ### 6.2 Home
 
@@ -207,13 +207,13 @@ Do not overcrowd mobile bottom navigation. Use a floating or prominent Create ac
 
 ### 6.4 Branding adapter
 
-Brand values should be centralized behind a dopost brand boundary rather than scattered hard-coded strings. UI code should consume values such as product name, logo, links, and support metadata through the brand adapter.
+Brand values should be centralized behind an dopost brand boundary rather than scattered hard-coded strings. UI code should consume values such as product name, logo, links, and support metadata through the brand adapter.
 
 ## 7. AI Auto Video
 
 ### 7.1 Role
 
-AI Auto Video creates an editable dopost Video Project.
+AI Auto Video creates an editable OpenPost Video Project.
 
 It is not an editor and does not own final rendering.
 
@@ -370,7 +370,7 @@ Preferred routing direction:
 
 For generated narration, use known source text plus provider timing/forced alignment when available rather than transcribing generated speech again unnecessarily.
 
-For user-supplied media, use the dopost local transcription path first. Server-side whisper.cpp is optional for headless/batch workflows.
+For user-supplied media, use the OpenPost local transcription path first. Server-side whisper.cpp is optional for headless/batch workflows.
 
 Captions remain native editable captions and can support burn-in, SRT/VTT, or selectable tracks according to editor/export capabilities.
 
@@ -393,9 +393,9 @@ Generated music metadata should preserve mood, BPM, key, instruments, prompt, pr
 
 ## 9. dopost AI provider system
 
-### 9.1 Extend dopost's provider-neutral model boundary
+### 9.1 Extend OpenPost's provider-neutral model boundary
 
-Do not build an unrelated parallel AI stack. Extend dopost's provider-neutral AI boundary into a dopost capability registry.
+Do not build an unrelated parallel AI stack. Extend OpenPost's provider-neutral AI boundary into an dopost capability registry.
 
 Conceptually:
 
@@ -423,7 +423,7 @@ Capabilities are independent:
 V1 provider architecture supports:
 
 - Gemini through official API key/OAuth/Vertex-compatible paths;
-- OpenRouter compatibility inherited from dopost where retained;
+- OpenRouter compatibility inherited from OpenPost where retained;
 - OpenAI-compatible custom endpoints such as Ollama/vLLM/LM Studio where practical;
 - future adapters without changing feature code.
 
@@ -469,7 +469,7 @@ Examples:
 
 ### 10.1 Purpose
 
-dopost Motion Engine converts storyboard intent into higher-quality motion language while still compiling to editable dopost project state.
+dopost Motion Engine converts storyboard intent into higher-quality motion language while still compiling to editable OpenPost project state.
 
 Bang Motion contributes design principles and selected reusable code/techniques, not a separate runtime product.
 
@@ -523,7 +523,7 @@ This keeps scene output coherent across one video.
 
 ### 10.5 Motion Scene Graph
 
-A motion planning layer sits between storyboard and dopost timeline compilation:
+A motion planning layer sits between storyboard and OpenPost timeline compilation:
 
 ```text
 MotionScene
@@ -537,7 +537,7 @@ MotionScene
 └── transitions[]
 ```
 
-The compiler translates ordinary elements to native dopost text/image/audio/video/keyframe/transition constructs.
+The compiler translates ordinary elements to native OpenPost text/image/audio/video/keyframe/transition constructs.
 
 ### 10.6 Motion Composition
 
@@ -560,11 +560,11 @@ The output must be deterministic: the same project state, seed, and time produce
 
 ## 11. Project data model
 
-### 11.1 dopost project is authoritative
+### 11.1 OpenPost project is authoritative
 
 Do not create a competing dopost project format.
 
-The authored video is a dopost-native video project with its native timeline collections, project assets, revisions, checkpoints, and persistence mechanisms.
+The authored video is an OpenPost-native video project with its native timeline collections, project assets, revisions, checkpoints, and persistence mechanisms.
 
 ### 11.2 dopost AI sidecar
 
@@ -586,7 +586,7 @@ updated_at
 
 The sidecar must not duplicate the authoritative final timeline.
 
-If the sidecar is missing or AI is disabled, the dopost project still opens, edits, and exports.
+If the sidecar is missing or AI is disabled, the OpenPost project still opens, edits, and exports.
 
 ### 11.3 Source ledger
 
@@ -809,9 +809,9 @@ Optional AI providers do not make the whole app unready. They report capability 
 
 ## 15. Security design
 
-### 15.1 Existing dopost controls
+### 15.1 Existing OpenPost controls
 
-Reuse dopost's authentication, MFA/passkey, token, encryption, workspace, API/MCP authorization, and provider-credential patterns instead of replacing them with a new dopost auth system.
+Reuse OpenPost's authentication, MFA/passkey, token, encryption, workspace, API/MCP authorization, and provider-credential patterns instead of replacing them with a new dopost auth system.
 
 ### 15.2 Secret handling
 
@@ -866,9 +866,9 @@ Production guidance:
 
 ## 16. Licensing and compliance
 
-### 16.1 dopost
+### 16.1 OpenPost
 
-Because dopost imports/modifies dopost directly, AGPL-3.0 compliance is part of the release gate.
+Because dopost imports/modifies OpenPost directly, AGPL-3.0 compliance is part of the release gate.
 
 At minimum, releases/deployments must preserve required notices and provide a compliant path to Corresponding Source for the covered work according to the actual mode of distribution/network use.
 
@@ -895,14 +895,14 @@ Models with known non-commercial restrictions are not default bundled providers 
 
 ## 17. Upstream synchronization
 
-### 17.1 dopost
+### 17.1 OpenPost
 
-Track dopost as upstream and keep dopost changes isolated where practical.
+Track OpenPost as upstream and keep dopost changes isolated where practical.
 
 Recommended maintenance workflow:
 
 ```text
-fetch dopost upstream
+fetch OpenPost upstream
 → compare release
 → merge/rebase
 → resolve documented dopost seams
@@ -985,7 +985,7 @@ Create
 → schedule/publish flow
 ```
 
-The full editor target should be tested on supported current desktop Chromium-class browsers used by the dopost editor stack.
+The full editor target should be tested on supported current desktop Chromium-class browsers used by the OpenPost editor stack.
 
 ### 18.5 Motion visual QA
 
@@ -1013,7 +1013,7 @@ fresh PostgreSQL
 upgrade PostgreSQL
 ```
 
-dopost AI tables being unavailable or AI being disabled must not prevent an otherwise valid native dopost project from opening.
+dopost AI tables being unavailable or AI being disabled must not prevent an otherwise valid native OpenPost project from opening.
 
 ### 18.7 Docker release verification
 
@@ -1050,12 +1050,12 @@ create workspace
 
 dopost Web 2.0 may enter stable release only when all of the following are true:
 
-1. dopost foundation is integrated and dopost's old Photo/Video Editors are no longer production paths.
+1. OpenPost foundation is integrated and dopost's old Photo/Video Editors are no longer production paths.
 2. Docker Compose/aaPanel installation works with one main container, SQLite, and local media by default.
 3. PostgreSQL and S3-compatible storage are optional, supported configurations.
 4. AI Auto Video accepts the approved V1 input types.
 5. Review, News, Guide, Compare, and Top N formats work.
-6. Generated videos become native editable dopost Video Projects instead of opaque intermediate MP4s.
+6. Generated videos become native editable OpenPost Video Projects instead of opaque intermediate MP4s.
 7. Generated text/media/voice/captions/music remain editable or regenerable through the defined native/sidecar model.
 8. dopost Motion Engine supports approved Motion Styles and deterministic Motion Composition behavior.
 9. Voice, captions, and music are available in V1 with graceful provider fallback/degradation.
@@ -1066,7 +1066,7 @@ dopost Web 2.0 may enter stable release only when all of the following are true:
 14. SQLite and PostgreSQL migration/test matrices pass.
 15. Default deployment does not require GPU, Redis, RabbitMQ, or an external DB.
 16. SSRF protections, upload limits, secrets handling, and worker isolation pass security tests.
-17. dopost AGPL, Bang Motion MIT, and model/dependency licenses are inventoried and release-compliant.
+17. OpenPost AGPL, Bang Motion MIT, and model/dependency licenses are inventoried and release-compliant.
 18. Browser, Docker, migration, motion determinism, and creation-flow tests pass.
 
 ## 20. Explicit V1 non-goals
@@ -1079,8 +1079,8 @@ V1 does not include:
 - a new analytics engine;
 - a dedicated server render farm;
 - a native mobile editor rewrite;
-- a custom social publishing engine replacing dopost;
-- a custom scheduler replacing dopost;
+- a custom social publishing engine replacing OpenPost;
+- a custom scheduler replacing OpenPost;
 - training proprietary foundation models.
 
 ## 21. Release naming
@@ -1103,12 +1103,12 @@ This design is intentionally an umbrella architecture. It is too large for one s
 
 Recommended implementation order:
 
-### Phase 1 — dopost foundation and deployment
+### Phase 1 — OpenPost foundation and deployment
 
-- import/fork dopost into dopost;
+- import/fork OpenPost into dopost;
 - establish upstream tracking strategy;
 - apply dopost branding adapter;
-- hard-cut over to dopost Photo/Video Editors;
+- hard-cut over to OpenPost Photo/Video Editors;
 - establish Docker/aaPanel baseline;
 - SQLite default, PostgreSQL optional;
 - Local/S3-compatible storage abstraction;
@@ -1123,7 +1123,7 @@ Recommended implementation order:
 - five V1 formats;
 - durable generation jobs;
 - asset resolution;
-- dopost timeline compiler;
+- OpenPost timeline compiler;
 - dopost AI sidecar;
 - regeneration ownership/dependency graph;
 - editor handoff and AI panel seam.
@@ -1134,7 +1134,7 @@ Recommended implementation order:
 - Gemini official provider path;
 - browser/local TTS;
 - Vietnamese TTS candidate after model audit;
-- dopost local transcription reuse;
+- OpenPost local transcription reuse;
 - optional whisper.cpp worker;
 - Music Lite;
 - optional ACE-Step worker;
@@ -1159,11 +1159,11 @@ Each phase should receive its own detailed implementation plan and test gates be
 The following invariants are the quickest way to judge future proposals:
 
 - **One product:** users see dopost, not a collection of OpenPost/Bang Motion/AI sub-apps.
-- **One editor authority:** final authored video state belongs to the dopost Video Project model.
+- **One editor authority:** final authored video state belongs to the OpenPost Video Project model.
 - **Editable AI:** AI generates authored structure, not only final pixels.
 - **Graceful AI degradation:** editors and publishing remain usable without optional AI services.
 - **Light self-host default:** one container + SQLite + local media must remain viable.
-- **Upstream-aware:** avoid unnecessary deep forks of dopost.
+- **Upstream-aware:** avoid unnecessary deep forks of OpenPost.
 - **Deterministic motion:** preview and export must agree at a given project time/state.
 - **License-aware:** open-source and model licenses are release gates, not afterthoughts.
 - **No legacy burden:** old dopost editor projects/presets do not constrain the 2.0 architecture.

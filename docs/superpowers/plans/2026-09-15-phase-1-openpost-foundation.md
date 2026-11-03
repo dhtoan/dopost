@@ -1,10 +1,10 @@
-# Phase 1 — dopost Foundation Implementation Plan
+# Phase 1 — OpenPost Foundation Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Import dopost as the dopost Web 2.0 foundation, establish a maintainable upstream relationship, replace public-facing dopost branding with dopost branding, keep dopost's image/video editors as the only production editors, and deliver a production-ready Docker/aaPanel baseline with SQLite/local defaults plus optional PostgreSQL/S3-compatible deployment.
+**Goal:** Import OpenPost as the dopost Web 2.0 foundation, establish a maintainable upstream relationship, replace public-facing OpenPost branding with dopost branding, keep OpenPost's image/video editors as the only production editors, and deliver a production-ready Docker/aaPanel baseline with SQLite/local defaults plus optional PostgreSQL/S3-compatible deployment.
 
-**Architecture:** Preserve dopost's current Bun/SvelteKit frontend and Go backend architecture. Keep internal dopost module names and `OPENPOST_*` compatibility environment variables unless a product-facing rename is required. Add dopost-owned code behind isolated packages/modules, keep upstream patches small, and validate the fork with the same CI, migration, security, and container checks dopost already uses.
+**Architecture:** Preserve OpenPost's current Bun/SvelteKit frontend and Go backend architecture. Keep internal OpenPost module names and `OPENPOST_*` compatibility environment variables unless a product-facing rename is required. Add dopost-owned code behind isolated packages/modules, keep upstream patches small, and validate the fork with the same CI, migration, security, and container checks OpenPost already uses.
 
 **Tech Stack:** Bun 1.3.11, Svelte 5/SvelteKit, TypeScript, Go 1.26.6, Echo/Huma, Bun ORM, SQLite, PostgreSQL, S3-compatible BlobStorage, Docker Compose, GitHub Actions, Playwright/Vitest/Go test.
 
@@ -12,23 +12,23 @@
 
 ## Global Constraints
 
-- dopost remains the editor/project/publishing foundation; do not introduce a second editor stack.
+- OpenPost remains the editor/project/publishing foundation; do not introduce a second editor stack.
 - The old dopost Photo/Video Editor code is not imported into this repository.
-- Preserve upstream dopost internal names where renaming would increase merge conflict cost without user value.
+- Preserve upstream OpenPost internal names where renaming would increase merge conflict cost without user value.
 - Default self-host deployment must run with one application container, SQLite, and local media.
 - PostgreSQL and S3/R2/MinIO are optional configurations, not default requirements.
 - Do not add Redis, RabbitMQ, or Kafka.
 - Default installation must not require a GPU or AI worker.
 - AGPL compliance is a release gate. Do not remove upstream notices or license text.
-- dopost-added code that becomes part of the combined dopost-derived program is treated consistently with the repository's AGPL distribution obligations.
-- Do not enable dopost-managed diagnostics/update endpoints by default in the dopost fork unless dopost owns the endpoint.
+- dopost-added code that becomes part of the combined OpenPost-derived program is treated consistently with the repository's AGPL distribution obligations.
+- Do not enable OpenPost-managed diagnostics/update endpoints by default in the dopost fork unless dopost owns the endpoint.
 - All behavior-changing work follows red → green → refactor and lands in small commits.
 
 ## Target File Structure After This Phase
 
 ```text
 dopost/
-├── apps/                         # imported dopost apps
+├── apps/                         # imported OpenPost apps
 │   ├── server/
 │   ├── web/
 │   ├── cli/
@@ -37,7 +37,7 @@ dopost/
 │   └── marketing/
 ├── packages/
 │   ├── dopost-brand/              # dopost-owned public brand contract
-│   └── ...                      # imported dopost packages
+│   └── ...                      # imported OpenPost packages
 ├── deploy/
 │   ├── docker/
 │   └── aapanel/
@@ -59,10 +59,9 @@ dopost/
 
 ---
 
-## Task 1: Import dopost with upstream history intact
+## Task 1: Import OpenPost with upstream history intact
 
 **Files:**
-
 - Preserve: `docs/superpowers/specs/2026-09-15-dopost-web-2-design.md`
 - Preserve: `docs/superpowers/plans/2026-09-15-phase-1-openpost-foundation.md`
 - Modify after merge: `README.md`
@@ -78,10 +77,10 @@ cd ../dopost-phase1
 
 Expected: new worktree on `feat/phase-1-openpost-foundation` with the approved spec and plan present.
 
-- [ ] **Step 2: Register dopost as the long-lived upstream remote**
+- [ ] **Step 2: Register OpenPost as the long-lived upstream remote**
 
 ```bash
-git remote add upstream-openpost https://github.com/dhtoan/dopost.git
+git remote add upstream-openpost https://github.com/getopenpost/openpost.git
 git fetch upstream-openpost main --tags
 ```
 
@@ -104,10 +103,10 @@ Resolve the expected `README.md` collision by keeping dopost as the product titl
 
 Create `docs/upstream/openpost.md` with the SHA emitted by `git rev-parse upstream-openpost/main` at execution time and the repeatable update process:
 
-````markdown
-# dopost Upstream
+```markdown
+# OpenPost Upstream
 
-Remote: `https://github.com/dhtoan/dopost.git`
+Remote: `https://github.com/getopenpost/openpost.git`
 Remote name: `upstream-openpost`
 Base branch: `main`
 
@@ -116,7 +115,6 @@ The current dopost foundation was merged from the exact commit recorded by:
 ```bash
 git rev-parse upstream-openpost/main
 ```
-````
 
 To update:
 
@@ -128,8 +126,7 @@ bun install --frozen-lockfile
 bun run check
 bun run test
 ```
-
-````
+```
 
 After writing the file, replace the command-output statement with the literal SHA so the document is immutable evidence of the imported base.
 
@@ -137,8 +134,8 @@ After writing the file, replace the command-output statement with the literal SH
 
 ```bash
 git add -A
-git commit -m "chore: import dopost foundation with upstream history"
-````
+git commit -m "chore: import OpenPost foundation with upstream history"
+```
 
 - [ ] **Step 6: Install and run the untouched upstream baseline before dopost patches**
 
@@ -165,12 +162,11 @@ Expected: any failure must be recorded as an upstream baseline failure before do
 ## Task 2: Lock the dopost patch boundary and migration namespace
 
 **Files:**
-
 - Create: `docs/upstream/dopost-patch-policy.md`
 - Create: `apps/server/internal/database/migrations/dopost_version_policy_test.go`
 - Test: `apps/server/internal/database/migrations/dopost_version_policy_test.go`
 
-dopost migrations are numeric and collision-sensitive. Reserve `9000–9099` for dopost-owned migrations so dopost features can evolve without opportunistically consuming dopost's current sequence.
+OpenPost migrations are numeric and collision-sensitive. Reserve `9000–9099` for dopost-owned migrations so dopost features can evolve without opportunistically consuming OpenPost's current sequence.
 
 - [ ] **Step 1: Write the failing migration-range test**
 
@@ -220,11 +216,11 @@ The document must state:
 
 ```text
 dopost-owned packages/modules: preferred.
-dopost core patches: only when no stable extension seam exists.
+OpenPost core patches: only when no stable extension seam exists.
 Every core patch: test + reason + upstream sync note.
 dopost SQL migration range: 9000–9099 and `_auno_` filename marker.
-Do not rewrite historical dopost migrations.
-Do not mass-rename dopost internal symbols.
+Do not rewrite historical OpenPost migrations.
+Do not mass-rename OpenPost internal symbols.
 ```
 
 - [ ] **Step 4: Run the migration chain tests on SQLite**
@@ -243,10 +239,9 @@ git commit -m "test: reserve dopost migration namespace"
 
 ---
 
-## Task 3: Add the dopost brand contract without mass-renaming dopost internals
+## Task 3: Add the dopost brand contract without mass-renaming OpenPost internals
 
 **Files:**
-
 - Create: `packages/dopost-brand/package.json`
 - Create: `packages/dopost-brand/tsconfig.json`
 - Create: `packages/dopost-brand/src/index.ts`
@@ -258,14 +253,14 @@ git commit -m "test: reserve dopost migration namespace"
 - [ ] **Step 1: Write the brand contract test first**
 
 ```ts
-import { describe, expect, it } from "vitest";
-import { DOPOST_BRAND } from "./index";
+import { describe, expect, it } from 'vitest';
+import { DOPOST_BRAND } from './index';
 
-describe("DOPOST_BRAND", () => {
-  it("exposes one stable product identity", () => {
-    expect(DOPOST_BRAND.productName).toBe("dopost");
-    expect(DOPOST_BRAND.shortName).toBe("dopost");
-    expect(DOPOST_BRAND.repository).toBe("https://github.com/dhtoan/dopost");
+describe('DOPOST_BRAND', () => {
+  it('exposes one stable product identity', () => {
+    expect(DOPOST_BRAND.productName).toBe('dopost');
+    expect(DOPOST_BRAND.shortName).toBe('dopost');
+    expect(DOPOST_BRAND.repository).toBe('https://github.com/dhtoan/dopost');
   });
 });
 ```
@@ -309,10 +304,10 @@ Expected: fail because the package does not exist.
 
 ```ts
 export const DOPOST_BRAND = Object.freeze({
-  productName: "dopost",
-  shortName: "dopost",
-  repository: "https://github.com/dhtoan/dopost",
-  documentationName: "dopost Docs",
+  productName: 'dopost',
+  shortName: 'dopost',
+  repository: 'https://github.com/dhtoan/dopost',
+  documentationName: 'dopost Docs'
 } as const);
 ```
 
@@ -335,7 +330,7 @@ Expected: pass.
 
 - [ ] **Step 5: Change the Logo component test before the component**
 
-Update `apps/web/src/lib/components/Logo.svelte.test.ts` so the accessible image name and visible wordmark expect `dopost`, not `dopost`.
+Update `apps/web/src/lib/components/Logo.svelte.test.ts` so the accessible image name and visible wordmark expect `dopost`, not `OpenPost`.
 
 The mark test must still prove the mark follows `--action-focal` so theme integration is preserved.
 
@@ -345,11 +340,11 @@ Run:
 bun --cwd apps/web run test -- Logo.svelte.test.ts
 ```
 
-Expected: fail against the dopost logo copy.
+Expected: fail against the OpenPost logo copy.
 
 - [ ] **Step 6: Update `Logo.svelte`**
 
-Import the brand contract and replace the public wordmark/ARIA label with `DOPOST_BRAND.productName`. Replace the four-quadrant dopost-specific mark with a simple theme-colored dopost `A` monogram drawn in local SVG so dopost does not present the dopost logo as its own brand.
+Import the brand contract and replace the public wordmark/ARIA label with `DOPOST_BRAND.productName`. Replace the four-quadrant OpenPost-specific mark with a simple theme-colored dopost `A` monogram drawn in local SVG so dopost does not present the OpenPost logo as its own brand.
 
 Do not alter theme color plumbing.
 
@@ -370,10 +365,9 @@ git commit -m "feat: add dopost brand boundary"
 
 ---
 
-## Task 4: Add a dopost Home dashboard without moving the existing composer route
+## Task 4: Add an dopost Home dashboard without moving the existing composer route
 
 **Files:**
-
 - Create: `apps/web/src/routes/home/+page.svelte`
 - Create: `apps/web/src/lib/dopost/home-actions.ts`
 - Create: `apps/web/src/lib/dopost/home-actions.test.ts`
@@ -382,21 +376,21 @@ git commit -m "feat: add dopost brand boundary"
 - Modify: `apps/web/src/lib/components/mobile-more-menu.svelte`
 - Test: existing navigation tests plus new focused test
 
-The existing dopost root `/` remains the Social Post composer. dopost Home is `/home`. This avoids a high-conflict route move while still delivering the approved Home surface.
+The existing OpenPost root `/` remains the Social Post composer. dopost Home is `/home`. This avoids a high-conflict route move while still delivering the approved Home surface.
 
 - [ ] **Step 1: Write the action-model test**
 
 ```ts
-import { describe, expect, it } from "vitest";
-import { phaseOneCreateActions } from "./home-actions";
+import { describe, expect, it } from 'vitest';
+import { phaseOneCreateActions } from './home-actions';
 
-describe("phaseOneCreateActions", () => {
-  it("routes every available creator into an existing dopost surface", () => {
+describe('phaseOneCreateActions', () => {
+  it('routes every available creator into an existing OpenPost surface', () => {
     expect(phaseOneCreateActions.map((item) => item.href)).toEqual([
-      "/video-editor",
-      "/image-editor",
-      "/record",
-      "/",
+      '/video-editor',
+      '/image-editor',
+      '/record',
+      '/'
     ]);
   });
 });
@@ -412,10 +406,10 @@ bun --cwd apps/web x vitest run src/lib/dopost/home-actions.test.ts
 
 ```ts
 export const phaseOneCreateActions = [
-  { id: "video", label: "Edit video", href: "/video-editor" },
-  { id: "photo", label: "Edit photo", href: "/image-editor" },
-  { id: "record", label: "Record", href: "/record" },
-  { id: "post", label: "Create social post", href: "/" },
+  { id: 'video', label: 'Edit video', href: '/video-editor' },
+  { id: 'photo', label: 'Edit photo', href: '/image-editor' },
+  { id: 'record', label: 'Record', href: '/record' },
+  { id: 'post', label: 'Create social post', href: '/' }
 ] as const;
 ```
 
@@ -480,10 +474,9 @@ git commit -m "feat: add dopost home surface"
 
 ---
 
-## Task 5: Consolidate the Create menu around dopost editors
+## Task 5: Consolidate the Create menu around OpenPost editors
 
 **Files:**
-
 - Create: `apps/web/src/lib/dopost/create-actions.ts`
 - Create: `apps/web/src/lib/dopost/create-actions.test.ts`
 - Modify: `apps/web/src/lib/components/sidebar-left.svelte`
@@ -492,16 +485,16 @@ git commit -m "feat: add dopost home surface"
 - [ ] **Step 1: Write the failing shared create-menu test**
 
 ```ts
-import { describe, expect, it } from "vitest";
-import { createActions } from "./create-actions";
+import { describe, expect, it } from 'vitest';
+import { createActions } from './create-actions';
 
-describe("createActions", () => {
-  it("uses the dopost editors as the only photo/video edit destinations", () => {
+describe('createActions', () => {
+  it('uses the OpenPost editors as the only photo/video edit destinations', () => {
     expect(createActions).toEqual([
-      { id: "video", label: "Video", href: "/video-editor" },
-      { id: "photo", label: "Photo / Carousel", href: "/image-editor" },
-      { id: "record", label: "Record", href: "/record" },
-      { id: "post", label: "Social Post", href: "/" },
+      { id: 'video', label: 'Video', href: '/video-editor' },
+      { id: 'photo', label: 'Photo / Carousel', href: '/image-editor' },
+      { id: 'record', label: 'Record', href: '/record' },
+      { id: 'post', label: 'Social Post', href: '/' }
     ]);
   });
 });
@@ -525,7 +518,7 @@ Keep the existing SvelteKit `resolveAppPath()` navigation behavior.
 rg -n "legacy.*editor|old.*editor|dopost-photo-editor|dopost-video-editor" apps packages || true
 ```
 
-Expected: no production route/import from a legacy dopost editor because this repository began from dopost rather than the previous dopost codebase.
+Expected: no production route/import from a legacy dopost editor because this repository began from OpenPost rather than the previous dopost codebase.
 
 - [ ] **Step 5: Test and commit**
 
@@ -541,13 +534,12 @@ git commit -m "refactor: centralize dopost create destinations"
 ## Task 6: Remove upstream-managed diagnostics/update defaults from the dopost self-host fork
 
 **Files:**
-
 - Modify: `apps/server/internal/config/config.go`
 - Modify: `apps/server/internal/config/config_test.go`
 - Modify: `.env.example`
-- Modify: `docs/reference/configuration/diagnostics.md` if imported upstream documentation still claims dopost-managed defaults
+- Modify: `docs/reference/configuration/diagnostics.md` if imported upstream documentation still claims OpenPost-managed defaults
 
-dopost must not silently send diagnostics to `app.openpo.st` or rely on dopost's update service by default.
+dopost must not silently send diagnostics to `app.openpo.st` or rely on OpenPost's update service by default.
 
 - [ ] **Step 1: Add failing config tests**
 
@@ -571,7 +563,7 @@ cd apps/server
 go test ./internal/config -run 'TestDopostSelfHostDisables' -v
 ```
 
-Expected: diagnostics/update assertions fail on the imported dopost defaults.
+Expected: diagnostics/update assertions fail on the imported OpenPost defaults.
 
 - [ ] **Step 3: Change defaults without removing explicit operator configuration**
 
@@ -611,20 +603,19 @@ git commit -m "fix: make dopost self-host telemetry opt-in"
 
 ---
 
-## Task 7: Rebrand product metadata while preserving internal dopost identifiers
+## Task 7: Rebrand product metadata while preserving internal OpenPost identifiers
 
 **Files:**
-
 - Modify: `deploy/docker/Dockerfile`
 - Modify: `apps/web/static/manifest.webmanifest` or the imported PWA manifest source used by this revision
 - Modify: `apps/web/src/routes/u/[username]/+page.svelte`
-- Modify: selected public/auth Svelte routes containing literal user-visible `dopost`
+- Modify: selected public/auth Svelte routes containing literal user-visible `OpenPost`
 - Create: `scripts/check-dopost-brand-surface.mjs`
 - Create: `scripts/check-dopost-brand-surface.test.mjs`
 
 - [ ] **Step 1: Write a fail-closed brand-surface test**
 
-The test scans only user-facing files, not Go package/module names or legal attribution, and rejects new literal `dopost` brand strings in:
+The test scans only user-facing files, not Go package/module names or legal attribution, and rejects new literal `OpenPost` brand strings in:
 
 ```text
 apps/web/src/routes/**
@@ -659,7 +650,7 @@ Do **not** rename:
 github.com/openpost/backend
 @openpost/* workspace packages
 OPENPOST_* internal compatibility config keys
-dopost names inside required upstream legal notices
+OpenPost names inside required upstream legal notices
 ```
 
 - [ ] **Step 4: Run brand guard + frontend check**
@@ -681,7 +672,6 @@ git commit -m "feat: rebrand public surfaces as dopost"
 ## Task 8: Create the aaPanel-friendly default Docker deployment
 
 **Files:**
-
 - Modify: `docker-compose.yml`
 - Create: `deploy/aapanel/docker-compose.yml`
 - Create: `docs/deployment/aapanel.md`
@@ -725,15 +715,7 @@ services:
     volumes:
       - auno_studio_data:/data
     healthcheck:
-      test:
-        [
-          "CMD",
-          "wget",
-          "--no-verbose",
-          "--tries=1",
-          "--spider",
-          "http://localhost:8080/api/v1/health",
-        ]
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/api/v1/health"]
     environment:
       - OPENPOST_PORT=8080
       - OPENPOST_DATABASE_DRIVER=sqlite
@@ -785,7 +767,6 @@ git commit -m "feat: add aaPanel Docker deployment"
 ## Task 9: Add the optional PostgreSQL profile without changing the default
 
 **Files:**
-
 - Modify: `deploy/aapanel/docker-compose.yml`
 - Modify: `.env.example`
 - Create: `scripts/check-postgres-profile.sh`
@@ -866,13 +847,12 @@ git commit -m "feat: add optional PostgreSQL deployment profile"
 ## Task 10: Verify Local and S3-compatible storage as supported dopost configurations
 
 **Files:**
-
 - Modify: `.env.example`
 - Create: `docs/deployment/storage.md`
 - Create: `scripts/check-storage-config.mjs`
 - Reuse/extend: existing `apps/server/internal/services/mediastore/*_test.go`
 
-dopost already has `local` and `s3` storage drivers. This task verifies and documents them; it does not introduce a new storage abstraction.
+OpenPost already has `local` and `s3` storage drivers. This task verifies and documents them; it does not introduce a new storage abstraction.
 
 - [ ] **Step 1: Add a failing config-contract check**
 
@@ -928,7 +908,6 @@ git commit -m "docs: verify dopost storage deployment matrix"
 ## Task 11: Establish license and attribution inventory before adding more third-party code
 
 **Files:**
-
 - Keep/Modify: `LICENSE`
 - Create: `NOTICE.md`
 - Create: `licenses/openpost/LICENSE`
@@ -942,8 +921,8 @@ The script asserts:
 ```text
 root LICENSE contains GNU AFFERO GENERAL PUBLIC LICENSE
 licenses/openpost/LICENSE exists and contains AGPL text
-NOTICE.md names dopost and upstream URL
-NOTICE.md states dopost is a modified work based on dopost
+NOTICE.md names OpenPost and upstream URL
+NOTICE.md states dopost is a modified work based on OpenPost
 third-party inventory has explicit columns for component, source, code license, model/weight license, redistribution, commercial status, attribution
 ```
 
@@ -958,7 +937,7 @@ bun scripts/check-third-party-notices.mjs
 `NOTICE.md` must include at minimum:
 
 ```text
-dopost includes and modifies dopost (https://github.com/dhtoan/dopost), licensed under GNU AGPL-3.0-only.
+dopost includes and modifies OpenPost (https://github.com/getopenpost/openpost), licensed under GNU AGPL-3.0-only.
 dopost preserves the upstream license and required notices.
 Bang Motion is approved for a later phase but is not yet vendored in Phase 1.
 ```
@@ -967,7 +946,7 @@ Do not state that legal review has occurred if it has not.
 
 - [ ] **Step 4: Create the third-party inventory schema**
 
-Start the inventory with dopost and mark Bang Motion/AI models as `approved for evaluation, not yet vendored` rather than pretending they are already shipped.
+Start the inventory with OpenPost and mark Bang Motion/AI models as `approved for evaluation, not yet vendored` rather than pretending they are already shipped.
 
 - [ ] **Step 5: Run and commit**
 
@@ -982,7 +961,6 @@ git commit -m "docs: establish license and attribution inventory"
 ## Task 12: Add dopost release/build metadata without renaming the backend module
 
 **Files:**
-
 - Modify: `deploy/docker/Dockerfile`
 - Modify: `scripts/release.mjs`
 - Modify: `.github/workflows/ci.yml`
@@ -1041,24 +1019,23 @@ git commit -m "build: publish dopost container metadata"
 ## Task 13: Add the Phase 1 release smoke test
 
 **Files:**
-
 - Create: `tests/dopost/phase1-foundation.spec.ts`
 - Modify: Playwright config only if the imported test harness requires explicit discovery of `tests/dopost`
 - Modify: `.github/workflows/ci.yml`
 
 - [ ] **Step 1: Write the failing browser smoke test**
 
-Test authenticated/self-host test mode using the same dopost test fixtures/harness already used by upstream. Assertions:
+Test authenticated/self-host test mode using the same OpenPost test fixtures/harness already used by upstream. Assertions:
 
 ```ts
-await expect(page.getByText("dopost")).toBeVisible();
-await page.goto("/home");
-await expect(page.getByRole("heading", { name: /dopost/i })).toBeVisible();
-await page.goto("/video-editor");
+await expect(page.getByText('dopost')).toBeVisible();
+await page.goto('/home');
+await expect(page.getByRole('heading', { name: /dopost/i })).toBeVisible();
+await page.goto('/video-editor');
 await expect(page).toHaveURL(/\/video-editor/);
-await page.goto("/image-editor");
+await page.goto('/image-editor');
 await expect(page).toHaveURL(/\/image-editor/);
-await page.goto("/record");
+await page.goto('/record');
 await expect(page).toHaveURL(/\/record/);
 ```
 
@@ -1127,7 +1104,6 @@ git commit -m "test: add Phase 1 dopost foundation release gate"
 ## Task 14: Phase 1 completion review and merge gate
 
 **Files:**
-
 - Create: `docs/releases/2.0.0-alpha.1-phase1-verification.md`
 
 - [ ] **Step 1: Capture objective verification results**
@@ -1182,8 +1158,8 @@ Invoke `superpowers:requesting-code-review`, address any verified blocking findi
 
 Phase 1 is complete only when all are true:
 
-- dopost history is merged and `upstream-openpost` is documented.
-- Existing dopost Image Editor, Video Editor, Recorder, Media, Publications, Inbox, Analytics, auth, workspaces, and project persistence remain functional.
+- OpenPost history is merged and `upstream-openpost` is documented.
+- Existing OpenPost Image Editor, Video Editor, Recorder, Media, Publications, Inbox, Analytics, auth, workspaces, and project persistence remain functional.
 - dopost is the public product identity in app surfaces and OCI image metadata.
 - No previous dopost editor implementation is present in production routes.
 - `/home` exists and Create routes only to functioning surfaces.
@@ -1191,7 +1167,7 @@ Phase 1 is complete only when all are true:
 - aaPanel deployment binds the app to loopback for reverse proxying.
 - PostgreSQL is optional and its migration chain passes.
 - S3/R2/MinIO are documented through the existing S3-compatible storage contract.
-- dopost diagnostics/update calls are opt-in rather than silently pointing at upstream-managed services.
+- OpenPost diagnostics/update calls are opt-in rather than silently pointing at upstream-managed services.
 - AGPL/attribution inventory exists and is checked in CI.
 - Real production image builds and passes `/health` + `/ready` smoke tests.
 - All Phase 1 tests/checks are green before Phase 2 begins.

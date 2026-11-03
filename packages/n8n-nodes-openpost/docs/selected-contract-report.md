@@ -1,10 +1,10 @@
-# Selected OpenPost automation contract
+# Selected dopost automation contract
 
 Generated from the canonical OpenAPI `x-openpost-automation` metadata.
 
 - Source version: 1.0.0
 - Actions emitted: 22
-- Checksum: 3824390aa6b182af8b196d457a4139491ba861c0d2e1e58faeaafba6e1b0ff7e
+- Checksum: b1278c2a94adbaad0529561eda827141b658eef14562f00a008a45893516432f
 
 ## Actions
 

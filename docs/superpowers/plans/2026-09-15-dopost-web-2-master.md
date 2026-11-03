@@ -4,9 +4,9 @@
 
 **Goal:** Coordinate the four independently testable implementation phases that transform the minimal `dhtoan/dopost` repository into dopost Web 2.0 and gate the final `2.0.0` release against the approved architecture.
 
-**Architecture:** This is an execution index, not a substitute for the four subsystem plans. Phase 1 establishes the dopost foundation and production deployment; Phase 2 adds native Auto Video; Phase 3 adds provider routing, voice, captions, and music; Phase 4 adds Bang Motion-derived dopost Motion. Every phase is implemented on its own isolated branch/worktree, reviewed, verified, and merged before the next phase begins.
+**Architecture:** This is an execution index, not a substitute for the four subsystem plans. Phase 1 establishes the OpenPost foundation and production deployment; Phase 2 adds native Auto Video; Phase 3 adds provider routing, voice, captions, and music; Phase 4 adds Bang Motion-derived dopost Motion. Every phase is implemented on its own isolated branch/worktree, reviewed, verified, and merged before the next phase begins.
 
-**Tech Stack:** dopost monorepo (Svelte 5/SvelteKit + Bun + Go/Echo/Huma/Bun ORM), SQLite/PostgreSQL, local/S3-compatible storage, DB-backed jobs, Docker Compose/aaPanel, dopost local AI runtimes, Gemini official API/OAuth/ADC, dopost Auto Video, dopost Motion, Playwright/Vitest/Go test/GitHub Actions.
+**Tech Stack:** OpenPost monorepo (Svelte 5/SvelteKit + Bun + Go/Echo/Huma/Bun ORM), SQLite/PostgreSQL, local/S3-compatible storage, DB-backed jobs, Docker Compose/aaPanel, OpenPost local AI runtimes, Gemini official API/OAuth/ADC, dopost Auto Video, dopost Motion, Playwright/Vitest/Go test/GitHub Actions.
 
 **Spec:** `docs/superpowers/specs/2026-09-15-dopost-web-2-design.md`
 
@@ -19,77 +19,75 @@
 - Use test-driven development for all implementation work; invoke `superpowers:test-driven-development` before writing production feature/bugfix code.
 - Use `superpowers:verification-before-completion` before claiming any task/phase is complete.
 - Use `superpowers:requesting-code-review` at each phase merge gate.
-- dopost remains the editor/project/publishing foundation throughout all phases.
+- OpenPost remains the editor/project/publishing foundation throughout all phases.
 - The old dopost Photo/Video editor stack is not imported or maintained.
 - Default self-host deployment remains one dopost container + SQLite + local media; PostgreSQL/S3/AI workers remain optional.
 - Do not add Redis/RabbitMQ/Kafka.
 - Do not ship reverse-engineered Google/Antigravity OAuth.
-- AI outputs remain editable native project state or editable dopost compositions.
-- dopost AGPL compliance, Bang Motion MIT attribution, and model-weight license audit remain release gates.
+- AI outputs remain editable native project state or editable OpenPost compositions.
+- OpenPost AGPL compliance, Bang Motion MIT attribution, and model-weight license audit remain release gates.
 - Never tag stable `2.0.0` based only on unit tests; the full Docker/DB/browser/backup/export/publish acceptance matrix must pass.
 
 ## Plan Map
 
-| Order | Plan                                                                | Working release | Purpose                                                                                   |
-| ----- | ------------------------------------------------------------------- | --------------- | ----------------------------------------------------------------------------------------- |
-| 1     | `docs/superpowers/plans/2026-09-15-phase-1-openpost-foundation.md`  | `2.0.0-alpha.1` | Import dopost history, brand/deploy/database/storage/license/CI foundation                |
-| 2     | `docs/superpowers/plans/2026-09-15-phase-2-native-auto-video.md`    | `2.0.0-alpha.2` | Structured Auto Video, source ledger, durable jobs, native project compiler, regeneration |
-| 3     | `docs/superpowers/plans/2026-09-15-phase-3-ai-media-providers.md`   | `2.0.0-beta.1`  | Gemini/provider routing, voice, captions, music, AI settings, optional workers            |
-| 4     | `docs/superpowers/plans/2026-09-15-phase-4-dopost-motion-engine.md` | `2.0.0-rc.1`    | Bang Motion adaptation, Motion Styles, editable compositions, deterministic visual QA     |
-| 5     | This master plan stable gate                                        | `2.0.0`         | Cross-phase acceptance, backup/restore, distribution/compliance, final release            |
+| Order | Plan | Working release | Purpose |
+| --- | --- | --- | --- |
+| 1 | `docs/superpowers/plans/2026-09-15-phase-1-openpost-foundation.md` | `2.0.0-alpha.1` | Import OpenPost history, brand/deploy/database/storage/license/CI foundation |
+| 2 | `docs/superpowers/plans/2026-09-15-phase-2-native-auto-video.md` | `2.0.0-alpha.2` | Structured Auto Video, source ledger, durable jobs, native project compiler, regeneration |
+| 3 | `docs/superpowers/plans/2026-09-15-phase-3-ai-media-providers.md` | `2.0.0-beta.1` | Gemini/provider routing, voice, captions, music, AI settings, optional workers |
+| 4 | `docs/superpowers/plans/2026-09-15-phase-4-dopost-motion-engine.md` | `2.0.0-rc.1` | Bang Motion adaptation, Motion Styles, editable compositions, deterministic visual QA |
+| 5 | This master plan stable gate | `2.0.0` | Cross-phase acceptance, backup/restore, distribution/compliance, final release |
 
 ## Design-to-Plan Coverage Matrix
 
-| Approved design requirement                              | Owning plan/task family |
-| -------------------------------------------------------- | ----------------------- |
-| dopost as the dopost foundation                          | Phase 1                 |
-| Hard cutover to dopost Photo/Video Editors               | Phase 1                 |
-| dopost Home/Create shell and rebranding                  | Phase 1                 |
-| Docker/aaPanel, SQLite default, Postgres optional        | Phase 1                 |
-| Local/S3/R2/MinIO storage                                | Phase 1                 |
-| dopost upstream-sync discipline                          | Phase 1                 |
-| AGPL/third-party inventory baseline                      | Phase 1                 |
-| Text/URL/files/media Auto Video inputs                   | Phase 2                 |
-| Review/News/Guide/Compare/Top N                          | Phase 2                 |
-| Strict storyboard schema                                 | Phase 2                 |
-| Source ledger and SSRF-safe URL fetch                    | Phase 2                 |
-| DB-backed resumable jobs                                 | Phase 2                 |
-| Native dopost timeline compiler                          | Phase 2                 |
-| AI sidecar, project independence                         | Phase 2                 |
-| Scoped regeneration/manual-edit preservation             | Phase 2                 |
-| Video Editor dopost AI panel seam                        | Phase 2                 |
-| Gemini official auth + provider routing                  | Phase 3                 |
-| Auto/Free-Local/Cloud routing modes                      | Phase 3                 |
-| Never automatically use paid provider                    | Phase 3                 |
-| Voice generation and regeneration                        | Phase 3                 |
-| Captions/local transcription                             | Phase 3                 |
-| Music Lite + ACE-Step Pro                                | Phase 3                 |
-| Model/runtime manager and degraded AI status             | Phase 3                 |
-| Optional headless AI workers                             | Phase 3                 |
-| Bang Motion code/reference integration                   | Phase 4                 |
-| Motion Style/style brief                                 | Phase 4                 |
-| Anti-slide rules                                         | Phase 4                 |
-| Motion Scene Graph                                       | Phase 4                 |
-| Native keyframe compilation                              | Phase 4                 |
-| Editable Motion Composition                              | Phase 4                 |
-| Editorial Fashion style                                  | Phase 4                 |
-| Deterministic preview/export                             | Phase 4                 |
-| Motion visual QA                                         | Phase 4                 |
-| Backup/restore, final install/upgrade/release acceptance | Master stable gate      |
+| Approved design requirement | Owning plan/task family |
+| --- | --- |
+| OpenPost as the dopost foundation | Phase 1 |
+| Hard cutover to OpenPost Photo/Video Editors | Phase 1 |
+| dopost Home/Create shell and rebranding | Phase 1 |
+| Docker/aaPanel, SQLite default, Postgres optional | Phase 1 |
+| Local/S3/R2/MinIO storage | Phase 1 |
+| OpenPost upstream-sync discipline | Phase 1 |
+| AGPL/third-party inventory baseline | Phase 1 |
+| Text/URL/files/media Auto Video inputs | Phase 2 |
+| Review/News/Guide/Compare/Top N | Phase 2 |
+| Strict storyboard schema | Phase 2 |
+| Source ledger and SSRF-safe URL fetch | Phase 2 |
+| DB-backed resumable jobs | Phase 2 |
+| Native OpenPost timeline compiler | Phase 2 |
+| AI sidecar, project independence | Phase 2 |
+| Scoped regeneration/manual-edit preservation | Phase 2 |
+| Video Editor dopost AI panel seam | Phase 2 |
+| Gemini official auth + provider routing | Phase 3 |
+| Auto/Free-Local/Cloud routing modes | Phase 3 |
+| Never automatically use paid provider | Phase 3 |
+| Voice generation and regeneration | Phase 3 |
+| Captions/local transcription | Phase 3 |
+| Music Lite + ACE-Step Pro | Phase 3 |
+| Model/runtime manager and degraded AI status | Phase 3 |
+| Optional headless AI workers | Phase 3 |
+| Bang Motion code/reference integration | Phase 4 |
+| Motion Style/style brief | Phase 4 |
+| Anti-slide rules | Phase 4 |
+| Motion Scene Graph | Phase 4 |
+| Native keyframe compilation | Phase 4 |
+| Editable Motion Composition | Phase 4 |
+| Editorial Fashion style | Phase 4 |
+| Deterministic preview/export | Phase 4 |
+| Motion visual QA | Phase 4 |
+| Backup/restore, final install/upgrade/release acceptance | Master stable gate |
 
 ---
 
-## Task 1: Execute and merge Phase 1 — dopost foundation
+## Task 1: Execute and merge Phase 1 — OpenPost foundation
 
 **Files:**
-
 - Plan: `docs/superpowers/plans/2026-09-15-phase-1-openpost-foundation.md`
 - Evidence: `docs/releases/2.0.0-alpha.1-phase1-verification.md`
 
 **Interfaces:**
-
 - Consumes: minimal dopost repository + approved design.
-- Produces: dopost-based dopost foundation on `main`, upstream history/remote policy, dopost brand shell, Docker/aaPanel baseline, SQLite/local default, optional Postgres/S3, license inventory, working editors/publishing foundation.
+- Produces: OpenPost-based dopost foundation on `main`, upstream history/remote policy, dopost brand shell, Docker/aaPanel baseline, SQLite/local default, optional Postgres/S3, license inventory, working editors/publishing foundation.
 
 - [ ] **Step 1: Create the phase worktree using the exact branch named by Phase 1**
 
@@ -128,14 +126,12 @@ Create release/tag `2.0.0-alpha.1` only if the Phase 1 plan's release-image buil
 ## Task 2: Execute and merge Phase 2 — Native Auto Video
 
 **Files:**
-
 - Plan: `docs/superpowers/plans/2026-09-15-phase-2-native-auto-video.md`
 - Evidence: `docs/releases/2.0.0-alpha.2-phase2-verification.md`
 
 **Interfaces:**
-
 - Consumes: merged Phase 1 foundation.
-- Produces: source ingestion, five-format storyboard planning, durable generation jobs, native dopost project compilation, sidecar/source ledger, scoped regeneration, `/auto-video` wizard, editor panel seam.
+- Produces: source ingestion, five-format storyboard planning, durable generation jobs, native OpenPost project compilation, sidecar/source ledger, scoped regeneration, `/auto-video` wizard, editor panel seam.
 
 - [ ] **Step 1: Create a fresh worktree from the merged Phase 1 `main`**
 
@@ -172,13 +168,11 @@ Tag/release `2.0.0-alpha.2` only after native-project independence from the AI s
 ## Task 3: Execute and merge Phase 3 — AI media providers
 
 **Files:**
-
 - Plan: `docs/superpowers/plans/2026-09-15-phase-3-ai-media-providers.md`
 - Evidence: `docs/releases/2.0.0-beta.1-phase3-verification.md`
 
 **Interfaces:**
-
-- Consumes: merged Phase 2 Auto Video system and dopost local-AI engines.
+- Consumes: merged Phase 2 Auto Video system and OpenPost local-AI engines.
 - Produces: Gemini official provider/auth, routing preferences, voice/captions/music, AI settings/model status, optional server AI workers, editable native media tracks.
 
 - [ ] **Step 1: Create a fresh Phase 3 worktree**
@@ -190,7 +184,7 @@ git worktree add ../dopost-phase3 -b feat/phase-3-ai-media-providers origin/main
 
 - [ ] **Step 2: Execute Phase 3 in order**
 
-Do not replace dopost Kokoro/ACE-Step/transcription services with dopost copies. New work wraps/reuses their stable interfaces.
+Do not replace OpenPost Kokoro/ACE-Step/transcription services with dopost copies. New work wraps/reuses their stable interfaces.
 
 - [ ] **Step 3: Stop distribution of any unaudited model before it becomes a default**
 
@@ -216,14 +210,12 @@ Create `2.0.0-beta.1` only after the AI credential/security/license evidence is 
 ## Task 4: Execute and merge Phase 4 — dopost Motion Engine
 
 **Files:**
-
 - Plan: `docs/superpowers/plans/2026-09-15-phase-4-dopost-motion-engine.md`
 - Evidence: `docs/releases/2.0.0-rc.1-phase4-verification.md`
 
 **Interfaces:**
-
 - Consumes: full Auto Video + voice/captions/music system.
-- Produces: pinned Bang Motion provenance, nine Motion Styles, style briefs, anti-slide validator, native keyframe compiler, editable dopost Motion Compositions, deterministic frame/visual QA, Editorial Fashion.
+- Produces: pinned Bang Motion provenance, nine Motion Styles, style briefs, anti-slide validator, native keyframe compiler, editable OpenPost Motion Compositions, deterministic frame/visual QA, Editorial Fashion.
 
 - [ ] **Step 1: Create fresh Phase 4 worktree**
 
@@ -234,7 +226,7 @@ git worktree add ../dopost-phase4 -b feat/phase-4-dopost-motion-engine origin/ma
 
 - [ ] **Step 2: Execute Phase 4 plan in order**
 
-Bang Motion's original HTML/GSAP/Three starter is reference/provenance. Production authored state ends in dopost native timeline/composition structures.
+Bang Motion's original HTML/GSAP/Three starter is reference/provenance. Production authored state ends in OpenPost native timeline/composition structures.
 
 - [ ] **Step 3: Run all motion determinism/visual tests twice**
 
@@ -260,12 +252,10 @@ Create `2.0.0-rc.1` only after its verification document is committed and code r
 ## Task 5: Prove clean installation on the exact release candidate image
 
 **Files:**
-
 - Create: `docs/releases/2.0.0-install-verification.md`
 - Create or modify: `tests/release/dopost-clean-install.sh`
 
 **Interfaces:**
-
 - Consumes: `2.0.0-rc.1` container image and release Compose manifests.
 - Produces: reproducible evidence that a new aaPanel-style self-host install reaches a usable application with default SQLite/local storage.
 
@@ -318,12 +308,10 @@ git commit -m "test: verify clean dopost 2.0 installation"
 ## Task 6: Prove SQLite → PostgreSQL configuration and migration matrix
 
 **Files:**
-
 - Create: `tests/release/dopost-database-matrix.sh`
 - Create: `docs/releases/2.0.0-database-verification.md`
 
 **Interfaces:**
-
 - Consumes: release candidate SQLite/Postgres deployment profiles and application migration chain.
 - Produces: fresh/upgrade evidence for both supported databases.
 
@@ -367,7 +355,6 @@ git commit -m "test: verify dopost database release matrix"
 ## Task 7: Prove backup and restore with projects, media, sidecars, and secrets
 
 **Files:**
-
 - Create: `scripts/dopost-backup.sh`
 - Create: `scripts/dopost-restore.sh`
 - Create: `tests/release/dopost-backup-restore.sh`
@@ -375,7 +362,6 @@ git commit -m "test: verify dopost database release matrix"
 - Create: `docs/releases/2.0.0-backup-restore-verification.md`
 
 **Interfaces:**
-
 - Consumes: default SQLite/local deployment and documented optional PostgreSQL path.
 - Produces: supported backup/restore commands and tested recovery evidence.
 
@@ -439,14 +425,12 @@ git commit -m "feat: add verified backup and restore workflow"
 ## Task 8: Prove export → Media → Composer → schedule/publish handoff
 
 **Files:**
-
 - Create: `tests/dopost/export-publish-handoff.spec.ts`
 - Create: `docs/releases/2.0.0-publishing-verification.md`
 
 **Interfaces:**
-
-- Consumes: dopost Video Editor export, Media Library, Composer, Publications scheduler.
-- Produces: final end-to-end proof that dopost additions did not break dopost's publishing foundation.
+- Consumes: OpenPost Video Editor export, Media Library, Composer, Publications scheduler.
+- Produces: final end-to-end proof that dopost additions did not break OpenPost's publishing foundation.
 
 - [ ] **Step 1: Write E2E using a provider delivery test double**
 
@@ -472,7 +456,7 @@ Do not publish to a real social account in CI.
 bunx playwright test tests/dopost/export-publish-handoff.spec.ts
 ```
 
-- [ ] **Step 3: Verify localized/public copy says dopost, not misleading dopost product branding**
+- [ ] **Step 3: Verify localized/public copy says dopost, not misleading OpenPost product branding**
 
 Legal/third-party notices remain untouched.
 
@@ -488,15 +472,13 @@ git commit -m "test: verify editor to publishing handoff"
 ## Task 9: Prove source/license/compliance release package
 
 **Files:**
-
 - Create: `docs/compliance/release-source-offer.md`
 - Create: `tests/release/check-release-source.sh`
 - Modify: `NOTICE.md`
 - Modify: `docs/compliance/third-party-inventory.md`
 
 **Interfaces:**
-
-- Consumes: final release candidate source, AGPL dopost basis, MIT Bang Motion, model inventories.
+- Consumes: final release candidate source, AGPL OpenPost basis, MIT Bang Motion, model inventories.
 - Produces: technical compliance artifact/source packaging process for legal review.
 
 - [ ] **Step 1: Write release-source validation script**
@@ -505,7 +487,7 @@ It must assert the release source archive/repository includes:
 
 ```text
 root AGPL license
-dopost attribution/source reference
+OpenPost attribution/source reference
 Bang Motion MIT license + pinned commit
 dopost modifications/source needed to build deployed covered program
 Docker/build scripts
@@ -541,11 +523,9 @@ git commit -m "docs: define dopost release source package"
 ## Task 10: Run the final 2.0.0 acceptance matrix
 
 **Files:**
-
 - Create: `docs/releases/2.0.0-final-verification.md`
 
 **Interfaces:**
-
 - Consumes: all release/test artifacts from Tasks 1–9.
 - Produces: a single auditable stable-release decision.
 
@@ -624,26 +604,24 @@ Because the verification document commit changes the candidate SHA, re-run fail-
 ## Task 11: Final review, release tag, and post-release smoke check
 
 **Files:**
-
 - Modify: `CHANGELOG.md`
 - Modify: `README.md`
 - Release metadata through existing release workflow
 
 **Interfaces:**
-
 - Consumes: final verified commit with all criteria PASS.
 - Produces: `2.0.0` release, versioned Docker image, source artifacts, documentation links.
 
 - [ ] **Step 1: Request final code/release review**
 
-Invoke `superpowers:requesting-code-review` against the full delta from the imported dopost base/last RC. Resolve blocking findings and rerun relevant gates.
+Invoke `superpowers:requesting-code-review` against the full delta from the imported OpenPost base/last RC. Resolve blocking findings and rerun relevant gates.
 
 - [ ] **Step 2: Update release-facing documentation only after verification**
 
 `CHANGELOG.md` summarizes:
 
 ```text
-dopost-based dopost foundation
+OpenPost-based dopost foundation
 native Auto Video
 voice/captions/music provider system
 dopost Motion Engine + Bang Motion attribution

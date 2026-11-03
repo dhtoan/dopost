@@ -2,11 +2,11 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build dopost Auto Video as a durable project-generation pipeline that accepts approved source types, creates structured storyboards for Review/News/Guide/Compare/Top N, compiles them into native dopost Video Projects, preserves source provenance, and supports scoped regeneration without overwriting manual edits.
+**Goal:** Build dopost Auto Video as a durable project-generation pipeline that accepts approved source types, creates structured storyboards for Review/News/Guide/Compare/Top N, compiles them into native OpenPost Video Projects, preserves source provenance, and supports scoped regeneration without overwriting manual edits.
 
-**Architecture:** Add a dopost Auto Video domain beside dopost rather than inside the editor core. The Go backend owns durable source extraction, AI planning, resumable job state, sidecar persistence, and headless native-project compilation. The Svelte frontend owns the creation wizard, storyboard review, progress UI, and editor handoff. dopost Video Projects remain authoritative for editing/history; the dopost sidecar stores generation metadata and ownership fingerprints only.
+**Architecture:** Add an dopost Auto Video domain beside OpenPost rather than inside the editor core. The Go backend owns durable source extraction, AI planning, resumable job state, sidecar persistence, and headless native-project compilation. The Svelte frontend owns the creation wizard, storyboard review, progress UI, and editor handoff. OpenPost Video Projects remain authoritative for editing/history; the dopost sidecar stores generation metadata and ownership fingerprints only.
 
-**Tech Stack:** Go 1.26.6, Echo/Huma, Bun ORM, dopost `ai.Generator`, dopost DB-backed job worker, dopost `videoprojects.Service`, Svelte 5/SvelteKit, TypeScript, Zod, Vitest, Go test, Playwright.
+**Tech Stack:** Go 1.26.6, Echo/Huma, Bun ORM, OpenPost `ai.Generator`, OpenPost DB-backed job worker, OpenPost `videoprojects.Service`, Svelte 5/SvelteKit, TypeScript, Zod, Vitest, Go test, Playwright.
 
 **Spec:** `docs/superpowers/specs/2026-09-15-dopost-web-2-design.md`
 
@@ -14,14 +14,14 @@
 
 - Phase 1 must be merged and green before this plan starts.
 - Auto Video is a project generator, not a separate editor.
-- Native dopost Video Project document is the authoring/rendering source of truth.
+- Native OpenPost Video Project document is the authoring/rendering source of truth.
 - dopost Auto Video metadata is an optional sidecar; deleting/disableing the sidecar must never prevent the native project from opening.
 - V1 formats: Review, News, Guide, Compare, Top N.
 - V1 inputs: text, URL, Markdown/TXT/PDF/document media, images, video clips, and existing Workspace Media.
-- Binary files use the existing dopost Media upload path and enter Auto Video by `media_id`; do not build a second blob-upload system.
+- Binary files use the existing OpenPost Media upload path and enter Auto Video by `media_id`; do not build a second blob-upload system.
 - URL content is untrusted and must pass SSRF-safe fetch rules before extraction.
 - Planner output is strict structured JSON validated against a versioned schema; never ask an LLM to emit renderer code.
-- Use dopost's DB-backed durable jobs; do not introduce Redis/RabbitMQ/Kafka.
+- Use OpenPost's DB-backed durable jobs; do not introduce Redis/RabbitMQ/Kafka.
 - Generated project mutations/regenerations go through `videoprojects.Service`; never update `video_projects.document_json` directly.
 - Manual edits are preserved by default during regeneration.
 - AI/provider failures are normalized and must not corrupt native project state.
@@ -86,7 +86,6 @@ apps/web/src/
 ## Task 1: Define the versioned Auto Video contract
 
 **Files:**
-
 - Create: `packages/dopost-auto-video/package.json`
 - Create: `packages/dopost-auto-video/tsconfig.json`
 - Create: `packages/dopost-auto-video/src/schema.ts`
@@ -95,7 +94,6 @@ apps/web/src/
 - Modify: `apps/web/package.json`
 
 **Interfaces:**
-
 - Consumes: none beyond Zod already present in the frontend workspace.
 - Produces:
   - `AUTO_VIDEO_SCHEMA_VERSION = 1`
@@ -110,51 +108,50 @@ apps/web/src/
 - [ ] **Step 1: Write the failing schema tests**
 
 ```ts
-import { describe, expect, it } from "vitest";
-import { AUTO_VIDEO_SCHEMA_VERSION, autoVideoStoryboardSchema } from "./schema";
+import { describe, expect, it } from 'vitest';
+import {
+  AUTO_VIDEO_SCHEMA_VERSION,
+  autoVideoStoryboardSchema
+} from './schema';
 
 const valid = {
   schemaVersion: 1,
-  format: "review",
-  title: "Review title",
-  language: "en-US",
-  aspectRatio: "9:16",
+  format: 'review',
+  title: 'Review title',
+  language: 'en-US',
+  aspectRatio: '9:16',
   targetDurationSeconds: 30,
-  motionStyle: "standard",
+  motionStyle: 'standard',
   scenes: [
     {
-      id: "scene-1",
-      role: "hook",
-      narration: "Start here.",
-      visualIntent: "big-number",
-      sourceIds: ["source-1"],
-      estimatedDurationSeconds: 3,
-    },
-  ],
+      id: 'scene-1',
+      role: 'hook',
+      narration: 'Start here.',
+      visualIntent: 'big-number',
+      sourceIds: ['source-1'],
+      estimatedDurationSeconds: 3
+    }
+  ]
 };
 
-describe("Auto Video storyboard schema", () => {
-  it("accepts a versioned storyboard", () => {
+describe('Auto Video storyboard schema', () => {
+  it('accepts a versioned storyboard', () => {
     expect(AUTO_VIDEO_SCHEMA_VERSION).toBe(1);
-    expect(autoVideoStoryboardSchema.parse(valid).scenes[0]?.id).toBe("scene-1");
+    expect(autoVideoStoryboardSchema.parse(valid).scenes[0]?.id).toBe('scene-1');
   });
 
-  it("rejects renderer code as a visual intent", () => {
-    expect(() =>
-      autoVideoStoryboardSchema.parse({
-        ...valid,
-        scenes: [{ ...valid.scenes[0], visualIntent: "javascript" }],
-      }),
-    ).toThrow();
+  it('rejects renderer code as a visual intent', () => {
+    expect(() => autoVideoStoryboardSchema.parse({
+      ...valid,
+      scenes: [{ ...valid.scenes[0], visualIntent: 'javascript' }]
+    })).toThrow();
   });
 
-  it("rejects duplicate scene ids", () => {
-    expect(() =>
-      autoVideoStoryboardSchema.parse({
-        ...valid,
-        scenes: [valid.scenes[0], valid.scenes[0]],
-      }),
-    ).toThrow();
+  it('rejects duplicate scene ids', () => {
+    expect(() => autoVideoStoryboardSchema.parse({
+      ...valid,
+      scenes: [valid.scenes[0], valid.scenes[0]]
+    })).toThrow();
   });
 });
 ```
@@ -174,20 +171,10 @@ Use exact unions:
 ```ts
 export const AUTO_VIDEO_SCHEMA_VERSION = 1 as const;
 
-export const autoVideoFormats = ["review", "news", "guide", "compare", "top-n"] as const;
+export const autoVideoFormats = ['review', 'news', 'guide', 'compare', 'top-n'] as const;
 export const visualIntents = [
-  "image",
-  "video",
-  "b-roll",
-  "icon",
-  "chart",
-  "big-number",
-  "split-screen",
-  "document",
-  "map",
-  "product",
-  "quote",
-  "motion-composition",
+  'image', 'video', 'b-roll', 'icon', 'chart', 'big-number',
+  'split-screen', 'document', 'map', 'product', 'quote', 'motion-composition'
 ] as const;
 ```
 
@@ -237,7 +224,6 @@ git commit -m "feat: define Auto Video storyboard contract"
 ## Task 2: Persist the Auto Video sidecar and source ledger
 
 **Files:**
-
 - Create: `apps/server/internal/database/migrations/9000_dopost_auto_video.sql`
 - Create: `apps/server/internal/models/dopost_auto_video.go`
 - Create: `apps/server/internal/services/autovideo/repository.go`
@@ -245,8 +231,7 @@ git commit -m "feat: define Auto Video storyboard contract"
 - Modify: `apps/server/internal/database/migrations/migration_chain_test.go`
 
 **Interfaces:**
-
-- Consumes: Phase 1 migration reservation `9000–9099`; dopost Bun DB.
+- Consumes: Phase 1 migration reservation `9000–9099`; OpenPost Bun DB.
 - Produces:
   - `models.DopostAutoVideoProject`
   - `models.DopostAutoVideoSource`
@@ -347,7 +332,7 @@ Use the migration normalizer's cross-dialect capabilities; if `CREATE INDEX IF N
 
 - [ ] **Step 4: Add models and repository**
 
-Use separate Go file in `internal/models` to avoid growing the already-large dopost model file.
+Use separate Go file in `internal/models` to avoid growing the already-large OpenPost model file.
 
 Repository uses only Bun queries and validates workspace scoping on every read/update.
 
@@ -380,14 +365,12 @@ git commit -m "feat: persist Auto Video sidecar and sources"
 ## Task 3: Add SSRF-safe URL fetching and content extraction
 
 **Files:**
-
 - Create: `apps/server/internal/services/autovideo/url_fetch.go`
 - Create: `apps/server/internal/services/autovideo/url_fetch_test.go`
 - Create: `apps/server/internal/services/autovideo/source_extract.go`
 - Create: `apps/server/internal/services/autovideo/source_extract_test.go`
 
 **Interfaces:**
-
 - Consumes: `models.DopostAutoVideoSource`; `codeberg.org/readeck/go-readability/v2` already present in the server module.
 - Produces:
   - `type URLFetcher interface { Fetch(context.Context, string) (FetchedURL, error) }`
@@ -457,7 +440,7 @@ kind=url   → safe fetch → readability extraction → normalized title/text
 kind=media → load MediaAttachment metadata; text/plain/markdown/PDF text extraction path if supported; image/video remain metadata/assets with no invented transcript
 ```
 
-For PDF in Phase 2, extract text using the existing server/document extraction facility if the imported dopost revision provides one. If it does not, add `apps/server/internal/services/autovideo/pdf_text.go` backed by a Go PDF text package selected through dependency review and include a focused fixture test. Do not shell out to arbitrary user-provided PDF commands.
+For PDF in Phase 2, extract text using the existing server/document extraction facility if the imported OpenPost revision provides one. If it does not, add `apps/server/internal/services/autovideo/pdf_text.go` backed by a Go PDF text package selected through dependency review and include a focused fixture test. Do not shell out to arbitrary user-provided PDF commands.
 
 For Markdown/TXT uploaded as media, read the object through `mediastore.BlobStorage`, enforce an 8 MiB extraction cap, normalize UTF-8, and store extracted text.
 
@@ -485,14 +468,12 @@ git commit -m "feat: add safe Auto Video source extraction"
 ## Task 4: Implement five-format storyboard planning through `ai.Generator`
 
 **Files:**
-
 - Create: `apps/server/internal/services/autovideo/planner.go`
 - Create: `apps/server/internal/services/autovideo/planner_schema.go`
 - Create: `apps/server/internal/services/autovideo/planner_test.go`
 
 **Interfaces:**
-
-- Consumes: dopost `ai.Generator`; extracted sources from Task 3.
+- Consumes: OpenPost `ai.Generator`; extracted sources from Task 3.
 - Produces:
   - `type Planner interface { Plan(context.Context, PlanRequest) (Storyboard, error) }`
   - Go `Storyboard`/`Scene` mirror of the TypeScript schema v1.
@@ -582,7 +563,6 @@ git commit -m "feat: add structured Auto Video planner"
 ## Task 5: Add the durable generation state machine
 
 **Files:**
-
 - Create: `apps/server/internal/services/autovideo/service.go`
 - Create: `apps/server/internal/services/autovideo/service_test.go`
 - Modify: `apps/server/internal/jobregistry/definitions.go`
@@ -591,7 +571,6 @@ git commit -m "feat: add structured Auto Video planner"
 - Modify: `apps/server/internal/queue/worker_test.go`
 
 **Interfaces:**
-
 - Consumes: Repository Task 2, extractor Task 3, planner Task 4.
 - Produces:
   - `jobregistry.TypeDopostAutoVideoGenerate = "auno_auto_video_generate"`
@@ -680,13 +659,11 @@ git commit -m "feat: add durable Auto Video generation job"
 ## Task 6: Resolve source media into project-ready assets with deterministic fallbacks
 
 **Files:**
-
 - Create: `apps/server/internal/services/autovideo/assets.go`
 - Create: `apps/server/internal/services/autovideo/assets_test.go`
 
 **Interfaces:**
-
-- Consumes: extracted source ledger; dopost MediaAttachment data; `mediastore.BlobStorage` metadata access; storyboard visual intents.
+- Consumes: extracted source ledger; OpenPost MediaAttachment data; `mediastore.BlobStorage` metadata access; storyboard visual intents.
 - Produces:
   - `AssetResolver.Resolve(ctx, ResolveRequest) ([]ResolvedSceneAsset, error)`
   - `ResolvedSceneAsset { SceneID, SourceID, MediaID, Kind, Fallback }`.
@@ -738,21 +715,19 @@ git commit -m "feat: resolve Auto Video scene assets"
 
 ---
 
-## Task 7: Compile a storyboard into a native dopost Video Project document
+## Task 7: Compile a storyboard into a native OpenPost Video Project document
 
 **Files:**
-
 - Create: `apps/server/internal/services/autovideo/compiler.go`
 - Create: `apps/server/internal/services/autovideo/compiler_test.go`
 - Create: `apps/server/internal/services/autovideo/testdata/native_project_review.json`
 - Create: `apps/web/src/lib/dopost-auto-video/compiler-contract.test.ts`
 
 **Interfaces:**
-
 - Consumes: `Storyboard`, `ResolvedSceneAsset`.
 - Produces:
   - `CompileNativeProject(CompileRequest) (json.RawMessage, GenerationGraph, error)`
-  - dopost-compatible document with `schemaFamily: "openpost"`, native `timeline.tracks/items/transitions`.
+  - OpenPost-compatible document with `schemaFamily: "openpost"`, native `timeline.tracks/items/transitions`.
   - `GenerationGraph` ownership records keyed by scene/item.
 
 - [ ] **Step 1: Write Go compiler tests first**
@@ -854,12 +829,12 @@ Do not store a second full timeline in the sidecar.
 
 - [ ] **Step 6: Add a frontend contract test over the Go fixture**
 
-`compiler-contract.test.ts` loads `testdata/native_project_review.json` via a copied fixture under `apps/web/src/lib/dopost-auto-video/testdata/` generated by the test setup or by a checked-in identical fixture and asserts native dopost assumptions used by the editor:
+`compiler-contract.test.ts` loads `testdata/native_project_review.json` via a copied fixture under `apps/web/src/lib/dopost-auto-video/testdata/` generated by the test setup or by a checked-in identical fixture and asserts native OpenPost assumptions used by the editor:
 
 ```ts
-expect(project.schemaFamily).toBe("openpost");
-expect(project.timeline.items.every((item) => typeof item.id === "string")).toBe(true);
-expect(project.timeline.items.some((item) => item.type === "text")).toBe(true);
+expect(project.schemaFamily).toBe('openpost');
+expect(project.timeline.items.every((item) => typeof item.id === 'string')).toBe(true);
+expect(project.timeline.items.some((item) => item.type === 'text')).toBe(true);
 ```
 
 The goal is cross-language shape drift detection, not a second compiler.
@@ -870,7 +845,7 @@ The goal is cross-language shape drift detection, not a second compiler.
 cd apps/server && go test ./internal/services/autovideo -run CompileNativeProject -v && cd ../..
 bun --cwd apps/web x vitest run src/lib/dopost-auto-video/compiler-contract.test.ts
 git add apps/server/internal/services/autovideo apps/web/src/lib/dopost-auto-video
-git commit -m "feat: compile Auto Video into native dopost timeline"
+git commit -m "feat: compile Auto Video into native OpenPost timeline"
 ```
 
 ---
@@ -878,15 +853,13 @@ git commit -m "feat: compile Auto Video into native dopost timeline"
 ## Task 8: Create native projects through `videoprojects.Service`, not direct DB writes
 
 **Files:**
-
 - Modify: `apps/server/internal/services/autovideo/service.go`
 - Create: `apps/server/internal/services/autovideo/native_project.go`
 - Create: `apps/server/internal/services/autovideo/native_project_test.go`
 
 **Interfaces:**
-
 - Consumes: `videoprojects.Service.Create(ctx, actor, videoprojects.CreateInput)` and compiled document from Task 7.
-- Produces: sidecar `video_project_id` linkage and a valid dopost revision-1 project.
+- Produces: sidecar `video_project_id` linkage and a valid OpenPost revision-1 project.
 
 - [ ] **Step 1: Write the integration test**
 
@@ -936,14 +909,12 @@ git commit -m "feat: persist Auto Video as native cloud project"
 ## Task 9: Implement manual-edit-safe scene regeneration
 
 **Files:**
-
 - Create: `apps/server/internal/services/autovideo/ownership.go`
 - Create: `apps/server/internal/services/autovideo/ownership_test.go`
 - Create: `apps/server/internal/services/autovideo/regenerate.go`
 - Create: `apps/server/internal/services/autovideo/regenerate_test.go`
 
 **Interfaces:**
-
 - Consumes: ownership fingerprints from Task 7; current project document/revision from `videoprojects.Service`.
 - Produces:
   - `DetectManualEdits(currentDocument, graph, sceneID) ManualEditResult`
@@ -996,7 +967,7 @@ Regenerate one scene into a temporary native scene fragment, compare current own
 
 Use a fresh mutation ID and `BaseRevision = current.HeadRevision`.
 
-If dopost returns a conflict, surface normalized `project_revision_conflict`; do not force overwrite.
+If OpenPost returns a conflict, surface normalized `project_revision_conflict`; do not force overwrite.
 
 - [ ] **Step 5: Prove undo/history exists**
 
@@ -1016,15 +987,13 @@ git commit -m "feat: preserve manual edits during Auto Video regeneration"
 ## Task 10: Expose Auto Video API endpoints and authorization
 
 **Files:**
-
 - Create: `apps/server/internal/api/handlers/dopost_auto_video.go`
 - Create: `apps/server/internal/api/handlers/dopost_auto_video_test.go`
 - Modify: `apps/server/internal/api/routes.go`
 - Modify: application dependency wiring where `RouteDeps` is constructed.
 
 **Interfaces:**
-
-- Consumes: `autovideo.Service`; dopost auth/workspace authorization; job enqueue registry.
+- Consumes: `autovideo.Service`; OpenPost auth/workspace authorization; job enqueue registry.
 - Produces endpoints:
   - `POST /api/v1/dopost/auto-video`
   - `GET /api/v1/dopost/auto-video/{id}`
@@ -1043,7 +1012,9 @@ Create request body:
   "language": "en-US",
   "aspect_ratio": "9:16",
   "target_duration_seconds": 30,
-  "sources": [{ "id": "source-1", "kind": "text", "label": "Brief", "text": "Review this product" }]
+  "sources": [
+    { "id": "source-1", "kind": "text", "label": "Brief", "text": "Review this product" }
+  ]
 }
 ```
 
@@ -1116,7 +1087,6 @@ git commit -m "feat: expose Auto Video generation API"
 ## Task 11: Build the `/auto-video` wizard and storyboard review
 
 **Files:**
-
 - Create: `apps/web/src/lib/dopost-auto-video/api.ts`
 - Create: `apps/web/src/lib/dopost-auto-video/wizard-state.svelte.ts`
 - Create: `apps/web/src/lib/dopost-auto-video/wizard-state.test.ts`
@@ -1129,26 +1099,25 @@ git commit -m "feat: expose Auto Video generation API"
 - Create: `apps/web/src/routes/auto-video/[id]/+page.svelte`
 
 **Interfaces:**
-
 - Consumes: generated API client types and `@dopost/auto-video` schema.
 - Produces: complete Create → Setup → Storyboard → Generate → Ready flow and editor deep-link.
 
 - [ ] **Step 1: Write wizard state tests first**
 
 ```ts
-it("does not allow generation before at least one source exists", () => {
+it('does not allow generation before at least one source exists', () => {
   const state = createWizardState();
   expect(state.canCreate).toBe(false);
 });
 
-it("defaults to a 9:16 30-second English standard-motion project", () => {
+it('defaults to a 9:16 30-second English standard-motion project', () => {
   const state = createWizardState();
   expect(state.setup).toEqual({
-    format: "review",
-    aspectRatio: "9:16",
+    format: 'review',
+    aspectRatio: '9:16',
     targetDurationSeconds: 30,
-    language: "en-US",
-    motionStyle: "standard",
+    language: 'en-US',
+    motionStyle: 'standard'
   });
 });
 ```
@@ -1164,13 +1133,13 @@ bun --cwd apps/web x vitest run src/lib/dopost-auto-video/wizard-state.test.ts
 Do not call `fetch` ad hoc from every component. `api.ts` owns:
 
 ```ts
-createAutoVideo(input);
-getAutoVideo(id);
-startAutoVideoGeneration(id);
-regenerateAutoVideoScene(id, sceneId, (preserveManual = true));
+createAutoVideo(input)
+getAutoVideo(id)
+startAutoVideoGeneration(id)
+regenerateAutoVideoScene(id, sceneId, preserveManual = true)
 ```
 
-Use the generated dopost API client conventions already present in `apps/web/src/lib/api/client`.
+Use the generated OpenPost API client conventions already present in `apps/web/src/lib/api/client`.
 
 - [ ] **Step 4: Implement source step**
 
@@ -1224,10 +1193,10 @@ Poll with TanStack Query using a bounded interval while status is active. Stop p
 Primary CTA:
 
 ```ts
-`/video-editor/${videoProjectId}`;
+`/video-editor/${videoProjectId}`
 ```
 
-Use the actual route shape confirmed in the imported editor. If cloud projects are opened through a query param or different `[id]` route in that dopost revision, test the existing route helper and centralize the final URL in `project-link.ts`; never scatter the route string.
+Use the actual route shape confirmed in the imported editor. If cloud projects are opened through a query param or different `[id]` route in that OpenPost revision, test the existing route helper and centralize the final URL in `project-link.ts`; never scatter the route string.
 
 - [ ] **Step 9: Run frontend tests/checks**
 
@@ -1248,7 +1217,6 @@ git commit -m "feat: add Auto Video creation wizard"
 ## Task 12: Add Auto Video to dopost Create surfaces
 
 **Files:**
-
 - Modify: `apps/web/src/lib/dopost/create-actions.ts`
 - Modify: `apps/web/src/lib/dopost/create-actions.test.ts`
 - Modify: `apps/web/src/lib/dopost/home-actions.ts`
@@ -1256,7 +1224,6 @@ git commit -m "feat: add Auto Video creation wizard"
 - Modify: desktop/mobile Create menu consumers from Phase 1
 
 **Interfaces:**
-
 - Consumes: working `/auto-video` route from Task 11.
 - Produces: user-visible `AI Auto Video` as first create action everywhere.
 
@@ -1266,12 +1233,12 @@ Expected order:
 
 ```ts
 [
-  { id: "auto-video", label: "AI Auto Video", href: "/auto-video" },
-  { id: "video", label: "Video", href: "/video-editor" },
-  { id: "photo", label: "Photo / Carousel", href: "/image-editor" },
-  { id: "record", label: "Record", href: "/record" },
-  { id: "post", label: "Social Post", href: "/" },
-];
+  { id: 'auto-video', label: 'AI Auto Video', href: '/auto-video' },
+  { id: 'video', label: 'Video', href: '/video-editor' },
+  { id: 'photo', label: 'Photo / Carousel', href: '/image-editor' },
+  { id: 'record', label: 'Record', href: '/record' },
+  { id: 'post', label: 'Social Post', href: '/' }
+]
 ```
 
 - [ ] **Step 2: Run and confirm red**
@@ -1298,7 +1265,6 @@ git commit -m "feat: expose AI Auto Video from Create"
 ## Task 13: Add the Video Editor Auto Video side panel seam
 
 **Files:**
-
 - Create: `apps/web/src/lib/video-editor/dopost/auto-video-panel-data.ts`
 - Create: `apps/web/src/lib/video-editor/dopost/auto-video-panel-data.test.ts`
 - Create: `apps/web/src/lib/video-editor/dopost/auto-video-panel.svelte`
@@ -1306,7 +1272,6 @@ git commit -m "feat: expose AI Auto Video from Create"
 - Modify: `apps/web/src/routes/video-editor/[id]/+page.svelte` only if project-sidecar lookup must be passed from the route
 
 **Interfaces:**
-
 - Consumes: native project ID; `getAutoVideoByVideoProjectId(videoProjectId)` API endpoint added here if not already exposed.
 - Produces: conditional `AI` panel for projects with an Auto Video sidecar; scene regeneration commands.
 
@@ -1323,7 +1288,7 @@ It returns 404 when the project has no sidecar. Add permission tests matching th
 - [ ] **Step 2: Write panel-data tests**
 
 ```ts
-it("marks a generated scene as having manual edits when the API reports preserved items", () => {
+it('marks a generated scene as having manual edits when the API reports preserved items', () => {
   expect(toScenePanelModel(apiScene).manualEditCount).toBe(1);
 });
 ```
@@ -1378,13 +1343,11 @@ git commit -m "feat: add Auto Video controls to Video Editor"
 ## Task 14: Add Phase 2 end-to-end and restart-recovery tests
 
 **Files:**
-
 - Create: `tests/dopost/auto-video.spec.ts`
 - Create: `apps/server/internal/services/autovideo/recovery_integration_test.go`
 - Modify: `.github/workflows/ci.yml`
 
 **Interfaces:**
-
 - Consumes: all Phase 2 services/routes/UI.
 - Produces: release gate proving native editable project generation and restart-safe jobs.
 
@@ -1460,11 +1423,9 @@ git commit -m "test: gate native Auto Video generation"
 ## Task 15: Phase 2 verification and review gate
 
 **Files:**
-
 - Create: `docs/releases/2.0.0-alpha.2-phase2-verification.md`
 
 **Interfaces:**
-
 - Consumes: completed Phase 2 branch.
 - Produces: reviewable evidence required before Phase 3.
 
@@ -1512,7 +1473,7 @@ Invoke `superpowers:requesting-code-review`. Address blocking findings and re-ru
 - Review/News/Guide/Compare/Top N produce schema-valid storyboards.
 - Planning runs asynchronously through durable DB jobs and resumes from persisted step state.
 - No external queue is required.
-- Native dopost project is created through `videoprojects.Service` with revision history.
+- Native OpenPost project is created through `videoprojects.Service` with revision history.
 - Every Phase 2 generated scene remains editable as native timeline items; no scene is pre-rendered to MP4.
 - Sidecar contains source provenance, storyboard/generation metadata, and ownership fingerprints but not a duplicate authoritative timeline.
 - Manual edits are detected and preserved by default during scene regeneration.

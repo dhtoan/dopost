@@ -2,11 +2,11 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Adapt Bang Motion's motion-design rules and selected code into dopost as an editable, deterministic Motion Engine that plans coherent motion styles, compiles ordinary motion into native dopost timeline structures, represents complex scenes as editable dopost compositions, and adds visual QA without introducing a separate HTML/MP4 editor pipeline.
+**Goal:** Adapt Bang Motion's motion-design rules and selected code into dopost as an editable, deterministic Motion Engine that plans coherent motion styles, compiles ordinary motion into native OpenPost timeline structures, represents complex scenes as editable OpenPost compositions, and adds visual QA without introducing a separate HTML/MP4 editor pipeline.
 
-**Architecture:** Vendor a pinned Bang Motion source snapshot for provenance and port reusable algorithms/rules into a dopost-owned pure TypeScript package. Use dopost's existing `TimelineItem`/keyframe/motion/background model for ordinary effects and its existing `composition` item + `SubComposition` + `CompositionControlSchema` infrastructure for Motion Compositions. Mirror only the minimal scene-graph/compilation contract in Go so headless Auto Video can create the same native project shape. No generated scene is converted to an opaque HTML page or MP4 before the user edits it.
+**Architecture:** Vendor a pinned Bang Motion source snapshot for provenance and port reusable algorithms/rules into an dopost-owned pure TypeScript package. Use OpenPost's existing `TimelineItem`/keyframe/motion/background model for ordinary effects and its existing `composition` item + `SubComposition` + `CompositionControlSchema` infrastructure for Motion Compositions. Mirror only the minimal scene-graph/compilation contract in Go so headless Auto Video can create the same native project shape. No generated scene is converted to an opaque HTML page or MP4 before the user edits it.
 
-**Tech Stack:** TypeScript, Zod, Svelte 5, dopost Video Editor timeline/composition types, dopost composite-2d composition controls, Go 1.26.6 for headless compiler support, Playwright screenshot testing, Vitest, Go test, Bang Motion source snapshot pinned to commit `0f1bd1103835890354496d009af62885fe0a05d5` (MIT).
+**Tech Stack:** TypeScript, Zod, Svelte 5, OpenPost Video Editor timeline/composition types, OpenPost composite-2d composition controls, Go 1.26.6 for headless compiler support, Playwright screenshot testing, Vitest, Go test, Bang Motion source snapshot pinned to commit `0f1bd1103835890354496d009af62885fe0a05d5` (MIT).
 
 **Spec:** `docs/superpowers/specs/2026-09-15-dopost-web-2-design.md`
 
@@ -15,20 +15,20 @@
 - Phases 1–3 must be merged and green before this plan starts.
 - Bang Motion is integrated as dopost Motion Engine, not exposed as a standalone HTML generator.
 - Do not use Bang Motion's `index.html` deliverable as the dopost project format.
-- Do not pre-render generated scenes to MP4 merely to make them editable in dopost.
-- Ordinary text/image/shape/video/audio/keyframe motion compiles into native dopost items.
-- Complex grouped/procedural motion uses dopost's existing `composition` item and `SubComposition` model before inventing a new timeline item kind.
-- Motion Compositions must expose editable controls through dopost's composition-control system.
+- Do not pre-render generated scenes to MP4 merely to make them editable in OpenPost.
+- Ordinary text/image/shape/video/audio/keyframe motion compiles into native OpenPost items.
+- Complex grouped/procedural motion uses OpenPost's existing `composition` item and `SubComposition` model before inventing a new timeline item kind.
+- Motion Compositions must expose editable controls through OpenPost's composition-control system.
 - Same project state + seed + time must produce the same visual frame in preview and export.
 - Motion styles are not legacy dopost presets; Preset V2 remains out of scope.
 - V1 Motion Styles: Editorial Fashion, Luxury Product, Visual Journalism, White Catalog, Continuous Action, Cartoon Collage, Vintage Sketch, Breaking News, Minimal Data.
 - Bang Motion MIT notice and pinned upstream commit must remain in the repository.
 - Bang Motion starter/reference code is provenance/reference material; runtime production code lives under `@dopost/motion` and dopost/OpenPost editor modules.
-- Avoid a new Three.js runtime in V1 when dopost's native backgrounds, keyframes, motion modifiers, text motion, effects, and compositions can express the result. A future custom WebGL runtime requires a separate design review.
+- Avoid a new Three.js runtime in V1 when OpenPost's native backgrounds, keyframes, motion modifiers, text motion, effects, and compositions can express the result. A future custom WebGL runtime requires a separate design review.
 - Structural anti-slide checks are deterministic rules; subjective visual quality is handled by screenshot review/vision QA rather than hidden magic thresholds.
 - All behavior changes follow red → green → refactor with small commits.
 
-## Existing dopost Seams to Use
+## Existing OpenPost Seams to Use
 
 The imported editor already supports:
 
@@ -57,7 +57,7 @@ Timeline composition item:
   compositionControlOverrides
 ```
 
-Relevant dopost files:
+Relevant OpenPost files:
 
 ```text
 apps/web/src/lib/video-editor/project/types.ts
@@ -73,7 +73,6 @@ Use these before extending core types.
 ## Task 1: Vendor the exact Bang Motion snapshot and preserve its MIT notice
 
 **Files:**
-
 - Create: `third_party/bang-motion/` snapshot
 - Create: `third_party/bang-motion/UPSTREAM.md`
 - Create: `licenses/bang-motion/LICENSE`
@@ -82,29 +81,21 @@ Use these before extending core types.
 - Create: `scripts/check-bang-motion-vendor.mjs`
 
 **Interfaces:**
-
 - Consumes: upstream repository `bangtutorial/bang-motion` commit `0f1bd1103835890354496d009af62885fe0a05d5`.
 - Produces: immutable reference snapshot and license/provenance metadata; no runtime imports from `third_party/`.
 
 - [ ] **Step 1: Write vendor-integrity check before copying source**
 
 ```js
-import fs from "node:fs";
-import path from "node:path";
+import fs from 'node:fs';
+import path from 'node:path';
 
-const root = "third_party/bang-motion";
-for (const file of [
-  "SKILL.md",
-  "README.md",
-  "LICENSE",
-  "references/architecture.md",
-  "references/techniques.md",
-]) {
+const root = 'third_party/bang-motion';
+for (const file of ['SKILL.md', 'README.md', 'LICENSE', 'references/architecture.md', 'references/techniques.md']) {
   if (!fs.existsSync(path.join(root, file))) throw new Error(`missing ${file}`);
 }
-const upstream = fs.readFileSync(path.join(root, "UPSTREAM.md"), "utf8");
-if (!upstream.includes("0f1bd1103835890354496d009af62885fe0a05d5"))
-  throw new Error("Bang Motion SHA is not pinned");
+const upstream = fs.readFileSync(path.join(root, 'UPSTREAM.md'), 'utf8');
+if (!upstream.includes('0f1bd1103835890354496d009af62885fe0a05d5')) throw new Error('Bang Motion SHA is not pinned');
 ```
 
 - [ ] **Step 2: Run and confirm red**
@@ -158,7 +149,6 @@ git commit -m "chore: vendor pinned Bang Motion reference source"
 ## Task 2: Define the pure Motion Style and Scene Graph contract
 
 **Files:**
-
 - Create: `packages/dopost-motion/package.json`
 - Create: `packages/dopost-motion/tsconfig.json`
 - Create: `packages/dopost-motion/src/schema.ts`
@@ -166,7 +156,6 @@ git commit -m "chore: vendor pinned Bang Motion reference source"
 - Modify: `apps/web/package.json`
 
 **Interfaces:**
-
 - Consumes: Zod; Auto Video scene IDs/source IDs.
 - Produces:
   - `MOTION_SCHEMA_VERSION = 1`
@@ -181,23 +170,21 @@ git commit -m "chore: vendor pinned Bang Motion reference source"
 - [ ] **Step 1: Write schema tests first**
 
 ```ts
-it("accepts an editable deterministic motion graph", () => {
-  expect(
-    motionSceneGraphSchema.parse({
-      schemaVersion: 1,
-      style: "editorial-fashion",
-      seed: 42,
-      brief: {
-        palette: ["#F2E7D5", "#111827"],
-        typography: "editorial-serif-clean-sans",
-        cameraLanguage: "slow-push-lateral-glide",
-        motionSignature: "fabric-flow",
-        backgroundLanguage: "layered-soft-gradient",
-        transitionLanguage: ["depth-push", "match-movement"],
-      },
-      scenes: [],
-    }).seed,
-  ).toBe(42);
+it('accepts an editable deterministic motion graph', () => {
+  expect(motionSceneGraphSchema.parse({
+    schemaVersion: 1,
+    style: 'editorial-fashion',
+    seed: 42,
+    brief: {
+      palette: ['#F2E7D5', '#111827'],
+      typography: 'editorial-serif-clean-sans',
+      cameraLanguage: 'slow-push-lateral-glide',
+      motionSignature: 'fabric-flow',
+      backgroundLanguage: 'layered-soft-gradient',
+      transitionLanguage: ['depth-push', 'match-movement']
+    },
+    scenes: []
+  }).seed).toBe(42);
 });
 ```
 
@@ -223,15 +210,15 @@ Core structures:
 
 ```ts
 export type MotionStyleId =
-  | "editorial-fashion"
-  | "luxury-product"
-  | "visual-journalism"
-  | "white-catalog"
-  | "continuous-action"
-  | "cartoon-collage"
-  | "vintage-sketch"
-  | "breaking-news"
-  | "minimal-data";
+  | 'editorial-fashion'
+  | 'luxury-product'
+  | 'visual-journalism'
+  | 'white-catalog'
+  | 'continuous-action'
+  | 'cartoon-collage'
+  | 'vintage-sketch'
+  | 'breaking-news'
+  | 'minimal-data';
 
 export type MotionScene = {
   id: string;
@@ -270,14 +257,12 @@ git commit -m "feat: define dopost Motion scene graph contract"
 ## Task 3: Port deterministic time/seed primitives from Bang Motion principles
 
 **Files:**
-
 - Create: `packages/dopost-motion/src/determinism.ts`
 - Create: `packages/dopost-motion/src/determinism.test.ts`
 - Create: `packages/dopost-motion/src/easing.ts`
 - Create: `packages/dopost-motion/src/easing.test.ts`
 
 **Interfaces:**
-
 - Consumes: numeric seed and absolute project time.
 - Produces:
   - `seededUnit(seed, channel): number`
@@ -288,14 +273,14 @@ git commit -m "feat: define dopost Motion scene graph contract"
 - [ ] **Step 1: Write determinism tests**
 
 ```ts
-it("returns the same value for the same seed/channel/time", () => {
-  expect(oscillateAtTime(42, "dust-1", 1.5, 2)).toBe(oscillateAtTime(42, "dust-1", 1.5, 2));
+it('returns the same value for the same seed/channel/time', () => {
+  expect(oscillateAtTime(42, 'dust-1', 1.5, 2)).toBe(oscillateAtTime(42, 'dust-1', 1.5, 2));
 });
 
-it("does not depend on call order", () => {
-  const a = oscillateAtTime(42, "particle", 2, 4);
-  oscillateAtTime(999, "other", 100, 9);
-  expect(oscillateAtTime(42, "particle", 2, 4)).toBe(a);
+it('does not depend on call order', () => {
+  const a = oscillateAtTime(42, 'particle', 2, 4);
+  oscillateAtTime(999, 'other', 100, 9);
+  expect(oscillateAtTime(42, 'particle', 2, 4)).toBe(a);
 });
 ```
 
@@ -334,13 +319,11 @@ git commit -m "feat: add deterministic motion primitives"
 ## Task 4: Implement the nine Motion Style catalog entries
 
 **Files:**
-
 - Create: `packages/dopost-motion/src/styles.ts`
 - Create: `packages/dopost-motion/src/styles.test.ts`
 - Create: `packages/dopost-motion/src/catalog/*.ts` only when a style definition exceeds one focused file
 
 **Interfaces:**
-
 - Consumes: `MotionStyleId`, `StyleBrief`.
 - Produces:
   - `MOTION_STYLES`
@@ -351,15 +334,15 @@ git commit -m "feat: add deterministic motion primitives"
 
 ```ts
 expect(Object.keys(MOTION_STYLES).sort()).toEqual([
-  "breaking-news",
-  "cartoon-collage",
-  "continuous-action",
-  "editorial-fashion",
-  "luxury-product",
-  "minimal-data",
-  "visual-journalism",
-  "vintage-sketch",
-  "white-catalog",
+  'breaking-news',
+  'cartoon-collage',
+  'continuous-action',
+  'editorial-fashion',
+  'luxury-product',
+  'minimal-data',
+  'visual-journalism',
+  'vintage-sketch',
+  'white-catalog'
 ]);
 ```
 
@@ -409,14 +392,12 @@ git commit -m "feat: add dopost Motion Style catalog"
 ## Task 5: Build style-brief generation and project-level coherence rules
 
 **Files:**
-
 - Create: `packages/dopost-motion/src/style-brief.ts`
 - Create: `packages/dopost-motion/src/style-brief.test.ts`
 - Create: `apps/server/internal/services/autovideo/motion_plan.go`
 - Create: `apps/server/internal/services/autovideo/motion_plan_test.go`
 
 **Interfaces:**
-
 - Consumes: Auto Video storyboard/project context; Motion Style catalog; `ai.Generator` for optional structured style-brief generation.
 - Produces:
   - `createStyleBrief(input): StyleBrief`
@@ -466,12 +447,10 @@ git commit -m "feat: add coherent Auto Video style briefs"
 ## Task 6: Implement anti-slide structural validation
 
 **Files:**
-
 - Create: `packages/dopost-motion/src/validate.ts`
 - Create: `packages/dopost-motion/src/validate.test.ts`
 
 **Interfaces:**
-
 - Consumes: `MotionSceneGraph`.
 - Produces: `validateMotionGraph(graph): MotionValidationIssue[]` with stable issue codes.
 
@@ -523,17 +502,15 @@ git commit -m "feat: enforce anti-slide motion structure"
 
 ---
 
-## Task 7: Compile simple motion to native dopost keyframes/modifiers
+## Task 7: Compile simple motion to native OpenPost keyframes/modifiers
 
 **Files:**
-
 - Create: `apps/web/src/lib/dopost-motion/native-compiler.ts`
 - Create: `apps/web/src/lib/dopost-motion/native-compiler.test.ts`
 - Modify: Phase 2 frontend compiler contract helpers only if shared utility extraction is needed
 
 **Interfaces:**
-
-- Consumes: `MotionScene`, dopost `TimelineItem`/keyframe types.
+- Consumes: `MotionScene`, OpenPost `TimelineItem`/keyframe types.
 - Produces: `compileNativeMotion(scene, context): NativeMotionResult` containing native item/keyframe patches.
 
 - [ ] **Step 1: Write exact mapping tests**
@@ -545,7 +522,7 @@ camera push → transform/vector keyframes on grouped composition or relevant it
 text entrance → textMotion/keyframes, not rasterized text
 image parallax → transform keyframes
 opacity/scale/highlight → native scalar/vector keyframes and shape/text items
-transition → native transition where dopost supports family; otherwise paired keyframes
+transition → native transition where OpenPost supports family; otherwise paired keyframes
 ```
 
 - [ ] **Step 2: Confirm red**
@@ -554,7 +531,7 @@ transition → native transition where dopost supports family; otherwise paired 
 bun --cwd apps/web x vitest run src/lib/dopost-motion/native-compiler.test.ts
 ```
 
-- [ ] **Step 3: Implement mapping using dopost types**
+- [ ] **Step 3: Implement mapping using OpenPost types**
 
 Import types from `apps/web/src/lib/video-editor/project/types.ts`; do not redefine copies in the web package.
 
@@ -575,10 +552,9 @@ git commit -m "feat: compile dopost motion to native editor keyframes"
 
 ---
 
-## Task 8: Represent complex scenes as editable dopost Motion Compositions
+## Task 8: Represent complex scenes as editable OpenPost Motion Compositions
 
 **Files:**
-
 - Create: `apps/web/src/lib/dopost-motion/composition-compiler.ts`
 - Create: `apps/web/src/lib/dopost-motion/composition-compiler.test.ts`
 - Create: `apps/web/src/lib/dopost-motion/composition-controls.ts`
@@ -587,8 +563,7 @@ git commit -m "feat: compile dopost motion to native editor keyframes"
 - Reuse: `apps/web/src/lib/video-editor/project/types.ts`
 
 **Interfaces:**
-
-- Consumes: `MotionScene`, dopost `SubComposition`, `CompositionControlSchema`, composition timeline item.
+- Consumes: `MotionScene`, OpenPost `SubComposition`, `CompositionControlSchema`, composition timeline item.
 - Produces:
   - `compileMotionComposition(scene, context): { composition, timelineItem }`
   - controls: `intensity`, `depth`, `speed`, `primaryColor`, `secondaryColor`, `backgroundVariant` plus style-specific text/media source controls where supported.
@@ -596,13 +571,14 @@ git commit -m "feat: compile dopost motion to native editor keyframes"
 - [ ] **Step 1: Write composition-shape tests first**
 
 ```ts
-expect(result.timelineItem.type).toBe("composition");
+expect(result.timelineItem.type).toBe('composition');
 expect(result.timelineItem.compositionId).toBe(result.composition.id);
-expect(result.composition.editorKind).toBe("composite-2d");
-expect(result.composition.compositionControls?.controls.map((c) => c.id)).toContain("intensity");
+expect(result.composition.editorKind).toBe('composite-2d');
+expect(result.composition.compositionControls?.controls.map((c) => c.id))
+  .toContain('intensity');
 ```
 
-Also assert composition's nested text/image/shape/background items remain ordinary dopost items.
+Also assert composition's nested text/image/shape/background items remain ordinary OpenPost items.
 
 - [ ] **Step 2: Confirm red**
 
@@ -635,7 +611,7 @@ colors as validated hex
 backgroundVariant from a style-owned option list
 ```
 
-Apply overrides through dopost's existing `applyCompositionControlOverrides` path. Do not invent a dopost-only override mechanism.
+Apply overrides through OpenPost's existing `applyCompositionControlOverrides` path. Do not invent an dopost-only override mechanism.
 
 - [ ] **Step 5: Verify existing composition-control tests remain green**
 
@@ -656,7 +632,6 @@ git commit -m "feat: compile complex motion as editable compositions"
 ## Task 9: Add a headless Go motion compiler compatible with the web compiler
 
 **Files:**
-
 - Create: `apps/server/internal/dopostmotion/types.go`
 - Create: `apps/server/internal/dopostmotion/compiler.go`
 - Create: `apps/server/internal/dopostmotion/compiler_test.go`
@@ -665,8 +640,7 @@ git commit -m "feat: compile complex motion as editable compositions"
 - Modify: `apps/server/internal/services/autovideo/compiler.go`
 
 **Interfaces:**
-
-- Consumes: JSON Motion Scene Graph and native dopost project JSON format.
+- Consumes: JSON Motion Scene Graph and native OpenPost project JSON format.
 - Produces: same logical item/composition shape as web compiler for server/headless generation.
 
 - [ ] **Step 1: Write the Go fixture test**
@@ -699,11 +673,11 @@ Do not require byte-for-byte JSON if Go/TypeScript serialization orders object k
 
 - [ ] **Step 3: Implement minimal Go mirror**
 
-Mirror only fields required to author project JSON. Do not duplicate the entire dopost TypeScript model in Go.
+Mirror only fields required to author project JSON. Do not duplicate the entire OpenPost TypeScript model in Go.
 
 - [ ] **Step 4: Plug it into Auto Video compile step**
 
-If `motionStyle != standard`, Auto Video uses the motion compiler. Standard/plain projects continue through the Phase 2 compiler. Both end as the same dopost project schema.
+If `motionStyle != standard`, Auto Video uses the motion compiler. Standard/plain projects continue through the Phase 2 compiler. Both end as the same OpenPost project schema.
 
 - [ ] **Step 5: Verify and commit**
 
@@ -719,7 +693,6 @@ git commit -m "feat: add headless dopost Motion compiler"
 ## Task 10: Add Motion Style selection and style brief to Auto Video UI
 
 **Files:**
-
 - Create: `apps/web/src/lib/components/dopost-motion/motion-style-card.svelte`
 - Create: `apps/web/src/lib/components/dopost-motion/motion-style-picker.svelte`
 - Create: `apps/web/src/lib/components/dopost-motion/style-brief-editor.svelte`
@@ -728,7 +701,6 @@ git commit -m "feat: add headless dopost Motion compiler"
 - Modify: related tests
 
 **Interfaces:**
-
 - Consumes: `MOTION_STYLES`, style-brief API/sidecar fields.
 - Produces: real Motion Style selector replacing Phase 2's disabled `standard` control.
 
@@ -739,8 +711,8 @@ Default style becomes `editorial-fashion` only when Auto Video context is explic
 Add a deterministic recommendation function and test it:
 
 ```ts
-expect(recommendMotionStyle({ format: "news" })).toBe("visual-journalism");
-expect(recommendMotionStyle({ format: "compare" })).toBe("white-catalog");
+expect(recommendMotionStyle({ format: 'news' })).toBe('visual-journalism');
+expect(recommendMotionStyle({ format: 'compare' })).toBe('white-catalog');
 ```
 
 - [ ] **Step 2: Implement cards with lightweight previews**
@@ -775,14 +747,12 @@ git commit -m "feat: add Motion Style selection to Auto Video"
 ## Task 11: Add Motion controls to the existing dopost Video Editor panel
 
 **Files:**
-
 - Create: `apps/web/src/lib/video-editor/dopost/motion-controls.svelte`
 - Create: `apps/web/src/lib/video-editor/dopost/motion-controls-data.ts`
 - Create: `apps/web/src/lib/video-editor/dopost/motion-controls-data.test.ts`
 - Modify: `apps/web/src/lib/video-editor/dopost/auto-video-panel.svelte`
 
 **Interfaces:**
-
 - Consumes: selected composition item, `CompositionControlSchema`, current override values, dopost sidecar style metadata.
 - Produces: user controls for Motion Composition without exposing code.
 
@@ -790,11 +760,11 @@ git commit -m "feat: add Motion Style selection to Auto Video"
 
 ```ts
 expect(toMotionControlModel(composition, item)).toMatchObject({
-  style: "editorial-fashion",
+  style: 'editorial-fashion',
   controls: expect.arrayContaining([
-    expect.objectContaining({ id: "intensity" }),
-    expect.objectContaining({ id: "speed" }),
-  ]),
+    expect.objectContaining({ id: 'intensity' }),
+    expect.objectContaining({ id: 'speed' })
+  ])
 });
 ```
 
@@ -804,7 +774,7 @@ expect(toMotionControlModel(composition, item)).toMatchObject({
 bun --cwd apps/web x vitest run src/lib/video-editor/dopost/motion-controls-data.test.ts
 ```
 
-- [ ] **Step 3: Implement UI through dopost composition override actions**
+- [ ] **Step 3: Implement UI through OpenPost composition override actions**
 
 Visible controls:
 
@@ -839,13 +809,11 @@ git commit -m "feat: expose editable Motion Composition controls"
 ## Task 12: Add Editorial Fashion motion behavior
 
 **Files:**
-
 - Create: `packages/dopost-motion/src/catalog/editorial-fashion.ts`
 - Create: `packages/dopost-motion/src/catalog/editorial-fashion.test.ts`
 - Create: `apps/server/internal/dopostmotion/editorial_fashion_test.go`
 
 **Interfaces:**
-
 - Consumes: generic `editorial-fashion` style; project brand palette/media/product subject descriptors.
 - Produces: fashion-specific scene planning constraints usable by fashion content without hard-coding product URLs into the engine.
 
@@ -891,13 +859,11 @@ git commit -m "feat: add Editorial Fashion motion style"
 ## Task 13: Add deterministic preview/export frame probes
 
 **Files:**
-
 - Create: `apps/web/src/lib/dopost-motion/frame-probe.ts`
 - Create: `apps/web/src/lib/dopost-motion/frame-probe.test.ts`
 - Create: `tests/dopost/motion-determinism.spec.ts`
 
 **Interfaces:**
-
 - Consumes: editor/project seek API and export renderer seek path.
 - Produces: deterministic fixed-time frame probe API and screenshot regression test.
 
@@ -931,7 +897,7 @@ Load a fixed generated project, seek to each frame, screenshot preview, reload p
 
 - [ ] **Step 4: Compare preview and export render path**
 
-Use the existing dopost renderer's frame seek API/test helper. For each probe frame, compare the preview canvas/frame result to the renderer frame result. If exact pixel equality is impossible because codecs differ, compare the pre-encode canvas/image bitmap with a strict image-diff threshold before video encoding.
+Use the existing OpenPost renderer's frame seek API/test helper. For each probe frame, compare the preview canvas/frame result to the renderer frame result. If exact pixel equality is impossible because codecs differ, compare the pre-encode canvas/image bitmap with a strict image-diff threshold before video encoding.
 
 - [ ] **Step 5: Verify and commit**
 
@@ -947,14 +913,12 @@ git commit -m "test: prove deterministic motion frames"
 ## Task 14: Add automated visual QA for obvious motion failures
 
 **Files:**
-
 - Create: `apps/web/src/lib/dopost-motion/visual-qa.ts`
 - Create: `apps/web/src/lib/dopost-motion/visual-qa.test.ts`
 - Create: `tests/dopost/motion-visual-qa.spec.ts`
 - Modify: Auto Video generation diagnostics UI to show structural warnings
 
 **Interfaces:**
-
 - Consumes: planned graph, DOM/canvas layout measurements at fixed frames, screenshot probes.
 - Produces: deterministic issue codes plus visual snapshot artifacts.
 
@@ -1010,13 +974,11 @@ git commit -m "test: add dopost Motion visual QA"
 ## Task 15: Add motion-aware regeneration ownership and dependency isolation
 
 **Files:**
-
 - Modify: `apps/server/internal/services/autovideo/ownership.go`
 - Modify: `apps/server/internal/services/autovideo/regenerate.go`
 - Create: `apps/server/internal/services/autovideo/motion_regenerate_test.go`
 
 **Interfaces:**
-
 - Consumes: Phase 2 ownership graph; motion composition IDs/control fingerprints; Phase 3 audio/caption assets.
 - Produces: `RegenerateMotion` operation that changes motion structures only.
 
@@ -1083,14 +1045,12 @@ git commit -m "feat: isolate motion regeneration from media dependencies"
 ## Task 16: Full Motion Style end-to-end gate
 
 **Files:**
-
 - Create: `tests/dopost/auto-video-motion.spec.ts`
 - Modify: `.github/workflows/ci.yml`
 
 **Interfaces:**
-
 - Consumes: all Phase 4 components.
-- Produces: browser/release proof that Bang Motion-derived behavior lands as native editable dopost project structures.
+- Produces: browser/release proof that Bang Motion-derived behavior lands as native editable OpenPost project structures.
 
 - [ ] **Step 1: Write Editorial Fashion E2E**
 
@@ -1149,12 +1109,10 @@ git commit -m "test: gate dopost Motion Engine end to end"
 ## Task 17: Phase 4/final V1 verification and release-candidate gate
 
 **Files:**
-
 - Create: `docs/releases/2.0.0-rc.1-phase4-verification.md`
 - Modify: `docs/compliance/third-party-inventory.md`
 
 **Interfaces:**
-
 - Consumes: all four phases and all release gates.
 - Produces: evidence for `2.0.0-rc.1`; no stable tag yet.
 
@@ -1209,7 +1167,7 @@ container restart → project/job recovery
 
 - [ ] **Step 5: Verify Bang Motion attribution and source availability**
 
-Ensure pinned snapshot/commit, MIT license, NOTICE entry, and dopost AGPL corresponding-source release process are included in candidate artifacts/documentation.
+Ensure pinned snapshot/commit, MIT license, NOTICE entry, and OpenPost AGPL corresponding-source release process are included in candidate artifacts/documentation.
 
 - [ ] **Step 6: Record evidence and commit**
 
@@ -1227,8 +1185,8 @@ Invoke `superpowers:requesting-code-review`. Do not tag `2.0.0` until all blocki
 - Motion randomness/time is deterministic and forbidden runtime clock/random calls are test-guarded.
 - All nine Motion Styles exist and use coherent project-level style briefs.
 - Anti-slide validator enforces concrete structural rules.
-- Simple motion compiles to native dopost keyframes/modifiers/items.
-- Complex motion compiles to dopost native `composition` items with editable `SubComposition` controls.
+- Simple motion compiles to native OpenPost keyframes/modifiers/items.
+- Complex motion compiles to OpenPost native `composition` items with editable `SubComposition` controls.
 - No new timeline item kind is introduced merely to support dopost Motion.
 - Headless Go compiler and browser compiler agree on the authored native shape.
 - Auto Video UI exposes Motion Styles and advanced style-brief customization.

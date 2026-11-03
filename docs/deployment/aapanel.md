@@ -1,6 +1,6 @@
 # Deploy dopost on aaPanel
 
-dopost Web 2.0 keeps the dopost single-binary self-host model and exposes the app only on loopback. aaPanel/Nginx owns the public domain and TLS certificate.
+dopost Web 2.0 keeps the single-binary self-host model and exposes the app only on loopback. aaPanel/Nginx owns the public domain and TLS certificate.
 
 ## Default deployment
 
@@ -42,7 +42,7 @@ The app binds to `127.0.0.1:8080` by default. Change `DOPOST_HOST_PORT` if that 
 5. Do not expose PostgreSQL, optional AI workers, or storage administration ports publicly.
 6. Set `OPENPOST_APP_URL` and `OPENPOST_PUBLIC_URL` to the exact HTTPS public origin before connecting OAuth providers or passkeys.
 
-The `OPENPOST_*` configuration prefix is intentionally retained for backend compatibility with the imported dopost foundation. Product-facing branding is dopost.
+The `OPENPOST_*` configuration prefix is intentionally retained for backend compatibility with the upstream foundation. Product-facing branding is dopost.
 
 ## Optional PostgreSQL
 

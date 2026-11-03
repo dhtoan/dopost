@@ -10,7 +10,7 @@
       "url": "https://openpo.st/privacy",
       "changes": [
         "Specified the YouTube channel, video, playlist, publication, analytics, comment, and authorization information accessed and stored, with each category's purpose and recipients.",
-        "Explained how to request deletion of stored YouTube data, revoke access in dopost or Google security settings, and distinguish service deletion from deleting content on YouTube.",
+        "Explained how to request deletion of stored YouTube data, revoke access in OpenPost or Google security settings, and distinguish service deletion from deleting content on YouTube.",
         "Linked YouTube export retention conditions and stated the seven-day direct-revocation or deletion-request deadline and the 30-day Google-revocation deadline. Described provider-cache expiry, profile refresh and the bounded NAS recovery-copy window."
       ]
     },
@@ -21,7 +21,7 @@
       "url": "https://openpo.st/terms",
       "changes": [
         "Required recipients of exported YouTube API data, including CSV reports, to delete or refresh it within 30 calendar days of its last fetch or refresh from YouTube; downloading or copying does not restart that period.",
-        "Applied authorization, revocation, user-deletion, current-data display, and downstream-recipient obligations to exported copies outside dopost."
+        "Applied authorization, revocation, user-deletion, current-data display, and downstream-recipient obligations to exported copies outside OpenPost."
       ]
     },
     {
@@ -41,7 +41,7 @@
       "effective_date": "2026-09-01",
       "url": "https://openpo.st/privacy",
       "changes": [
-        "Disclosed that whole-account analytics stores bounded titles and text for eligible provider content published outside dopost so users can inspect evidence and prepare a reviewed repurpose draft.",
+        "Disclosed that whole-account analytics stores bounded titles and text for eligible provider content published outside OpenPost so users can inspect evidence and prepare a reviewed repurpose draft.",
         "Clarified that analytics inventory excludes raw provider responses, remote media bytes, credentials, bot secrets, and webhook secrets, while telemetry continues to exclude post text.",
         "Added a separate, withdrawable browser analytics choice with persistent first-party, limited cookieless, and fully off modes.",
         "Documented cross-subdomain first-party identity after permission, country derivation before raw IP discard, browser privacy signals, and the separate backend service-telemetry boundary."

@@ -1,6 +1,6 @@
 # The caller supplies the validated, canonical frontend directory as a named
 # BuildKit context. The frontend is built outside this image and embedded into
-# the Go binary at the existing dopost boundary.
+# the Go binary at the existing upstream boundary.
 FROM frontend_artifact AS frontend-builder
 
 # Build stage for backend

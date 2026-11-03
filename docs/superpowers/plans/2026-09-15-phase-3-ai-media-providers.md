@@ -2,19 +2,19 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Extend dopost's provider-neutral AI system with official Gemini authentication/generation, explicit routing modes, editable voice/caption/music generation, model/runtime management, and graceful local/cloud fallbacks while reusing dopost's existing local AI engines instead of rebuilding them.
+**Goal:** Extend dopost's provider-neutral AI system with official Gemini authentication/generation, explicit routing modes, editable voice/caption/music generation, model/runtime management, and graceful local/cloud fallbacks while reusing OpenPost's existing local AI engines instead of rebuilding them.
 
-**Architecture:** Keep dopost `ai.Generator` as the text/vision generation contract and add dopost capability routing around it. Browser-local engines remain frontend services registered through dopost's local-AI runtime registry; server/headless capability adapters use explicit HTTP/service interfaces and durable Auto Video job checkpoints. Credentials remain server-side and encrypted. Auto Video Phase 2 is extended with `generate_voice`, `align_subtitles`, and `generate_music` stages without changing storyboard schema version 1.
+**Architecture:** Keep OpenPost `ai.Generator` as the text/vision generation contract and add dopost capability routing around it. Browser-local engines remain frontend services registered through OpenPost's local-AI runtime registry; server/headless capability adapters use explicit HTTP/service interfaces and durable Auto Video job checkpoints. Credentials remain server-side and encrypted. Auto Video Phase 2 is extended with `generate_voice`, `align_subtitles`, and `generate_music` stages without changing storyboard schema version 1.
 
-**Tech Stack:** Go 1.26.6, dopost `ai.Generator`, Go `net/http`, `golang.org/x/oauth2`, encrypted token service, Svelte 5/SvelteKit, Kokoro/MOSS/Supertonic services already in dopost, Parakeet/Whisper transcription already in dopost, `ai-music-js` ACE-Step WebGPU support already in dopost, Tone.js for lightweight deterministic music rendering, Web Audio API, Vitest, Go test, Playwright, Docker Compose optional AI workers.
+**Tech Stack:** Go 1.26.6, OpenPost `ai.Generator`, Go `net/http`, `golang.org/x/oauth2`, encrypted token service, Svelte 5/SvelteKit, Kokoro/MOSS/Supertonic services already in OpenPost, Parakeet/Whisper transcription already in OpenPost, `ai-music-js` ACE-Step WebGPU support already in OpenPost, Tone.js for lightweight deterministic music rendering, Web Audio API, Vitest, Go test, Playwright, Docker Compose optional AI workers.
 
 **Spec:** `docs/superpowers/specs/2026-09-15-dopost-web-2-design.md`
 
 ## Global Constraints
 
 - Phases 1 and 2 must be merged and green before this plan starts.
-- Reuse dopost's `apps/server/internal/ai/ai.go` `Generator` abstraction; do not create a competing text/vision generator contract.
-- Reuse dopost's existing `apps/web/src/lib/video-editor/local-ai/**` engines, cache, progress, and runtime registry before adding new local infrastructure.
+- Reuse OpenPost's `apps/server/internal/ai/ai.go` `Generator` abstraction; do not create a competing text/vision generator contract.
+- Reuse OpenPost's existing `apps/web/src/lib/video-editor/local-ai/**` engines, cache, progress, and runtime registry before adding new local infrastructure.
 - Gemini uses official Google authentication only: API/auth key, end-user OAuth 2.0, or ADC. No Antigravity/reverse-engineered OAuth is shipped.
 - Official Gemini OAuth scope for the Generative Language API is `https://www.googleapis.com/auth/generative-language.retriever`; ADC deployments may additionally use `https://www.googleapis.com/auth/cloud-platform` when required by the configured Google Cloud project.
 - Raw AI credentials never reach browser bundles or API responses.
@@ -24,13 +24,13 @@
 - Voice, captions, and background music are all required in V1.
 - Generated voice/music are editable audio assets and retain regeneration metadata.
 - Generated narration should use known script/timing where possible; do not re-ASR generated TTS without a reason.
-- Uploaded/user audio-video uses dopost local transcription first; headless whisper.cpp is optional.
+- Uploaded/user audio-video uses OpenPost local transcription first; headless whisper.cpp is optional.
 - Browser-local AI unavailability degrades capability only; it must not make `/api/v1/ready` fail.
 - Large model weights are downloaded/cached separately; they are not baked into the main dopost container.
 - Model/source/weight license records are mandatory before a new model becomes a default or automatic download.
 - All behavior changes follow test-first red → green → refactor and small commits.
 
-## Existing dopost Capabilities to Reuse
+## Existing OpenPost Capabilities to Reuse
 
 The imported foundation already contains:
 
@@ -60,7 +60,6 @@ Do not fork these into dopost copies. Add dopost routing/adapters around them.
 ## Task 1: Define the shared AI capability and routing contract
 
 **Files:**
-
 - Create: `packages/dopost-ai/package.json`
 - Create: `packages/dopost-ai/tsconfig.json`
 - Create: `packages/dopost-ai/src/types.ts`
@@ -69,7 +68,6 @@ Do not fork these into dopost copies. Add dopost routing/adapters around them.
 - Modify: `apps/web/package.json`
 
 **Interfaces:**
-
 - Consumes: no runtime providers.
 - Produces:
   - `AiCapability = 'text' | 'vision' | 'tts' | 'transcription' | 'music' | 'image'`
@@ -81,29 +79,22 @@ Do not fork these into dopost copies. Add dopost routing/adapters around them.
 - [ ] **Step 1: Write provider-ranking tests first**
 
 ```ts
-import { describe, expect, it } from "vitest";
-import { rankProviders } from "./routing";
+import { describe, expect, it } from 'vitest';
+import { rankProviders } from './routing';
 
 const providers = [
-  { id: "kokoro-browser", capability: "tts", locality: "browser", cost: "free", available: true },
-  { id: "cloud-tts", capability: "tts", locality: "cloud", cost: "paid", available: true },
+  { id: 'kokoro-browser', capability: 'tts', locality: 'browser', cost: 'free', available: true },
+  { id: 'cloud-tts', capability: 'tts', locality: 'cloud', cost: 'paid', available: true }
 ] as const;
 
-it("keeps paid providers out when the safety switch is on", () => {
-  expect(
-    rankProviders({ capability: "tts", mode: "auto", neverUsePaid: true }, providers).map(
-      (provider) => provider.id,
-    ),
-  ).toEqual(["kokoro-browser"]);
+it('keeps paid providers out when the safety switch is on', () => {
+  expect(rankProviders({ capability: 'tts', mode: 'auto', neverUsePaid: true }, providers)
+    .map((provider) => provider.id)).toEqual(['kokoro-browser']);
 });
 
-it("prefers local in free-local-first mode", () => {
-  expect(
-    rankProviders(
-      { capability: "tts", mode: "free-local-first", neverUsePaid: false },
-      providers,
-    )[0]?.id,
-  ).toBe("kokoro-browser");
+it('prefers local in free-local-first mode', () => {
+  expect(rankProviders({ capability: 'tts', mode: 'free-local-first', neverUsePaid: false }, providers)[0]?.id)
+    .toBe('kokoro-browser');
 });
 ```
 
@@ -119,8 +110,8 @@ bun test packages/dopost-ai/src/routing.test.ts
 export type AiProviderDescriptor = {
   id: string;
   capability: AiCapability;
-  locality: "browser" | "server" | "cloud";
-  cost: "free" | "paid" | "unknown";
+  locality: 'browser' | 'server' | 'cloud';
+  cost: 'free' | 'paid' | 'unknown';
   available: boolean;
   languages?: readonly string[];
   priority: number;
@@ -157,7 +148,6 @@ git commit -m "feat: define dopost AI capability routing contract"
 ## Task 2: Persist AI routing preferences without storing browser model state in the database
 
 **Files:**
-
 - Create: `apps/server/internal/database/migrations/9001_dopost_ai_preferences.sql`
 - Create: `apps/server/internal/models/dopost_ai.go`
 - Create: `apps/server/internal/services/dopostpreferences/ai.go`
@@ -165,7 +155,6 @@ git commit -m "feat: define dopost AI capability routing contract"
 - Modify: `apps/server/internal/database/migrations/migration_chain_test.go`
 
 **Interfaces:**
-
 - Consumes: dopost migration range; workspace/user identity.
 - Produces:
   - `DopostAIPreferences { UserID, WorkspaceID, RoutingMode, NeverUsePaidAutomatically, PreferredTextProvider }`
@@ -224,7 +213,6 @@ git commit -m "feat: persist dopost AI routing preferences"
 ## Task 3: Implement the official Gemini `ai.Generator` adapter
 
 **Files:**
-
 - Create: `apps/server/internal/ai/gemini.go`
 - Create: `apps/server/internal/ai/gemini_test.go`
 - Modify: `apps/server/internal/config/config.go`
@@ -232,8 +220,7 @@ git commit -m "feat: persist dopost AI routing preferences"
 - Modify: `.env.example`
 
 **Interfaces:**
-
-- Consumes: dopost `ai.Generator`, `GenerateRequest`, `JSONSchema`.
+- Consumes: OpenPost `ai.Generator`, `GenerateRequest`, `JSONSchema`.
 - Produces:
   - `GeminiGenerator` implementing `ai.Generator`
   - `NewGeminiGenerator(GeminiConfig, httpClient) *GeminiGenerator`
@@ -264,7 +251,7 @@ go test ./internal/ai -run Gemini -v
 
 - [ ] **Step 3: Add dopost Gemini config fields**
 
-Keep new config keys dopost-owned to avoid pretending they are upstream dopost settings:
+Keep new config keys dopost-owned to avoid pretending they are upstream OpenPost settings:
 
 ```text
 DOPOST_GEMINI_API_KEY
@@ -288,9 +275,9 @@ https://generativelanguage.googleapis.com
 
 Use the official `models.generateContent` REST contract so dopost can supply either API key or OAuth bearer token without adding another SDK abstraction.
 
-Map text/images/files/audio/video only for media forms supported by the Gemini REST API and already represented by `GenerateRequest`. Unsupported dopost parts fail with `ErrUnsupportedInput` rather than silently dropping content.
+Map text/images/files/audio/video only for media forms supported by the Gemini REST API and already represented by `GenerateRequest`. Unsupported OpenPost parts fail with `ErrUnsupportedInput` rather than silently dropping content.
 
-For strict response schema, map dopost `JSONSchema` into Gemini's structured response schema field and request JSON MIME output.
+For strict response schema, map OpenPost `JSONSchema` into Gemini's structured response schema field and request JSON MIME output.
 
 - [ ] **Step 5: Normalize usage and provider errors**
 
@@ -310,7 +297,6 @@ git commit -m "feat: add official Gemini AI provider"
 ## Task 4: Add official Gemini OAuth token storage and connect/disconnect flow
 
 **Files:**
-
 - Create: `apps/server/internal/database/migrations/9002_dopost_ai_credentials.sql`
 - Create: `apps/server/internal/models/dopost_ai_credentials.go`
 - Create: `apps/server/internal/services/aicredentials/service.go`
@@ -321,7 +307,6 @@ git commit -m "feat: add official Gemini AI provider"
 - Modify: application bootstrap dependency wiring
 
 **Interfaces:**
-
 - Consumes: existing server `TokenEncryptor`/crypto service and session/workspace auth.
 - Produces endpoints:
   - `GET /api/v1/dopost/ai/gemini/oauth/start?workspace_id=...`
@@ -399,14 +384,12 @@ git commit -m "feat: add official Gemini OAuth connection"
 ## Task 5: Add the server-side provider router and Gemini/OpenRouter selection
 
 **Files:**
-
 - Create: `apps/server/internal/services/aiproviders/router.go`
 - Create: `apps/server/internal/services/aiproviders/router_test.go`
 - Modify: server application bootstrap where content AI generator is constructed
 - Modify: `apps/server/internal/services/autovideo/planner.go`
 
 **Interfaces:**
-
 - Consumes: AIPreferences, GeminiGenerator, existing OpenRouter generator.
 - Produces:
   - `TextGeneratorRouter.Generate(ctx, ProviderRequest) (ai.GenerateResult, ProviderSelection, error)`
@@ -471,13 +454,11 @@ git commit -m "feat: route Auto Video text generation across providers"
 ## Task 6: Expose AI capability status and routing preferences API
 
 **Files:**
-
 - Create: `apps/server/internal/api/handlers/dopost_ai.go`
 - Create: `apps/server/internal/api/handlers/dopost_ai_test.go`
 - Modify: `apps/server/internal/api/routes.go`
 
 **Interfaces:**
-
 - Consumes: AIPreferences service, provider router, Gemini credential service.
 - Produces endpoints:
   - `GET /api/v1/dopost/ai/status?workspace_id=...`
@@ -490,7 +471,7 @@ Status response may contain:
 
 ```json
 {
-  "text": [{ "id": "gemini", "available": true, "auth": "oauth", "cost": "unknown" }],
+  "text": [{ "id":"gemini", "available":true, "auth":"oauth", "cost":"unknown" }],
   "server_transcription": [],
   "server_music": [],
   "degraded": false
@@ -524,7 +505,6 @@ git commit -m "feat: expose dopost AI status and preferences"
 ## Task 7: Build Settings → AI and combine server/browser capability detection
 
 **Files:**
-
 - Create: `apps/web/src/lib/dopost-ai/status.ts`
 - Create: `apps/web/src/lib/dopost-ai/status.test.ts`
 - Create: `apps/web/src/lib/components/dopost-ai/ai-settings.svelte`
@@ -534,17 +514,14 @@ git commit -m "feat: expose dopost AI status and preferences"
 - Modify: `apps/web/src/routes/settings/settings-data.ts`
 
 **Interfaces:**
-
-- Consumes: `/api/v1/dopost/ai/status`, preferences API, Gemini OAuth endpoints, dopost `inspectLocalAiRuntimes()`, local TTS support methods, ACE-Step support inspection.
+- Consumes: `/api/v1/dopost/ai/status`, preferences API, Gemini OAuth endpoints, OpenPost `inspectLocalAiRuntimes()`, local TTS support methods, ACE-Step support inspection.
 - Produces: Settings `AI` tab and unified capability model.
 
 - [ ] **Step 1: Write status-merging tests**
 
 ```ts
-it("does not mark the app unhealthy when ACE-Step is unavailable", () => {
-  const status = mergeAiStatus(serverStatus, {
-    musicPro: { available: false, reason: "webgpu-unavailable" },
-  });
+it('does not mark the app unhealthy when ACE-Step is unavailable', () => {
+  const status = mergeAiStatus(serverStatus, { musicPro: { available: false, reason: 'webgpu-unavailable' } });
   expect(status.appReady).toBe(true);
   expect(status.capabilities.musicPro.available).toBe(false);
 });
@@ -591,7 +568,7 @@ Models
 
 - [ ] **Step 5: Model Manager reuses existing model cache/runtime registry**
 
-Show loaded runtimes via `inspectLocalAiRuntimes()`. Add remove/unload actions using existing `unloadLocalAiRuntime`/cache clearing APIs; do not duplicate browser model caches under a dopost keyspace.
+Show loaded runtimes via `inspectLocalAiRuntimes()`. Add remove/unload actions using existing `unloadLocalAiRuntime`/cache clearing APIs; do not duplicate browser model caches under an dopost keyspace.
 
 - [ ] **Step 6: Verify and commit**
 
@@ -607,7 +584,6 @@ git commit -m "feat: add dopost AI settings and capability status"
 ## Task 8: Add editable TTS generation to Auto Video using existing local engines
 
 **Files:**
-
 - Create: `apps/web/src/lib/dopost-ai/tts-router.ts`
 - Create: `apps/web/src/lib/dopost-ai/tts-router.test.ts`
 - Create: `apps/web/src/lib/dopost-auto-video/voice-generation.ts`
@@ -616,7 +592,6 @@ git commit -m "feat: add dopost AI settings and capability status"
 - Modify: `apps/web/src/lib/video-editor/dopost/auto-video-panel.svelte`
 
 **Interfaces:**
-
 - Consumes: existing `generateLocalSpeech`, local engine support, `commit-generated-audio.ts`, Auto Video scene narration.
 - Produces:
   - `selectLocalTtsProvider(language, capabilities)`
@@ -656,14 +631,14 @@ Persist regeneration metadata in dopost sidecar through an API mutation:
 
 ```json
 {
-  "scene_id": "scene-1",
-  "kind": "voice",
-  "provider": "kokoro-browser",
-  "voice": "af_heart",
-  "speed": 1,
-  "language": "en-US",
-  "media_id": "...",
-  "duration_seconds": 3.4
+  "scene_id":"scene-1",
+  "kind":"voice",
+  "provider":"kokoro-browser",
+  "voice":"af_heart",
+  "speed":1,
+  "language":"en-US",
+  "media_id":"...",
+  "duration_seconds":3.4
 }
 ```
 
@@ -702,7 +677,6 @@ git commit -m "feat: generate editable Auto Video voice tracks"
 ## Task 9: Add a Vietnamese TTS license gate and optional VieNeu provider
 
 **Files:**
-
 - Create: `docs/compliance/models/vieneu-tts.md`
 - Modify: `docs/compliance/third-party-inventory.md`
 - Create: `apps/web/src/lib/dopost-ai/vietnamese-tts.ts`
@@ -710,7 +684,6 @@ git commit -m "feat: generate editable Auto Video voice tracks"
 - Optional only when audit passes: `deploy/ai/vieneu/` worker files and server adapter tests
 
 **Interfaces:**
-
 - Consumes: TTS routing contract from Task 8.
 - Produces: a documented, test-enforced decision on whether VieNeu weights are allowed as an automatic/bundled provider; optional `vieneu-local` provider only when that decision is affirmative.
 
@@ -765,18 +738,16 @@ git commit -m "feat: gate Vietnamese TTS by model license"
 
 ---
 
-## Task 10: Reuse dopost local transcription for uploaded media and native captions
+## Task 10: Reuse OpenPost local transcription for uploaded media and native captions
 
 **Files:**
-
 - Create: `apps/web/src/lib/dopost-auto-video/caption-generation.ts`
 - Create: `apps/web/src/lib/dopost-auto-video/caption-generation.test.ts`
 - Modify: imported transcription registry only to export a stable dopost-consumable facade if necessary
 - Modify: `apps/web/src/lib/video-editor/dopost/auto-video-panel.svelte`
 
 **Interfaces:**
-
-- Consumes: dopost local transcription registry/engine; generated narration metadata from Task 8; native subtitle timeline item types.
+- Consumes: OpenPost local transcription registry/engine; generated narration metadata from Task 8; native subtitle timeline item types.
 - Produces:
   - `captionsFromGeneratedNarration(...)`
   - `captionsFromUploadedMedia(...)`
@@ -787,7 +758,7 @@ git commit -m "feat: gate Vietnamese TTS by model license"
 Given narration words and segment timing, produce cues without calling ASR:
 
 ```ts
-expect(captionsFromGeneratedNarration(input).source).toBe("script-timing");
+expect(captionsFromGeneratedNarration(input).source).toBe('script-timing');
 expect(mockTranscriber.calls).toBe(0);
 ```
 
@@ -803,7 +774,7 @@ all local engines unavailable → capability warning, not project failure
 
 - [ ] **Step 3: Implement native subtitle insertion**
 
-Use dopost subtitle/cue item structures and current subtitle styling preferences. Generated captions live on a dedicated native caption/subtitle track and remain editable.
+Use OpenPost subtitle/cue item structures and current subtitle styling preferences. Generated captions live on a dedicated native caption/subtitle track and remain editable.
 
 - [ ] **Step 4: Add editor actions**
 
@@ -833,7 +804,6 @@ git commit -m "feat: generate native Auto Video captions"
 ## Task 11: Add optional headless transcription adapter without changing browser defaults
 
 **Files:**
-
 - Create: `apps/server/internal/services/aitranscription/client.go`
 - Create: `apps/server/internal/services/aitranscription/client_test.go`
 - Create: `deploy/ai/whisper/README.md`
@@ -841,7 +811,6 @@ git commit -m "feat: generate native Auto Video captions"
 - Modify: `.env.example`
 
 **Interfaces:**
-
 - Consumes: optional `DOPOST_TRANSCRIPTION_SERVER_URL`; Auto Video headless worker.
 - Produces:
   - `Transcriber.Transcribe(ctx, audio) (Transcript, error)` server interface
@@ -896,7 +865,6 @@ git commit -m "feat: add optional headless transcription service"
 ## Task 12: Implement lightweight automatic Music Lite with an AI-authored music plan
 
 **Files:**
-
 - Create: `packages/dopost-ai/src/music-plan.ts`
 - Create: `packages/dopost-ai/src/music-plan.test.ts`
 - Create: `apps/web/src/lib/dopost-ai/music-lite.ts`
@@ -905,7 +873,6 @@ git commit -m "feat: add optional headless transcription service"
 - Modify: `apps/server/internal/services/autovideo/planner.go`
 
 **Interfaces:**
-
 - Consumes: storyboard mood/context, existing text AI planner, Web Audio browser runtime.
 - Produces:
   - `MusicPlan` structured contract
@@ -917,13 +884,12 @@ Exact V1 shape:
 
 ```ts
 export type MusicPlan = {
-  mood:
-    "luxury" | "news" | "corporate" | "fashion" | "energetic" | "minimal" | "cinematic" | "calm";
-  bpm: number; // 60–160
-  key: string; // C, Cm, C#, ... validated set
+  mood: 'luxury' | 'news' | 'corporate' | 'fashion' | 'energetic' | 'minimal' | 'cinematic' | 'calm';
+  bpm: number;           // 60–160
+  key: string;           // C, Cm, C#, ... validated set
   progression: string[]; // 2–8 roman-numeral chord symbols
-  instruments: ("pad" | "keys" | "bass" | "pluck" | "kick" | "snare" | "hat")[];
-  intensity: number; // 0..1
+  instruments: ('pad' | 'keys' | 'bass' | 'pluck' | 'kick' | 'snare' | 'hat')[];
+  intensity: number;     // 0..1
 };
 ```
 
@@ -979,14 +945,12 @@ git commit -m "feat: add lightweight automatic background music"
 ## Task 13: Integrate existing browser ACE-Step as Music Pro with capability degradation
 
 **Files:**
-
 - Create: `apps/web/src/lib/dopost-ai/music-router.ts`
 - Create: `apps/web/src/lib/dopost-ai/music-router.test.ts`
 - Modify: `apps/web/src/lib/video-editor/local-ai/music/ace-step-service.ts` only when an adapter export is required
 - Modify: `apps/web/src/lib/video-editor/dopost/auto-video-panel.svelte`
 
 **Interfaces:**
-
 - Consumes: `inspectMusicGenerationSupport()`, ACE-Step generation service, Music Lite Task 12.
 - Produces: `generateBackgroundMusic({ quality:'lite'|'pro'|'auto', ... })`.
 
@@ -1036,7 +1000,6 @@ git commit -m "feat: route Auto Video music between Lite and ACE-Step"
 ## Task 14: Extend Auto Video durable pipeline with voice, captions, and music checkpoints
 
 **Files:**
-
 - Modify: `apps/server/internal/services/autovideo/service.go`
 - Modify: `apps/server/internal/services/autovideo/service_test.go`
 - Create: `apps/server/internal/services/autovideo/media_steps.go`
@@ -1044,7 +1007,6 @@ git commit -m "feat: route Auto Video music between Lite and ACE-Step"
 - Modify: Auto Video API status types
 
 **Interfaces:**
-
 - Consumes: Phase 2 state machine and sidecar; server provider clients; browser-generated asset callback API.
 - Produces step order:
   - `extract_content`
@@ -1114,14 +1076,12 @@ git commit -m "feat: add voice caption and music generation stages"
 ## Task 15: Add optional server AI worker profile without making it part of app readiness
 
 **Files:**
-
 - Modify: `deploy/aapanel/docker-compose.ai.yml`
 - Create: `docs/deployment/ai-workers.md`
 - Create: `scripts/check-ai-degraded-readiness.sh`
 - Modify: server AI status/readiness tests
 
 **Interfaces:**
-
 - Consumes: optional transcription/TTS/music server endpoints.
 - Produces: `--profile ai` / `--profile ai-music` deployment behavior and degraded-capability status.
 
@@ -1153,7 +1113,7 @@ No worker port is published to the host by default; services share only private 
 Light: main container; browser/local AI + cloud providers
 Local AI: main + ai profile
 Full local: main + ai + ai-music on suitable GPU host
-Scale: split dopost web/worker + Postgres + S3/R2 + remote AI endpoints
+Scale: split OpenPost web/worker + Postgres + S3/R2 + remote AI endpoints
 ```
 
 - [ ] **Step 4: Verify and commit**
@@ -1170,12 +1130,10 @@ git commit -m "feat: add optional AI worker deployment profiles"
 ## Task 16: Phase 3 end-to-end generation test
 
 **Files:**
-
 - Create: `tests/dopost/auto-video-media-ai.spec.ts`
 - Modify: `.github/workflows/ci.yml`
 
 **Interfaces:**
-
 - Consumes: complete Phase 3 system.
 - Produces: release gate proving editable voice/captions/music and safe provider behavior.
 
@@ -1229,12 +1187,10 @@ git commit -m "test: gate Auto Video AI media generation"
 ## Task 17: Phase 3 verification and compliance gate
 
 **Files:**
-
 - Create: `docs/releases/2.0.0-beta.1-phase3-verification.md`
 - Modify: `docs/compliance/third-party-inventory.md`
 
 **Interfaces:**
-
 - Consumes: completed Phase 3 branch and all provider/model audit records.
 - Produces: evidence required before Phase 4.
 
@@ -1292,15 +1248,15 @@ Invoke `superpowers:requesting-code-review`, address blocking findings, rerun th
 
 ## Phase 3 Exit Criteria
 
-- Gemini implements dopost's existing `ai.Generator` abstraction.
+- Gemini implements OpenPost's existing `ai.Generator` abstraction.
 - Gemini supports official API/auth key, official OAuth, and ADC/operator auth modes without Antigravity workarounds.
 - Credentials are server-side and encrypted where persisted.
 - Routing modes and `Never use paid provider automatically` work and are tested.
 - Settings → AI shows combined server/browser capability status without making optional AI part of core readiness.
-- Existing dopost local TTS engines are reused; generated voice is a native editable audio asset with regeneration metadata.
+- Existing OpenPost local TTS engines are reused; generated voice is a native editable audio asset with regeneration metadata.
 - Vietnamese local TTS is only exposed if its exact model/license audit passes; voice cloning remains off.
 - Generated narration captions use script/timing instead of unnecessary ASR.
-- User media transcription reuses dopost local Parakeet/Whisper infrastructure with optional headless server fallback.
+- User media transcription reuses OpenPost local Parakeet/Whisper infrastructure with optional headless server fallback.
 - Music Lite automatically generates lightweight background music from a structured plan without a huge model download.
 - Existing browser ACE-Step is reused as Music Pro; unsupported WebGPU degrades cleanly.
 - Auto Video durable pipeline exposes real voice/caption/music stages and survives restarts/waiting-browser states.

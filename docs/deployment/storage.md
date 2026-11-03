@@ -1,6 +1,6 @@
 # dopost storage configurations
 
-dopost reuses the dopost `BlobStorage` boundary. Application and editor code should work with media/project asset identities rather than hard-coded filesystem paths.
+dopost reuses the upstream `BlobStorage` boundary. Application and editor code should work with media/project asset identities rather than hard-coded filesystem paths.
 
 ## Local storage — default
 

@@ -17,7 +17,7 @@ for (const path of requiredFiles) {
 const notice = readFileSync("NOTICE.md", "utf8");
 const inventory = readFileSync("docs/compliance/third-party-inventory.md", "utf8");
 const requiredNoticeTerms = [
-  "## dopost",
+  "## OpenPost",
   "AGPL-3.0-only",
   "## Bang Motion",
   "0f1bd1103835890354496d009af62885fe0a05d5",
@@ -29,7 +29,7 @@ for (const term of requiredNoticeTerms) {
     process.exit(1);
   }
 }
-for (const term of ["dopost", "Bang Motion", "licenses/bang-motion/LICENSE"]) {
+for (const term of ["OpenPost", "Bang Motion", "licenses/bang-motion/LICENSE"]) {
   if (!inventory.includes(term)) {
     console.error(`Third-party inventory is missing required entry/detail: ${term}`);
     process.exit(1);

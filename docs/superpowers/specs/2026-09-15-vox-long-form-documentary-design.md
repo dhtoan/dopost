@@ -4,7 +4,7 @@
 **Date:** 2026-09-15  
 **Repository:** `dhtoan/dopost`  
 **Target release line:** dopost Web 2.x  
-**Source reference:** Google Doc `VOX STYLE - AICONG` supplied by the product owner
+**Source reference:** Google Doc `VOX STYLE - AICONG` supplied by the product owner  
 
 ## 1. Purpose
 
@@ -22,7 +22,7 @@ The central product rule remains unchanged:
 
 > AI generation produces an editable native project, not a dead MP4.
 
-Generated documentary beats must remain editable as ordinary dopost timeline items and dopost Motion Compositions wherever possible.
+Generated documentary beats must remain editable as ordinary OpenPost timeline items and dopost Motion Compositions wherever possible.
 
 ## 2. Scope
 
@@ -43,7 +43,7 @@ The workflow includes:
 11. a universal motion/animation treatment for generated beat visuals;
 12. optional animation/video generation when a configured provider supports it;
 13. thumbnail prompt generation;
-14. native dopost project compilation;
+14. native OpenPost project compilation;
 15. editable dopost Motion controls and regeneration;
 16. deterministic preview/export and visual-QA coverage.
 
@@ -90,7 +90,7 @@ Documentary Long-form
 
 Short-form continues to use the existing Review, News, Guide, Compare, and Top N flow.
 
-Documentary Long-form uses the new stateful documentary workflow and creates the same native dopost Video Project schema at handoff.
+Documentary Long-form uses the new stateful documentary workflow and creates the same native OpenPost Video Project schema at handoff.
 
 Conceptually:
 
@@ -366,24 +366,24 @@ The workflow must survive reload and allow selective regeneration.
 
 ```ts
 type DocumentaryStep =
-  | "source"
-  | "topic"
-  | "ideas"
-  | "duration"
-  | "script"
-  | "voice"
-  | "beats"
-  | "visuals"
-  | "animation"
-  | "thumbnails"
-  | "project";
+  | 'source'
+  | 'topic'
+  | 'ideas'
+  | 'duration'
+  | 'script'
+  | 'voice'
+  | 'beats'
+  | 'visuals'
+  | 'animation'
+  | 'thumbnails'
+  | 'project';
 
 interface DocumentaryRun {
   schemaVersion: 1;
   id: string;
   workspaceId: string;
-  mode: "documentary-long-form";
-  style: "documentary-paper-collage";
+  mode: 'documentary-long-form';
+  style: 'documentary-paper-collage';
   currentStep: DocumentaryStep;
   source: AutoVideoSource;
   niche?: string;
@@ -530,7 +530,7 @@ All primitives must be pure functions of project time, stable seed, element ID, 
 
 ### 8.4 Editable controls
 
-Vox Motion Compositions expose bounded controls through the existing dopost composition-control system:
+Vox Motion Compositions expose bounded controls through the existing OpenPost composition-control system:
 
 ```text
 intensity
@@ -604,7 +604,7 @@ Required implementation constraints:
 - avoid cloning the entire project for a single control change;
 - lazy-load generated media thumbnails;
 - do not decode every audio/image asset at project open;
-- preserve dopost project revision/conflict semantics;
+- preserve OpenPost project revision/conflict semantics;
 - deterministic IDs must allow incremental replacement.
 
 ## 12. Ownership and selective regeneration
@@ -926,7 +926,7 @@ Not required for first release:
 - frame-by-frame raster pre-rendering of the full documentary before editing;
 - videos longer than five minutes;
 - collaborative script approval workflows beyond existing project/workspace capabilities;
-- automatic YouTube publishing changes outside existing dopost publishing flows.
+- automatic YouTube publishing changes outside existing OpenPost publishing flows.
 
 ## 23. Acceptance criteria
 
@@ -941,7 +941,7 @@ The Vox workflow is complete when all of the following are true:
 - Script becomes editable timed beats.
 - Every beat has an editable visual plan and exportable prompt.
 - Vox Style exists as `documentary-paper-collage` in dopost Motion.
-- Paper-collage motion compiles to native dopost items/compositions.
+- Paper-collage motion compiles to native OpenPost items/compositions.
 - Thumbnail concepts are generated independently of the timeline.
 - Project opens in the normal dopost Video Editor.
 - User can edit/regenerate one beat without regenerating unrelated content.

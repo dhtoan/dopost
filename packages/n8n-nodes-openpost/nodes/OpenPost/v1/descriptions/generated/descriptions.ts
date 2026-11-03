@@ -1947,7 +1947,7 @@ export const generatedDescriptionProperties = [
         operation: ["get"],
       },
     },
-    description: "OpenPost Job ID",
+    description: "dopost Job ID",
     required: true,
   },
 ] satisfies INodeProperties[];

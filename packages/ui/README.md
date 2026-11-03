@@ -27,4 +27,4 @@ dopost uses workspace dependencies. Separate repositories may install versioned 
 
 React Native cannot render Svelte or CSS. Its existing native theme renderer consumes generated theme contracts and icon data. Keep that platform adapter; do not copy web component implementations into native components.
 
-Licensed under AGPL-3.0-only, matching dopost. Third-party dependencies retain their own licenses.
+Licensed under AGPL-3.0-only, matching OpenPost. Third-party dependencies retain their own licenses.

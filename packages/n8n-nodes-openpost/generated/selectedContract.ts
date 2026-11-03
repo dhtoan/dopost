@@ -2154,7 +2154,7 @@ export const selectedContract = {
         {
           apiName: "job_id",
           body: true,
-          description: "OpenPost Job ID",
+          description: "dopost Job ID",
           displayName: "Job ID",
           location: "body",
           name: "jobId",
@@ -2191,13 +2191,13 @@ export const selectedContract = {
       synthetic: false,
     },
   ],
-  checksum: "3824390aa6b182af8b196d457a4139491ba861c0d2e1e58faeaafba6e1b0ff7e",
+  checksum: "b1278c2a94adbaad0529561eda827141b658eef14562f00a008a45893516432f",
   findings: [],
   generatedAt: "1970-01-01T00:00:00.000Z",
   source: {
     openapi: "3.1.0",
     server: "https://app.openpo.st/api/v1",
-    title: "OpenPost API",
+    title: "dopost API",
     version: "1.0.0",
   },
 } as const;
