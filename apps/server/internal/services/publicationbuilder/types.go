@@ -1,6 +1,9 @@
 package publicationbuilder
 
-import "github.com/openpost/backend/internal/ai"
+import (
+	"github.com/openpost/backend/internal/ai"
+	"github.com/openpost/backend/internal/screenshottemplates"
+)
 
 type DestinationPolicy string
 
@@ -9,6 +12,7 @@ const (
 	DestinationPolicyRequireAll DestinationPolicy = "require_all"
 
 	MaxDirectionOutcomeCharacters         = 200
+	MaxDirectionInstructionsCharacters    = 10_000
 	MaxDirectionAudienceCharacters        = 1_000
 	MaxDirectionAngleCharacters           = 1_500
 	MaxDirectionToneCharacters            = 500
@@ -17,6 +21,7 @@ const (
 )
 
 type DirectionInput struct {
+	Instructions    string `json:"instructions,omitempty" maxLength:"10000" doc:"Author's writing requirements, kept separate from source evidence and the short outcome"`
 	Outcome         string `json:"outcome,omitempty" maxLength:"200"`
 	Audience        string `json:"audience,omitempty" maxLength:"1000"`
 	Angle           string `json:"angle,omitempty" maxLength:"1500"`
@@ -57,6 +62,7 @@ type OutputProfile struct {
 	Key           string   `json:"key"`
 	TextLimit     int      `json:"text_limit"`
 	MaxSegments   int      `json:"max_segments"`
+	MediaMinCount int      `json:"media_min_count,omitempty"`
 	MediaMaxCount int      `json:"media_max_count"`
 	AllowedMIMEs  []string `json:"allowed_mimes,omitempty"`
 }
@@ -70,6 +76,8 @@ type Destination struct {
 }
 
 type BuildInput struct {
+	SeriesCount       int                 `json:"series_count,omitempty" minimum:"0" maximum:"3"`
+	OptionCount       int                 `json:"option_count,omitempty" enum:"0,4" doc:"Generate four complete alternatives; zero keeps the single-package workflow"`
 	Idea              string              `json:"idea"`
 	Sources           []SourceMaterial    `json:"sources,omitempty"`
 	Parts             []ai.MultimodalPart `json:"-"`
@@ -89,10 +97,13 @@ type Claim struct {
 }
 
 type MediaPlan struct {
-	Treatment string `json:"treatment"`
-	Role      string `json:"role"`
-	Brief     string `json:"brief"`
-	SourceRef string `json:"source_ref,omitempty" doc:"Exact source ID for source-bound media treatments"`
+	Treatment  string                                          `json:"treatment"`
+	Role       string                                          `json:"role"`
+	Brief      string                                          `json:"brief"`
+	SourceRef  string                                          `json:"source_ref,omitempty" doc:"Exact source ID for source-bound media treatments"`
+	TemplateID string                                          `json:"template_id,omitempty"`
+	Document   *screenshottemplates.ScreenshotTemplateDocument `json:"document,omitempty" doc:"Validated editable visual recipe, awaiting rendering and upload"`
+	AltText    string                                          `json:"alt_text,omitempty"`
 }
 
 // ResolvedSource names one source that the finished package may reference.
@@ -101,13 +112,15 @@ type ResolvedSource struct {
 	ID          string `json:"id"`
 	Kind        string `json:"kind"`
 	Label       string `json:"label"`
+	MIMEType    string `json:"mime_type,omitempty"`
 	Publishable bool   `json:"publishable"`
 }
 
 type DestinationDecision struct {
-	AccountID string `json:"account_id"`
-	Include   bool   `json:"include"`
-	Reason    string `json:"reason"`
+	Media     *MediaPlan `json:"media,omitempty" doc:"Optional destination-specific visual choice for a creative alternative"`
+	AccountID string     `json:"account_id"`
+	Include   bool       `json:"include"`
+	Reason    string     `json:"reason"`
 }
 
 type DirectorPlan struct {
@@ -157,10 +170,27 @@ type ReviewFlag struct {
 }
 
 type BuildResult struct {
+	Series           []SeriesConcept      `json:"series,omitempty"`
+	SelectedOptionID string               `json:"selected_option_id,omitempty"`
+	Options          []PostOption         `json:"options,omitempty" doc:"Four complete alternatives. Choosing one is an explicit author action"`
+	CanonicalText    string               `json:"canonical_text"`
+	Sources          []ResolvedSource     `json:"sources,omitempty"`
+	Direction        DirectorPlan         `json:"direction"`
+	Destinations     []DestinationPlan    `json:"destinations"`
+	Skipped          []SkippedDestination `json:"skipped"`
+	ReviewFlags      []ReviewFlag         `json:"review_flags"`
+}
+
+type PostOption struct {
+	ID            string               `json:"id"`
+	Label         string               `json:"label"`
 	CanonicalText string               `json:"canonical_text"`
-	Sources       []ResolvedSource     `json:"sources,omitempty"`
 	Direction     DirectorPlan         `json:"direction"`
 	Destinations  []DestinationPlan    `json:"destinations"`
 	Skipped       []SkippedDestination `json:"skipped"`
 	ReviewFlags   []ReviewFlag         `json:"review_flags"`
+}
+
+func (option PostOption) Result() BuildResult {
+	return BuildResult{CanonicalText: option.CanonicalText, Direction: option.Direction, Destinations: option.Destinations, Skipped: option.Skipped, ReviewFlags: option.ReviewFlags}
 }

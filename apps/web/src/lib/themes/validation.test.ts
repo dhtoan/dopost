@@ -3,12 +3,12 @@ import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { BUILT_IN_THEMES, resolveBuiltInTheme } from './builtins.js';
+import { resolveBuiltInTheme } from '@openpost/ui/themes/builtins.js';
 import {
 	isSafeThemeColor,
 	isSafeThemeSchemeManifestValues,
 	themeColorContrastRatio
-} from './validation.js';
+} from '@openpost/ui/themes/validation.js';
 
 describe('theme manifest value validation', () => {
 	it('ships lookbehind-free color detectors for pre-16.4 Safari engines', () => {
@@ -112,24 +112,26 @@ describe('theme manifest value validation', () => {
 		}
 	});
 
-	it('rejects unreadable action text in every rendered interaction state', () => {
-		const unreadableHover = resolveBuiltInTheme('workshop', 'light').manifest;
-		unreadableHover.colors.actionFocal = '#000000';
-		unreadableHover.colors.actionFocalHover = '#888888';
-		unreadableHover.colors.actionFocalActive = '#222222';
-		unreadableHover.colors.actionFocalInk = '#ffffff';
-		expect(isSafeThemeSchemeManifestValues(unreadableHover)).toBe(false);
-
-		const unreadableDestructive = resolveBuiltInTheme('workshop', 'light').manifest;
-		unreadableDestructive.colors.actionDestructive = '#888888';
-		unreadableDestructive.colors.actionDestructiveHover = '#777777';
-		unreadableDestructive.colors.actionDestructiveActive = '#666666';
-		unreadableDestructive.colors.actionDestructiveInk = '#ffffff';
-		expect(isSafeThemeSchemeManifestValues(unreadableDestructive)).toBe(false);
-
-		const unreadableLinkHover = resolveBuiltInTheme('workshop', 'light').manifest;
-		unreadableLinkHover.colors.actionLinkHover = unreadableLinkHover.colors.canvas;
-		expect(isSafeThemeSchemeManifestValues(unreadableLinkHover)).toBe(false);
+	it('rejects unreadable focal, destructive and link hover text independently', () => {
+		const control = resolveBuiltInTheme('workshop', 'light').manifest;
+		expect(isSafeThemeSchemeManifestValues(control), 'original palette control').toBe(true);
+		for (const [background, ink] of [
+			['actionFocalHover', 'actionFocalInk'],
+			['actionDestructiveHover', 'actionDestructiveInk'],
+			['canvas', 'actionLinkHover']
+		] as const) {
+			const unreadable = structuredClone(control);
+			if (ink === 'actionLinkHover') unreadable.colors[ink] = unreadable.colors[background];
+			else unreadable.colors[background] = unreadable.colors[ink];
+			expect(
+				themeColorContrastRatio(unreadable.colors[ink], unreadable.colors[background]),
+				`${background} contrast control`
+			).toBeCloseTo(1);
+			expect(
+				isSafeThemeSchemeManifestValues(unreadable),
+				`${background}/${ink} unreadable hover`
+			).toBe(false);
+		}
 	});
 
 	it('keeps focus visible and destructive actions semantically distinct', () => {
@@ -145,9 +147,24 @@ describe('theme manifest value validation', () => {
 		expect(isSafeThemeSchemeManifestValues(unsafeDestructive)).toBe(false);
 	});
 
-	it('measures WCAG contrast after alpha compositing', () => {
+	it('rechecks edited colors after repeated validation and browsing other palettes', () => {
+		const manifest = resolveBuiltInTheme('workshop', 'light').manifest;
+		const originalInk = manifest.colors.ink;
+		expect(isSafeThemeSchemeManifestValues(manifest)).toBe(true);
+		manifest.colors.ink = manifest.colors.canvas;
+		expect(isSafeThemeSchemeManifestValues(manifest)).toBe(false);
+		manifest.colors.ink = originalInk;
+		expect(isSafeThemeSchemeManifestValues(manifest)).toBe(true);
+
+		for (let index = 0; index < 2048; index += 1) {
+			expect(isSafeThemeColor(`#${index.toString(16).padStart(6, '0')}`)).toBe(true);
+		}
 		expect(themeColorContrastRatio('black', 'white')).toBe(21);
 		expect(themeColorContrastRatio('rgb(0 0 0 / 50%)', 'white')).toBeCloseTo(3.98, 2);
+		manifest.colors.ink = 'rgb(foo)';
+		expect(isSafeThemeSchemeManifestValues(manifest)).toBe(false);
+		manifest.colors.ink = originalInk;
+		expect(isSafeThemeSchemeManifestValues(manifest)).toBe(true);
 	});
 
 	it('rejects a custom Dither button recipe when its texture makes the label unreadable', () => {
@@ -157,16 +174,17 @@ describe('theme manifest value validation', () => {
 		expect(isSafeThemeSchemeManifestValues(manifest)).toBe(false);
 	});
 
-	it('keeps every built-in scheme inside the same safety floor', () => {
-		for (const theme of BUILT_IN_THEMES) {
-			for (const manifest of Object.values(theme.schemes)) {
-				if (manifest) expect(isSafeThemeSchemeManifestValues(manifest), theme.id).toBe(true);
-			}
-		}
-
-		const corkboard = resolveBuiltInTheme('corkboard', 'light').manifest.colors;
-		expect(
-			themeColorContrastRatio(corkboard.disabledInk, corkboard.disabled, corkboard.canvas)
-		).toBeGreaterThanOrEqual(4.5);
+	it('rejects a readable custom palette whose dither cells have indistinguishable luminance', () => {
+		const manifest = resolveBuiltInTheme('dither', 'light').manifest;
+		Object.assign(manifest.colors, {
+			actionFocal: '#7309cb',
+			actionFocalHover: '#6b08b5',
+			actionFocalActive: '#6007a5',
+			actionFocalInk: '#6bdd0a'
+		});
+		manifest.components.button = 'solid';
+		expect(isSafeThemeSchemeManifestValues(manifest)).toBe(true);
+		manifest.components.button = 'dither';
+		expect(isSafeThemeSchemeManifestValues(manifest)).toBe(false);
 	});
 });

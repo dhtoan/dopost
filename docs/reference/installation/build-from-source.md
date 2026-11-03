@@ -1,19 +1,19 @@
 # Build From Source
 
-Use this path when you want to build OpenPost yourself.
+Use this path when you want to build dopost yourself.
 
 This path requires the repository's pinned Devenv toolchain and enough local resources to build the web and Go projects.
 
 ## Set up the project
 
 ```bash
-git clone https://github.com/getopenpost/openpost.git
+git clone https://github.com/dhtoan/dopost.git
 cd openpost
 direnv allow
 devenv shell -- setup
 ```
 
-## Build OpenPost
+## Build dopost
 
 ```bash
 bun run build

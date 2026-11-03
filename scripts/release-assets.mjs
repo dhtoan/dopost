@@ -13,16 +13,24 @@ const cliTargets = [
   ["windows", "amd64", ".exe"],
 ];
 
+// CLI and MCP binaries ship detached SHA-256 checksums so the @getopenpost/cli
+// npm wrapper can verify its GitHub release download before executing it.
 export const expectedReleaseAssets = Object.freeze([
   ...serverTargets.map(
     ([os, architecture, extension]) => `openpost-server-${os}-${architecture}${extension}`,
   ),
   ...cliTargets.flatMap(([os, architecture, extension]) => [
     `openpost-cli-${os}-${architecture}${extension}`,
+    `openpost-cli-${os}-${architecture}${extension}.sha256`,
     `openpost-mcp-${os}-${architecture}${extension}`,
+    `openpost-mcp-${os}-${architecture}${extension}.sha256`,
   ]),
   "openpost-app-android.apk",
 ]);
+
+export const coreReleaseAssets = Object.freeze(
+  expectedReleaseAssets.filter((name) => name !== "openpost-app-android.apk"),
+);
 
 function normalizeNotes(value) {
   return String(value ?? "")
@@ -58,7 +66,16 @@ export function validateRelease(release, options) {
     return problems;
   }
 
-  const expected = new Set(expectedReleaseAssets);
+  const expected = new Set(
+    (options.core === true ? coreReleaseAssets : expectedReleaseAssets).filter(
+      (name) => options.cli !== false || !/^openpost-(cli|mcp)-/.test(name),
+    ),
+  );
+  // The core check runs while the parallel Android job may already have
+  // uploaded the APK, so unknown means outside the full set, not outside the
+  // required subset. Missing-asset enforcement below stays scoped to the
+  // required subset.
+  const known = new Set(expectedReleaseAssets);
   const seen = new Set();
   for (const asset of release.assets) {
     const name = asset?.name;
@@ -68,7 +85,7 @@ export function validateRelease(release, options) {
     }
     if (seen.has(name)) problems.push(`duplicate release asset: ${name}`);
     seen.add(name);
-    if (!expected.has(name)) problems.push(`unexpected release asset: ${name}`);
+    if (!known.has(name)) problems.push(`unexpected release asset: ${name}`);
     if (asset.state !== "uploaded" || !Number.isInteger(asset.size) || asset.size <= 0) {
       problems.push(`release asset is not completely uploaded: ${name}`);
     }
@@ -90,7 +107,7 @@ function option(name) {
 async function main() {
   if (process.argv[2] !== "verify") {
     throw new Error(
-      "usage: release-assets.mjs verify --release-json FILE --tag TAG --notes-file FILE [--complete] [--published]",
+      "usage: release-assets.mjs verify --release-json FILE --tag TAG --notes-file FILE [--complete] [--core] [--published] [--no-cli]",
     );
   }
   const releaseJSON = option("--release-json");
@@ -103,15 +120,18 @@ async function main() {
     readFile(releaseJSON, "utf8"),
     readFile(notesFile, "utf8"),
   ]);
+  const core = process.argv.includes("--core");
   const problems = validateRelease(JSON.parse(releaseSource), {
     tag,
     notes,
-    complete: process.argv.includes("--complete"),
+    complete: process.argv.includes("--complete") || core,
+    core,
+    cli: !process.argv.includes("--no-cli"),
     published: process.argv.includes("--published"),
   });
   if (problems.length > 0) throw new Error(problems.join("; "));
   console.log(
-    `Verified ${process.argv.includes("--published") ? "published" : "draft"} release ${tag} with ${process.argv.includes("--complete") ? "all" : "only expected"} assets.`,
+    `Verified ${process.argv.includes("--published") ? "published" : "draft"} release ${tag} with ${core ? "core" : process.argv.includes("--complete") ? "all" : "only expected"} assets.`,
   );
 }
 

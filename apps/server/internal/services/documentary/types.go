@@ -79,20 +79,20 @@ type VoiceManifest struct {
 type VisualIntent string
 
 const (
-	VisualIntentArchivalPhoto      VisualIntent = "archival-photo"
-	VisualIntentHalftoneSubject    VisualIntent = "halftone-subject"
-	VisualIntentPaperDocument      VisualIntent = "paper-document"
-	VisualIntentMap                VisualIntent = "map"
-	VisualIntentMapRoute           VisualIntent = "map-route"
-	VisualIntentTimeline           VisualIntent = "timeline"
-	VisualIntentNewspaperClipping  VisualIntent = "newspaper-clipping"
-	VisualIntentObjectEvidence     VisualIntent = "object-evidence"
-	VisualIntentNumberCard         VisualIntent = "number-card"
-	VisualIntentQuoteStrip         VisualIntent = "quote-strip"
-	VisualIntentDiagram            VisualIntent = "diagram"
-	VisualIntentConnectionBoard    VisualIntent = "connection-board"
-	VisualIntentLocationCard       VisualIntent = "location-card"
-	VisualIntentMotionComposition  VisualIntent = "motion-composition"
+	VisualIntentArchivalPhoto     VisualIntent = "archival-photo"
+	VisualIntentHalftoneSubject   VisualIntent = "halftone-subject"
+	VisualIntentPaperDocument     VisualIntent = "paper-document"
+	VisualIntentMap               VisualIntent = "map"
+	VisualIntentMapRoute          VisualIntent = "map-route"
+	VisualIntentTimeline          VisualIntent = "timeline"
+	VisualIntentNewspaperClipping VisualIntent = "newspaper-clipping"
+	VisualIntentObjectEvidence    VisualIntent = "object-evidence"
+	VisualIntentNumberCard        VisualIntent = "number-card"
+	VisualIntentQuoteStrip        VisualIntent = "quote-strip"
+	VisualIntentDiagram           VisualIntent = "diagram"
+	VisualIntentConnectionBoard   VisualIntent = "connection-board"
+	VisualIntentLocationCard      VisualIntent = "location-card"
+	VisualIntentMotionComposition VisualIntent = "motion-composition"
 )
 
 type Beat struct {

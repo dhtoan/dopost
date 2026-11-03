@@ -1,17 +1,13 @@
-import { readdirSync, readFileSync } from "node:fs";
-import { extname, relative, resolve } from "node:path";
+import { readFileSync } from "node:fs";
+import { relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { parse } from "svelte/compiler";
 import ts from "typescript";
 
+import { isQueryAdapter, lineAt, sourceFiles } from "./check-query-shared.mjs";
+
 const sourceRoots = ["apps/web/src", "apps/mobile/src"];
-const sourceExtensions = new Set([".svelte", ".ts", ".tsx"]);
-const webQueryAdapterPrefix = "apps/web/src/lib/query/";
-const mobileQueryAdapters = new Set([
-  "apps/mobile/src/lib/app-bootstrap.ts",
-  "apps/mobile/src/lib/query-api.ts",
-]);
 
 const effectHookNames = new Set(["$effect", "useEffect", "useLayoutEffect", "useFocusEffect"]);
 
@@ -24,37 +20,18 @@ const imperativeQueryMethods = new Set(["query", "fetchQuery", "prefetchQuery"])
 // the render path must never grow new effect-driven reads silently.
 const effectReadAllowlist = [
   {
+    file: "apps/web/src/routes/oauth/x-messaging/+page.svelte",
+    kind: "transport.POST",
+    reason:
+      "single-use authorization callback completion after the initiating actor is restored; consumes actor-bound state, cancels on identity change and invalidates Query readiness rather than reading render-path state",
+  },
+  {
     file: "apps/web/src/lib/video-editor/components/preview-layer.svelte",
     kind: "transport.fetch",
     reason:
       "local-first canvas asset load: lottie animation bytes for the preview frame, with disposal guard; not server state",
   },
 ];
-
-function sourceFiles(directory) {
-  const files = [];
-  for (const entry of readdirSync(directory, { withFileTypes: true })) {
-    const path = resolve(directory, entry.name);
-    if (entry.isDirectory()) {
-      if (entry.name.startsWith(".")) continue;
-      files.push(...sourceFiles(path));
-      continue;
-    }
-    if (entry.isFile() && sourceExtensions.has(extname(entry.name))) files.push(path);
-  }
-  return files;
-}
-
-function lineAt(source, index) {
-  return source.slice(0, index).split("\n").length;
-}
-
-function isQueryAdapter(repoPath) {
-  const isTest = /\.test\.[jt]sx?$/u.test(repoPath);
-  return (
-    !isTest && (repoPath.startsWith(webQueryAdapterPrefix) || mobileQueryAdapters.has(repoPath))
-  );
-}
 
 function scriptSegments(file, source) {
   if (!file.endsWith(".svelte")) return [{ offset: 0, source }];

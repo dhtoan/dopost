@@ -1,17 +1,19 @@
 # Maintainer diagnostics
 
-Self-hosted instances send privacy-limited diagnostic reports to OpenPost so crashes and failed operations can be fixed for every deployment, not just Hosted. This channel is separate from product analytics: an operator's own PostHog project stays theirs, and diagnostic reports never carry user identities, sessions, or product events.
+Self-hosted instances send privacy-limited diagnostic reports to dopost so crashes and failed operations can be fixed for every deployment, not just Hosted. This channel is separate from product analytics: an operator's own PostHog project stays theirs, and diagnostic reports never carry user identities, sessions, or product events.
 
 ## Defaults and opt-out
 
 Reporting is **on by default**. Instances report to the official receiver at `https://app.openpo.st/api/v1/diagnostics/ingest` unless the operator overrides it. To opt out completely:
 
 ```dotenv
-# Prevent diagnostic reports from being sent to OpenPost.
+# Prevent diagnostic reports from being sent to dopost.
 OPENPOST_DIAGNOSTICS_ENABLED=false
 ```
 
-The environment disable always wins, stops sending, and clears pending reports. Upgrading OpenPost activates this channel where previous versions sent nothing; the change is called out in the release notes. Browser reports additionally stop when Do Not Track or Global Privacy Control is set, regardless of the instance switch.
+Application browser test servers explicitly disable diagnostics and product telemetry. Maintainer diagnostics tests deliver to local HTTP receivers.
+
+The environment disable always wins, stops sending, and clears pending reports. Upgrading dopost activates this channel where previous versions sent nothing; the change is called out in the release notes. Browser reports additionally stop when Do Not Track or Global Privacy Control is set, regardless of the instance switch.
 
 ## What is reported
 
@@ -19,9 +21,18 @@ Reports answer "what broke, in which build, under what technical conditions":
 
 - release and revision, browser/backend/worker surface, operation (route template, job type, or normalized location)
 - normalized error code (`api_5xx`, `http_panic`, `worker_failed`, `publish_failed`, `media_failed`, `export_failed`, `startup_failed`, `browser_uncaught`, `browser_unhandled_rejection`, provider outage codes)
-- provider (allowlisted platforms only), HTTP status, retry/attempt counts, database/storage drivers, sanitized stack frames, occurrence counts
+- provider (allowlisted platforms only), HTTP method and status, retry/attempt counts, database/storage drivers, sanitized stack frames, occurrence counts
+- known error types, such as a deadline, DNS failure, refused connection, missing file, browser TypeError, or exhausted browser storage. Unknown errors omit this field.
 
-Reports never contain user or workspace identities, post text, prompts, media URLs, credentials, raw provider responses, instance domains, request/response bodies, cookies, headers, or client IPs. Payloads are built from an allowlist; unknown fields are rejected. Browser failures arrive as codes and app-relative locations only, never message text.
+Reports never contain user or workspace identities, post text, prompts, media URLs, credentials, raw provider responses, instance domains, request/response bodies, cookies, headers, or client IPs. Payloads are built from an allowlist; unknown fields are rejected. Browser reports include known error types and up to 24 compiled app script locations, without function names or message text. When no script location exists, they use a route template, without project IDs or usernames.
+
+Known error types are recovered from typed errors, without reading their messages. A handler that writes a 5xx response without returning an error supplies only its HTTP method and status. The absence of an error type does not mean the request had no underlying error.
+
+## Investigate a report
+
+Compare the report's build with the current release and inspect changes since that version. Match its operation and UTC observation time against the reporting operator's local logs. Ask for the full local stack or error privately when the report lacks a known error type or points only to a route. An installation ID cannot identify its operator or grant access to their logs.
+
+Counts show reporting installations with failures, not people or total self-hosted use. Quiet installations, opted-out installations, and failed deliveries are absent; one operator may run several installations.
 
 These are privacy-limited reports, not anonymous telemetry: each installation generates a random installation ID, and the receiving infrastructure observes the connecting server's IP.
 
@@ -40,9 +51,9 @@ Delivery never blocks application work: bounded in-memory queue, short timeouts,
 ## Configuration
 
 ```dotenv
-# Send diagnostic reports to OpenPost. On by default.
+# Send diagnostic reports to dopost. On by default.
 OPENPOST_DIAGNOSTICS_ENABLED=true
-# Receiver endpoint. Defaults to the official OpenPost receiver.
+# Receiver endpoint. Defaults to the official dopost receiver.
 OPENPOST_DIAGNOSTICS_RECEIVER_URL=https://app.openpo.st/api/v1/diagnostics/ingest
 # Installation identity file. The release container defaults this to the
 # persistent /data volume; standalone installs may override the path.
@@ -59,7 +70,7 @@ Use the `_FILE` companions (`OPENPOST_DIAGNOSTICS_DISCORD_WEBHOOK_URL_FILE`) for
 
 ## The official receiver
 
-`POST /api/v1/diagnostics/ingest` accepts reports from any OpenPost instance when `OPENPOST_DIAGNOSTICS_INGEST_ENABLED=true`. It is unauthenticated by design (reporting instances hold no account here); protection comes from strict schema validation, a 16 KB body cap, per-installation hourly quotas, a global per-minute cap, and bounded Discord delivery. Accepted reports are forwarded to the maintainer Discord channel as embeds with the code, operation, build, occurrence count, and sanitized frames.
+`POST /api/v1/diagnostics/ingest` accepts reports from any dopost instance when `OPENPOST_DIAGNOSTICS_INGEST_ENABLED=true`. It is unauthenticated by design (reporting instances hold no account here); protection comes from strict schema validation, a 16 KB body cap, per-installation hourly quotas, a global per-minute cap, and bounded Discord delivery. Accepted reports are forwarded to the maintainer Discord channel as embeds with the code, operation, build, occurrence count, and sanitized frames.
 
 ## User feedback
 

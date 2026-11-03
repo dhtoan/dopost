@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyImageGradePixels, imageAdjustmentsToGradeEffects } from './image-grade';
+import { applyImageGradePixels, editorColorGradeAdjustmentsToEffects } from './image-grade';
 
 const neutralGrade = {
 	brightness: 0,
@@ -29,7 +29,7 @@ describe('versioned still-image color grade', () => {
 			shadows: 0.15,
 			blur: 0.6
 		};
-		expect(imageAdjustmentsToGradeEffects(adjustments)).toEqual([
+		expect(editorColorGradeAdjustmentsToEffects(adjustments)).toEqual([
 			{ effectId: 'gpu-brightness', params: { amount: 0.1 } },
 			{
 				effectId: 'gpu-exposure',
@@ -55,7 +55,11 @@ describe('versioned still-image color grade', () => {
 	});
 
 	it('omits neutral color operations and the Fabric-owned blur control', () => {
-		expect(imageAdjustmentsToGradeEffects(neutralGrade)).toEqual([]);
+		expect(editorColorGradeAdjustmentsToEffects(neutralGrade)).toEqual([]);
+		// Fabric owns blur for still images, so a non-zero blur must not reach
+		// the shared color pipeline.
+		const imageAdjustments = { ...neutralGrade, blur: 0.6 };
+		expect(editorColorGradeAdjustmentsToEffects(imageAdjustments)).toEqual([]);
 	});
 
 	it('keeps alpha unchanged in the deterministic CPU fallback', () => {
@@ -68,6 +72,28 @@ describe('versioned still-image color grade', () => {
 		const pixels = new Uint8ClampedArray([0, 0, 0, 17, 255, 255, 255, 23]);
 		applyImageGradePixels(pixels, { ...neutralGrade, shadows: 0.1, highlights: -0.2 });
 		expect([...pixels]).toEqual([26, 26, 26, 17, 204, 204, 204, 23]);
+	});
+
+	it('clips and rounds between consecutive tone adjustments', () => {
+		const pixels = new Uint8ClampedArray([240, 5, 128, 7]);
+		applyImageGradePixels(pixels, { ...neutralGrade, brightness: 0.2, contrast: -0.5 });
+		// Brightness first produces [255, 56, 179]. Contrast acts on those bytes,
+		// including the clipped red channel, rather than the unbounded values.
+		expect([...pixels]).toEqual([191, 92, 153, 7]);
+	});
+
+	it('preserves effect order across tone and channel-mixing adjustments', () => {
+		const pixels = new Uint8ClampedArray([240, 5, 128, 7]);
+		applyImageGradePixels(pixels, {
+			...neutralGrade,
+			brightness: 0.2,
+			saturation: -1,
+			temperature: 0.2,
+			tint: 0.4
+		});
+		// The brightened channels have BT.601 luma 129.523, rounded to 130.
+		// Temperature and tint then change red by +10.2 and green by -10.2.
+		expect([...pixels]).toEqual([140, 120, 130, 7]);
 	});
 });
 

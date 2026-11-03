@@ -1,17 +1,26 @@
 <script lang="ts">
+	import { inspectImageEditorMediaAnimation } from '../media-ingestion';
+	import {
+		captureQueryMutationSession,
+		queryMutationSessionIsCurrent
+	} from '$lib/query/authorization-boundary';
+	import { imageEditorErrorMessage } from '$lib/image-editor/animation-error-message';
 	import { onDestroy, tick } from 'svelte';
+	import EditorColorMagnifier from '$lib/components/editor-color-magnifier.svelte';
 	import {
 		SCOPE_CAPTURE_INTERVAL_PAUSED_MS,
 		SCOPE_SAMPLE_SIZE_PAUSED
 	} from '$lib/editor-color-grade/scopes';
 	import { SvelteMap } from 'svelte/reactivity';
 	import { Button } from '$lib/components/ui/button';
+	import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
 	import { Slider } from '$lib/components/ui/slider';
 	import { ProtectedIcon } from '$lib/themes/icons';
 	import type { ProtectedIconRole } from '$lib/themes/icons/protected-icon.js';
 	import AppSelect from '$lib/components/app-select.svelte';
 	import { OpenPostFabricAdapter, type ImageEditorPixelGrid } from '../fabric-adapter';
 	import { useImageEditor } from '../editor.svelte';
+	import CanvasLayerPicker from './canvas-layer-picker.svelte';
 	import PaintColorControls from './paint-color-controls.svelte';
 	import { m } from '$lib/paraglide/messages';
 	import { startImageEditorMetric } from '../telemetry';
@@ -20,6 +29,7 @@
 		intersectPixelMasks,
 		normalizeSelectionBounds,
 		pixelMaskContainsPoint,
+		pixelMaskBounds,
 		polygonPixelMask,
 		rectanglePixelMask,
 		type SelectionBounds,
@@ -40,13 +50,7 @@
 	} from '../media-drag';
 	import { imageEditorDocumentPoint, panForZoomAnchor } from '../viewport';
 	import { ImageEditorMagicScan, MAXIMUM_MAGIC_SCAN_PIXELS } from '../magic-scan';
-	import {
-		applyImageEditorCropWindow,
-		imageEditorCropWindowForAspect,
-		normalizeImageEditorCropWindow,
-		resetImageEditorCrop,
-		type ImageEditorCropWindow
-	} from '../crop';
+	import { ImageEditorCropSession, type CropHandle } from '../crop-session.svelte';
 	import type { ImageEditorLayer } from '../types';
 
 	let {
@@ -67,13 +71,15 @@
 		copy(): ImageEditorLayer[];
 		begin(mode: 'promote' | 'cut'): boolean;
 		delete(): boolean;
+		loadLayerAlpha(): boolean;
 	}
 
 	type AreaSelectionTool = Extract<
 		ImageEditorSelectionTool,
-		'marquee' | 'ellipse_marquee' | 'lasso'
+		'marquee' | 'ellipse_marquee' | 'lasso' | 'polygonal_lasso'
 	>;
-	type CanvasGestureTool = AreaSelectionTool | 'select' | 'pencil' | 'eraser' | 'gradient';
+	type DragAreaSelectionTool = Exclude<AreaSelectionTool, 'polygonal_lasso'>;
+	type CanvasGestureTool = DragAreaSelectionTool | 'select' | 'pencil' | 'eraser' | 'gradient';
 	interface SelectionGesture {
 		tool: CanvasGestureTool;
 		pointerID: number;
@@ -83,13 +89,24 @@
 		mode: ImageEditorSelectionMode;
 		targetLayerID?: string;
 		originalSelection?: Uint8Array;
+		originalSelectionBounds?: SelectionBounds | null;
+	}
+	interface PolygonalSelection {
+		points: SelectionPoint[];
+		current: SelectionPoint;
+		mode: ImageEditorSelectionMode;
+		targetLayerIDs: string[];
+		pageID: string;
 	}
 
 	const editor = useImageEditor();
+	const ingestionAbort = new AbortController();
+	onDestroy(() => ingestionAbort.abort());
 	const magicScan = new ImageEditorMagicScan();
 	const GRID_BACKGROUND_IMAGE =
 		'linear-gradient(to right, rgb(249 115 22 / 0.22) 1px, transparent 1px), linear-gradient(to bottom, rgb(249 115 22 / 0.22) 1px, transparent 1px)';
 	const SELECTION_OUTLINE_TILE_SIZE = 512;
+	const PINCH_ZOOM_SENSITIVITY = 0.0025;
 	let canvasElement = $state<HTMLCanvasElement>();
 	let viewport = $state<HTMLDivElement>();
 	let stageElement = $state<HTMLDivElement>();
@@ -109,7 +126,11 @@
 		if (!context) return;
 		context.drawImage(pending.source, 0, 0, width, height);
 		lastScopeAt = performance.now();
-		editor.colorScopeSample = { source: sample, itemId: pending.itemId, image: null };
+		editor.colorScopeSample = {
+			source: sample,
+			itemId: pending.itemId,
+			image: null
+		};
 	}
 	function scheduleScope(source: HTMLCanvasElement, itemId: string) {
 		pendingScope = { source, itemId };
@@ -131,7 +152,9 @@
 	let spacePressed = $state(false);
 	let lastAutoEditingLayerID = '';
 	let panning = $state(false);
+	let zoomGesture: { pointerID: number; x: number; y: number } | null = null;
 	let selectionGesture = $state<SelectionGesture | null>(null);
+	let polygonalSelection = $state<PolygonalSelection | null>(null);
 	let magicPulse = $state<SelectionPoint | null>(null);
 	let eyedropperPreview = $state.raw<{
 		point: SelectionPoint;
@@ -149,6 +172,15 @@
 		value: number;
 	} | null>(null);
 	let canvasAnnouncement = $state('');
+	const crop = new ImageEditorCropSession({
+		editor,
+		adapter: () => adapter,
+		documentPoint,
+		capturePointer,
+		announce: (message) => {
+			canvasAnnouncement = message;
+		}
+	});
 	let selectionOverlay = $state<HTMLCanvasElement>();
 	let magicPulseTimer: ReturnType<typeof setTimeout> | undefined;
 	let eyedropperFrame: number | undefined;
@@ -156,62 +188,63 @@
 	let eyedropperPointerID = -1;
 	let stylusPointerID = -1;
 	let mediaDropActive = $state(false);
-	let layerPicker = $state.raw<{ point: SelectionPoint; layerIDs: string[] } | null>(null);
-	let layerCycleGesture = $state.raw<{
-		pointerID: number;
-		clientX: number;
-		clientY: number;
-		layerIDs: string[];
-	} | null>(null);
+	let layerPickerRef:
+		| {
+				open: (event: MouseEvent) => void;
+				cycleStart: (event: PointerEvent) => void;
+				cycleFinish: (event: PointerEvent) => void;
+				cycleCancel: () => void;
+				dismiss: () => boolean;
+		  }
+		| undefined = $state();
 	let magicScanBusy = $state(false);
 	let magicScanProgress = $state(0);
 	let magicScanError = $state('');
 	let magicScanAbort: AbortController | null = null;
-	let magicPreviewMask = $state.raw<{ width: number; height: number; data: Uint8Array } | null>(
-		null
-	);
+	let magicPreviewMask = $state.raw<{
+		width: number;
+		height: number;
+		data: Uint8Array;
+	} | null>(null);
 	type FloatingTransformHandle = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw' | 'rotate';
 	let floatingTransformGesture = $state.raw<{
 		pointerID: number;
 		handle: FloatingTransformHandle;
 		point: SelectionPoint;
 	} | null>(null);
-	const FULL_CROP_WINDOW: ImageEditorCropWindow = { x: 0, y: 0, width: 1, height: 1 };
-	let cropWindow = $state.raw<ImageEditorCropWindow>({ ...FULL_CROP_WINDOW });
-	let cropSourceWindow = $state.raw<ImageEditorCropWindow>({ ...FULL_CROP_WINDOW });
-	let cropAspect = $state('free');
-	let cropMode = $state<'frame' | 'content'>('frame');
-	let cropRotationDelta = $state(0);
-	let cropFlipX = $state(false);
-	let cropFlipY = $state(false);
-	let cropBaseLayer = $state.raw<ImageEditorLayer | null>(null);
-	let cropGesture = $state.raw<{
-		pointerID: number;
-		handle: CropHandle;
-		start: SelectionPoint;
-		origin: ImageEditorCropWindow;
-		sourceOrigin: ImageEditorCropWindow;
-	} | null>(null);
 	let mediaDragDepth = 0;
 	let panStart = { x: 0, y: 0, panX: 0, panY: 0 };
 	const touchPointers = new SvelteMap<number, { x: number; y: number }>();
-	let pinchStart = { distance: 0, zoom: 1, centerX: 0, centerY: 0, panX: 0, panY: 0 };
-	type CropHandle = 'move' | 'content' | 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw';
-
-	let cropLayer = $derived(
-		editor.activeTool === 'crop'
-			? (editor.selectedLayers.find((layer) => layer.type === 'image' && !layer.locked) ?? null)
-			: null
-	);
-	let cropPreviewLayer = $derived.by(() => createCropPreviewLayer());
+	let pinchStart = {
+		distance: 0,
+		zoom: 1,
+		centerX: 0,
+		centerY: 0,
+		panX: 0,
+		panY: 0
+	};
 
 	function attachCanvas(node: HTMLCanvasElement) {
 		canvasElement = node;
 		let disposed = false;
 		let mountedAdapter: OpenPostFabricAdapter | null = null;
 		let resize: ResizeObserver | null = null;
+		let resizeFrame = 0;
+		let scheduleViewportResize = () => {};
 		void (async () => {
 			await tick();
+			// The viewport node, document and page can attach after the canvas
+			// during the same mount. Waiting keeps the editor from getting stuck
+			// on the "Preparing canvas" state with no error and no retry.
+			let attempts = 0;
+			while (!(viewport && editor.document && editor.activePage)) {
+				if (disposed) return;
+				if (attempts++ >= 240) {
+					canvasError = m.image_editor_canvas_failed();
+					return;
+				}
+				await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+			}
 			const viewportElement = viewport;
 			if (!viewportElement || !editor.document || !editor.activePage) return;
 			canvasError = '';
@@ -232,14 +265,19 @@
 				onAltDuplicate(entries) {
 					editor.duplicateSelectedAtTransforms(entries);
 				},
-				onTextChange(id, text) {
+				onTextChange(id, text, edit) {
 					const layer = editor.activePage?.layers.find((item) => item.id === id);
-					if (!layer?.text || layer.text.text === text) return;
-					editor.updateLayer(id, { text: { ...layer.text, text } }, `text:${id}`);
+					if (!layer?.text || layer.text.text === text) return layer?.text;
+					const next = editor.updateTextContent(id, text, edit);
 					canvasOriginDocument = editor.document;
+					return next;
+				},
+				onTextSelectionChange(id, start, end) {
+					editor.setTextRange(id, start, end);
 				},
 				onTextEditingChange(editing) {
 					textEditing = editing;
+					if (!editing) scheduleViewportResize();
 				},
 				onImageDimensions(id, width, height) {
 					editor.resolveImageDimensions(id, width, height);
@@ -267,22 +305,32 @@
 				ready = true;
 				let viewportWidth = viewportElement.clientWidth;
 				let viewportHeight = viewportElement.clientHeight;
-				resize = new ResizeObserver(() => {
-					if (textEditing) return;
-					const nextWidth = viewportElement.clientWidth;
-					const nextHeight = viewportElement.clientHeight;
-					editor.setViewportSize(nextWidth, nextHeight);
-					if (
-						Math.abs(nextWidth - viewportWidth) > 32 ||
-						Math.abs(nextHeight - viewportHeight) > 32
-					) {
-						viewportWidth = nextWidth;
-						viewportHeight = nextHeight;
-						editor.fitZoom(nextWidth, nextHeight);
-						editor.panX = 0;
-						editor.panY = 0;
-					}
-				});
+				scheduleViewportResize = () => {
+					if (disposed || resizeFrame) return;
+					// Coalesce bursts into one frame and skip unchanged sizes: writing
+					// viewport state re-renders the canvas, which would otherwise
+					// re-notify the observer in the same frame (ResizeObserver loop).
+					resizeFrame = requestAnimationFrame(() => {
+						resizeFrame = 0;
+						const nextWidth = viewportElement.clientWidth;
+						const nextHeight = viewportElement.clientHeight;
+						editor.setViewportSize(nextWidth, nextHeight);
+						if (nextWidth === viewportWidth && nextHeight === viewportHeight) return;
+						// Keep explicit Fit current, but defer automatic zoom until typing ends.
+						if (textEditing) return;
+						if (
+							Math.abs(nextWidth - viewportWidth) > 32 ||
+							Math.abs(nextHeight - viewportHeight) > 32
+						) {
+							viewportWidth = nextWidth;
+							viewportHeight = nextHeight;
+							editor.fitZoom(nextWidth, nextHeight);
+							editor.panX = 0;
+							editor.panY = 0;
+						}
+					});
+				};
+				resize = new ResizeObserver(scheduleViewportResize);
 				resize.observe(viewportElement);
 				finishMetric();
 			} catch {
@@ -293,6 +341,8 @@
 		})();
 		return () => {
 			disposed = true;
+			if (resizeFrame) cancelAnimationFrame(resizeFrame);
+			resizeFrame = 0;
 			resize?.disconnect();
 			mountedAdapter?.dispose();
 			if (adapter === mountedAdapter) adapter = null;
@@ -342,13 +392,20 @@
 	$effect(() => {
 		const document = editor.document;
 		const page = editor.activePage;
+		const animation = {
+			timeMs: editor.animationTimeMs,
+			frameOverrides: editor.animationFrameOverrides
+		};
 		if (!adapter || !document || !page) return;
 		if (document === canvasOriginDocument) {
 			canvasOriginDocument = null;
 			adapter.accept(document, page);
 			return;
 		}
-		void adapter.sync(document, page);
+		void adapter.sync(document, page, animation).catch((cause) => {
+			if (!(cause instanceof DOMException && cause.name === 'AbortError'))
+				canvasError = imageEditorErrorMessage(cause) ?? m.image_editor_canvas_failed();
+		});
 	});
 
 	$effect(() => {
@@ -369,11 +426,11 @@
 	});
 
 	$effect(() => {
-		const sessionID = cropBaseLayer?.id;
-		const activeID = cropLayer?.id;
+		const sessionID = crop.baseLayer?.id;
+		const activeID = crop.layer?.id;
 		if (!sessionID || (editor.activeTool === 'crop' && activeID === sessionID)) return;
 		adapter?.previewImageLayer(sessionID);
-		resetCropSessionState();
+		crop.resetSession();
 	});
 
 	$effect(() => {
@@ -452,11 +509,15 @@
 
 	function isAreaSelectionTool(tool = editor.activeTool): tool is AreaSelectionTool | 'magic_wand' {
 		return (
-			tool === 'marquee' || tool === 'ellipse_marquee' || tool === 'lasso' || tool === 'magic_wand'
+			tool === 'marquee' ||
+			tool === 'ellipse_marquee' ||
+			tool === 'lasso' ||
+			tool === 'polygonal_lasso' ||
+			tool === 'magic_wand'
 		);
 	}
 
-	function isDragSelectionTool(tool = editor.activeTool): tool is AreaSelectionTool {
+	function isDragSelectionTool(tool = editor.activeTool): tool is DragAreaSelectionTool {
 		return tool === 'marquee' || tool === 'ellipse_marquee' || tool === 'lasso';
 	}
 
@@ -468,7 +529,8 @@
 			editor.activeTool === 'magic_eraser' ||
 			editor.activeTool === 'bucket' ||
 			editor.activeTool === 'gradient' ||
-			editor.activeTool === 'eyedropper'
+			editor.activeTool === 'eyedropper' ||
+			editor.activeTool === 'zoom'
 		);
 	}
 
@@ -518,22 +580,22 @@
 		const current = eyedropperKeyboardCursor ??
 			eyedropperPreview?.point ??
 			cursorPoint ?? {
-				x: Math.floor(editor.document.width_px / 2),
-				y: Math.floor(editor.document.height_px / 2)
+				x: Math.floor(editor.activePageDimensions.width / 2),
+				y: Math.floor(editor.activePageDimensions.height / 2)
 			};
 		const step = event.shiftKey ? 10 : 1;
 		const point = {
 			x: Math.max(
 				0,
 				Math.min(
-					editor.document.width_px - 1,
+					editor.activePageDimensions.width - 1,
 					current.x + (event.key === 'ArrowLeft' ? -step : event.key === 'ArrowRight' ? step : 0)
 				)
 			),
 			y: Math.max(
 				0,
 				Math.min(
-					editor.document.height_px - 1,
+					editor.activePageDimensions.height - 1,
 					current.y + (event.key === 'ArrowUp' ? -step : event.key === 'ArrowDown' ? step : 0)
 				)
 			)
@@ -541,20 +603,6 @@
 		eyedropperKeyboardCursor = point;
 		sampleEyedropper(point, false);
 		return true;
-	}
-
-	function eyedropperPixelColor(grid: ImageEditorPixelGrid, index: number): string {
-		const offset = index * 4;
-		return `rgba(${grid.data[offset] ?? 0}, ${grid.data[offset + 1] ?? 0}, ${grid.data[offset + 2] ?? 0}, ${(grid.data[offset + 3] ?? 0) / 255})`;
-	}
-
-	function eyedropperMagnifierOffset(point: SelectionPoint): SelectionPoint {
-		const document = editor.document;
-		if (!document) return { x: 14, y: 14 };
-		return {
-			x: point.x > document.width_px / 2 ? -78 : 14,
-			y: point.y > document.height_px / 2 ? -78 : 14
-		};
 	}
 
 	function pixelContentProjections(): Array<{
@@ -582,8 +630,12 @@
 			.filter(
 				(
 					projection
-				): projection is { id: string; width: number; height: number; data: Uint8Array } =>
-					Boolean(projection)
+				): projection is {
+					id: string;
+					width: number;
+					height: number;
+					data: Uint8Array;
+				} => Boolean(projection)
 			);
 	}
 
@@ -600,6 +652,21 @@
 					: m.image_editor_floating_pixels_help();
 		}
 		return changed;
+	}
+
+	function loadSelectedLayerAlpha(): boolean {
+		const document = editor.document;
+		const id = editor.selectedLayerIDs.at(-1);
+		const layer = editor.activePage?.layers.find((candidate) => candidate.id === id);
+		if (!document || !id || !layer || editor.isLayerLocked(id) || !adapter) return false;
+		const mask = adapter.layerAlphaPixelMask(
+			id,
+			editor.activePageDimensions.width,
+			editor.activePageDimensions.height
+		);
+		if (!mask) return false;
+		editor.applyPixelSelection(mask, [id], 'replace');
+		return true;
 	}
 
 	function commitFloatingPixels(): boolean {
@@ -638,7 +705,10 @@
 	): boolean {
 		const bounds = editor.floatingPixelSelectionBounds;
 		if (!bounds) return false;
-		const center = { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 };
+		const center = {
+			x: bounds.x + bounds.width / 2,
+			y: bounds.y + bounds.height / 2
+		};
 		if (handle === 'rotate') {
 			const startAngle = Math.atan2(start.y - center.y, start.x - center.x);
 			const nextAngle = Math.atan2(point.y - center.y, point.x - center.x);
@@ -733,411 +803,36 @@
 	const pixelSelectionActions: PixelSelectionActions = {
 		copy: () => editor.extractPixelSelectionLayers(pixelContentProjections()),
 		begin: (mode) => commitPixelContent(mode),
-		delete: () => commitPixelContent('delete')
+		delete: () => commitPixelContent('delete'),
+		loadLayerAlpha: loadSelectedLayerAlpha
 	};
+
+	$effect(() => {
+		if (
+			editor.activeTool !== 'polygonal_lasso' ||
+			(polygonalSelection && polygonalSelection.pageID !== editor.activePageID)
+		) {
+			polygonalSelection = null;
+		}
+	});
 
 	$effect(() => {
 		registerPixelSelectionActions?.(pixelSelectionActions);
 		return () => registerPixelSelectionActions?.(null);
 	});
 
-	function cropSessionLayer(): ImageEditorLayer | null {
-		if (!cropLayer?.image) return null;
-		return cropBaseLayer?.id === cropLayer.id ? cropBaseLayer : cropLayer;
-	}
-
-	function ensureCropSession(): ImageEditorLayer | null {
-		if (!cropLayer?.image) return null;
-		if (cropBaseLayer?.id === cropLayer.id) return cropBaseLayer;
-		if (cropBaseLayer) adapter?.previewImageLayer(cropBaseLayer.id);
-		resetCropSessionState();
-		cropBaseLayer = structuredClone(cropLayer);
-		return cropBaseLayer;
-	}
-
-	function normalizeRotation(rotation: number): number {
-		const normalized = ((((rotation + 180) % 360) + 360) % 360) - 180;
-		return Object.is(normalized, -0) ? 0 : normalized;
-	}
-
-	function createCropPreviewLayer(): ImageEditorLayer | null {
-		const base = cropSessionLayer();
-		if (!base?.image) return null;
-		const result = applyImageEditorCropWindow(base, cropWindow, cropSourceWindow);
-		return {
-			...structuredClone(base),
-			transform: {
-				...result.transform,
-				rotation: normalizeRotation(base.transform.rotation + cropRotationDelta),
-				flip_x: base.transform.flip_x !== cropFlipX,
-				flip_y: base.transform.flip_y !== cropFlipY
-			},
-			image: { ...structuredClone(base.image), crop: result.crop }
-		};
-	}
-
-	function previewCrop(): void {
-		const preview = createCropPreviewLayer();
-		if (preview) adapter?.previewImageLayer(preview.id, preview);
-	}
-
-	function resetCropSessionState(): void {
-		cropGesture = null;
-		cropWindow = { ...FULL_CROP_WINDOW };
-		cropSourceWindow = { ...FULL_CROP_WINDOW };
-		cropAspect = 'free';
-		cropMode = 'frame';
-		cropRotationDelta = 0;
-		cropFlipX = false;
-		cropFlipY = false;
-		cropBaseLayer = null;
-	}
-
-	function cropPointDelta(start: SelectionPoint, current: SelectionPoint): SelectionPoint {
-		const base = cropSessionLayer();
-		const preview = createCropPreviewLayer();
-		if (!base || !preview) return { x: 0, y: 0 };
-		const deltaX = current.x - start.x;
-		const deltaY = current.y - start.y;
-		const radians = (-preview.transform.rotation * Math.PI) / 180;
-		return {
-			x:
-				(deltaX * Math.cos(radians) - deltaY * Math.sin(radians)) /
-				Math.max(1, base.transform.width),
-			y:
-				(deltaX * Math.sin(radians) + deltaY * Math.cos(radians)) /
-				Math.max(1, base.transform.height)
-		};
-	}
-
-	function updateCropWindow(
-		origin: ImageEditorCropWindow,
-		handle: CropHandle,
-		delta: SelectionPoint
-	): ImageEditorCropWindow {
-		if (handle === 'move') {
-			return {
-				...origin,
-				x: Math.max(0, Math.min(1 - origin.width, origin.x + delta.x)),
-				y: Math.max(0, Math.min(1 - origin.height, origin.y + delta.y))
-			};
-		}
-		let left = origin.x;
-		let top = origin.y;
-		let right = origin.x + origin.width;
-		let bottom = origin.y + origin.height;
-		if (handle.includes('w')) left += delta.x;
-		if (handle.includes('e')) right += delta.x;
-		if (handle.includes('n')) top += delta.y;
-		if (handle.includes('s')) bottom += delta.y;
-		const minimum = 0.005;
-		left = Math.max(0, Math.min(right - minimum, left));
-		top = Math.max(0, Math.min(bottom - minimum, top));
-		right = Math.min(1, Math.max(left + minimum, right));
-		bottom = Math.min(1, Math.max(top + minimum, bottom));
-		return normalizeImageEditorCropWindow({
-			x: left,
-			y: top,
-			width: right - left,
-			height: bottom - top
-		});
-	}
-
-	function snapCropWindow(
-		window: ImageEditorCropWindow,
-		handle: Exclude<CropHandle, 'content'>,
-		event: Pick<PointerEvent, 'ctrlKey' | 'metaKey'>
-	): ImageEditorCropWindow {
-		const base = cropSessionLayer();
-		if (!base || !editor.snappingEnabled || event.ctrlKey || event.metaKey) {
-			adapter?.clearSnappingGuides();
-			return window;
-		}
-		const result = applyImageEditorCropWindow(base, window, window);
-		const rotation = normalizeRotation(base.transform.rotation + cropRotationDelta);
-		const quarterTurns = Math.round(rotation / 90);
-		if (Math.abs(rotation - quarterTurns * 90) > 0.01) {
-			adapter?.clearSnappingGuides();
-			return window;
-		}
-		const transform = { ...result.transform, rotation };
-		const local = {
-			x: handle.includes('w') ? 0 : handle.includes('e') ? transform.width : transform.width / 2,
-			y: handle.includes('n') ? 0 : handle.includes('s') ? transform.height : transform.height / 2
-		};
-		const radians = (rotation * Math.PI) / 180;
-		const center = {
-			x: transform.x + transform.width / 2,
-			y: transform.y + transform.height / 2
-		};
-		const point = {
-			x:
-				center.x +
-				(local.x - transform.width / 2) * Math.cos(radians) -
-				(local.y - transform.height / 2) * Math.sin(radians),
-			y:
-				center.y +
-				(local.x - transform.width / 2) * Math.sin(radians) +
-				(local.y - transform.height / 2) * Math.cos(radians)
-		};
-		const rotatedSide = Math.abs(quarterTurns) % 2 === 1;
-		const axes =
-			handle === 'move' || handle.length === 2
-				? 'both'
-				: handle === 'e' || handle === 'w'
-					? rotatedSide
-						? 'y'
-						: 'x'
-					: rotatedSide
-						? 'x'
-						: 'y';
-		const snapped = adapter?.snapDocumentPoint(point, {
-			axes,
-			excludeLayerIDs: [base.id]
-		});
-		if (!snapped || (snapped.guideX === null && snapped.guideY === null)) return window;
-		const worldDelta = {
-			x: snapped.point.x - point.x,
-			y: snapped.point.y - point.y
-		};
-		const localDelta = {
-			x:
-				(worldDelta.x * Math.cos(-radians) - worldDelta.y * Math.sin(-radians)) /
-				Math.max(1, base.transform.width),
-			y:
-				(worldDelta.x * Math.sin(-radians) + worldDelta.y * Math.cos(-radians)) /
-				Math.max(1, base.transform.height)
-		};
-		return updateCropWindow(window, handle, localDelta);
-	}
-
-	function sourceWindowForFrame(
-		originFrame: ImageEditorCropWindow,
-		originSource: ImageEditorCropWindow,
-		nextFrame: ImageEditorCropWindow
-	): ImageEditorCropWindow {
-		return {
-			x: Math.max(0, Math.min(1 - nextFrame.width, nextFrame.x + originSource.x - originFrame.x)),
-			y: Math.max(0, Math.min(1 - nextFrame.height, nextFrame.y + originSource.y - originFrame.y)),
-			width: nextFrame.width,
-			height: nextFrame.height
-		};
-	}
-
-	function moveCropSource(
-		origin: ImageEditorCropWindow,
-		delta: SelectionPoint
-	): ImageEditorCropWindow {
-		const preview = createCropPreviewLayer();
-		const horizontal = preview?.transform.flip_x ? delta.x : -delta.x;
-		const vertical = preview?.transform.flip_y ? delta.y : -delta.y;
-		return {
-			...origin,
-			x: Math.max(0, Math.min(1 - origin.width, origin.x + horizontal)),
-			y: Math.max(0, Math.min(1 - origin.height, origin.y + vertical))
-		};
-	}
-
-	function startCrop(event: PointerEvent, handle: CropHandle): void {
-		const point = documentPoint(event, 'allow');
-		if (!point || !ensureCropSession() || event.button !== 0) return;
-		event.preventDefault();
-		event.stopPropagation();
-		cropGesture = {
-			pointerID: event.pointerId,
-			handle,
-			start: point,
-			origin: { ...cropWindow },
-			sourceOrigin: { ...cropSourceWindow }
-		};
-		capturePointer(event.currentTarget, event.pointerId);
-	}
-
-	function moveCrop(event: PointerEvent): void {
-		if (!cropGesture || cropGesture.pointerID !== event.pointerId || !cropSessionLayer()) return;
-		const point = documentPoint(event, 'allow');
-		if (!point) return;
-		const delta = cropPointDelta(cropGesture.start, point);
-		if (cropGesture.handle === 'content') {
-			adapter?.clearSnappingGuides();
-			cropSourceWindow = moveCropSource(cropGesture.sourceOrigin, delta);
-		} else {
-			const unsnappedWindow = updateCropWindow(cropGesture.origin, cropGesture.handle, delta);
-			const nextWindow = snapCropWindow(unsnappedWindow, cropGesture.handle, event);
-			cropSourceWindow = sourceWindowForFrame(
-				cropGesture.origin,
-				cropGesture.sourceOrigin,
-				nextWindow
-			);
-			cropWindow = nextWindow;
-			cropAspect = 'free';
-		}
-		previewCrop();
-		event.preventDefault();
-		event.stopPropagation();
-	}
-
-	function stopCrop(event: PointerEvent): void {
-		if (!cropGesture || cropGesture.pointerID !== event.pointerId) return;
-		cropGesture = null;
-		adapter?.clearSnappingGuides();
-		if (
-			event.currentTarget instanceof HTMLElement &&
-			event.currentTarget.hasPointerCapture(event.pointerId)
-		) {
-			event.currentTarget.releasePointerCapture(event.pointerId);
-		}
-		event.preventDefault();
-		event.stopPropagation();
-	}
-
-	function nudgeCrop(event: KeyboardEvent, handle: CropHandle): void {
-		const base = ensureCropSession();
-		if (!base || !['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) return;
-		event.preventDefault();
-		event.stopPropagation();
-		const pixels = event.shiftKey ? 10 : 1;
-		const delta = {
-			x:
-				event.key === 'ArrowLeft'
-					? -pixels / Math.max(1, base.transform.width)
-					: event.key === 'ArrowRight'
-						? pixels / Math.max(1, base.transform.width)
-						: 0,
-			y:
-				event.key === 'ArrowUp'
-					? -pixels / Math.max(1, base.transform.height)
-					: event.key === 'ArrowDown'
-						? pixels / Math.max(1, base.transform.height)
-						: 0
-		};
-		if (handle === 'content') {
-			cropSourceWindow = moveCropSource(cropSourceWindow, delta);
-		} else {
-			const nextWindow = updateCropWindow(cropWindow, handle, delta);
-			cropSourceWindow = sourceWindowForFrame(cropWindow, cropSourceWindow, nextWindow);
-			cropWindow = nextWindow;
-			cropAspect = 'free';
-		}
-		previewCrop();
-	}
-
-	function setCropAspect(value: string): void {
-		cropAspect = value;
-		const base = ensureCropSession();
-		if (!base?.image || value === 'free') return;
-		const aspect =
-			value === 'original'
-				? base.image.source_width / Math.max(1, base.image.source_height)
-				: Number(value);
-		const nextWindow = imageEditorCropWindowForAspect(base.transform, aspect);
-		cropSourceWindow = sourceWindowForFrame(cropWindow, cropSourceWindow, nextWindow);
-		cropWindow = nextWindow;
-		previewCrop();
-	}
-
-	function setCropMode(mode: 'frame' | 'content'): void {
-		if (!ensureCropSession()) return;
-		cropMode = mode;
-		canvasAnnouncement =
-			mode === 'frame'
-				? m.image_editor_crop_frame_mode_help()
-				: m.image_editor_crop_content_mode_help();
-	}
-
-	function rotateCrop(delta: -90 | 90): void {
-		if (!ensureCropSession()) return;
-		cropRotationDelta = normalizeRotation(cropRotationDelta + delta);
-		previewCrop();
-		canvasAnnouncement =
-			delta < 0 ? m.image_editor_crop_rotated_left() : m.image_editor_crop_rotated_right();
-	}
-
-	const cropOrientationControls: { label: string; action: () => void; icon: ProtectedIconRole }[] =
-		[
-			{
-				label: m.image_editor_crop_rotate_left(),
-				action: () => rotateCrop(-90),
-				icon: 'editor-rotate-left'
-			},
-			{
-				label: m.image_editor_crop_rotate_right(),
-				action: () => rotateCrop(90),
-				icon: 'editor-rotate-right'
-			},
-			{
-				label: m.image_editor_crop_flip_horizontal(),
-				action: () => flipCrop('x'),
-				icon: 'editor-flip-horizontal'
-			},
-			{
-				label: m.image_editor_crop_flip_vertical(),
-				action: () => flipCrop('y'),
-				icon: 'editor-flip-vertical'
-			}
-		];
-
-	function flipCrop(axis: 'x' | 'y'): void {
-		if (!ensureCropSession()) return;
-		if (axis === 'x') cropFlipX = !cropFlipX;
-		else cropFlipY = !cropFlipY;
-		previewCrop();
-		canvasAnnouncement =
-			axis === 'x'
-				? m.image_editor_crop_flipped_horizontal()
-				: m.image_editor_crop_flipped_vertical();
-	}
-
-	function applyCrop(): void {
-		const preview = createCropPreviewLayer();
-		if (!preview?.image) return;
-		canvasAnnouncement = m.image_editor_crop_applied_dimensions({
-			width: Math.max(1, Math.round(preview.transform.width)),
-			height: Math.max(1, Math.round(preview.transform.height))
-		});
-		editor.applyImageCropState(preview.id, {
-			transform: preview.transform,
-			crop: preview.image.crop
-		});
-		resetCropSessionState();
-		editor.activeTool = 'select';
-	}
-
-	function cancelCrop(): void {
-		const id = cropBaseLayer?.id ?? cropLayer?.id;
-		if (id) adapter?.previewImageLayer(id);
-		resetCropSessionState();
-		canvasAnnouncement = m.image_editor_crop_cancelled();
-		editor.activeTool = 'select';
-	}
-
-	function resetCrop(): void {
-		if (!cropLayer?.image) return;
-		const reset = resetImageEditorCrop(cropLayer);
-		cropBaseLayer = {
-			...structuredClone(cropLayer),
-			transform: reset.transform,
-			image: { ...structuredClone(cropLayer.image), crop: reset.crop }
-		};
-		cropWindow = { ...FULL_CROP_WINDOW };
-		cropSourceWindow = { ...FULL_CROP_WINDOW };
-		cropAspect = 'free';
-		cropMode = 'frame';
-		cropRotationDelta = 0;
-		cropFlipX = false;
-		cropFlipY = false;
-		previewCrop();
-		canvasAnnouncement = m.image_editor_crop_reset_pending();
-	}
-
 	function erasableTargetID(point: SelectionPoint): string | null {
 		const selectedID = editor.selectedLayerIDs.at(-1);
 		const selected = editor.activePage?.layers.find((layer) => layer.id === selectedID);
-		if (selected && ['image', 'paint'].includes(selected.type) && !selected.locked)
+		if (
+			selected &&
+			['image', 'paint'].includes(selected.type) &&
+			!editor.isLayerLocked(selected.id)
+		)
 			return selected.id;
 		const hitID = adapter?.topmostLayerIDAtPoint(point);
 		const hit = editor.activePage?.layers.find((layer) => layer.id === hitID);
-		if (!hit || !['image', 'paint'].includes(hit.type) || hit.locked) return null;
+		if (!hit || !['image', 'paint'].includes(hit.type) || editor.isLayerLocked(hit.id)) return null;
 		editor.selectLayer(hit.id);
 		return hit.id;
 	}
@@ -1163,7 +858,7 @@
 		return imageEditorDocumentPoint(
 			{ x: event.clientX, y: event.clientY },
 			bounds,
-			{ width: document.width_px, height: document.height_px },
+			{ width: editor.activePageDimensions.width, height: editor.activePageDimensions.height },
 			outside
 		);
 	}
@@ -1192,7 +887,10 @@
 	): number | null {
 		const point = documentPoint(event, 'allow');
 		if (!point || !editor.document) return null;
-		const limit = axis === 'horizontal' ? editor.document.height_px : editor.document.width_px;
+		const limit =
+			axis === 'horizontal'
+				? editor.activePageDimensions.height
+				: editor.activePageDimensions.width;
 		const previous =
 			index === undefined
 				? undefined
@@ -1227,7 +925,12 @@
 		event.preventDefault();
 		const document = editor.document;
 		if (!document) return;
-		editor.addGuide(axis, (axis === 'horizontal' ? document.height_px : document.width_px) / 2);
+		editor.addGuide(
+			axis,
+			(axis === 'horizontal'
+				? editor.activePageDimensions.height
+				: editor.activePageDimensions.width) / 2
+		);
 	}
 
 	function moveGuide(event: PointerEvent): void {
@@ -1275,6 +978,7 @@
 	): void {
 		if (event.key === 'Delete' || event.key === 'Backspace') {
 			event.preventDefault();
+			event.stopPropagation();
 			editor.removeGuide(axis, index);
 			return;
 		}
@@ -1284,6 +988,7 @@
 				: event.key === 'ArrowLeft' || event.key === 'ArrowRight';
 		if (!relevant) return;
 		event.preventDefault();
+		event.stopPropagation();
 		const direction = event.key === 'ArrowUp' || event.key === 'ArrowLeft' ? -1 : 1;
 		editor.updateGuide(axis, index, value + direction * (event.shiftKey ? 10 : 1));
 	}
@@ -1300,64 +1005,11 @@
 	function selectionTargetIDs(point: SelectionPoint): string[] {
 		const activeID = editor.selectedLayerIDs.at(-1);
 		const active = editor.activePage?.layers.find((layer) => layer.id === activeID);
-		if (activeID && active && !active.locked) return [activeID];
+		if (activeID && active && !editor.isLayerLocked(active.id)) return [activeID];
 		const hitID = adapter?.topmostLayerIDAtPoint(point);
 		if (!hitID) return [];
 		editor.selectLayer(hitID);
 		return [hitID];
-	}
-
-	function openLayerPicker(event: MouseEvent): void {
-		if (editor.activeTool !== 'select' || !adapter) return;
-		const point = documentPoint(event, 'reject');
-		if (!point) return;
-		const layerIDs = adapter.layerIDsAtPoint(point);
-		if (layerIDs.length === 0) return;
-		event.preventDefault();
-		event.stopPropagation();
-		layerPicker = { point, layerIDs };
-		canvasAnnouncement = m.image_editor_select_layer_count({ count: layerIDs.length });
-	}
-
-	function layerPickerName(id: string): string {
-		return editor.activePage?.layers.find((layer) => layer.id === id)?.name ?? id;
-	}
-
-	function chooseLayerFromPicker(id: string): void {
-		editor.selectLayer(id);
-		layerPicker = null;
-		canvasAnnouncement = m.image_editor_layer_selected({ name: layerPickerName(id) });
-	}
-
-	function startLayerCycle(event: PointerEvent): void {
-		if (!event.altKey || event.button !== 0 || editor.activeTool !== 'select' || !adapter) return;
-		const point = documentPoint(event, 'reject');
-		if (!point) return;
-		const layerIDs = adapter.layerIDsAtPoint(point);
-		if (layerIDs.length < 2) return;
-		layerCycleGesture = {
-			pointerID: event.pointerId,
-			clientX: event.clientX,
-			clientY: event.clientY,
-			layerIDs
-		};
-	}
-
-	function finishLayerCycle(event: PointerEvent): void {
-		const gesture = layerCycleGesture;
-		layerCycleGesture = null;
-		if (
-			!gesture ||
-			gesture.pointerID !== event.pointerId ||
-			Math.hypot(event.clientX - gesture.clientX, event.clientY - gesture.clientY) > 5
-		)
-			return;
-		const current = gesture.layerIDs.findIndex((id) => editor.selectedLayerIDs.includes(id));
-		const nextID = gesture.layerIDs[(current + 1) % gesture.layerIDs.length];
-		editor.selectLayer(nextID);
-		canvasAnnouncement = m.image_editor_layer_cycled({ name: layerPickerName(nextID) });
-		event.preventDefault();
-		event.stopPropagation();
 	}
 
 	function sampledPixels(point: SelectionPoint): {
@@ -1376,7 +1028,9 @@
 	function hasLockedMagicTarget(point: SelectionPoint): boolean {
 		const activeID = editor.selectedLayerIDs.at(-1);
 		const active = editor.activePage?.layers.find((layer) => layer.id === activeID);
-		return Boolean(active?.locked || adapter?.lockedLayerIDAtPoint(point));
+		return Boolean(
+			(active && editor.isLayerLocked(active.id)) || adapter?.lockedLayerIDAtPoint(point)
+		);
 	}
 
 	function magicNoTargetMessage(point: SelectionPoint, fallback: string): string {
@@ -1397,6 +1051,7 @@
 		magicScanBusy = true;
 		magicScanProgress = 0;
 		magicScanError = '';
+		magicPreviewMask = null;
 		try {
 			const mask = await magicScan.scan(
 				{
@@ -1409,34 +1064,48 @@
 				},
 				{
 					signal: controller.signal,
-					onProgress: (fraction) => (magicScanProgress = fraction)
+					onProgress: (fraction) => {
+						if (magicScanAbort === controller && !controller.signal.aborted) {
+							magicScanProgress = fraction;
+						}
+					}
 				}
 			);
-			if (controller.signal.aborted) return;
+			if (controller.signal.aborted || magicScanAbort !== controller) return;
 			if (
 				preview &&
 				editor.document &&
-				image.width === editor.document.width_px &&
-				image.height === editor.document.height_px
+				image.width === editor.activePageDimensions.width &&
+				image.height === editor.activePageDimensions.height
 			) {
-				magicPreviewMask = { width: image.width, height: image.height, data: mask };
+				magicPreviewMask = {
+					width: image.width,
+					height: image.height,
+					data: mask
+				};
 				await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
 			}
+			if (controller.signal.aborted || magicScanAbort !== controller) return;
 			onComplete(mask);
 		} catch (cause) {
+			if (controller.signal.aborted || magicScanAbort !== controller) return;
 			if (cause instanceof DOMException && cause.name === 'AbortError') return;
 			magicScanError =
 				cause instanceof RangeError
-					? m.image_editor_magic_scan_too_large({ limit: MAXIMUM_MAGIC_SCAN_PIXELS })
+					? m.image_editor_magic_scan_too_large({
+							limit: MAXIMUM_MAGIC_SCAN_PIXELS
+						})
 					: cause instanceof Error
 						? cause.message
 						: m.image_editor_magic_scan_failed();
 			canvasAnnouncement = magicScanError;
 		} finally {
-			if (magicScanAbort === controller) magicScanAbort = null;
-			magicScanBusy = false;
-			magicScanProgress = 0;
-			magicPreviewMask = null;
+			if (magicScanAbort === controller) {
+				magicScanAbort = null;
+				magicScanBusy = false;
+				magicScanProgress = 0;
+				magicPreviewMask = null;
+			}
 		}
 	}
 
@@ -1489,13 +1158,15 @@
 			target instanceof Element &&
 			Boolean(
 				target.closest(
-					'[data-testid="image-editor-selection-options"], button, input, textarea, select, [role="slider"], [contenteditable="true"]'
+					'[data-testid="image-editor-selection-options"], button, [role="button"], input, textarea, select, [role="slider"], [contenteditable="true"]'
 				)
 			)
 		);
 	}
 
 	function startAreaSelection(event: PointerEvent): boolean {
+		// Stage controls own their gesture, even when the viewport sees it during capture.
+		if (targetsPasteboardChrome(event.target)) return false;
 		const tool = editor.activeTool;
 		if (event.pointerType === 'touch' && stylusPointerID >= 0) {
 			event.preventDefault();
@@ -1533,6 +1204,31 @@
 		const mode = isAreaSelectionTool(tool)
 			? selectionModeForEvent(event, tool)
 			: editor.selectionMode;
+		if (tool === 'polygonal_lasso') {
+			if (!polygonalSelection) {
+				const selectedID = editor.selectedLayerIDs.at(-1);
+				const selected = editor.activePage?.layers.find((layer) => layer.id === selectedID);
+				polygonalSelection = {
+					points: [point],
+					current: point,
+					mode,
+					targetLayerIDs:
+						selectedID && selected && !editor.isLayerLocked(selected.id) ? [selectedID] : [],
+					pageID: editor.activePageID
+				};
+			} else if (event.detail >= 2) {
+				finishPolygonalSelection();
+			} else {
+				polygonalSelection = {
+					...polygonalSelection,
+					points: [...polygonalSelection.points, point],
+					current: point
+				};
+			}
+			event.preventDefault();
+			event.stopPropagation();
+			return true;
+		}
 		if (
 			tool === 'eyedropper' ||
 			(event.altKey && ['pencil', 'bucket', 'gradient'].includes(tool))
@@ -1561,7 +1257,12 @@
 				current: point,
 				points: [point],
 				mode,
-				originalSelection: editor.pixelSelection.data.slice()
+				originalSelection: editor.pixelSelection.data.slice(),
+				originalSelectionBounds: pixelMaskBounds(
+					editor.pixelSelection.data,
+					editor.pixelSelection.width,
+					editor.pixelSelection.height
+				)
 			};
 			capturePointer(event.currentTarget, event.pointerId);
 			event.preventDefault();
@@ -1627,7 +1328,9 @@
 			} else if (editor.pixelSelection) {
 				editor.addPaintFill(editor.pixelSelection.data);
 			} else if (editor.document) {
-				const mask = new Uint8Array(editor.document.width_px * editor.document.height_px);
+				const mask = new Uint8Array(
+					editor.activePageDimensions.width * editor.activePageDimensions.height
+				);
 				mask.fill(1);
 				editor.addPaintFill(mask);
 			}
@@ -1703,7 +1406,8 @@
 				editor.movePixelSelection(
 					gesture.originalSelection,
 					point.x - gesture.start.x,
-					point.y - gesture.start.y
+					point.y - gesture.start.y,
+					gesture.originalSelectionBounds
 				);
 			}
 		} else if (['marquee', 'ellipse_marquee'].includes(gesture.tool)) {
@@ -1765,7 +1469,8 @@
 				editor.movePixelSelection(
 					gesture.originalSelection,
 					point.x - gesture.start.x,
-					point.y - gesture.start.y
+					point.y - gesture.start.y,
+					gesture.originalSelectionBounds
 				);
 			}
 			selectionGesture = null;
@@ -1850,12 +1555,16 @@
 			if (document) {
 				const mask =
 					editor.pixelSelection?.data ??
-					rectanglePixelMask(document.width_px, document.height_px, {
-						x: 0,
-						y: 0,
-						width: document.width_px,
-						height: document.height_px
-					});
+					rectanglePixelMask(
+						editor.activePageDimensions.width,
+						editor.activePageDimensions.height,
+						{
+							x: 0,
+							y: 0,
+							width: editor.activePageDimensions.width,
+							height: editor.activePageDimensions.height
+						}
+					);
 				editor.addGradientFill(mask, gesture.start, point);
 			}
 			selectionGesture = null;
@@ -1875,22 +1584,22 @@
 			if (gesture.mode === 'replace') editor.clearPixelSelection();
 		} else if (gesture.tool === 'marquee') {
 			mask = rectanglePixelMask(
-				editor.document?.width_px ?? 1,
-				editor.document?.height_px ?? 1,
+				editor.activePageDimensions.width,
+				editor.activePageDimensions.height,
 				normalizeSelectionBounds(gesture.start, point)
 			);
 		} else if (gesture.tool === 'ellipse_marquee') {
 			mask = ellipsePixelMask(
-				editor.document?.width_px ?? 1,
-				editor.document?.height_px ?? 1,
+				editor.activePageDimensions.width,
+				editor.activePageDimensions.height,
 				normalizeSelectionBounds(gesture.start, point)
 			);
 		} else {
 			const points = [...gesture.points, point];
 			if (points.length >= 3) {
 				mask = polygonPixelMask(
-					editor.document?.width_px ?? 1,
-					editor.document?.height_px ?? 1,
+					editor.activePageDimensions.width,
+					editor.activePageDimensions.height,
 					points
 				);
 			}
@@ -1905,6 +1614,36 @@
 		}
 		event.preventDefault();
 		return true;
+	}
+
+	function finishPolygonalSelection(): boolean {
+		const selection = polygonalSelection;
+		const document = editor.document;
+		polygonalSelection = null;
+		if (
+			!selection ||
+			!document ||
+			selection.pageID !== editor.activePageID ||
+			selection.points.length < 3
+		)
+			return false;
+		editor.applyPixelSelection(
+			polygonPixelMask(
+				editor.activePageDimensions.width,
+				editor.activePageDimensions.height,
+				selection.points
+			),
+			selection.targetLayerIDs,
+			selection.mode
+		);
+		return true;
+	}
+
+	function finishPolygonalSelectionFromDoubleClick(event: MouseEvent): void {
+		if (editor.activeTool !== 'polygonal_lasso' || !polygonalSelection) return;
+		finishPolygonalSelection();
+		event.preventDefault();
+		event.stopPropagation();
 	}
 
 	function cancelAreaSelection(event: PointerEvent): void {
@@ -1927,12 +1666,39 @@
 		}
 	}
 
+	function zoomAtPointer(event: PointerEvent): void {
+		if (
+			editor.activeTool !== 'zoom' ||
+			spacePressed ||
+			event.button !== 0 ||
+			targetsPasteboardChrome(event.target)
+		)
+			return;
+		const bounds = viewport?.getBoundingClientRect();
+		if (!bounds) return;
+		const nextZoom = Math.max(0.1, Math.min(4, editor.zoom + (event.altKey ? -0.1 : 0.1)));
+		const nextPan = panForZoomAnchor({
+			panX: editor.panX,
+			panY: editor.panY,
+			zoom: editor.zoom,
+			nextZoom,
+			anchorX: event.clientX - (bounds.left + bounds.width / 2),
+			anchorY: event.clientY - (bounds.top + bounds.height / 2)
+		});
+		editor.panX = nextPan.panX;
+		editor.panY = nextPan.panY;
+		editor.zoom = nextZoom;
+	}
+
 	function handleWheel(event: WheelEvent): void {
 		if (event.ctrlKey || event.metaKey) {
 			event.preventDefault();
 			const currentZoom = editor.zoom;
 			const boundedDelta = Math.max(-60, Math.min(60, event.deltaY));
-			const nextZoom = Math.max(0.1, Math.min(4, currentZoom * Math.exp(-boundedDelta * 0.001)));
+			const nextZoom = Math.max(
+				0.1,
+				Math.min(4, currentZoom * Math.exp(-boundedDelta * PINCH_ZOOM_SENSITIVITY))
+			);
 			const bounds = viewport?.getBoundingClientRect();
 			if (bounds) {
 				const anchorX = event.clientX - (bounds.left + bounds.width / 2);
@@ -1989,7 +1755,7 @@
 		if (mediaDragDepth === 0) mediaDropActive = false;
 	}
 
-	function handleMediaDrop(event: DragEvent): void {
+	async function handleMediaDrop(event: DragEvent): Promise<void> {
 		const payload = readImageEditorMediaDrag(event.dataTransfer);
 		const files = payload ? [] : externalFiles(event.dataTransfer);
 		mediaDragDepth = 0;
@@ -1999,14 +1765,43 @@
 		if (!editor.canEdit) return;
 		const point = documentPoint(event);
 		if (!point) return;
-		if (payload) editor.addImage(payload, point);
-		else void onExternalFiles?.(files, point, editor.activePageID);
+		if (payload) {
+			const target = {
+				designID: editor.id,
+				pageID: editor.activePageID,
+				workspaceID: editor.workspaceID,
+				session: captureQueryMutationSession()
+			};
+			try {
+				const animation = await inspectImageEditorMediaAnimation(payload, ingestionAbort.signal);
+				if (
+					ingestionAbort.signal.aborted ||
+					editor.id !== target.designID ||
+					editor.activePageID !== target.pageID ||
+					editor.workspaceID !== target.workspaceID ||
+					!queryMutationSessionIsCurrent(target.session)
+				)
+					return;
+				editor.addImage({ ...payload, animation }, point, target.pageID);
+			} catch (cause) {
+				if (
+					!ingestionAbort.signal.aborted &&
+					editor.id === target.designID &&
+					editor.activePageID === target.pageID
+				)
+					canvasError = imageEditorErrorMessage(cause) ?? m.image_editor_animation_failed();
+			}
+		} else void onExternalFiles?.(files, point, editor.activePageID);
 	}
 
 	function startPan(event: PointerEvent): void {
 		if (event.pointerType === 'touch') {
-			touchPointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+			touchPointers.set(event.pointerId, {
+				x: event.clientX,
+				y: event.clientY
+			});
 			if (touchPointers.size === 2) {
+				zoomGesture = null;
 				selectionGesture = null;
 				const [first, second] = [...touchPointers.values()];
 				pinchStart = {
@@ -2034,6 +1829,12 @@
 			event.preventDefault();
 			return;
 		}
+		if (editor.activeTool === 'zoom' && event.button === 0) {
+			zoomGesture = { pointerID: event.pointerId, x: event.clientX, y: event.clientY };
+			capturePointer(event.currentTarget, event.pointerId);
+			event.preventDefault();
+			return;
+		}
 		if (startAreaSelection(event)) return;
 	}
 
@@ -2045,9 +1846,8 @@
 	}
 
 	function startPasteboardPointer(event: PointerEvent): void {
-		if (targetsToolSurface(event)) return;
-		// A touch that lands on pasteboard chrome still belongs to viewport navigation.
-		// Route it before object hit-testing so the second contact can always start a pinch.
+		if (targetsToolSurface(event) || targetsPasteboardChrome(event.target)) return;
+		// Route viewport touches before object hit-testing so a second contact can start a pinch.
 		if (event.pointerType === 'touch') {
 			startPan(event);
 			return;
@@ -2077,6 +1877,10 @@
 
 	function movePan(event: PointerEvent): void {
 		cursorPoint = documentPoint(event);
+		if (polygonalSelection && editor.activeTool === 'polygonal_lasso') {
+			const point = documentPoint(event, 'clamp');
+			if (point) polygonalSelection = { ...polygonalSelection, current: point };
+		}
 		if (editor.activeTool === 'pencil' || editor.activeTool === 'eraser') {
 			brushPreview = documentPoint(event);
 		}
@@ -2088,7 +1892,10 @@
 			if (point) queueEyedropperSample(point);
 		}
 		if (event.pointerType === 'touch' && touchPointers.has(event.pointerId)) {
-			touchPointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+			touchPointers.set(event.pointerId, {
+				x: event.clientX,
+				y: event.clientY
+			});
 			if (touchPointers.size >= 2) {
 				const [first, second] = [...touchPointers.values()];
 				const distance = Math.max(1, Math.hypot(second.x - first.x, second.y - first.y));
@@ -2127,6 +1934,19 @@
 	}
 
 	function stopPan(event: PointerEvent): void {
+		if (zoomGesture?.pointerID === event.pointerId) {
+			const gesture = zoomGesture;
+			zoomGesture = null;
+			if (Math.hypot(event.clientX - gesture.x, event.clientY - gesture.y) <= 4) {
+				zoomAtPointer(event);
+			}
+			if (
+				event.currentTarget instanceof Element &&
+				event.currentTarget.hasPointerCapture(event.pointerId)
+			) {
+				event.currentTarget.releasePointerCapture(event.pointerId);
+			}
+		}
 		if (event.pointerType === 'touch') touchPointers.delete(event.pointerId);
 		if (eyedropperPointerID === event.pointerId) {
 			const point = documentPoint(event, 'clamp');
@@ -2156,6 +1976,7 @@
 	}
 
 	function cancelPointer(event: PointerEvent): void {
+		if (zoomGesture?.pointerID === event.pointerId) zoomGesture = null;
 		if (event.pointerType === 'touch') touchPointers.delete(event.pointerId);
 		if (eyedropperPointerID === event.pointerId) eyedropperPointerID = -1;
 		if (stylusPointerID === event.pointerId) stylusPointerID = -1;
@@ -2173,10 +1994,37 @@
 	}
 
 	function handleCanvasKeydown(event: KeyboardEvent): void {
-		if (event.key === 'Escape' && layerPicker) {
-			layerPicker = null;
+		if ((event.key === 'Enter' || event.code === 'Space') && targetsPasteboardChrome(event.target))
+			return;
+		if (event.key === 'Escape' && (layerPickerRef?.dismiss() ?? false)) {
 			event.preventDefault();
 			return;
+		}
+		if (polygonalSelection && !editableTarget(event.target)) {
+			if (event.key === 'Enter') {
+				finishPolygonalSelection();
+				event.preventDefault();
+				event.stopImmediatePropagation();
+				return;
+			}
+			if (event.key === 'Escape') {
+				polygonalSelection = null;
+				event.preventDefault();
+				event.stopImmediatePropagation();
+				return;
+			}
+			if (event.key === 'Backspace') {
+				polygonalSelection =
+					polygonalSelection.points.length > 1
+						? {
+								...polygonalSelection,
+								points: polygonalSelection.points.slice(0, -1)
+							}
+						: null;
+				event.preventDefault();
+				event.stopImmediatePropagation();
+				return;
+			}
 		}
 		const insideEyedropperOptions =
 			event.target instanceof Element &&
@@ -2197,8 +2045,8 @@
 					eyedropperPreview?.point ??
 					(editor.document
 						? {
-								x: Math.floor(editor.document.width_px / 2),
-								y: Math.floor(editor.document.height_px / 2)
+								x: Math.floor(editor.activePageDimensions.width / 2),
+								y: Math.floor(editor.activePageDimensions.height / 2)
 							}
 						: null);
 				if (point) {
@@ -2252,12 +2100,12 @@
 		if (editor.activeTool === 'crop' && !editableTarget(event.target)) {
 			if (event.key === 'Escape') {
 				event.preventDefault();
-				cancelCrop();
+				crop.cancel();
 				return;
 			}
 			if (event.key === 'Enter' && !(event.target instanceof HTMLButtonElement)) {
 				event.preventDefault();
-				applyCrop();
+				crop.apply();
 				return;
 			}
 		}
@@ -2292,7 +2140,9 @@
 	class:cursor-grab={(editor.activeTool === 'hand' || spacePressed) && !panning}
 	class:cursor-grabbing={panning}
 	class:cursor-move={Boolean(editor.floatingPixelSelection) && !panning}
-	class:cursor-crosshair={(usesCanvasSurface() || selectionGesture?.tool === 'select') &&
+	class:cursor-zoom-in={editor.activeTool === 'zoom' && !panning}
+	class:cursor-crosshair={((usesCanvasSurface() && editor.activeTool !== 'zoom') ||
+		selectionGesture?.tool === 'select') &&
 		!editor.floatingPixelSelection &&
 		!panning}
 	onwheel={handleWheel}
@@ -2314,7 +2164,7 @@
 			data-testid="image-editor-media-drop-target"
 		>
 			<span
-				class="max-w-[calc(100%-2rem)] rounded-full border border-[var(--editor-border)] bg-[color-mix(in_oklch,var(--editor-canvas)_90%,transparent)] px-4 py-2 text-center text-sm font-semibold text-[var(--editor-text)] shadow-xl backdrop-blur"
+				class="max-w-[calc(100%-2rem)] rounded-full border border-[var(--editor-border)] bg-[color-mix(in_oklch,var(--editor-canvas)_90%,transparent)] px-3 py-1 text-center text-xs font-semibold text-[var(--editor-text)] shadow-xl backdrop-blur"
 			>
 				{m.image_editor_drop_to_place()}
 			</span>
@@ -2323,7 +2173,7 @@
 	{#if editor.document}
 		{#if editor.activeTool === 'eyedropper'}
 			<div
-				class="pointer-events-none absolute top-3 left-1/2 z-30 flex max-w-[calc(100%-1.5rem)] -translate-x-1/2 flex-wrap items-center justify-center gap-1 rounded-lg border border-[var(--editor-border)] bg-[color-mix(in_oklch,var(--editor-canvas)_88%,transparent)] p-1.5 text-[var(--editor-text)] shadow-lg backdrop-blur [&>*]:pointer-events-auto"
+				class="absolute bottom-3 left-1/2 z-30 no-scrollbar flex max-w-[calc(100%-1.5rem)] -translate-x-1/2 flex-nowrap items-center justify-start gap-0.5 overflow-x-auto rounded-lg border border-[var(--editor-border)] bg-[color-mix(in_oklch,var(--editor-canvas)_88%,transparent)] p-1 text-[var(--editor-text)] shadow-lg backdrop-blur sm:top-3 sm:bottom-auto [&>*]:shrink-0"
 				data-testid="image-editor-eyedropper-options"
 			>
 				<span class="hidden px-1 text-xs font-medium sm:inline">{m.image_editor_eyedropper()}</span>
@@ -2332,27 +2182,52 @@
 					ariaLabel={m.image_editor_eyedropper_target()}
 					onValueChange={(value) => (editor.eyedropperTarget = value as ImageEditorColorTarget)}
 					options={[
-						{ value: 'foreground', label: m.image_editor_eyedropper_foreground() },
-						{ value: 'selected_fill', label: m.image_editor_eyedropper_selected_fill() },
-						{ value: 'selected_stroke', label: m.image_editor_eyedropper_selected_stroke() },
-						{ value: 'page_background', label: m.image_editor_eyedropper_page_background() }
+						{
+							value: 'foreground',
+							label: m.image_editor_eyedropper_foreground()
+						},
+						{
+							value: 'selected_fill',
+							label: m.image_editor_eyedropper_selected_fill()
+						},
+						{
+							value: 'selected_stroke',
+							label: m.image_editor_eyedropper_selected_stroke()
+						},
+						{
+							value: 'page_background',
+							label: m.image_editor_eyedropper_page_background()
+						}
 					]}
-					class="h-8 w-40 border-[var(--editor-border)] bg-[var(--editor-control)] text-[var(--editor-text)]"
+					class="h-7 w-40 border-[var(--editor-border)] bg-[var(--editor-control)] text-[var(--editor-text)]"
 				/>
-				<Button
-					variant={editor.sampleAllLayers ? 'secondary' : 'ghost'}
-					size="sm"
-					class="h-8 px-2 text-xs text-[var(--editor-text)] hover:text-[var(--editor-text)]"
-					aria-pressed={editor.sampleAllLayers}
-					onclick={() => (editor.sampleAllLayers = !editor.sampleAllLayers)}
+				<div
+					class="flex items-center gap-0.5"
+					role="group"
+					aria-label={m.image_editor_sample_from()}
 				>
-					{editor.sampleAllLayers
-						? m.image_editor_sample_composite()
-						: m.image_editor_sample_active_layer()}
-				</Button>
-				<span class="hidden px-1 text-xs text-[var(--editor-muted)] xl:inline">
-					{m.image_editor_eyedropper_keyboard_help()}
-				</span>
+					<span class="px-1 text-xs text-[var(--editor-muted)]">
+						{m.image_editor_sample_from()}
+					</span>
+					<Button
+						variant={!editor.sampleAllLayers ? 'secondary' : 'ghost'}
+						size="sm"
+						class="h-7 px-1.5 text-xs text-[var(--editor-text)] hover:text-[var(--editor-text)]"
+						aria-pressed={!editor.sampleAllLayers}
+						onclick={() => (editor.sampleAllLayers = false)}
+					>
+						{m.image_editor_sample_active_layer()}
+					</Button>
+					<Button
+						variant={editor.sampleAllLayers ? 'secondary' : 'ghost'}
+						size="sm"
+						class="h-7 px-1.5 text-xs text-[var(--editor-text)] hover:text-[var(--editor-text)]"
+						aria-pressed={editor.sampleAllLayers}
+						onclick={() => (editor.sampleAllLayers = true)}
+					>
+						{m.image_editor_sample_composite()}
+					</Button>
+				</div>
 				{#if eyedropperPreview}
 					<span
 						class="size-6 rounded border border-white/30"
@@ -2369,28 +2244,30 @@
 		{/if}
 		{#if magicScanBusy || magicScanError}
 			<div
-				class="absolute top-3 left-1/2 z-50 flex max-w-[calc(100%-1.5rem)] -translate-x-1/2 items-center gap-2 rounded-lg border bg-background/95 px-3 py-2 text-xs shadow-lg"
+				class="absolute top-3 left-1/2 z-50 flex max-w-[calc(100%-1.5rem)] -translate-x-1/2 items-center gap-2 rounded-lg border bg-background/95 px-2 py-1 text-xs shadow-lg sm:top-auto sm:bottom-3"
 				role="status"
 			>
 				<span>
 					{magicScanError ||
-						m.image_editor_magic_scanning({ value: Math.round(magicScanProgress * 100) })}
+						m.image_editor_magic_scanning({
+							value: Math.round(magicScanProgress * 100)
+						})}
 				</span>
 				{#if magicScanBusy}
 					<Button variant="ghost" size="xs" onclick={cancelMagicScan}>{m.common_cancel()}</Button>
 				{/if}
 			</div>
 		{/if}
-		{#if editor.activeTool === 'crop' && cropLayer}
+		{#if editor.activeTool === 'crop' && crop.layer}
 			<div
-				class="pointer-events-none absolute top-3 left-1/2 z-30 flex max-w-[calc(100%-1.5rem)] -translate-x-1/2 flex-wrap items-center justify-center gap-1 rounded-lg border border-[var(--editor-border)] bg-[color-mix(in_oklch,var(--editor-canvas)_88%,transparent)] p-1.5 text-[var(--editor-text)] shadow-lg backdrop-blur [&>*]:pointer-events-auto"
+				class="absolute bottom-3 left-1/2 z-30 no-scrollbar flex max-w-[calc(100%-1.5rem)] -translate-x-1/2 flex-nowrap items-center justify-start gap-0.5 overflow-x-auto rounded-lg border border-[var(--editor-border)] bg-[color-mix(in_oklch,var(--editor-canvas)_88%,transparent)] p-1 text-[var(--editor-text)] shadow-lg backdrop-blur sm:top-3 sm:bottom-auto [&>*]:shrink-0"
 				data-testid="image-editor-crop-options"
 			>
 				<span class="hidden px-1 text-xs font-medium sm:inline">{m.image_editor_crop()}</span>
 				<AppSelect
-					value={cropAspect}
+					value={crop.aspect}
 					ariaLabel={m.image_editor_crop_aspect()}
-					onValueChange={setCropAspect}
+					onValueChange={(value) => crop.setAspect(value)}
 					options={[
 						{ value: 'free', label: m.image_editor_crop_free() },
 						{ value: 'original', label: m.image_editor_crop_original() },
@@ -2400,28 +2277,43 @@
 						{ value: String(9 / 16), label: m.image_editor_crop_story() },
 						{ value: String(16 / 9), label: m.image_editor_crop_thumbnail() }
 					]}
-					class="h-8 w-36 border-[var(--editor-border)] bg-[var(--editor-control)] text-[var(--editor-text)]"
+					class="h-7 w-36 border-[var(--editor-border)] bg-[var(--editor-control)] text-[var(--editor-text)]"
 				/>
+				<Button
+					variant="ghost"
+					size="sm"
+					class="h-7 shrink-0 px-1.5 text-xs text-[var(--editor-text)] hover:text-[var(--editor-text)] [@media(pointer:coarse)]:h-11"
+					onclick={() => crop.cancel()}
+				>
+					{m.common_cancel()}
+				</Button>
+				<Button
+					size="sm"
+					class="h-7 shrink-0 px-1.5 text-xs [@media(pointer:coarse)]:h-11"
+					onclick={() => crop.apply()}
+				>
+					{m.image_editor_apply_crop()}
+				</Button>
 				<div
 					class="flex items-center gap-1"
 					role="group"
 					aria-label={m.image_editor_crop_interaction_mode()}
 				>
 					<Button
-						variant={cropMode === 'frame' ? 'secondary' : 'ghost'}
+						variant={crop.mode === 'frame' ? 'secondary' : 'ghost'}
 						size="sm"
-						class="h-8 px-2 text-xs text-[var(--editor-text)] hover:text-[var(--editor-text)] [@media(pointer:coarse)]:h-11"
-						aria-pressed={cropMode === 'frame'}
-						onclick={() => setCropMode('frame')}
+						class="h-7 px-1.5 text-xs text-[var(--editor-text)] hover:text-[var(--editor-text)] [@media(pointer:coarse)]:h-11"
+						aria-pressed={crop.mode === 'frame'}
+						onclick={() => crop.setMode('frame')}
 					>
 						{m.image_editor_crop_frame_mode()}
 					</Button>
 					<Button
-						variant={cropMode === 'content' ? 'secondary' : 'ghost'}
+						variant={crop.mode === 'content' ? 'secondary' : 'ghost'}
 						size="sm"
-						class="h-8 px-2 text-xs text-[var(--editor-text)] hover:text-[var(--editor-text)] [@media(pointer:coarse)]:h-11"
-						aria-pressed={cropMode === 'content'}
-						onclick={() => setCropMode('content')}
+						class="h-7 px-1.5 text-xs text-[var(--editor-text)] hover:text-[var(--editor-text)] [@media(pointer:coarse)]:h-11"
+						aria-pressed={crop.mode === 'content'}
+						onclick={() => crop.setMode('content')}
 					>
 						{m.image_editor_crop_content_mode()}
 					</Button>
@@ -2431,7 +2323,7 @@
 					role="group"
 					aria-label={m.image_editor_crop_orientation()}
 				>
-					{#each cropOrientationControls as control (control.label)}
+					{#each crop.orientationControls as control (control.label)}
 						<Button
 							variant="ghost"
 							size="icon"
@@ -2447,33 +2339,36 @@
 				<Button
 					variant="ghost"
 					size="sm"
-					class="h-8 px-2 text-xs text-[var(--editor-text)] hover:text-[var(--editor-text)] [@media(pointer:coarse)]:h-11"
-					onclick={resetCrop}
+					class="h-7 px-1.5 text-xs text-[var(--editor-text)] hover:text-[var(--editor-text)] [@media(pointer:coarse)]:h-11"
+					onclick={() => crop.reset()}
 				>
 					{m.image_editor_reset()}
-				</Button>
-				<Button
-					variant="ghost"
-					size="sm"
-					class="h-8 px-2 text-xs text-[var(--editor-text)] hover:text-[var(--editor-text)] [@media(pointer:coarse)]:h-11"
-					onclick={cancelCrop}
-				>
-					{m.common_cancel()}
-				</Button>
-				<Button
-					size="sm"
-					class="h-8 px-2 text-xs [@media(pointer:coarse)]:h-11"
-					onclick={applyCrop}
-				>
-					{m.image_editor_apply_crop()}
 				</Button>
 			</div>
 		{/if}
 		{#if isAreaSelectionTool() || editor.activeTool === 'pencil' || editor.activeTool === 'eraser' || editor.activeTool === 'magic_eraser' || editor.activeTool === 'bucket' || editor.activeTool === 'gradient'}
 			<div
-				class="pointer-events-none absolute top-3 left-1/2 z-30 flex max-w-[calc(100%-1.5rem)] -translate-x-1/2 flex-wrap items-center justify-center gap-1 rounded-lg border border-[var(--editor-border)] bg-[color-mix(in_oklch,var(--editor-canvas)_88%,transparent)] p-1.5 text-[var(--editor-text)] shadow-lg backdrop-blur [&>*]:pointer-events-auto"
+				class="absolute bottom-3 left-1/2 z-30 flex max-h-[calc(100%-1.5rem)] w-max max-w-[calc(100%-1.5rem)] -translate-x-1/2 flex-wrap items-center justify-start gap-0.5 overflow-y-auto rounded-lg border border-[var(--editor-border)] bg-[color-mix(in_oklch,var(--editor-canvas)_88%,transparent)] p-1 text-[var(--editor-text)] shadow-lg backdrop-blur sm:top-3 sm:bottom-auto [&>*]:max-w-full [&>*]:shrink-0 [@media(pointer:coarse)]:[&_button]:min-h-11 [@media(pointer:coarse)]:[&_button]:min-w-11"
 				data-testid="image-editor-selection-options"
 			>
+				{#if editor.activeTool === 'polygonal_lasso' && polygonalSelection}
+					<Button
+						size="sm"
+						class="h-7 px-1.5 text-xs [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:min-w-11"
+						disabled={polygonalSelection.points.length < 3}
+						onclick={finishPolygonalSelection}
+					>
+						{m.common_done()}
+					</Button>
+					<Button
+						variant="ghost"
+						size="sm"
+						class="h-7 px-1.5 text-xs text-[var(--editor-text)] hover:text-[var(--editor-text)] [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:min-w-11"
+						onclick={() => (polygonalSelection = null)}
+					>
+						{m.common_cancel()}
+					</Button>
+				{/if}
 				<span class="hidden px-1 text-xs font-medium sm:inline">
 					{editor.activeTool === 'marquee'
 						? m.image_editor_rectangle_select()
@@ -2481,21 +2376,28 @@
 							? m.image_editor_ellipse_select()
 							: editor.activeTool === 'lasso'
 								? m.image_editor_lasso_select()
-								: editor.activeTool === 'magic_wand'
-									? m.image_editor_magic_select()
-									: editor.activeTool === 'pencil'
-										? m.image_editor_pencil()
-										: editor.activeTool === 'eraser'
-											? m.image_editor_erase()
-											: editor.activeTool === 'magic_eraser'
-												? m.image_editor_magic_erase()
-												: editor.activeTool === 'gradient'
-													? m.image_editor_gradient()
-													: m.image_editor_paint_bucket()}
+								: editor.activeTool === 'polygonal_lasso'
+									? m.image_editor_polygonal_lasso_select()
+									: editor.activeTool === 'magic_wand'
+										? m.image_editor_magic_select()
+										: editor.activeTool === 'pencil'
+											? m.image_editor_pencil()
+											: editor.activeTool === 'eraser'
+												? m.image_editor_erase()
+												: editor.activeTool === 'magic_eraser'
+													? m.image_editor_magic_erase()
+													: editor.activeTool === 'gradient'
+														? m.image_editor_gradient()
+														: m.image_editor_paint_bucket()}
 				</span>
+				{#if editor.activeTool === 'polygonal_lasso'}
+					<span class="hidden max-w-80 px-1 text-xs text-[var(--editor-muted)] xl:inline">
+						{m.image_editor_polygonal_lasso_help()}
+					</span>
+				{/if}
 				{#if isAreaSelectionTool()}
 					<div
-						class="flex items-center gap-0.5"
+						class="flex flex-wrap items-center gap-0.5"
 						role="group"
 						aria-label={m.image_editor_selection_mode()}
 					>
@@ -2503,7 +2405,7 @@
 							<Button
 								variant={editor.selectionMode === mode.value ? 'secondary' : 'ghost'}
 								size="sm"
-								class="h-8 px-2 text-xs text-[var(--editor-text)] hover:text-[var(--editor-text)] [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:min-w-11"
+								class="h-7 px-1.5 text-xs text-[var(--editor-text)] hover:text-[var(--editor-text)] [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:min-w-11"
 								aria-pressed={editor.selectionMode === mode.value}
 								onclick={() => (editor.selectionMode = mode.value as ImageEditorSelectionMode)}
 							>
@@ -2511,9 +2413,36 @@
 							</Button>
 						{/each}
 					</div>
+					{#if editor.pixelSelection && !editor.floatingPixelSelection}
+						<DropdownMenu.Root>
+							<DropdownMenu.Trigger>
+								{#snippet child({ props })}
+									<Button
+										{...props}
+										variant="ghost"
+										size="sm"
+										class="h-7 border-l border-[var(--editor-border)] px-1.5 text-xs text-[var(--editor-text)] hover:text-[var(--editor-text)] [@media(pointer:coarse)]:h-11"
+									>
+										{m.image_editor_selection_refine()}
+									</Button>
+								{/snippet}
+							</DropdownMenu.Trigger>
+							<DropdownMenu.Content align="center" class="min-w-44">
+								<DropdownMenu.Item onclick={() => editor.refinePixelSelection('expand')}>
+									{m.image_editor_selection_expand()}
+								</DropdownMenu.Item>
+								<DropdownMenu.Item onclick={() => editor.refinePixelSelection('contract')}>
+									{m.image_editor_selection_contract()}
+								</DropdownMenu.Item>
+								<DropdownMenu.Item onclick={() => editor.refinePixelSelection('invert')}>
+									{m.image_editor_selection_invert()}
+								</DropdownMenu.Item>
+							</DropdownMenu.Content>
+						</DropdownMenu.Root>
+					{/if}
 				{/if}
 				{#if editor.activeTool === 'magic_wand' || editor.activeTool === 'magic_eraser' || editor.activeTool === 'bucket'}
-					<label class="flex min-w-40 items-center gap-2 px-1 text-xs">
+					<label class="flex min-w-32 items-center gap-2 px-1 text-xs">
 						<span class="whitespace-nowrap">
 							{m.image_editor_magic_tolerance({
 								value:
@@ -2560,7 +2489,7 @@
 							? 'secondary'
 							: 'ghost'}
 						size="sm"
-						class="h-8 px-2 text-xs text-[var(--editor-text)] hover:text-[var(--editor-text)]"
+						class="h-7 px-1.5 text-xs text-[var(--editor-text)] hover:text-[var(--editor-text)]"
 						aria-pressed={editor.activeTool === 'bucket'
 							? editor.bucketContiguous
 							: editor.activeTool === 'magic_eraser'
@@ -2582,7 +2511,7 @@
 						<Button
 							variant={editor.sampleAllLayers ? 'secondary' : 'ghost'}
 							size="sm"
-							class="h-8 px-2 text-xs text-[var(--editor-text)] hover:text-[var(--editor-text)]"
+							class="h-7 px-1.5 text-xs text-[var(--editor-text)] hover:text-[var(--editor-text)]"
 							aria-pressed={editor.sampleAllLayers}
 							onclick={() => (editor.sampleAllLayers = !editor.sampleAllLayers)}
 						>
@@ -2613,16 +2542,19 @@
 								{ value: 'linear', label: m.image_editor_gradient_linear() },
 								{ value: 'radial', label: m.image_editor_gradient_radial() },
 								{ value: 'angle', label: m.image_editor_gradient_angle() },
-								{ value: 'reflected', label: m.image_editor_gradient_reflected() },
+								{
+									value: 'reflected',
+									label: m.image_editor_gradient_reflected()
+								},
 								{ value: 'diamond', label: m.image_editor_gradient_diamond() }
 							]}
-							class="h-8 w-36 border-[var(--editor-border)] bg-[var(--editor-control)] text-[var(--editor-text)]"
+							class="h-7 w-36 border-[var(--editor-border)] bg-[var(--editor-control)] text-[var(--editor-text)]"
 						/>
 					</label>
 					<Button
 						variant={editor.gradientReverse ? 'secondary' : 'ghost'}
 						size="sm"
-						class="h-8 px-2 text-xs text-[var(--editor-text)] hover:text-[var(--editor-text)]"
+						class="h-7 px-1.5 text-xs text-[var(--editor-text)] hover:text-[var(--editor-text)]"
 						aria-pressed={editor.gradientReverse}
 						onclick={() => (editor.gradientReverse = !editor.gradientReverse)}
 					>
@@ -2630,7 +2562,7 @@
 					</Button>
 				{/if}
 				{#if editor.activeTool === 'pencil' || editor.activeTool === 'eraser'}
-					<label class="flex min-w-36 items-center gap-2 px-1 text-xs">
+					<label class="flex min-w-28 items-center gap-2 px-1 text-xs">
 						<span class="whitespace-nowrap"
 							>{m.image_editor_brush_size({
 								value: editor.activeTool === 'eraser' ? editor.eraserSize : editor.pencilSize
@@ -2653,7 +2585,7 @@
 					</label>
 				{/if}
 				{#if editor.activeTool === 'pencil'}
-					<label class="flex min-w-40 items-center gap-2 px-1 text-xs">
+					<label class="flex min-w-32 items-center gap-2 px-1 text-xs">
 						<span class="whitespace-nowrap">
 							{m.image_editor_pencil_roughness({
 								value: Math.round(editor.pencilRoughness * 100)
@@ -2671,9 +2603,11 @@
 							onValueChange={(value) => (editor.pencilRoughness = value / 100)}
 						/>
 					</label>
-					<label class="flex min-w-40 items-center gap-2 px-1 text-xs">
+					<label class="flex min-w-32 items-center gap-2 px-1 text-xs">
 						<span class="whitespace-nowrap">
-							{m.image_editor_smoothing({ value: Math.round(editor.pencilSmoothing * 100) })}
+							{m.image_editor_smoothing({
+								value: Math.round(editor.pencilSmoothing * 100)
+							})}
 						</span>
 						<Slider
 							value={Math.round(editor.pencilSmoothing * 100)}
@@ -2690,7 +2624,7 @@
 					<Button
 						variant={editor.pencilPressure ? 'secondary' : 'ghost'}
 						size="sm"
-						class="h-8 px-2 text-xs text-[var(--editor-text)] hover:text-[var(--editor-text)]"
+						class="h-7 px-1.5 text-xs text-[var(--editor-text)] hover:text-[var(--editor-text)]"
 						aria-pressed={editor.pencilPressure}
 						onclick={() => (editor.pencilPressure = !editor.pencilPressure)}
 					>
@@ -2698,9 +2632,14 @@
 					</Button>
 				{/if}
 				{#if ['pencil', 'bucket', 'gradient'].includes(editor.activeTool)}
-					<label class="flex min-w-34 items-center gap-2 px-1 text-xs">
-						<span class="whitespace-nowrap">
-							{m.image_editor_opacity({ value: Math.round(editor.paintOpacity * 100) })}
+					<label class="flex min-w-28 items-center gap-2 px-1 text-xs">
+						<span
+							class="whitespace-nowrap"
+							class:text-warning-foreground={editor.paintOpacity < 0.25}
+						>
+							{m.image_editor_opacity({
+								value: Math.round(editor.paintOpacity * 100)
+							})}
 						</span>
 						<Slider
 							value={Math.round(editor.paintOpacity * 100)}
@@ -2714,19 +2653,26 @@
 							onValueChange={(value) => (editor.paintOpacity = value / 100)}
 						/>
 					</label>
+					{#if editor.paintOpacity !== 1}
+						<Button
+							variant="ghost"
+							size="sm"
+							class="h-7 px-1.5 text-xs text-[var(--editor-text)] hover:text-[var(--editor-text)]"
+							onclick={() => (editor.paintOpacity = 1)}
+						>
+							{m.image_editor_reset()}
+						</Button>
+					{/if}
 				{/if}
 				{#if editor.pixelSelection}
 					{#if editor.floatingPixelSelection}
-						<span class="hidden px-1 text-xs text-[var(--editor-muted)] xl:inline">
-							{m.image_editor_floating_pixels_help()}
-						</span>
-						<Button size="sm" class="h-8 px-2 text-xs" onclick={commitFloatingPixels}>
+						<Button size="sm" class="h-7 px-1.5 text-xs" onclick={commitFloatingPixels}>
 							{m.common_done()}
 						</Button>
 						<Button
 							variant="outline"
 							size="sm"
-							class="h-8 px-2 text-xs"
+							class="h-7 px-1.5 text-xs"
 							onclick={() => editor.duplicateFloatingPixelSelection()}
 						>
 							{m.image_editor_duplicate()}
@@ -2734,7 +2680,7 @@
 						<Button
 							variant="ghost"
 							size="sm"
-							class="h-8 px-2 text-xs text-[var(--editor-text)] hover:text-[var(--editor-text)]"
+							class="h-7 px-1.5 text-xs text-[var(--editor-text)] hover:text-[var(--editor-text)]"
 							onclick={cancelFloatingPixels}
 						>
 							{m.common_cancel()}
@@ -2743,7 +2689,7 @@
 						<Button
 							variant="ghost"
 							size="sm"
-							class="h-8 px-2 text-xs text-[var(--editor-text)] hover:text-[var(--editor-text)]"
+							class="h-7 px-1.5 text-xs text-[var(--editor-text)] hover:text-[var(--editor-text)]"
 							onclick={() => commitPixelContent('promote')}
 						>
 							{m.image_editor_promote_pixels()}
@@ -2751,15 +2697,15 @@
 						<Button
 							variant="outline"
 							size="sm"
-							class="h-8 px-2 text-xs"
+							class="h-7 px-1.5 text-xs"
 							onclick={() => commitPixelContent('cut')}
 						>
 							{m.image_editor_cut_pixels()}
 						</Button>
 						<Button
-							variant="ghost"
+							variant="destructive"
 							size="sm"
-							class="h-8 px-2 text-xs text-red-200 hover:text-destructive"
+							class="h-7 px-1.5 text-xs"
 							onclick={() => commitPixelContent('delete')}
 						>
 							{m.image_editor_delete_pixels()}
@@ -2767,7 +2713,7 @@
 						<Button
 							variant="ghost"
 							size="sm"
-							class="h-8 px-2 text-xs text-[var(--editor-text)] hover:text-[var(--editor-text)]"
+							class="h-7 px-1.5 text-xs text-[var(--editor-text)] hover:text-[var(--editor-text)]"
 							onclick={() => editor.clearPixelSelection()}
 						>
 							{m.image_editor_deselect_pixels()}
@@ -2782,22 +2728,22 @@
 		>
 			<div
 				{@attach attachStage}
-				class="fabric-stage relative shadow-2xl ring-1 ring-black/30"
+				class="fabric-stage pasteboard-checker relative shadow-2xl ring-1 ring-black/30"
 				role="region"
 				aria-label={m.image_editor_design_canvas()}
 				data-testid="image-editor-stage"
-				style:width={`${editor.document.width_px * editor.zoom}px`}
-				style:height={`${editor.document.height_px * editor.zoom}px`}
+				style:width={`${editor.activePageDimensions.width * editor.zoom}px`}
+				style:height={`${editor.activePageDimensions.height * editor.zoom}px`}
 				style:--image-editor-zoom={editor.zoom}
 				style:--image-editor-pencil-color={editor.paintColor}
-				onpointerdown={startLayerCycle}
-				onpointerup={finishLayerCycle}
-				onpointercancel={() => (layerCycleGesture = null)}
-				oncontextmenu={openLayerPicker}
+				onpointerdown={(event) => layerPickerRef?.cycleStart(event)}
+				onpointerup={(event) => layerPickerRef?.cycleFinish(event)}
+				onpointercancel={() => layerPickerRef?.cycleCancel()}
+				oncontextmenu={(event) => layerPickerRef?.open(event)}
 			>
 				{#if editor.showRulers}
 					<div
-						class="absolute -top-6 left-0 z-40 h-6 w-full cursor-s-resize overflow-hidden border-b border-[var(--editor-border)] bg-[var(--editor-panel)] text-[var(--editor-muted)] shadow-sm"
+						class="absolute -top-6 -left-px z-40 h-6 w-[calc(100%+2px)] cursor-s-resize overflow-hidden border-b border-[var(--editor-border)] bg-[var(--editor-panel)] text-[var(--editor-muted)] shadow-sm"
 						role="button"
 						tabindex="0"
 						aria-label={m.image_editor_add_vertical_guide()}
@@ -2807,7 +2753,7 @@
 						onpointercancel={cancelGuide}
 						onkeydown={(event) => addCenteredGuideFromKeyboard(event, 'vertical')}
 					>
-						{#each rulerTicks(editor.document.width_px) as tick (tick.value)}
+						{#each rulerTicks(editor.activePageDimensions.width) as tick (tick.value)}
 							<span
 								class="absolute bottom-0 border-l border-[var(--editor-muted)]"
 								class:h-3={tick.major}
@@ -2823,7 +2769,7 @@
 						{/each}
 					</div>
 					<div
-						class="absolute top-0 -left-6 z-40 h-full w-6 cursor-e-resize overflow-hidden border-r border-[var(--editor-border)] bg-[var(--editor-panel)] text-[var(--editor-muted)] shadow-sm"
+						class="absolute -top-px -left-6 z-40 h-[calc(100%+2px)] w-6 cursor-e-resize overflow-hidden border-r border-[var(--editor-border)] bg-[var(--editor-panel)] text-[var(--editor-muted)] shadow-sm"
 						role="button"
 						tabindex="0"
 						aria-label={m.image_editor_add_horizontal_guide()}
@@ -2833,7 +2779,7 @@
 						onpointercancel={cancelGuide}
 						onkeydown={(event) => addCenteredGuideFromKeyboard(event, 'horizontal')}
 					>
-						{#each rulerTicks(editor.document.height_px) as tick (tick.value)}
+						{#each rulerTicks(editor.activePageDimensions.height) as tick (tick.value)}
 							<span
 								class="absolute right-0 border-t border-[var(--editor-muted)]"
 								class:w-3={tick.major}
@@ -2860,7 +2806,9 @@
 							type="button"
 							class="group absolute top-0 z-35 h-full w-3 -translate-x-1/2 cursor-ew-resize touch-none border-0 bg-transparent p-0"
 							style:left={`${value * editor.zoom}px`}
-							aria-label={m.image_editor_vertical_guide_at({ value: Math.round(value) })}
+							aria-label={m.image_editor_vertical_guide_at({
+								value: Math.round(value)
+							})}
 							onpointerdown={(event) => startGuide(event, 'vertical', index)}
 							onpointermove={moveGuide}
 							onpointerup={finishGuide}
@@ -2877,7 +2825,9 @@
 							type="button"
 							class="group absolute left-0 z-35 h-3 w-full -translate-y-1/2 cursor-ns-resize touch-none border-0 bg-transparent p-0"
 							style:top={`${value * editor.zoom}px`}
-							aria-label={m.image_editor_horizontal_guide_at({ value: Math.round(value) })}
+							aria-label={m.image_editor_horizontal_guide_at({
+								value: Math.round(value)
+							})}
 							onpointerdown={(event) => startGuide(event, 'horizontal', index)}
 							onpointermove={moveGuide}
 							onpointerup={finishGuide}
@@ -2908,10 +2858,12 @@
 					<div
 						class="absolute inset-0 z-10 touch-none"
 						class:cursor-move={Boolean(editor.floatingPixelSelection)}
-						class:cursor-crosshair={!editor.floatingPixelSelection}
+						class:cursor-crosshair={!editor.floatingPixelSelection && editor.activeTool !== 'zoom'}
+						class:cursor-zoom-in={editor.activeTool === 'zoom'}
 						data-testid="image-editor-selection-surface"
 						aria-hidden="true"
 						onpointerdown={startPan}
+						ondblclick={finishPolygonalSelectionFromDoubleClick}
 						onpointermove={movePan}
 						onpointerup={stopPan}
 						onpointercancel={cancelPointer}
@@ -2927,8 +2879,8 @@
 				{/if}
 				<canvas
 					{@attach attachSelectionOverlay}
-					width={editor.document.width_px}
-					height={editor.document.height_px}
+					width={editor.activePageDimensions.width}
+					height={editor.activePageDimensions.height}
 					class="pointer-events-none absolute inset-0 z-15 size-full"
 					data-testid="image-editor-pixel-selection"
 					data-active={editor.pixelSelection ? 'true' : 'false'}
@@ -2960,7 +2912,9 @@
 							<button
 								type="button"
 								class={`pointer-events-auto absolute size-11 touch-none border-0 bg-transparent ${item.class}`}
-								aria-label={m.image_editor_resize_floating_pixels({ handle: item.handle })}
+								aria-label={m.image_editor_resize_floating_pixels({
+									handle: item.handle
+								})}
 								onpointerdown={(event) =>
 									startFloatingTransform(event, item.handle as FloatingTransformHandle)}
 								onpointermove={moveFloatingTransform}
@@ -2976,54 +2930,38 @@
 						{/each}
 					</div>
 				{/if}
-				{#if layerPicker}
-					<div
-						class="absolute z-50 max-w-64 min-w-44 rounded-lg border bg-popover p-1 text-popover-foreground shadow-xl"
-						style:left={`${Math.min(editor.document.width_px - 180 / editor.zoom, layerPicker.point.x) * editor.zoom}px`}
-						style:top={`${Math.min(editor.document.height_px - 48 / editor.zoom, layerPicker.point.y) * editor.zoom}px`}
-						role="menu"
-						aria-label={m.image_editor_select_layer()}
-						data-testid="image-editor-layer-picker"
-					>
-						<p class="px-2 py-1 text-xs font-medium text-muted-foreground">
-							{m.image_editor_select_layer()}
-						</p>
-						{#each layerPicker.layerIDs as id (id)}
-							<button
-								type="button"
-								class="flex min-h-10 w-full items-center rounded-md px-2 text-left text-sm hover:bg-muted focus-visible:bg-muted focus-visible:outline-none"
-								role="menuitem"
-								onclick={() => chooseLayerFromPicker(id)}
-							>
-								<span class="min-w-0 flex-1 truncate">{layerPickerName(id)}</span>
-							</button>
-						{/each}
-					</div>
-				{/if}
-				{#if editor.activeTool === 'crop' && cropPreviewLayer}
+				<CanvasLayerPicker
+					bind:this={layerPickerRef}
+					adapter={() => adapter}
+					{documentPoint}
+					announce={(message) => {
+						canvasAnnouncement = message;
+					}}
+				/>
+				{#if editor.activeTool === 'crop' && crop.preview}
 					<div class="pointer-events-none absolute inset-0 z-25 overflow-hidden">
 						<div
 							class="image-editor-crop-frame pointer-events-auto absolute touch-none border-2 border-[var(--canvas-handle)] shadow-[0_0_0_9999px_rgb(0_0_0/0.58)]"
-							class:cursor-move={cropMode === 'frame'}
-							class:cursor-grabbing={cropMode === 'content'}
+							class:cursor-move={crop.mode === 'frame'}
+							class:cursor-grabbing={crop.mode === 'content'}
 							role="group"
 							aria-label={m.image_editor_crop_frame()}
-							data-mode={cropMode}
-							style:left={`${cropPreviewLayer.transform.x * editor.zoom}px`}
-							style:top={`${cropPreviewLayer.transform.y * editor.zoom}px`}
-							style:width={`${cropPreviewLayer.transform.width * editor.zoom}px`}
-							style:height={`${cropPreviewLayer.transform.height * editor.zoom}px`}
-							style:transform={`rotate(${cropPreviewLayer.transform.rotation}deg)`}
+							data-mode={crop.mode}
+							style:left={`${crop.preview.transform.x * editor.zoom}px`}
+							style:top={`${crop.preview.transform.y * editor.zoom}px`}
+							style:width={`${crop.preview.transform.width * editor.zoom}px`}
+							style:height={`${crop.preview.transform.height * editor.zoom}px`}
+							style:transform={`rotate(${crop.preview.transform.rotation}deg)`}
 							style:transform-origin="top left"
 							onpointerdown={(event) => {
 								if (event.target instanceof Element && event.target.closest('[data-crop-handle]')) {
 									return;
 								}
-								startCrop(event, cropMode === 'content' ? 'content' : 'move');
+								crop.start(event, crop.mode === 'content' ? 'content' : 'move');
 							}}
-							onpointermove={moveCrop}
-							onpointerup={stopCrop}
-							onpointercancel={stopCrop}
+							onpointermove={(event) => crop.move(event)}
+							onpointerup={(event) => crop.stop(event)}
+							onpointercancel={(event) => crop.stop(event)}
 						>
 							<span
 								class="pointer-events-none absolute inset-x-0 top-1/3 border-t border-[color-mix(in_oklch,var(--canvas-handle)_55%,transparent)]"
@@ -3040,24 +2978,25 @@
 							<button
 								type="button"
 								class="absolute inset-6 border-0 bg-transparent"
-								class:cursor-move={cropMode === 'frame'}
-								class:cursor-grabbing={cropMode === 'content'}
-								aria-label={cropMode === 'content'
+								class:cursor-move={crop.mode === 'frame'}
+								class:cursor-grabbing={crop.mode === 'content'}
+								aria-label={crop.mode === 'content'
 									? m.image_editor_crop_move_image()
 									: m.image_editor_crop_move()}
 								onpointerdown={(event) =>
-									startCrop(event, cropMode === 'content' ? 'content' : 'move')}
-								onkeydown={(event) => nudgeCrop(event, cropMode === 'content' ? 'content' : 'move')}
+									crop.start(event, crop.mode === 'content' ? 'content' : 'move')}
+								onkeydown={(event) =>
+									crop.nudge(event, crop.mode === 'content' ? 'content' : 'move')}
 							></button>
-							{#if cropMode === 'frame'}
+							{#if crop.mode === 'frame'}
 								{#each [{ handle: 'nw', label: m.image_editor_crop_handle_nw(), class: '-top-[22px] -left-[22px] cursor-nwse-resize' }, { handle: 'n', label: m.image_editor_crop_handle_n(), class: '-top-[22px] left-1/2 -translate-x-1/2 cursor-ns-resize' }, { handle: 'ne', label: m.image_editor_crop_handle_ne(), class: '-top-[22px] -right-[22px] cursor-nesw-resize' }, { handle: 'e', label: m.image_editor_crop_handle_e(), class: 'top-1/2 -right-[22px] -translate-y-1/2 cursor-ew-resize' }, { handle: 'se', label: m.image_editor_crop_handle_se(), class: '-right-[22px] -bottom-[22px] cursor-nwse-resize' }, { handle: 's', label: m.image_editor_crop_handle_s(), class: '-bottom-[22px] left-1/2 -translate-x-1/2 cursor-ns-resize' }, { handle: 'sw', label: m.image_editor_crop_handle_sw(), class: '-bottom-[22px] -left-[22px] cursor-nesw-resize' }, { handle: 'w', label: m.image_editor_crop_handle_w(), class: 'top-1/2 -left-[22px] -translate-y-1/2 cursor-ew-resize' }] as handle (handle.handle)}
 									<button
 										type="button"
 										class={`image-editor-crop-handle absolute z-10 size-11 border-0 bg-transparent ${handle.class}`}
 										data-crop-handle={handle.handle}
 										aria-label={handle.label}
-										onpointerdown={(event) => startCrop(event, handle.handle as CropHandle)}
-										onkeydown={(event) => nudgeCrop(event, handle.handle as CropHandle)}
+										onpointerdown={(event) => crop.start(event, handle.handle as CropHandle)}
+										onkeydown={(event) => crop.nudge(event, handle.handle as CropHandle)}
 									>
 										<span
 											class="pointer-events-none absolute top-1/2 left-1/2 size-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-[var(--canvas-pasteboard)] bg-[var(--canvas-handle)] shadow"
@@ -3068,38 +3007,7 @@
 						</div>
 					</div>
 				{/if}
-				{#if editor.activeTool === 'eyedropper' && eyedropperPreview}
-					{@const magnifierOffset = eyedropperMagnifierOffset(eyedropperPreview.point)}
-					<div
-						class="pointer-events-none absolute z-30 grid place-items-center gap-1 rounded-lg border-2 border-[var(--canvas-handle)] bg-[var(--editor-canvas)] p-1.5 text-[9px] font-semibold text-[var(--editor-text)] shadow-xl"
-						style:left={`${eyedropperPreview.point.x * editor.zoom + magnifierOffset.x}px`}
-						style:top={`${eyedropperPreview.point.y * editor.zoom + magnifierOffset.y}px`}
-						data-testid="image-editor-eyedropper-magnifier"
-						aria-hidden="true"
-					>
-						<div
-							class="eyedropper-grid grid overflow-hidden rounded-sm border border-white/40"
-							style:grid-template-columns={`repeat(${eyedropperPreview.grid.width}, 0.375rem)`}
-						>
-							{#each Array.from( { length: eyedropperPreview.grid.width * eyedropperPreview.grid.height } ) as _, index (index)}
-								<span
-									class="size-1.5"
-									class:ring-2={index ===
-										Math.floor(eyedropperPreview.grid.width / 2) * eyedropperPreview.grid.width +
-											Math.floor(eyedropperPreview.grid.width / 2)}
-									class:ring-white={index ===
-										Math.floor(eyedropperPreview.grid.width / 2) * eyedropperPreview.grid.width +
-											Math.floor(eyedropperPreview.grid.width / 2)}
-									class:ring-inset={index ===
-										Math.floor(eyedropperPreview.grid.width / 2) * eyedropperPreview.grid.width +
-											Math.floor(eyedropperPreview.grid.width / 2)}
-									style:background-color={eyedropperPixelColor(eyedropperPreview.grid, index)}
-								></span>
-							{/each}
-						</div>
-						<span>{eyedropperPreview.color.toUpperCase()}</span>
-					</div>
-				{/if}
+
 				{#if (editor.activeTool === 'pencil' || editor.activeTool === 'eraser') && brushPreview}
 					<div
 						class="pointer-events-none absolute z-30 rounded-full border border-white shadow-[0_0_0_1px_rgb(0_0_0/0.8)]"
@@ -3113,7 +3021,7 @@
 				{#if selectionGesture && !selectionGesture.originalSelection}
 					<svg
 						class="pointer-events-none absolute inset-0 z-20 size-full overflow-visible"
-						viewBox={`0 0 ${editor.document.width_px} ${editor.document.height_px}`}
+						viewBox={`0 0 ${editor.activePageDimensions.width} ${editor.activePageDimensions.height}`}
 						aria-hidden="true"
 					>
 						{#if selectionGesture.tool === 'select' || selectionGesture.tool === 'marquee'}
@@ -3175,10 +3083,34 @@
 						{/if}
 					</svg>
 				{/if}
+				{#if polygonalSelection}
+					<svg
+						class="pointer-events-none absolute inset-0 z-20 size-full overflow-visible"
+						viewBox={`0 0 ${editor.activePageDimensions.width} ${editor.activePageDimensions.height}`}
+						data-testid="image-editor-polygonal-lasso-preview"
+						aria-hidden="true"
+					>
+						<polyline
+							class="image-editor-selection-outline"
+							fill="none"
+							points={[...polygonalSelection.points, polygonalSelection.current]
+								.map((point) => `${point.x},${point.y}`)
+								.join(' ')}
+						/>
+						{#each polygonalSelection.points as point, index (index)}
+							<circle
+								class="image-editor-gradient-preview-point"
+								cx={point.x}
+								cy={point.y}
+								r={4 / Math.max(editor.zoom, 0.1)}
+							/>
+						{/each}
+					</svg>
+				{/if}
 				{#if magicPulse}
 					<svg
 						class="pointer-events-none absolute inset-0 z-20 size-full overflow-visible"
-						viewBox={`0 0 ${editor.document.width_px} ${editor.document.height_px}`}
+						viewBox={`0 0 ${editor.activePageDimensions.width} ${editor.activePageDimensions.height}`}
 						aria-hidden="true"
 					>
 						<circle
@@ -3193,9 +3125,12 @@
 		</div>
 		{#if cursorPoint}
 			<div
-				class="pointer-events-none absolute right-3 bottom-3 hidden rounded bg-[color-mix(in_oklch,var(--editor-canvas)_80%,transparent)] px-2 py-1 font-mono text-[10px] text-[var(--editor-muted)] lg:block"
+				class="pointer-events-none absolute right-3 bottom-3 hidden rounded bg-[color-mix(in_oklch,var(--editor-canvas)_80%,transparent)] px-2 py-1 font-mono text-[10px] whitespace-nowrap text-[var(--editor-muted)] tabular-nums lg:block"
+				aria-hidden="true"
 			>
-				{Math.round(cursorPoint.x)}, {Math.round(cursorPoint.y)} px
+				{Math.round(cursorPoint.x)}, {Math.round(cursorPoint.y)} px · {Math.round(
+					editor.zoom * 100
+				)}%
 			</div>
 		{/if}
 	{/if}
@@ -3223,42 +3158,25 @@
 	{/if}
 </div>
 
-<style>
-	.fabric-stage {
-		--image-editor-checker-light: color-mix(
-			in oklch,
-			var(--canvas-pasteboard) 82%,
-			var(--canvas-grid)
-		);
-		--image-editor-checker-dark: var(--canvas-grid);
-		background-color: var(--image-editor-checker-light);
-		background-image:
-			linear-gradient(45deg, var(--image-editor-checker-dark) 25%, transparent 25%),
-			linear-gradient(-45deg, var(--image-editor-checker-dark) 25%, transparent 25%),
-			linear-gradient(45deg, transparent 75%, var(--image-editor-checker-dark) 75%),
-			linear-gradient(-45deg, transparent 75%, var(--image-editor-checker-dark) 75%);
-		background-position:
-			0 0,
-			0 8px,
-			8px -8px,
-			-8px 0;
-		background-size: 16px 16px;
-	}
+{#if editor.activeTool === 'eyedropper' && eyedropperPreview && stageElement}
+	{@const bounds = stageElement.getBoundingClientRect()}
+	<EditorColorMagnifier
+		image={eyedropperPreview.grid}
+		pixelX={Math.floor(eyedropperPreview.grid.width / 2)}
+		pixelY={Math.floor(eyedropperPreview.grid.height / 2)}
+		clientX={bounds.left + eyedropperPreview.point.x * editor.zoom}
+		clientY={bounds.top + eyedropperPreview.point.y * editor.zoom}
+		color={eyedropperPreview.alpha === 255
+			? eyedropperPreview.color
+			: `${eyedropperPreview.color}${eyedropperPreview.alpha.toString(16).padStart(2, '0')}`}
+		testId="image-editor-eyedropper-magnifier"
+	/>
+{/if}
 
+<style>
 	.fabric-stage :global(.canvas-container) {
 		transform: scale(var(--image-editor-zoom));
 		transform-origin: top left;
-	}
-
-	.eyedropper-grid {
-		background-color: var(--canvas-handle);
-		background-image: conic-gradient(
-			var(--canvas-grid) 25%,
-			var(--canvas-handle) 0 50%,
-			var(--canvas-grid) 0 75%,
-			var(--canvas-handle) 0
-		);
-		background-size: 0.75rem 0.75rem;
 	}
 
 	.image-editor-selection-outline {

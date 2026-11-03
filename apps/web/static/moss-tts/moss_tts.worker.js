@@ -1,6 +1,6 @@
 /* global importScripts */
 
-// Ported from FreeCut (MIT), adapted to OpenPost's pinned model store.
+// Ported from FreeCut (MIT), adapted to dopost's pinned model store.
 const HOST_SOURCE = "openpost-moss-tts-worker";
 const CLIENT_SOURCE = "openpost-moss-tts-client";
 const TOKENIZER_SOURCE = "nano-reader-tokenizer-sandbox";

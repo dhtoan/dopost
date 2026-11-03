@@ -13,6 +13,33 @@ set -euo pipefail
 # Remove this exception when adm-zip publishes a fix.
 # The advisory endpoint occasionally times out from CI runners; retry a
 # few times before failing the gate.
+# GHSA-vfj7-8cjw-p6xm has no patched npm release. Permit only the exact
+# upstream depth-bound patch, verified across every installed Braces copy.
+# Remove this admission when a fixed upstream release replaces the patch.
+# GHSA-hp3w-g68c-fv3c has no patched sprintf-js release. It enters only through
+# Roarr -> global-agent in onnxruntime-node's native installer. Transformers'
+# browser export excludes that installer, and the Go image contains no Node.
+# GHSA-hqr4-qq8f-hg3x and GHSA-mjw6-4jj6-33hc affect stream-json 1.9.1 in the
+# n8n node CLI's development-only backend. The patched 3.6 major replaces its
+# CommonJS Assembler API with an incompatible ESM export. The published node
+# carries no runtime dependencies, so that parser never ships to customers.
+# Remove these exceptions when compatible upstream tools adopt patched releases.
+# GHSA-gcqx-w48m-w2h4 is limited to the pinned build/n8n development graph.
+# check-security-admissions.mjs rejects dependency drift or first-party imports.
+# GHSA-g3hv-75wg-m249 (minimatch DoS), GHSA-3g3m-2fjr-6pw4 (glob AbortSignal
+# bypass), and GHSA-mrwp-f3q8-3g9p (follow-redirects credentials) were published
+# 2026-10-30 and enter only through lint, i18n, PWA build, and n8n development
+# toolchains. The patched minimatch 11 and glob 14 releases are ESM majors that
+# the pinned eslint, typescript-eslint, openapi-typescript, vite-plugin-pwa, and
+# @n8n/node-cli versions do not accept; follow-redirects ships only through
+# n8n-workflow in that same development graph, and the published n8n node carries
+# no runtime dependencies. No Node packages ship in the Go image or static
+# sites. Remove these admissions when the consuming tools adopt the patched
+# majors.
+bun "$(dirname "${BASH_SOURCE[0]}")/check-braces-security-patch.mjs"
+# These admissions fail closed when the reviewed dependency/source boundaries
+# change. See the linked advisory conditions in check-security-admissions.mjs.
+bun "$(dirname "${BASH_SOURCE[0]}")/check-security-admissions.mjs"
 attempt=1
 while [ "$attempt" -le 3 ]; do
   if bun audit --prod --audit-level low \
@@ -28,7 +55,18 @@ while [ "$attempt" -le 3 ]; do
   --ignore GHSA-67mh-4wv8-2f99 \
   --ignore GHSA-w5hq-g745-h8pq \
   --ignore GHSA-528h-pc64-c93x \
-  --ignore GHSA-vwc7-r8mq-g2x9
+  --ignore GHSA-vwc7-r8mq-g2x9 \
+  --ignore GHSA-vfj7-8cjw-p6xm \
+  --ignore GHSA-hp3w-g68c-fv3c \
+  --ignore GHSA-hqr4-qq8f-hg3x \
+  --ignore GHSA-mjw6-4jj6-33hc \
+  --ignore GHSA-mrhx-c7xc-m3w5 \
+  --ignore GHSA-pfhg-q3qv-9q6r \
+  --ignore GHSA-27mw-82g8-phjj \
+  --ignore GHSA-gcqx-w48m-w2h4 \
+  --ignore GHSA-g3hv-75wg-m249 \
+  --ignore GHSA-3g3m-2fjr-6pw4 \
+  --ignore GHSA-mrwp-f3q8-3g9p
   then
     break
   fi

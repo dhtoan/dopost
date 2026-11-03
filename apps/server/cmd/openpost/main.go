@@ -10,8 +10,10 @@ import (
 	"os"
 	"os/signal"
 	"runtime/debug"
+	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -30,21 +32,25 @@ import (
 	"github.com/openpost/backend/internal/config"
 	"github.com/openpost/backend/internal/connectors"
 	"github.com/openpost/backend/internal/database"
+	"github.com/openpost/backend/internal/database/migrations"
 	"github.com/openpost/backend/internal/diagnostics"
+	"github.com/openpost/backend/internal/imageprepare"
 	"github.com/openpost/backend/internal/memes"
 	operationallogging "github.com/openpost/backend/internal/operational/logging"
 	"github.com/openpost/backend/internal/platform"
 	"github.com/openpost/backend/internal/queue"
+	"github.com/openpost/backend/internal/services/accountavatar"
 	accountpreflightservice "github.com/openpost/backend/internal/services/accountpreflight"
 	"github.com/openpost/backend/internal/services/aiprompts"
-	"github.com/openpost/backend/internal/services/autovideo"
 	analyticsservice "github.com/openpost/backend/internal/services/analytics"
 	"github.com/openpost/backend/internal/services/apitokens"
 	"github.com/openpost/backend/internal/services/auth"
+	"github.com/openpost/backend/internal/services/autovideo"
 	"github.com/openpost/backend/internal/services/billing"
 	"github.com/openpost/backend/internal/services/botingress"
 	cliauth "github.com/openpost/backend/internal/services/cli_auth"
 	"github.com/openpost/backend/internal/services/crypto"
+	"github.com/openpost/backend/internal/services/discordpresence"
 	"github.com/openpost/backend/internal/services/emailchange"
 	"github.com/openpost/backend/internal/services/emailverification"
 	"github.com/openpost/backend/internal/services/encryptionrotation"
@@ -53,9 +59,12 @@ import (
 	"github.com/openpost/backend/internal/services/externalapps"
 	"github.com/openpost/backend/internal/services/externalwebhooks"
 	"github.com/openpost/backend/internal/services/feedback"
+	"github.com/openpost/backend/internal/services/githubstars"
 	growthservice "github.com/openpost/backend/internal/services/growth"
 	"github.com/openpost/backend/internal/services/identity"
 	"github.com/openpost/backend/internal/services/imagecaption"
+	"github.com/openpost/backend/internal/services/imagegeneration"
+	"github.com/openpost/backend/internal/services/instancebackup"
 	"github.com/openpost/backend/internal/services/instancesettings"
 	"github.com/openpost/backend/internal/services/mastodonapps"
 	"github.com/openpost/backend/internal/services/mcpoauth"
@@ -66,10 +75,13 @@ import (
 	messagingservice "github.com/openpost/backend/internal/services/messaging"
 	"github.com/openpost/backend/internal/services/mfa"
 	"github.com/openpost/backend/internal/services/notifications"
+	"github.com/openpost/backend/internal/services/oauth2messaging"
 	"github.com/openpost/backend/internal/services/organizationownership"
 	"github.com/openpost/backend/internal/services/passwordmail"
 	"github.com/openpost/backend/internal/services/postgeneration"
+	postimportservice "github.com/openpost/backend/internal/services/postimport"
 	"github.com/openpost/backend/internal/services/providerapps"
+	"github.com/openpost/backend/internal/services/providerinbox"
 	"github.com/openpost/backend/internal/services/providerreadiness"
 	"github.com/openpost/backend/internal/services/proxyauth"
 	"github.com/openpost/backend/internal/services/publicationbuilder"
@@ -77,6 +89,7 @@ import (
 	"github.com/openpost/backend/internal/services/publicurl"
 	"github.com/openpost/backend/internal/services/publisher"
 	repostservice "github.com/openpost/backend/internal/services/reposts"
+	"github.com/openpost/backend/internal/services/repurpose"
 	"github.com/openpost/backend/internal/services/sessions"
 	"github.com/openpost/backend/internal/services/sourcecontext"
 	telegramservice "github.com/openpost/backend/internal/services/telegram"
@@ -84,7 +97,10 @@ import (
 	"github.com/openpost/backend/internal/services/updatestatus"
 	"github.com/openpost/backend/internal/services/usage"
 	"github.com/openpost/backend/internal/services/videoprocessing"
+	"github.com/openpost/backend/internal/services/waitlist"
+	"github.com/openpost/backend/internal/services/workflows"
 	"github.com/openpost/backend/internal/services/workspaceteam"
+	"github.com/openpost/backend/internal/services/youtubeprofile"
 	"github.com/openpost/backend/internal/telemetry"
 )
 
@@ -101,8 +117,23 @@ func newWorkerID() string {
 	return "worker-" + uuid.NewString()
 }
 
+type mcpToolModeSetter interface {
+	SetToolMode(string)
+}
+
+func configureMCPToolMode(handler mcpToolModeSetter, cfg *config.Config) {
+	handler.SetToolMode(cfg.MCPMode)
+}
+
 //nolint:gocyclo
 func main() {
+	if handled, err := imageprepare.RunWorker(os.Args[1:], os.Stdin, os.Stdout); handled {
+		if err != nil {
+			os.Exit(1)
+		}
+		return
+	}
+
 	runtimeLogger := operationallogging.New(os.Stdout, "openpost", runningBuildRevision())
 	log.SetFlags(0)
 	log.SetOutput(runtimeLogger.LegacyWriter())
@@ -122,9 +153,8 @@ func main() {
 	cfg := config.Load()
 	// The diagnostics reporter resolves its decision from environment
 	// configuration only, so startup failures (database initialization,
-	// migrations) can report without the application database. It
-	// defaults to disabled: existing installations keep their previous
-	// no-external-reporting behavior on upgrade.
+	// migrations) can report without the application database. Reporting
+	// defaults to enabled; the operator's environment kill-switch wins.
 	diagnosticsReporter := diagnostics.NewReporter(diagnostics.Config{
 		Enabled:            cfg.DiagnosticsEnabled,
 		EnvDisabled:        cfg.DiagnosticsEnvSet && !cfg.DiagnosticsEnabled,
@@ -137,21 +167,10 @@ func main() {
 	})
 	defer closeDiagnostics(diagnosticsReporter)
 	if command.checkConfig {
-		if err := cfg.ValidateRuntime(); err != nil {
-			fatalWithDiagnostics(diagnosticsReporter, err)
-		}
-		config.Init()
-		if err := json.NewEncoder(os.Stdout).Encode(map[string]string{
-			"status":          "ok",
-			"edition":         cfg.Edition,
-			"database_driver": cfg.DatabaseDriver,
-			"storage_driver":  cfg.StorageDriver,
-		}); err != nil {
-			fatalWithDiagnostics(diagnosticsReporter, err)
-		}
+		runCheckConfigCommand(cfg, diagnosticsReporter)
 		return
 	}
-	config.Init()
+
 	if err := cfg.ValidateEncryptionKeyring(); err != nil {
 		fatalWithDiagnostics(diagnosticsReporter, err)
 	}
@@ -164,88 +183,51 @@ func main() {
 		}
 	}
 
-	db, err := database.InitDBWithDriverAndRole(
-		cfg.DatabaseDriver,
-		cfg.DatabaseDSN(),
-		string(command.role),
-	)
-	if err != nil {
-		diagnosticsReporter.ReportStartupFailureSync("db_init", diagnostics.CodeStartupFailed)
-		fatalWithDiagnostics(diagnosticsReporter, err)
+	instanceBackupPaths := instancebackup.Paths{
+		DatabaseFile: database.SQLiteFilePath(cfg.DatabaseDSN()),
+		MediaDir:     cfg.MediaPath,
 	}
-	closeDatabase := func() {
-		if closeErr := db.Close(); closeErr != nil {
-			log.Printf("database shutdown failed: %v", closeErr)
+	if cfg.DatabaseDriver == config.DatabaseDriverSQLite && cfg.StorageDriver == config.StorageDriverLocal && command.role == processRoleAll && instanceBackupPaths.DatabaseFile != "" {
+		latestSchema, err := migrations.LatestVersion()
+		if err != nil {
+			fatalfWithDiagnostics(diagnosticsReporter, "failed to read backup schema version: %v", err)
+		}
+		applied, err := instancebackup.ApplyPending(instanceBackupPaths, instancebackup.Current{
+			DatabaseDriver:           cfg.DatabaseDriver,
+			StorageDriver:            cfg.StorageDriver,
+			SchemaVersion:            latestSchema,
+			EncryptionKeyFingerprint: instancebackup.KeyFingerprint(cfg.EncryptionKey),
+		}, time.Now())
+		if err != nil {
+			fatalfWithDiagnostics(diagnosticsReporter, "failed to apply the staged backup restore: %v", err)
+		}
+		if applied {
+			log.Println("Applied the staged backup restore; the previous data was kept in a pre-restore folder")
 		}
 	}
-	if command.role.autoMigrates() {
-		if err := database.CreateSchemaLocked(context.Background(), db, cfg.DatabaseDriver, cfg.DatabaseDSN()); err != nil {
-			diagnosticsReporter.ReportStartupFailureSync("db_migrate", diagnostics.CodeStartupFailed)
-			fatalfWithDiagnostics(diagnosticsReporter, "database schema initialization failed: %v", err)
-		}
-	} else if err := database.RequireCurrentSchema(context.Background(), db); err != nil {
-		fatalWithDiagnostics(diagnosticsReporter, err)
-	}
+
+	db, closeDatabase := openApplicationDatabase(cfg, command, diagnosticsReporter)
+
 	if command.role == processRoleMigrate {
-		if err := json.NewEncoder(os.Stdout).Encode(map[string]string{
-			"status":          "migrated",
-			"database_driver": cfg.DatabaseDriver,
-		}); err != nil {
-			fatalWithDiagnostics(diagnosticsReporter, err)
-		}
+		reportMigrationStatus(cfg, diagnosticsReporter)
 		closeDatabase()
 		return
 	}
 
 	if command.grantAdminEmail != "" {
-		result, grantErr := grantInstanceAdmin(context.Background(), db, command.grantAdminEmail)
-		if grantErr != nil {
-			closeDatabase()
-			fatalWithDiagnostics(diagnosticsReporter, grantErr)
-		}
-		if err := json.NewEncoder(os.Stdout).Encode(struct {
-			Status string `json:"status"`
-			grantAdminResult
-		}{Status: "granted", grantAdminResult: result}); err != nil {
-			closeDatabase()
-			fatalWithDiagnostics(diagnosticsReporter, err)
-		}
+		runGrantAdminCommand(db, command.grantAdminEmail, closeDatabase, diagnosticsReporter)
 		closeDatabase()
 		return
 	}
 
-	var tokenEncryptor *crypto.TokenEncryptor
-	if cfg.EncryptionKeyID == "" {
-		tokenEncryptor = crypto.NewTokenEncryptor(cfg.EncryptionKey)
-	} else {
-		tokenEncryptor, err = crypto.NewTokenEncryptorWithKeyring(
-			cfg.EncryptionKeyID,
-			cfg.EncryptionKey,
-			cfg.EncryptionPreviousKeys,
-		)
-		if err != nil {
-			closeDatabase()
-			fatalfWithDiagnostics(diagnosticsReporter, "invalid encryption keyring configuration: %v", err)
-		}
-	}
+	tokenEncryptor := buildTokenEncryptor(cfg, closeDatabase, diagnosticsReporter)
+
 	if command.rotateEncryptionKey {
-		rotationCtx, cancelRotation := context.WithTimeout(context.Background(), encryptionRotationTimeout)
-		result, rotationErr := encryptionrotation.Rotate(rotationCtx, db, tokenEncryptor)
-		cancelRotation()
-		if rotationErr != nil {
-			closeDatabase()
-			fatalfWithDiagnostics(diagnosticsReporter, "encryption key rotation failed: %v", rotationErr)
-		}
-		if err := json.NewEncoder(os.Stdout).Encode(struct {
-			Status string `json:"status"`
-			encryptionrotation.Result
-		}{Status: "rotated", Result: result}); err != nil {
-			closeDatabase()
-			fatalWithDiagnostics(diagnosticsReporter, err)
-		}
+		runKeyRotationCommand(db, tokenEncryptor, closeDatabase, diagnosticsReporter)
 		closeDatabase()
 		return
 	}
+
 	instanceSettingsService := instancesettings.NewService(db, tokenEncryptor, cfg)
 	aiPromptService := aiprompts.NewService(db, tokenEncryptor)
 	if err := instanceSettingsService.ApplyStored(context.Background(), cfg); err != nil {
@@ -271,6 +253,9 @@ func main() {
 	}
 	readiness := apiroutes.NewReadiness()
 	e := echo.New()
+	e.Pre(apimiddleware.TrustedProxyMiddleware(cfg.TrustedProxyCIDRs))
+	e.Server.ReadHeaderTimeout = 15 * time.Second
+	e.Server.IdleTimeout = 60 * time.Second
 	e.Use(echo.WrapMiddleware(telemetryRecorder.WrapHTTP))
 	e.Use(middleware.RequestID())
 	e.Use(middleware.RequestLoggerWithConfig(middleware.RequestLoggerConfig{
@@ -285,14 +270,14 @@ func main() {
 		LogError:        true,
 		LogResponseSize: true,
 		HandleError:     true,
-		LogValuesFunc: func(_ echo.Context, values middleware.RequestLoggerValues) error {
+		LogValuesFunc: func(c echo.Context, values middleware.RequestLoggerValues) error {
 			route := normalizedRequestRoute(values.RoutePath)
 			runtimeLogger.Info(
 				"http_request",
 				"method", values.Method,
 				"path", values.URIPath,
 				"route", route,
-				"consumer", requestConsumerClass(route, values.UserAgent),
+				"consumer", requestConsumerClass(route, values.UserAgent, c.Request().Header.Get("X-OpenPost-Client")),
 				"status", values.Status,
 				"latency_ms", values.Latency.Milliseconds(),
 				"bytes_out", values.ResponseSize,
@@ -305,12 +290,12 @@ func main() {
 	}))
 	e.Use(middleware.Recover())
 	e.Use(capturePanics(telemetryRecorder, diagnosticsReporter))
-	e.Use(observeDiagnosticFailures(diagnosticsReporter))
+	e.Use(observeHTTPFailures(telemetryRecorder, diagnosticsReporter))
 	e.Use(middleware.Secure())
 	e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
 		AllowOrigins:     cfg.CORSOrigins,
 		AllowMethods:     []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete, http.MethodOptions},
-		AllowHeaders:     []string{echo.HeaderOrigin, echo.HeaderContentType, echo.HeaderAuthorization, "MCP-Protocol-Version", "Mcp-Session-Id", "Last-Event-ID", "X-PostHog-Distinct-ID", "X-PostHog-Session-ID"},
+		AllowHeaders:     []string{echo.HeaderOrigin, echo.HeaderContentType, echo.HeaderAuthorization, "MCP-Protocol-Version", "Mcp-Session-Id", "Last-Event-ID", "X-PostHog-Distinct-ID", "X-PostHog-Session-ID", "X-OpenPost-Client"},
 		AllowCredentials: true,
 	}))
 	installTelemetryErrorHandler(e, telemetryRecorder, diagnosticsReporter)
@@ -341,6 +326,7 @@ func main() {
 		NativeCallbackURL:     cfg.OIDCNativeCallbackURL,
 		RegistrationsDisabled: cfg.DisableRegistrations,
 		RequireExplicitSignup: cfg.Edition == config.EditionCloud,
+		WaitlistEnabled:       cfg.HostedWaitlistEnabled,
 		Environment: identity.EnvironmentProviderConfig{
 			Issuer:            cfg.OIDCIssuer,
 			ClientID:          cfg.OIDCClientID,
@@ -360,6 +346,8 @@ func main() {
 	}
 	apiTokenService := apitokens.NewService(db)
 	sessionService := sessions.NewService(db)
+	waitlistService := waitlist.NewService(db, cfg.BillingDiscordWebhookURL)
+	waitlistService.SetTelemetry(telemetryRecorder)
 	billingService := billing.NewService(db, cfg.PaddleWebhookSecret, billing.PaddleConfig{
 		APIKey:               cfg.PaddleAPIKey,
 		APIBaseURL:           cfg.PaddleAPIBaseURL,
@@ -367,6 +355,7 @@ func main() {
 		ClientToken:          cfg.PaddleClientToken,
 		AppURL:               cfg.FrontendURL,
 		ReturnURL:            cfg.PaddleCheckoutReturnURL,
+		DiscordWebhookURL:    cfg.BillingDiscordWebhookURL,
 		PurchaseChoiceSecret: cfg.JWTSecret,
 		Plans: billing.DefaultPlanCatalog(
 			billing.PaddlePriceIDs{Monthly: cfg.PaddleFounderMonthlyPriceID, Annual: cfg.PaddleFounderAnnualPriceID},
@@ -385,8 +374,8 @@ func main() {
 	externalApplicationService.SetDynamicRegistrationEnabled(cfg.OAuthDCR)
 	externalWebhookService := externalwebhooks.NewService(db, tokenEncryptor)
 	mediaSigner := mediasigner.New(cfg.MediaSigningKey)
-	mfaService, err := mfa.NewService("OpenPost", mfa.RelyingPartyConfig{
-		Name:    "OpenPost",
+	mfaService, err := mfa.NewService("dopost", mfa.RelyingPartyConfig{
+		Name:    "dopost",
 		ID:      cfg.WebAuthnRPID,
 		Origins: []string{cfg.PublicURL},
 	})
@@ -428,6 +417,7 @@ func main() {
 	emailChangeService := emailchange.NewService(db, emailchange.Config{Secret: cfg.JWTSecret})
 	tokenManager := tokenmanager.NewTokenManager(db, tokenEncryptor)
 	usageService := usage.NewService(db)
+	xMessagingConfig := config.LoadXMessaging()
 	publishSvc := publisher.NewService(db, tokenManager)
 	publishSvc.SetMediaStateEncryptor(tokenEncryptor)
 	publishSvc.SetUsage(usageService)
@@ -530,8 +520,12 @@ func main() {
 		}
 	}
 	providers, providerEntries, err := platform.BuildAdapterRegistry(providerAppConfigs, platform.RegistryOptions{
-		DisableLinkedInThreadReplies: cfg.DisableLinkedInThreadReplies,
-		EnableLinkedInOrganizations:  cfg.EnableLinkedInOrganizations,
+		LinkedInAuthMode:              cfg.LinkedInAuthMode,
+		DisableLinkedInThreadReplies:  cfg.DisableLinkedInThreadReplies,
+		EnableLinkedInOrganizations:   cfg.EnableLinkedInOrganizations,
+		EnableLinkedInMemberReads:     cfg.EnableLinkedInMemberReads,
+		EnableLinkedInMemberAnalytics: cfg.EnableLinkedInMemberAnalytics,
+		DisableTikTokDisplayAPI:       cfg.DisableTikTokDisplayAPI,
 	})
 	if err != nil {
 		fatalfWithDiagnostics(diagnosticsReporter, "failed to build provider app registry: %v", err)
@@ -570,11 +564,11 @@ func main() {
 	publishSvc.SetConnectorRegistry(connectorRegistry, connectorStore)
 	if cfg.Edition == config.EditionCloud {
 		if _, xEnabled := providers[usage.ProviderX]; xEnabled {
-			if err := usageService.SetProviderCostPolicy(usage.NewXProviderCostPolicy(
+			if err := usageService.SetProviderCostPolicy(oauth2messaging.AddPricing(usage.NewXProviderCostPolicy(
 				cfg.XMonthlyBudgetMicrousd,
 				cfg.XPostCreateCostMicrousd,
 				cfg.XPostCreateWithURLCostMicrousd,
-			)); err != nil {
+			), xMessagingConfig.MonthlyBudgetMicrousd)); err != nil {
 				fatalfWithDiagnostics(diagnosticsReporter, "hosted X provider cost configuration is invalid: %v", err)
 			}
 			now := time.Now().UTC()
@@ -601,22 +595,19 @@ func main() {
 	publishSvc.SetProviderReadiness(providerReadinessService)
 	publishSvc.SetTelemetry(telemetryRecorder)
 
+	youtubeProfileService := youtubeprofile.NewService(db, tokenManager, nil)
 	analyticsService := analyticsservice.NewService(db, tokenManager)
 	analyticsService.SetCursorSigningKey(cfg.JWTSecret)
+	analyticsService.SetUsage(usageService)
 	analyticsService.SetProviderReadiness(providerReadinessService)
-	analyticsService.SetDiscoveryPolicy("x", analyticsservice.DiscoveryPolicy{
-		ProviderConcurrency: 1,
-		ReadRequestsPerDay:  cfg.XAccountHistoryReadRequestsPerDay,
-		PageSize:            platform.AccountContentMaxPageSize,
-	})
 	if telegramConnectionService != nil {
-		telegramConnectionService.SetAccountContentStore(analyticsService)
 		analyticsService.SetExternalSource(capabilities.ProviderTelegram, telegramConnectionService)
 	}
 	repostService := repostservice.NewService(db, tokenManager)
 	repostService.SetUsage(usageService)
 	repostService.SetEntitlement(entitlementService)
 	growthService := growthservice.NewService(db, tokenManager, telemetryRecorder)
+	postImportService := postimportservice.NewService(db, tokenManager)
 	notificationService := notifications.NewService(db, notifications.Options{
 		EmailDelivery: authMailSender, Encryptor: tokenEncryptor, PublicURL: cfg.PublicURL,
 	})
@@ -626,12 +617,45 @@ func main() {
 	engagementService := engagementservice.NewService(db, tokenManager, notificationService)
 	engagementService.SetXDailyReadBudget(cfg.XEngagementDailyReadBudget)
 	messagingService := messagingservice.NewService(db, tokenManager, notificationService)
+	if cfg.Edition != config.EditionCloud && xMessagingConfig.MonthlyBudgetMicrousd > 0 {
+		if err := usageService.SetProviderCostPolicy(oauth2messaging.AddPricing(usage.ProviderCostPolicy{}, xMessagingConfig.MonthlyBudgetMicrousd)); err != nil {
+			fatalfWithDiagnostics(diagnosticsReporter, "X messaging cost policy is invalid: %v", err)
+		}
+	}
+	xMessagingService := oauth2messaging.NewService(db, tokenEncryptor, oauth2messaging.Config{ClientID: xMessagingConfig.ClientID, ClientSecret: xMessagingConfig.ClientSecret, RedirectURI: xMessagingConfig.RedirectURI, WebhookID: xMessagingConfig.WebhookID, MonthlyBudgetMicrousd: xMessagingConfig.MonthlyBudgetMicrousd, ProviderSpendingLimitConfirmed: xMessagingConfig.ProviderSpendingLimitConfirmed}, usageService)
+	messagingService.SetMessagingTokenSource(xMessagingService, oauth2messaging.ErrNotConnected)
+	inboxIngress := providerinbox.NewService(db, tokenEncryptor)
+	inboxIngress.SetReceiptScheduler(messagingService.ScheduleReceiptDrain)
+	xMessagingService.SetReceiptScheduler(messagingService.ScheduleReceiptDrain)
+	drainInbox := func(ctx context.Context) error {
+		if _, err := inboxIngress.ProcessPending(ctx, 100, func(applyCtx context.Context, event providerinbox.Event) error {
+			return messagingService.ProcessMetaReceipt(applyCtx, event, engagementService.RefreshFromWebhook)
+		}); err != nil {
+			return err
+		}
+		_, err := xMessagingService.Drain(ctx, func(applyCtx context.Context, accountID string, batch platform.FetchMessagesResult) error {
+			return messagingService.ApplyProviderEvents(applyCtx, accountID, platform.FetchMessageEventsResult{Conversations: batch.Conversations})
+		}, 100)
+		return err
+	}
+	messagingService.SetReceiptDrainer(drainInbox)
+	for _, adapter := range providers {
+		if x, ok := adapter.(*platform.XAdapter); ok {
+			x.SetMessagingQuotaGate(xMessagingService)
+		}
+	}
+
 	for name, adapter := range providers {
 		tokenManager.SetProvider(name, adapter)
 		publishSvc.SetProvider(name, adapter)
+		youtubeProfileService.SetProvider(name, adapter)
 		analyticsService.SetProvider(name, adapter)
+		postImportService.SetProvider(name, adapter)
 		if engagementAdapter, ok := adapter.(platform.EngagementAdapter); ok {
 			engagementService.SetProvider(name, engagementAdapter)
+		}
+		if activityAdapter, ok := adapter.(platform.AccountActivityAdapter); ok {
+			engagementService.SetActivityProvider(name, activityAdapter)
 		}
 		if messagingAdapter, ok := adapter.(platform.MessagingAdapter); ok {
 			messagingService.SetProvider(name, messagingAdapter)
@@ -640,19 +664,12 @@ func main() {
 		growthService.SetProvider(name, adapter)
 		accountPreflightService.SetProvider(name, adapter)
 	}
-	for _, source := range cfg.AnalyticsSources {
-		adapter, err := analyticsservice.NewExternalAnalyticsAdapter(source.Platform, source.BaseURL, source.BearerToken)
-		if err != nil {
-			fatalfWithDiagnostics(diagnosticsReporter, "failed to initialize external analytics source for %s: %v", source.Platform, err)
-		}
-		analyticsService.SetExternalSource(source.Platform, adapter)
-		log.Printf("Registered external analytics source: %s", source.Platform)
-	}
-
+	mediaSnapshotMu := &sync.RWMutex{}
 	storage, err := mediastore.New(context.Background(), mediastore.Config{
-		Driver:    cfg.StorageDriver,
-		LocalPath: cfg.MediaPath,
-		BaseURL:   cfg.MediaURL,
+		Driver:          cfg.StorageDriver,
+		LocalPath:       cfg.MediaPath,
+		LocalSnapshotMu: mediaSnapshotMu,
+		BaseURL:         cfg.MediaURL,
 		S3: mediastore.S3Config{
 			Endpoint:        cfg.S3Endpoint,
 			Region:          cfg.S3Region,
@@ -667,6 +684,7 @@ func main() {
 		fatalfWithDiagnostics(diagnosticsReporter, "failed to initialize media storage: %v", err)
 	}
 	publishSvc.SetStorage(storage)
+	youtubeProfileService.SetAvatarCache(accountavatar.New(storage))
 	publicMediaVerifier := publicurl.NewMediaVerifier(cfg.MediaURL, storage, mediaSigner)
 	videoProcessingService := videoprocessing.NewService(db, storage, mediaanalysis.FFmpegAnalyzer{})
 	mediaHandler := handlers.NewMediaHandler(db, storage, authService, authenticator, mediaSigner)
@@ -676,6 +694,7 @@ func main() {
 	profileHandler := handlers.NewProfileHandler(db, authenticator, storage)
 
 	var imageGenerator ai.Generator
+	var decisionGenerator ai.Decider
 	var contentGenerator ai.Generator
 	if cfg.OpenRouterAPIKey != "" {
 		imageConfig, contentConfig := openRouterConfigs(cfg)
@@ -686,6 +705,12 @@ func main() {
 		contentGenerator, err = ai.NewOpenRouter(contentConfig)
 		if err != nil {
 			fatalfWithDiagnostics(diagnosticsReporter, "failed to initialize OpenRouter text generator: %v", err)
+		}
+		decisionConfig := contentConfig
+		decisionConfig.Provider = "typesafe"
+		decisionGenerator, err = ai.NewOpenRouter(decisionConfig)
+		if err != nil {
+			fatalfWithDiagnostics(diagnosticsReporter, "failed to initialize workflow decisions: %v", err)
 		}
 	}
 
@@ -716,21 +741,27 @@ func main() {
 			cfg.ContentAIRequireZDR,
 		)
 	}
-	autoVideoPlanner, autoVideoModel, autoVideoProvider, err := aunoAutoVideoPlanner(cfg, contentGenerator)
+	autoVideoPlanner, autoVideoModel, autoVideoProvider, err := dopostAutoVideoPlanner(cfg, contentGenerator)
 	if err != nil {
-		fatalfWithDiagnostics(diagnosticsReporter, "failed to initialize Auno Auto Video planner: %v", err)
+		fatalfWithDiagnostics(diagnosticsReporter, "failed to initialize dopost Auto Video planner: %v", err)
 	}
 	if autoVideoPlanner != nil {
-		log.Printf("Auno Auto Video planner enabled with model %s via %s", autoVideoModel, autoVideoProvider)
+		log.Printf("dopost Auto Video planner enabled with model %s via %s", autoVideoModel, autoVideoProvider)
 	}
-	documentaryPlanner, documentaryModel, documentaryProvider, err := aunoDocumentaryPlanner(cfg, contentGenerator)
+	documentaryPlanner, documentaryModel, documentaryProvider, err := dopostDocumentaryPlanner(cfg, contentGenerator)
 	if err != nil {
-		fatalfWithDiagnostics(diagnosticsReporter, "failed to initialize Auno Documentary planner: %v", err)
+		fatalfWithDiagnostics(diagnosticsReporter, "failed to initialize dopost Documentary planner: %v", err)
 	}
 	if documentaryPlanner != nil {
-		log.Printf("Auno Documentary planner enabled with model %s via %s", documentaryModel, documentaryProvider)
+		log.Printf("dopost Documentary planner enabled with model %s via %s", documentaryModel, documentaryProvider)
 	}
 
+	repurposeSuggestions := repurpose.New(db, contentGenerator, cfg.TextGenerationModel)
+	var imageProvider ai.ImageProvider
+	if cfg.FalAPIKey != "" {
+		imageProvider = ai.NewFalImages(cfg.FalAPIKey)
+	}
+	imageGeneration := imagegeneration.New(db, imageProvider, storage, mediaHandler)
 	var publicSourceLoader sourcecontext.Loader
 	var publicationBuilderApplication *publicationbuilder.Application
 	var publicationBuilderService *publicationbuilder.Service
@@ -740,7 +771,7 @@ func main() {
 		if err != nil {
 			fatalfWithDiagnostics(diagnosticsReporter, "failed to initialize public source loader: %v", err)
 		}
-		publicationBuilderService, err = publicationbuilder.New(contentGenerator, publicationbuilder.Config{Model: cfg.TextGenerationModel})
+		publicationBuilderService, err = publicationbuilder.New(contentGenerator, publicationbuilder.Config{Model: cfg.TextGenerationModel, Timeout: 180 * time.Second, Decider: decisionGenerator, DecisionModel: cfg.WorkflowDecisionModel})
 		if err != nil {
 			fatalfWithDiagnostics(diagnosticsReporter, "failed to initialize publication builder: %v", err)
 		}
@@ -748,6 +779,7 @@ func main() {
 			db,
 			publicationBuilderService,
 			publicationbuilder.ApplicationConfig{
+				Telemetry:    telemetryRecorder,
 				Model:        cfg.TextGenerationModel,
 				SourceLoader: publicSourceLoader,
 				AssetLoader:  publicationbuilder.NewMediaAssetLoader(db, storage),
@@ -777,9 +809,14 @@ func main() {
 			if err != nil {
 				fatalfWithDiagnostics(diagnosticsReporter, "failed to initialize AI meme suggestions: %v", err)
 			}
+			memeSuggester.(*memegeneration.Service).SetTemplateProvider(memeProvider)
 			log.Printf("AI meme suggestions enabled with model %s", cfg.MemeGenerationModel)
 		}
 		log.Printf("Meme generator enabled with renderer %s", memeProvider.Key())
+	}
+
+	if publicationBuilderService != nil {
+		publicationBuilderService.SetMemeProvider(memeProvider)
 	}
 
 	var feedbackDestination feedback.Destination
@@ -800,27 +837,69 @@ func main() {
 	}, feedbackDestination)
 
 	organizationOwnershipService := organizationownership.NewService(db, notificationService, identityService)
+	workflowService := workflows.NewService(db, nil, tokenEncryptor)
+	workflowService.SetTelemetry(telemetryRecorder)
+	workflowService.SetAI(contentGenerator, cfg.TextGenerationModel)
+	workflowService.SetAILimits(cfg.WorkflowsAIEnabled, cfg.WorkflowsAIMonthlyCalls)
+	workflowService.SetDecisionAI(decisionGenerator, cfg.WorkflowDecisionModel)
 	var worker *queue.BackgroundWorker
+	var chatWorkers inboxWorkers
+	var discordPresenceService *discordpresence.Service
 	if command.role.runsWorker() {
+		for _, app := range providerAppConfigs {
+			app = platform.NormalizeAppConfig(app)
+			if app.Provider != capabilities.ProviderDiscord || app.ConnectionMode != platform.ConnectionModeBot || app.BotToken == "" || slices.Contains(cfg.DisabledProviders, capabilities.ProviderDiscord) {
+				continue
+			}
+			discordPresenceService, err = discordpresence.NewService(app.BotToken, discordpresence.Options{
+				StreamURL: cfg.DiscordPresenceStreamURL,
+			})
+			if err != nil {
+				fatalfWithDiagnostics(diagnosticsReporter, "Discord presence configuration is invalid: %v", err)
+			}
+			break
+		}
 		worker = queue.NewWorker(db, newWorkerID(), 1*time.Second, publishSvc, tokenManager, storage)
+		worker.SetWorkflowService(workflowService)
 		worker.SetFeedbackService(feedbackService)
 		worker.SetAnalyticsService(analyticsService)
+		worker.SetYouTubeProfileService(youtubeProfileService)
 		worker.SetBillingService(billingService)
+		worker.SetWaitlistService(waitlistService)
 		worker.SetBotIngressService(botIngressService)
 		worker.SetEngagementService(engagementService)
 		worker.SetMessagingService(messagingService)
+		worker.ExcludeJobTypes(messagingservice.JobTypeMessagesSync, messagingservice.JobTypeMessageSend, engagementservice.JobTypeEngagementAct)
+		collectionWorker := queue.NewWorker(db, newWorkerID(), time.Second, nil, tokenManager, storage)
+		collectionWorker.SetJobTypes(messagingservice.JobTypeMessagesSync)
+		collectionWorker.SetMessagingService(messagingService)
+		sendWorker := queue.NewWorker(db, newWorkerID(), time.Second, nil, tokenManager, storage)
+		sendWorker.SetJobTypes(messagingservice.JobTypeMessageSend, engagementservice.JobTypeEngagementAct)
+		sendWorker.SetMessagingService(messagingService)
+		sendWorker.SetEngagementService(engagementService)
+		chatWorkers = inboxWorkers{collectionWorker, sendWorker}
+
 		worker.SetNotificationService(notificationService)
 		worker.SetOrganizationOwnershipService(organizationOwnershipService)
 		worker.SetRepostService(repostService)
 		worker.SetVideoProcessingService(videoProcessingService)
 		worker.SetGrowthService(growthService)
+		worker.SetPostImportService(postImportService)
 		worker.SetPublicationBuilderService(publicationBuilderApplication)
+		worker.SetRepurposeSuggestionsService(repurposeSuggestions)
+		worker.SetImageGenerationService(imageGeneration)
 		worker.SetAccountPreflightService(accountPreflightService)
 		worker.SetExternalWebhookService(externalWebhookService)
 		worker.SetTelemetry(telemetryRecorder)
 		worker.SetDiagnosticsReporter(diagnosticsReporter)
+		if err := workflowService.ScheduleSweep(context.Background(), time.Now().UTC()); err != nil {
+			fatalfWithDiagnostics(diagnosticsReporter, "failed to schedule workflows: %v", err)
+		}
 		if err := videoProcessingService.EnqueuePendingAnalysis(context.Background()); err != nil {
 			fatalfWithDiagnostics(diagnosticsReporter, "failed to schedule pending video analysis: %v", err)
+		}
+		if err := youtubeProfileService.ScheduleSweep(context.Background(), time.Now().UTC()); err != nil {
+			fatalfWithDiagnostics(diagnosticsReporter, "failed to schedule YouTube profile refresh: %v", err)
 		}
 		if err := analyticsService.ScheduleSweep(context.Background(), time.Now().UTC()); err != nil {
 			fatalfWithDiagnostics(diagnosticsReporter, "failed to schedule analytics collection: %v", err)
@@ -842,11 +921,27 @@ func main() {
 	apiGroup := e.Group("/api/v1")
 	humaConfig := apiroutes.OpenAPIConfig("1.0.0")
 	api := humaecho.NewWithGroup(e, apiGroup, humaConfig)
+	registerMetaInbox(e, inboxIngress, providerAppConfigs)
+	handlers.NewXMessagingHandler(authenticator, xMessagingService).RegisterWebhook(e)
 	if telegramConnectionService != nil {
 		telegramConnectionService.RegisterWebhook(e, botIngressService)
 	}
 
 	mediaHandler.RegisterLegacyRoutes(e)
+	handlers.NewInstanceBackupHandler(db, authenticator, handlers.InstanceBackupConfig{
+		Paths:           instanceBackupPaths,
+		MediaSnapshotMu: mediaSnapshotMu,
+		AppVersion:      version,
+		DatabaseDriver:  cfg.DatabaseDriver,
+		StorageDriver:   cfg.StorageDriver,
+		EncryptionKey:   cfg.EncryptionKey,
+		ProcessRole:     string(command.role),
+		Restart: func() {
+			if process, err := os.FindProcess(os.Getpid()); err == nil {
+				_ = process.Signal(syscall.SIGTERM)
+			}
+		},
+	}).RegisterRoutes(e)
 	profileHandler.RegisterLegacyRoutes(e)
 	billingHandler := handlers.NewBillingHandler(billingService, db, authenticator)
 	billingHandler.SetUsage(usageService)
@@ -871,14 +966,18 @@ func main() {
 	handlers.NewPublicDiscoveryHandler(cfg.PublicURL, version).RegisterRoutes(e)
 
 	mcpHandler := handlers.NewMCPHandler(db, authenticator, entitlementService)
+	configureMCPToolMode(mcpHandler, cfg)
 	mcpHandler.SetServerVersion(version)
 	mcpHandler.SetMediaStorage(storage)
+	mcpHandler.SetMediaHandler(mediaHandler)
+	mcpHandler.SetPublicMediaVerifier(publicMediaVerifier)
 	mcpHandler.SetPublicURL(cfg.PublicURL)
 	mcpHandler.SetAllowedOrigins(cfg.CORSOrigins)
 	mcpHandler.SetProviderCatalog(providers, mastodonAppService != nil)
 	mcpHandler.SetProviderReadiness(providerReadinessService)
 	mcpHandler.SetTokenEncryptor(tokenEncryptor)
 	mcpHandler.SetTokenSource(tokenManager)
+	mcpHandler.SetEngagementService(engagementService)
 	mcpHandler.RegisterRoutes(e)
 	mcpOAuthHandler := handlers.NewMCPOAuthHandler(mcpOAuthService, authenticator, cfg.PublicURL)
 	mcpOAuthHandler.SetIdentityService(identityService)
@@ -897,8 +996,15 @@ func main() {
 		RunningVersion: version,
 		RunningBuild:   runningBuildRevision(),
 	})
+	githubStarsService := githubstars.NewService(githubstars.Options{})
+	var registrationWaitlist *waitlist.Service
+	if cfg.HostedWaitlistEnabled {
+		registrationWaitlist = waitlistService
+	}
 	apiroutes.RegisterHumaRoutes(api, apiroutes.RouteDeps{
+		WaitlistService:           registrationWaitlist,
 		DB:                        db,
+		WorkflowService:           workflowService,
 		Readiness:                 readiness,
 		AuthService:               authService,
 		Authenticator:             authenticator,
@@ -919,9 +1025,13 @@ func main() {
 		PostBuilder:               postBuilder,
 		AutoVideoPlanner:          autoVideoPlanner,
 		DocumentaryPlanner:        documentaryPlanner,
+		EditorAgentGenerator:      contentGenerator,
+		EditorAgentModel:          cfg.EditorAgentModel,
 		ContentBuilderEnabled:     publicationBuilderApplication != nil,
 		ContentDiscoveryEnabled:   publicationDiscoveryService != nil,
 		PublicationBuilder:        publicationBuilderApplication,
+		RepurposeSuggestions:      repurposeSuggestions,
+		ImageGeneration:           imageGeneration,
 		PublicationPlanner:        publicationBuilderService,
 		PublicationDiscovery:      publicationDiscoveryService,
 		Entitlement:               entitlementService,
@@ -953,12 +1063,17 @@ func main() {
 			tokenManager.SetProvider,
 			func(name string, adapter platform.Adapter) { publishSvc.SetProvider(name, adapter) },
 			analyticsService.SetProvider,
+			youtubeProfileService.SetProvider,
+			postImportService.SetProvider,
 			func(name string, adapter platform.Adapter) {
 				if engagementAdapter, ok := adapter.(platform.EngagementAdapter); ok {
 					engagementService.SetProvider(name, engagementAdapter)
 				}
 			},
 			func(name string, adapter platform.Adapter) {
+				if x, ok := adapter.(*platform.XAdapter); ok {
+					x.SetMessagingQuotaGate(xMessagingService)
+				}
 				if messagingAdapter, ok := adapter.(platform.MessagingAdapter); ok {
 					messagingService.SetProvider(name, messagingAdapter)
 				}
@@ -983,13 +1098,16 @@ func main() {
 		InstanceSettingsService:      instanceSettingsService,
 		AIPromptService:              aiPromptService,
 		AnalyticsService:             analyticsService,
+		PostImportService:            postImportService,
 		MessagingService:             messagingService,
+		XMessagingService:            xMessagingService,
 		EngagementService:            engagementService,
 		RepostService:                repostService,
 		GrowthService:                growthService,
 		NotificationService:          notificationService,
 		OrganizationOwnershipService: organizationOwnershipService,
 		UpdateStatusService:          updateStatusService,
+		GitHubStarsService:           githubStarsService,
 		AppVersion:                   version,
 		AppRevision:                  runningBuildRevision(),
 		Edition:                      cfg.Edition,
@@ -1009,14 +1127,24 @@ func main() {
 
 	workerCtx, cancelWorker := context.WithCancel(context.Background())
 	defer cancelWorker()
+	var inboxBackground *inboxProcess
 	if worker != nil {
 		go worker.Start(workerCtx)
-		log.Printf("Starting OpenPost %s process", command.role)
+		for _, chatWorker := range chatWorkers {
+			go chatWorker.Start(workerCtx)
+		}
+		inboxBackground = startInboxProcess(workerCtx, append(inboxWorkers{worker}, chatWorkers...), messagingService.RunCollector, func(ctx context.Context) { messagingService.RunTransports(ctx, inboxIngress) }, func(ctx context.Context) {
+			runInboxMaintenance(ctx, db, inboxIngress, messagingService.ScheduleReceiptDrain)
+		})
+		if discordPresenceService != nil {
+			discordPresenceService.Start(workerCtx)
+		}
+		log.Printf("Starting dopost %s process", command.role)
 	}
 
 	var serverErrCh <-chan error
 	if command.role.runsWeb() {
-		log.Println("Starting OpenPost on :" + cfg.Port)
+		log.Println("Starting dopost on :" + cfg.Port)
 		log.Println("OpenAPI spec available at http://localhost:" + cfg.Port + "/openapi.json")
 		serverErrors := make(chan error, 1)
 		serverErrCh = serverErrors
@@ -1052,7 +1180,7 @@ func main() {
 	}
 	var workerRuntime workerProcess
 	if worker != nil {
-		workerRuntime = worker
+		workerRuntime = inboxBackground
 	}
 	for _, err := range drainRuntime(shutdownCtx, readiness, webRuntime, workerRuntime) {
 		log.Printf("Process drain error: %v", err)
@@ -1063,7 +1191,106 @@ func main() {
 		log.Printf("Server error: %v", runtimeErr)
 		return
 	}
-	log.Printf("OpenPost %s process stopped", command.role)
+	log.Printf("dopost %s process stopped", command.role)
+}
+
+func runCheckConfigCommand(cfg *config.Config, diagnosticsReporter *diagnostics.Reporter) {
+	if err := cfg.ValidateRuntime(); err != nil {
+		fatalWithDiagnostics(diagnosticsReporter, err)
+	}
+	config.Init()
+	if err := json.NewEncoder(os.Stdout).Encode(map[string]string{
+		"status":          "ok",
+		"edition":         cfg.Edition,
+		"database_driver": cfg.DatabaseDriver,
+		"storage_driver":  cfg.StorageDriver,
+	}); err != nil {
+		fatalWithDiagnostics(diagnosticsReporter, err)
+	}
+}
+
+func openApplicationDatabase(cfg *config.Config, command processCommand, diagnosticsReporter *diagnostics.Reporter) (*bun.DB, func()) {
+	db, err := database.InitDBWithDriverAndRole(
+		cfg.DatabaseDriver,
+		cfg.DatabaseDSN(),
+		string(command.role),
+	)
+	if err != nil {
+		diagnosticsReporter.ReportStartupFailureSync("db_init", diagnostics.CodeStartupFailed)
+		fatalWithDiagnostics(diagnosticsReporter, err)
+	}
+	closeDatabase := func() {
+		if closeErr := db.Close(); closeErr != nil {
+			log.Printf("database shutdown failed: %v", closeErr)
+		}
+	}
+
+	if command.role.autoMigrates() {
+		if err := database.CreateSchemaLocked(context.Background(), db, cfg.DatabaseDriver, cfg.DatabaseDSN()); err != nil {
+			diagnosticsReporter.ReportStartupFailureSync("db_migrate", diagnostics.CodeStartupFailed)
+			fatalfWithDiagnostics(diagnosticsReporter, "database schema initialization failed: %v", err)
+		}
+	} else if err := database.RequireCurrentSchema(context.Background(), db); err != nil {
+		fatalWithDiagnostics(diagnosticsReporter, err)
+	}
+	return db, closeDatabase
+}
+
+func reportMigrationStatus(cfg *config.Config, diagnosticsReporter *diagnostics.Reporter) {
+	if err := json.NewEncoder(os.Stdout).Encode(map[string]string{
+		"status":          "migrated",
+		"database_driver": cfg.DatabaseDriver,
+	}); err != nil {
+		fatalWithDiagnostics(diagnosticsReporter, err)
+	}
+}
+
+func runGrantAdminCommand(db *bun.DB, email string, closeDatabase func(), diagnosticsReporter *diagnostics.Reporter) {
+	result, grantErr := grantInstanceAdmin(context.Background(), db, email)
+	if grantErr != nil {
+		closeDatabase()
+		fatalWithDiagnostics(diagnosticsReporter, grantErr)
+	}
+	if err := json.NewEncoder(os.Stdout).Encode(struct {
+		Status string `json:"status"`
+		grantAdminResult
+	}{Status: "granted", grantAdminResult: result}); err != nil {
+		closeDatabase()
+		fatalWithDiagnostics(diagnosticsReporter, err)
+	}
+}
+
+func buildTokenEncryptor(cfg *config.Config, closeDatabase func(), diagnosticsReporter *diagnostics.Reporter) *crypto.TokenEncryptor {
+	if cfg.EncryptionKeyID == "" {
+		return crypto.NewTokenEncryptor(cfg.EncryptionKey)
+	}
+	tokenEncryptor, err := crypto.NewTokenEncryptorWithKeyring(
+		cfg.EncryptionKeyID,
+		cfg.EncryptionKey,
+		cfg.EncryptionPreviousKeys,
+	)
+	if err != nil {
+		closeDatabase()
+		fatalfWithDiagnostics(diagnosticsReporter, "invalid encryption keyring configuration: %v", err)
+	}
+	return tokenEncryptor
+}
+
+func runKeyRotationCommand(db *bun.DB, tokenEncryptor *crypto.TokenEncryptor, closeDatabase func(), diagnosticsReporter *diagnostics.Reporter) {
+	rotationCtx, cancelRotation := context.WithTimeout(context.Background(), encryptionRotationTimeout)
+	result, rotationErr := encryptionrotation.Rotate(rotationCtx, db, tokenEncryptor)
+	cancelRotation()
+	if rotationErr != nil {
+		closeDatabase()
+		fatalfWithDiagnostics(diagnosticsReporter, "encryption key rotation failed: %v", rotationErr)
+	}
+	if err := json.NewEncoder(os.Stdout).Encode(struct {
+		Status string `json:"status"`
+		encryptionrotation.Result
+	}{Status: "rotated", Result: result}); err != nil {
+		closeDatabase()
+		fatalWithDiagnostics(diagnosticsReporter, err)
+	}
 }
 
 func closeTelemetry(recorder telemetry.Recorder) {
@@ -1073,6 +1300,7 @@ func closeTelemetry(recorder telemetry.Recorder) {
 }
 
 const telemetryPanicCapturedKey = "openpost.telemetry.panic-captured"
+const telemetryHTTPErrorHandledKey = "openpost.telemetry.http-error-handled"
 
 // diagnosticsCapturedKey marks requests already reported through the
 // diagnostics channel (panic capture or error handler) so the final-status
@@ -1080,30 +1308,46 @@ const telemetryPanicCapturedKey = "openpost.telemetry.panic-captured"
 // backstop; this flag keeps the common path to one observation.
 const diagnosticsCapturedKey = "openpost.diagnostics.captured"
 
-// observeDiagnosticFailures reports unexpected API failures based on the
-// final response status. The pinned Huma adapter writes its response and
-// returns nil, so the Echo error hook never sees those failures; observing
-// the committed status closes that gap. Already-captured requests are
-// skipped, and the reporter's deduplication folds repeats into counts.
-func observeDiagnosticFailures(reporter *diagnostics.Reporter) echo.MiddlewareFunc {
+// observeHTTPFailures covers adapters which write 5xx responses and return nil.
+// The returned-error and panic boundaries mark requests before this observer runs,
+// so both error channels receive one report regardless of the adapter's error path.
+func observeHTTPFailures(recorder telemetry.Recorder, reporter *diagnostics.Reporter) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
 			err := next(c)
-			if reporter == nil || !reporter.Enabled() {
+			captureAPIMutation(recorder, c)
+			status := c.Response().Status
+			if !c.Response().Committed || status < http.StatusInternalServerError {
 				return err
 			}
-			if c.Response().Committed && c.Response().Status >= http.StatusInternalServerError {
-				if captured, _ := c.Get(diagnosticsCapturedKey).(bool); !captured {
-					c.Set(diagnosticsCapturedKey, true)
-					reporter.Report(diagnostics.Report{
-						Surface:    diagnostics.SurfaceBackend,
-						Operation:  normalizedRequestRoute(c.Path()),
-						ErrorCode:  diagnostics.CodeAPI5xx,
-						HTTPStatus: c.Response().Status,
-						FirstSeen:  time.Now().UTC(),
-						LastSeen:   time.Now().UTC(),
+			if recorder != nil && recorder.Enabled() {
+				handled, _ := c.Get(telemetryHTTPErrorHandledKey).(bool)
+				panicked, _ := c.Get(telemetryPanicCapturedKey).(bool)
+				if !handled && !panicked {
+					c.Set(telemetryHTTPErrorHandledKey, true)
+					captureErr := recorder.CaptureException(c.Request().Context(), telemetry.Exception{
+						Title:       "dopost HTTP " + strconv.Itoa(status),
+						Description: "An HTTP request failed",
+						Properties: map[string]any{
+							"method": c.Request().Method, "route": normalizedRequestRoute(c.Path()),
+							"status": status, "request_id": c.Response().Header().Get(echo.HeaderXRequestID),
+							"error_boundary": "http_response", "response_committed": true,
+						},
 					})
+					if captureErr != nil {
+						log.Printf("Failed to enqueue HTTP response telemetry: %v", captureErr)
+					}
 				}
+			}
+			captured, _ := c.Get(diagnosticsCapturedKey).(bool)
+			if reporter != nil && reporter.Enabled() && !captured {
+				c.Set(diagnosticsCapturedKey, true)
+				now := time.Now().UTC()
+				reporter.Report(diagnostics.Report{
+					Surface: diagnostics.SurfaceBackend, Operation: normalizedRequestRoute(c.Path()),
+					ErrorCode: diagnostics.CodeAPI5xx, HTTPStatus: status, HTTPMethod: c.Request().Method,
+					ErrorKind: diagnostics.ErrorKind(err), FirstSeen: now, LastSeen: now,
+				})
 			}
 			return err
 		}
@@ -1148,20 +1392,24 @@ func capturePanics(recorder telemetry.Recorder, diagnosticsReporter *diagnostics
 		return func(c echo.Context) (err error) {
 			defer func() {
 				if recovered := recover(); recovered != nil {
+					if abort, ok := recovered.(error); ok && errors.Is(abort, http.ErrAbortHandler) {
+						panic(recovered)
+					}
 					c.Set(telemetryPanicCapturedKey, true)
 					c.Set(diagnosticsCapturedKey, true)
 					if diagnosticsReporter != nil {
 						diagnosticsReporter.Report(diagnostics.Report{
-							Surface:   diagnostics.SurfaceBackend,
-							Operation: normalizedRequestRoute(c.Path()),
-							ErrorCode: diagnostics.CodeHTTPPanic,
-							Frames:    diagnostics.CaptureFrames(3),
-							FirstSeen: time.Now().UTC(),
-							LastSeen:  time.Now().UTC(),
+							Surface:    diagnostics.SurfaceBackend,
+							Operation:  normalizedRequestRoute(c.Path()),
+							ErrorCode:  diagnostics.CodeHTTPPanic,
+							HTTPMethod: c.Request().Method,
+							Frames:     diagnostics.CaptureFrames(3),
+							FirstSeen:  time.Now().UTC(),
+							LastSeen:   time.Now().UTC(),
 						})
 					}
 					captureErr := recorder.CaptureException(c.Request().Context(), telemetry.Exception{
-						Title:       "OpenPost request panic",
+						Title:       "dopost request panic",
 						Description: "An HTTP request panicked",
 						Properties: map[string]any{
 							"method":         c.Request().Method,
@@ -1185,41 +1433,71 @@ func capturePanics(recorder telemetry.Recorder, diagnosticsReporter *diagnostics
 func installTelemetryErrorHandler(e *echo.Echo, recorder telemetry.Recorder, diagnosticsReporter *diagnostics.Reporter) {
 	defaultHandler := e.DefaultHTTPErrorHandler
 	e.HTTPErrorHandler = func(err error, c echo.Context) {
+		defer defaultHandler(err, c)
+		// The request logger and Echo can both route the same failure here.
+		if handled, _ := c.Get(telemetryHTTPErrorHandledKey).(bool); handled {
+			return
+		}
+		c.Set(telemetryHTTPErrorHandledKey, true)
+		if panicCaptured, _ := c.Get(telemetryPanicCapturedKey).(bool); panicCaptured {
+			return
+		}
+		if requestErr := c.Request().Context().Err(); requestErr != nil && errors.Is(err, requestErr) {
+			return
+		}
+
 		status := http.StatusInternalServerError
-		var httpError *echo.HTTPError
-		if errors.As(err, &httpError) {
-			status = httpError.Code
-		}
-		panicCaptured, _ := c.Get(telemetryPanicCapturedKey).(bool)
-		if status >= http.StatusInternalServerError && !panicCaptured {
-			c.Set(diagnosticsCapturedKey, true)
-			if diagnosticsReporter != nil {
-				diagnosticsReporter.Report(diagnostics.Report{
-					Surface:    diagnostics.SurfaceBackend,
-					Operation:  normalizedRequestRoute(c.Path()),
-					ErrorCode:  diagnostics.CodeAPI5xx,
-					HTTPStatus: status,
-					FirstSeen:  time.Now().UTC(),
-					LastSeen:   time.Now().UTC(),
-				})
+		if c.Response().Committed {
+			status = c.Response().Status
+		} else {
+			var httpError *echo.HTTPError
+			if errors.As(err, &httpError) {
+				status = httpError.Code
 			}
-			captureErr := recorder.CaptureException(c.Request().Context(), telemetry.Exception{
-				Title:       "OpenPost HTTP " + strconv.Itoa(status),
-				Description: "An HTTP request failed",
-				Properties: map[string]any{
-					"method":         c.Request().Method,
-					"route":          normalizedRequestRoute(c.Path()),
-					"status":         status,
-					"request_id":     c.Response().Header().Get(echo.HeaderXRequestID),
-					"error_type":     telemetry.ErrorType(err),
-					"error_boundary": "http_error",
-				},
+		}
+		if status < http.StatusInternalServerError && !c.Response().Committed {
+			return
+		}
+		title := "dopost HTTP " + strconv.Itoa(status)
+		description := "An HTTP request failed"
+		boundary := "http_error"
+		code := diagnostics.CodeAPI5xx
+		if status < http.StatusInternalServerError {
+			title = "dopost HTTP response stream failed"
+			description = "An HTTP response failed after headers were sent"
+			boundary = "http_stream_error"
+			code = diagnostics.CodeHTTPStreamFailed
+		}
+		c.Set(diagnosticsCapturedKey, true)
+		if diagnosticsReporter != nil {
+			diagnosticsReporter.Report(diagnostics.Report{
+				Surface:    diagnostics.SurfaceBackend,
+				Operation:  normalizedRequestRoute(c.Path()),
+				ErrorCode:  code,
+				HTTPStatus: status,
+				HTTPMethod: c.Request().Method,
+				ErrorKind:  diagnostics.ErrorKind(err),
+				FirstSeen:  time.Now().UTC(),
+				LastSeen:   time.Now().UTC(),
 			})
-			if captureErr != nil {
-				log.Printf("Failed to enqueue HTTP error telemetry: %v", captureErr)
-			}
 		}
-		defaultHandler(err, c)
+		captureErr := recorder.CaptureException(c.Request().Context(), telemetry.Exception{
+			Title:       title,
+			Description: description,
+			Properties: map[string]any{
+				"method":               c.Request().Method,
+				"route":                normalizedRequestRoute(c.Path()),
+				"status":               status,
+				"request_id":           c.Response().Header().Get(echo.HeaderXRequestID),
+				"error_type":           telemetry.ErrorType(err),
+				"error_boundary":       boundary,
+				"response_committed":   c.Response().Committed,
+				"request_context_done": c.Request().Context().Err() != nil,
+			},
+		})
+		if captureErr != nil {
+			log.Printf("Failed to enqueue HTTP error telemetry: %v", captureErr)
+		}
 	}
 }
 

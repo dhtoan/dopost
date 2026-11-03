@@ -13,9 +13,17 @@ export type ImageEditorCommandID =
 	| 'duplicate'
 	| 'group'
 	| 'ungroup'
+	| 'rasterize'
+	| 'merge_down'
+	| 'merge_selected'
+	| 'flatten_page'
 	| 'remove_background'
 	| 'select_all'
 	| 'deselect'
+	| 'selection_invert'
+	| 'selection_expand'
+	| 'selection_contract'
+	| 'selection_from_layer_alpha'
 	| 'copy'
 	| 'cut'
 	| 'paste'
@@ -36,6 +44,7 @@ export type ImageEditorCommandID =
 	| 'tool_marquee'
 	| 'tool_ellipse_marquee'
 	| 'tool_lasso'
+	| 'tool_polygonal_lasso'
 	| 'tool_magic_wand'
 	| 'tool_crop'
 	| 'tool_eyedropper'
@@ -65,6 +74,8 @@ export type ImageEditorCommandAvailability =
 	| 'undo'
 	| 'redo'
 	| 'selection'
+	| 'pixel_selection'
+	| 'layer_selection'
 	| 'multi_selection'
 	| 'group_selection'
 	| 'clipboard'
@@ -75,18 +86,12 @@ export type ImageEditorCommandAvailability =
 export type ImageEditorCommandMobileGroup = 'select' | 'draw' | 'retouch';
 export type ImageEditorCommandRailSlot =
 	| 'select'
-	| 'pixel_select'
-	| 'lasso'
-	| 'magic_select'
 	| 'crop'
-	| 'eyedropper'
 	| 'text'
 	| 'shape'
-	| 'pencil'
-	| 'fill'
-	| 'erase'
-	| 'hand'
-	| 'zoom';
+	| 'draw'
+	| 'eyedropper'
+	| 'view';
 
 export interface ImageEditorCommandShortcut {
 	key: string;
@@ -227,6 +232,23 @@ export const IMAGE_EDITOR_COMMANDS: readonly ImageEditorCommandDescriptor[] = [
 		menuOrder: 30
 	},
 	{
+		id: 'rasterize',
+		category: 'layer',
+		shortcuts: [],
+		availability: 'editable',
+		separatorBefore: true,
+		menuOrder: 40
+	},
+	{ id: 'merge_down', category: 'layer', shortcuts: [], availability: 'editable', menuOrder: 50 },
+	{
+		id: 'merge_selected',
+		category: 'layer',
+		shortcuts: [],
+		availability: 'editable',
+		menuOrder: 60
+	},
+	{ id: 'flatten_page', category: 'layer', shortcuts: [], availability: 'editable', menuOrder: 70 },
+	{
 		id: 'select_all',
 		category: 'select',
 		shortcuts: [{ key: 'a', primary: true }],
@@ -239,6 +261,36 @@ export const IMAGE_EDITOR_COMMANDS: readonly ImageEditorCommandDescriptor[] = [
 		shortcuts: [{ key: 'd', primary: true }],
 		availability: 'selection',
 		menuOrder: 20
+	},
+	{
+		id: 'selection_invert',
+		category: 'select',
+		shortcuts: [{ key: 'i', primary: true, shift: true }],
+		availability: 'pixel_selection',
+		separatorBefore: true,
+		menuOrder: 30
+	},
+	{
+		id: 'selection_expand',
+		category: 'select',
+		shortcuts: [],
+		availability: 'pixel_selection',
+		menuOrder: 40
+	},
+	{
+		id: 'selection_contract',
+		category: 'select',
+		shortcuts: [],
+		availability: 'pixel_selection',
+		menuOrder: 50
+	},
+	{
+		id: 'selection_from_layer_alpha',
+		category: 'select',
+		shortcuts: [],
+		availability: 'layer_selection',
+		separatorBefore: true,
+		menuOrder: 60
 	},
 	{
 		id: 'copy',
@@ -374,42 +426,6 @@ export const IMAGE_EDITOR_COMMANDS: readonly ImageEditorCommandDescriptor[] = [
 		railSlot: 'select'
 	},
 	{
-		id: 'tool_marquee',
-		category: 'tools',
-		shortcuts: [{ key: 'm' }],
-		availability: 'editable',
-		tool: 'marquee',
-		mobileGroup: 'select',
-		railSlot: 'pixel_select'
-	},
-	{
-		id: 'tool_ellipse_marquee',
-		category: 'tools',
-		shortcuts: [{ key: 'm', shift: true }],
-		availability: 'editable',
-		tool: 'ellipse_marquee',
-		mobileGroup: 'select',
-		railSlot: 'pixel_select'
-	},
-	{
-		id: 'tool_lasso',
-		category: 'tools',
-		shortcuts: [{ key: 'l' }],
-		availability: 'editable',
-		tool: 'lasso',
-		mobileGroup: 'select',
-		railSlot: 'lasso'
-	},
-	{
-		id: 'tool_magic_wand',
-		category: 'tools',
-		shortcuts: [{ key: 'w' }],
-		availability: 'editable',
-		tool: 'magic_wand',
-		mobileGroup: 'select',
-		railSlot: 'magic_select'
-	},
-	{
 		id: 'tool_crop',
 		category: 'tools',
 		shortcuts: [{ key: 'c' }],
@@ -417,15 +433,6 @@ export const IMAGE_EDITOR_COMMANDS: readonly ImageEditorCommandDescriptor[] = [
 		tool: 'crop',
 		mobileGroup: 'retouch',
 		railSlot: 'crop'
-	},
-	{
-		id: 'tool_eyedropper',
-		category: 'tools',
-		shortcuts: [{ key: 'i' }],
-		availability: 'always',
-		tool: 'eyedropper',
-		mobileGroup: 'select',
-		railSlot: 'eyedropper'
 	},
 	{
 		id: 'tool_text',
@@ -446,13 +453,58 @@ export const IMAGE_EDITOR_COMMANDS: readonly ImageEditorCommandDescriptor[] = [
 		railSlot: 'shape'
 	},
 	{
+		id: 'tool_marquee',
+		category: 'tools',
+		shortcuts: [{ key: 'm' }],
+		availability: 'editable',
+		tool: 'marquee',
+		mobileGroup: 'select',
+		railSlot: 'select'
+	},
+	{
+		id: 'tool_ellipse_marquee',
+		category: 'tools',
+		shortcuts: [{ key: 'm', shift: true }],
+		availability: 'editable',
+		tool: 'ellipse_marquee',
+		mobileGroup: 'select',
+		railSlot: 'select'
+	},
+	{
+		id: 'tool_lasso',
+		category: 'tools',
+		shortcuts: [{ key: 'l' }],
+		availability: 'editable',
+		tool: 'lasso',
+		mobileGroup: 'select',
+		railSlot: 'select'
+	},
+	{
+		id: 'tool_polygonal_lasso',
+		category: 'tools',
+		shortcuts: [{ key: 'l', shift: true }],
+		availability: 'editable',
+		tool: 'polygonal_lasso',
+		mobileGroup: 'select',
+		railSlot: 'select'
+	},
+	{
+		id: 'tool_magic_wand',
+		category: 'tools',
+		shortcuts: [{ key: 'w' }],
+		availability: 'editable',
+		tool: 'magic_wand',
+		mobileGroup: 'select',
+		railSlot: 'select'
+	},
+	{
 		id: 'tool_pencil',
 		category: 'tools',
 		shortcuts: [{ key: 'b', display: 'B / P' }, { key: 'p' }],
 		availability: 'editable',
 		tool: 'pencil',
 		mobileGroup: 'draw',
-		railSlot: 'pencil'
+		railSlot: 'draw'
 	},
 	{
 		id: 'tool_eraser',
@@ -461,7 +513,7 @@ export const IMAGE_EDITOR_COMMANDS: readonly ImageEditorCommandDescriptor[] = [
 		availability: 'editable',
 		tool: 'eraser',
 		mobileGroup: 'retouch',
-		railSlot: 'erase'
+		railSlot: 'draw'
 	},
 	{
 		id: 'tool_magic_eraser',
@@ -470,7 +522,7 @@ export const IMAGE_EDITOR_COMMANDS: readonly ImageEditorCommandDescriptor[] = [
 		availability: 'editable',
 		tool: 'magic_eraser',
 		mobileGroup: 'retouch',
-		railSlot: 'erase'
+		railSlot: 'draw'
 	},
 	{
 		id: 'tool_bucket',
@@ -479,7 +531,7 @@ export const IMAGE_EDITOR_COMMANDS: readonly ImageEditorCommandDescriptor[] = [
 		availability: 'editable',
 		tool: 'bucket',
 		mobileGroup: 'draw',
-		railSlot: 'fill'
+		railSlot: 'draw'
 	},
 	{
 		id: 'tool_gradient',
@@ -488,7 +540,16 @@ export const IMAGE_EDITOR_COMMANDS: readonly ImageEditorCommandDescriptor[] = [
 		availability: 'editable',
 		tool: 'gradient',
 		mobileGroup: 'draw',
-		railSlot: 'fill'
+		railSlot: 'draw'
+	},
+	{
+		id: 'tool_eyedropper',
+		category: 'tools',
+		shortcuts: [{ key: 'i' }],
+		availability: 'always',
+		tool: 'eyedropper',
+		mobileGroup: 'select',
+		railSlot: 'eyedropper'
 	},
 	{
 		id: 'tool_hand',
@@ -497,7 +558,7 @@ export const IMAGE_EDITOR_COMMANDS: readonly ImageEditorCommandDescriptor[] = [
 		availability: 'always',
 		tool: 'hand',
 		mobileGroup: 'select',
-		railSlot: 'hand'
+		railSlot: 'view'
 	},
 	{
 		id: 'tool_zoom',
@@ -506,7 +567,7 @@ export const IMAGE_EDITOR_COMMANDS: readonly ImageEditorCommandDescriptor[] = [
 		availability: 'always',
 		tool: 'zoom',
 		mobileGroup: 'select',
-		railSlot: 'zoom'
+		railSlot: 'view'
 	}
 ] as const;
 
@@ -534,6 +595,20 @@ export function imageEditorCommandsForMobileGroup(
 	return IMAGE_EDITOR_COMMANDS.filter((command) => command.mobileGroup === group);
 }
 
+export const IMAGE_EDITOR_COMPACT_MENU_CATEGORIES = [
+	'edit',
+	'layer',
+	'select',
+	'tools'
+] as const satisfies readonly ImageEditorCommandCategory[];
+export type ImageEditorCompactMenuCategory = (typeof IMAGE_EDITOR_COMPACT_MENU_CATEGORIES)[number];
+
+export function imageEditorCommandsForCompactMenu(): ImageEditorCommandDescriptor[] {
+	return IMAGE_EDITOR_COMPACT_MENU_CATEGORIES.flatMap((category) =>
+		imageEditorCommandsForCategory(category)
+	);
+}
+
 export function imageEditorCommandsForRail(): ImageEditorCommandDescriptor[] {
 	const seen = new Set<ImageEditorCommandRailSlot>();
 	return IMAGE_EDITOR_COMMANDS.filter((command) => {
@@ -543,16 +618,36 @@ export function imageEditorCommandsForRail(): ImageEditorCommandDescriptor[] {
 	});
 }
 
+export function imageEditorCommandsForRailSlot(
+	slot: ImageEditorCommandRailSlot
+): ImageEditorCommandDescriptor[] {
+	return IMAGE_EDITOR_COMMANDS.filter((command) => command.railSlot === slot);
+}
+
 export function imageEditorCommandForKeyboardEvent(
-	event: Pick<KeyboardEvent, 'key' | 'metaKey' | 'ctrlKey' | 'shiftKey' | 'altKey' | 'isComposing'>
+	event: Pick<
+		KeyboardEvent,
+		'key' | 'metaKey' | 'ctrlKey' | 'shiftKey' | 'altKey' | 'isComposing'
+	> &
+		Partial<Pick<KeyboardEvent, 'code'>>
 ): ImageEditorCommandID | null {
 	if (event.isComposing) return null;
-	const key = event.key.toLowerCase();
 	const primary = event.metaKey || event.ctrlKey;
+	// Keep Latin layouts character-based, including AZERTY/Dvorak. Only plain
+	// tool keys fall back to their physical location under non-Latin layouts.
+	const typedKey = event.key.toLowerCase();
+	const physicalToolKey =
+		!primary &&
+		!event.altKey &&
+		/^[\p{L}\p{M}]+$/u.test(typedKey) &&
+		!/\p{Script=Latin}/u.test(typedKey) &&
+		/^Key[A-Z]$/.test(event.code ?? '')
+			? event.code!.slice(3).toLowerCase()
+			: null;
 	for (const command of IMAGE_EDITOR_COMMANDS) {
 		for (const shortcut of command.shortcuts) {
 			if (
-				shortcut.key === key &&
+				(shortcut.key === typedKey || (command.tool && shortcut.key === physicalToolKey)) &&
 				Boolean(shortcut.primary) === primary &&
 				Boolean(shortcut.shift) === event.shiftKey &&
 				Boolean(shortcut.alt) === event.altKey
@@ -577,22 +672,4 @@ export function imageEditorShortcutLabel(
 	]
 		.filter(Boolean)
 		.join(' ');
-}
-
-export function duplicateImageEditorShortcuts(): string[] {
-	const seen = new Set<string>();
-	const duplicates = new Set<string>();
-	for (const command of IMAGE_EDITOR_COMMANDS) {
-		for (const shortcut of command.shortcuts) {
-			const key = [
-				shortcut.primary ? 'primary' : '',
-				shortcut.shift ? 'shift' : '',
-				shortcut.alt ? 'alt' : '',
-				shortcut.key
-			].join('+');
-			if (seen.has(key)) duplicates.add(key);
-			else seen.add(key);
-		}
-	}
-	return [...duplicates];
 }

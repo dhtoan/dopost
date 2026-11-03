@@ -70,6 +70,7 @@ function imageEditorBrandKit(data: ApiImageEditorBrandKit): ImageEditorBrandKit 
 		...data,
 		id: data.id ?? `${data.workspace_id}:brand-kit`,
 		colors: data.colors ?? [],
+		effect_presets: data.effect_presets ?? [],
 		text_styles: data.text_styles ?? [],
 		backgrounds: data.backgrounds ?? [],
 		fonts: (data.fonts ?? []).map((font) => ({ ...font, id: font.id ?? font.media_id }))
@@ -112,7 +113,7 @@ export function createImageEditorQueryAPI(
 		async getConfig(signal): Promise<ImageEditorConfig> {
 			const { data } = await queryGET({
 				signal,
-				fallback: 'Could not load the OpenPost Image Editor setup.',
+				fallback: 'Could not load the dopost Image Editor setup.',
 				request: (requestSignal) =>
 					transport.GET('/image-editor/presets', { signal: requestSignal })
 			});
@@ -185,7 +186,7 @@ export function createImageEditorQueryAPI(
 		async listPublicTemplates(signal): Promise<ImageEditorTemplate[]> {
 			const { data } = await queryGET({
 				signal,
-				fallback: 'Could not load OpenPost Image Editor starter templates.',
+				fallback: 'Could not load dopost Image Editor starter templates.',
 				request: (requestSignal) =>
 					transport.GET('/image-editor/public-templates', { signal: requestSignal })
 			});
@@ -250,6 +251,7 @@ function designListQuery(workspaceId: string, filters: NormalizedImageEditorDesi
 	return {
 		workspace_id: workspaceId,
 		search: filters.search,
+		trashed: filters.trashed,
 		limit: filters.limit,
 		offset: filters.offset
 	};

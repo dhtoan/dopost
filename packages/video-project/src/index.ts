@@ -25,6 +25,7 @@ export interface PortableQuickCutProjectDocument<TSource = unknown, TSegment = u
   timeline: {
     sources: TSource[];
     segments: TSegment[];
+    markers?: Array<{ id: string; sourceId: string; time: number; name: string }>;
   };
   settings: {
     cutMode: "nearestKeyframe" | "exact";
@@ -502,20 +503,6 @@ function stripDeviceState(value: unknown): unknown {
       .filter(([key]) => !DEVICE_ONLY_KEYS.has(key))
       .map(([key, child]) => [key, stripDeviceState(child)]),
   );
-}
-
-export function touchedTargets(batch: VideoProjectMutationBatch): string[] {
-  return [
-    ...new Set(batch.operations.map((operation) => operation.target.trim()).filter(Boolean)),
-  ].sort();
-}
-
-export function overlappingTargets(
-  local: VideoProjectMutationBatch,
-  remoteTargets: readonly string[],
-): string[] {
-  const remote = new Set(remoteTargets);
-  return touchedTargets(local).filter((target) => remote.has(target));
 }
 
 export class VideoProjectMutationOutbox {

@@ -39,10 +39,21 @@ test("public crawler policy explicitly permits search, AI input, and model train
       /use=reference/u,
       `${surface} must use supported Content Signals fields only`,
     );
-    assert.match(
-      headers,
-      /\/robots\.txt[\s\S]*ai-train=yes/u,
-      `${surface} must emit the response header`,
+    const headerBlocks = new Map();
+    let currentPath;
+    for (const line of headers.split("\n")) {
+      if (line.startsWith("/")) {
+        currentPath = line.trim();
+        headerBlocks.set(currentPath, []);
+      } else if (currentPath && /^\s+\S/u.test(line)) {
+        headerBlocks.get(currentPath).push(line.trim());
+      }
+    }
+    assert.ok(
+      headerBlocks
+        .get("/robots.txt")
+        ?.includes("Content-Signal: search=yes, ai-input=yes, ai-train=yes"),
+      `${surface} /robots.txt must emit its own response header`,
     );
   }
 });
@@ -57,12 +68,20 @@ test("structured data joins each page to the product, site, and real operator", 
 
   assert.equal(page["@type"], "AboutPage");
   assert.deepEqual(page.about, { "@id": "https://openpo.st/#software" });
-  assert.equal(software.name, "OpenPost");
+  assert.equal(software.name, "dopost");
   assert.equal(software.operatingSystem, "Web, Android");
-  assert.deepEqual(software.sameAs, ["https://github.com/getopenpost/openpost"]);
+  assert.ok(software.sameAs.includes("https://github.com/dhtoan/dopost"));
+  assert.ok(software.sameAs.includes("https://glama.ai/mcp/connectors/io.github.rodrgds/openpost"));
+  const organization = graph.find((entry) => entry["@id"] === "https://openpo.st/#organization");
+  assert.equal(organization["@type"], "Organization");
+  assert.equal(organization.name, "dopost");
+  assert.equal(organization.logo.url, "https://openpo.st/icon.svg");
+  assert.ok(organization.logo.width >= 112 && organization.logo.height >= 112);
+  assert.deepEqual(organization.founder, { "@id": "https://openpo.st/#operator" });
+  assert.deepEqual(software.publisher, { "@id": "https://openpo.st/#organization" });
   assert.deepEqual(software.softwareHelp, {
     "@type": "WebPage",
-    url: "https://docs.openpo.st/guides/quickstart",
+    url: "https://openpo.st/docs/guides/quickstart",
   });
   assert.deepEqual(software.subjectOf, [
     {
@@ -71,7 +90,7 @@ test("structured data joins each page to the product, site, and real operator", 
     },
     {
       "@type": "WebPage",
-      url: "https://docs.openpo.st/guides/automation",
+      url: "https://openpo.st/docs/automate",
     },
     {
       "@type": "WebPage",
@@ -84,7 +103,7 @@ test("structured data joins each page to the product, site, and real operator", 
     ),
     "subjectOf values must be CreativeWork nodes rather than URL strings",
   );
-  assert.equal(source.codeRepository, "https://github.com/getopenpost/openpost");
+  assert.equal(source.codeRepository, "https://github.com/dhtoan/dopost");
   assert.deepEqual(source.runtimePlatform, ["Web", "Linux", "Android"]);
   assert.equal(operator.name, "Rodrigo Dias");
   assert.equal(operator.homeLocation.address.addressCountry, "PT");
@@ -98,10 +117,21 @@ test("structured data joins each page to the product, site, and real operator", 
 });
 
 test("platform guides link to maintained account documentation", async () => {
+  const accountGuide = "https://openpo.st/docs/guides/accounts";
+  // dev/null connects without a provider app and is documented with the other
+  // self-hosted integrations rather than the shared accounts guide.
+  const providerGuides = new Map([
+    ["devnull", "https://openpo.st/docs/self-hosting/integrations/devnull"],
+  ]);
   for (const platform of platforms) {
-    assert.equal(platform.docsUrl, "https://docs.openpo.st/guides/accounts");
+    assert.equal(platform.docsUrl, providerGuides.get(platform.slug) ?? accountGuide);
   }
-  await readFile(new URL("../apps/docs/content/docs/guides/accounts.mdx", import.meta.url));
+  await Promise.all([
+    readFile(new URL("../apps/docs/content/docs/guides/accounts.mdx", import.meta.url)),
+    readFile(
+      new URL("../apps/docs/content/docs/self-hosting/integrations/devnull.mdx", import.meta.url),
+    ),
+  ]);
 });
 
 test("changelog feed contains only dated stable releases and escaped content", () => {

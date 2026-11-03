@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { setLocale } from '$lib/paraglide/runtime';
 import {
 	createBlankProject,
@@ -7,7 +7,7 @@ import {
 	normalizeProject,
 	CURRENT_SCHEMA_VERSION
 } from './defaults';
-import type { Project } from './types';
+import type { KeyframeTrack, Project, TimelineItem } from './types';
 
 afterEach(() => setLocale('en', { reload: false }));
 
@@ -28,6 +28,18 @@ describe('createBlankProject', () => {
 		]);
 		expect(project.timeline?.items).toEqual([]);
 		expect(project.animationPresets).toEqual([]);
+	});
+
+	it('creates a project when the browser has no crypto.randomUUID', () => {
+		vi.stubGlobal('crypto', {
+			getRandomValues: (bytes: Uint8Array) => bytes.fill(3)
+		});
+
+		const project = createBlankProject('Legacy browser');
+
+		expect(project.id).toMatch(
+			/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
+		);
 	});
 
 	it('rejects invalid canvas settings at the project boundary', () => {
@@ -133,7 +145,7 @@ describe('createBlankProject', () => {
 		];
 
 		const result = migrateProjectDocument(stored);
-		expect(result.appliedMigrations).toEqual([2, 3, 4, 5, 6, 7, 8, 9]);
+		expect(result.appliedMigrations).toEqual([2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
 		expect(result.project.timeline?.tracks.map((track) => [track.id, track.order])).toEqual([
 			['earlier', 0],
 			['later', 1]
@@ -155,5 +167,53 @@ describe('createBlankProject', () => {
 		expect(second.warnings).toEqual([]);
 		expect(second.appliedMigrations).toEqual([]);
 		expect(second.migrated).toBe(false);
+	});
+
+	it('orders imported animation lanes without detaching values, easing, or identities', () => {
+		const stored = createBlankProject('Unordered animation');
+		const track: KeyframeTrack = {
+			frames: [0, 30, 10, 20, 40],
+			values: [0, 30, 100, 200, 40],
+			ids: ['zero', 'thirty', 'ten', 'twenty', 'forty'],
+			easings: ['linear', 'linear', 'hold', 'ease-in', 'ease-out'],
+			easingConfigs: [
+				null,
+				null,
+				{ type: 'spring', spring: { tension: 100, friction: 10, mass: 1 } },
+				null,
+				null
+			],
+			sources: [null, null, null, null, null]
+		};
+		const item: TimelineItem = {
+			id: 'clip',
+			trackId: 'track-video-main',
+			type: 'video',
+			from: 0,
+			durationInFrames: 50,
+			label: 'Clip',
+			keyframes: { rotation: track, opacity: undefined },
+			vectorKeyframes: {
+				scale: undefined,
+				position: [
+					{ id: 'last', frame: 20, value: { x: 200, y: 100 }, easing: 'hold' },
+					{ id: 'first', frame: 0, value: { x: 0, y: 0 }, easing: 'linear' }
+				]
+			}
+		};
+		stored.timeline!.items = [item];
+		const result = migrateProjectDocument(stored).project.timeline!.items[0];
+		expect(result.keyframes?.rotation).toMatchObject({
+			frames: [0, 10, 20, 30, 40],
+			values: [0, 100, 200, 30, 40],
+			ids: ['zero', 'ten', 'twenty', 'thirty', 'forty'],
+			easings: ['linear', 'hold', 'ease-in', 'linear', 'ease-out'],
+			easingConfigs: [null, track.easingConfigs![2], null, null, null]
+		});
+		expect(result.vectorKeyframes?.position).toEqual([
+			{ id: 'first', frame: 0, value: { x: 0, y: 0 }, easing: 'linear' },
+			{ id: 'last', frame: 20, value: { x: 200, y: 100 }, easing: 'hold' }
+		]);
+		expect(track.frames).toEqual([0, 30, 10, 20, 40]);
 	});
 });

@@ -1,8 +1,10 @@
 <script lang="ts">
 	import { m } from '$lib/paraglide/messages';
+	import { formatBytes as formatByteSize } from '$lib/byte-size';
 	import { getCurrentLocale, localeLabels, switchLocale } from '$lib/i18n';
 	import { locales, type Locale } from '$lib/paraglide/runtime';
 	import AppSelect from '$lib/components/app-select.svelte';
+	import { SliderRow } from '$lib/components/editor-density';
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
 	import { Slider } from '$lib/components/ui/slider';
@@ -72,9 +74,7 @@
 	let proxyBytes = $state(0);
 
 	function formatBytes(bytes: number): string {
-		if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
-		if (bytes < 1024 ** 3) return `${(bytes / 1024 ** 2).toFixed(1)} MB`;
-		return `${(bytes / 1024 ** 3).toFixed(2)} GB`;
+		return formatByteSize(bytes, { base: 'iec' }) ?? '—';
 	}
 
 	$effect(() => {
@@ -197,7 +197,7 @@
 		class="video-editor-theme flex max-h-[min(90vh,820px)] w-[calc(100%-1rem)] max-w-[920px] flex-col overflow-hidden border-border bg-popover p-0 text-popover-foreground shadow-2xl sm:max-w-[920px]"
 	>
 		<Dialog.Header
-			class="flex-row items-center justify-between border-b border-border px-5 py-4 pr-12"
+			class="flex-row items-start justify-between gap-3 border-b border-border px-5 py-4 pr-12"
 		>
 			<div>
 				<Dialog.Title class="text-base">{m.video_editor_settings_title()}</Dialog.Title>
@@ -206,7 +206,7 @@
 				</Dialog.Description>
 			</div>
 			{#if section !== 'shortcuts'}
-				<Button type="button" variant="ghost" size="sm" onclick={resetSettings}>
+				<Button class="shrink-0" type="button" variant="ghost" size="sm" onclick={resetSettings}>
 					<ThemeIcon role="undo" class="size-3.5" />
 					{m.video_editor_settings_reset()}
 				</Button>
@@ -221,7 +221,7 @@
 				{#each sections as item (item.id)}
 					<button
 						type="button"
-						class="flex min-h-9 shrink-0 items-center gap-2 rounded-md px-3 text-left text-xs text-muted-foreground hover:bg-accent hover:text-accent-foreground focus-visible:outline-2 focus-visible:outline-ring data-[active=true]:bg-selection data-[active=true]:text-selection-foreground"
+						class="flex min-h-8 shrink-0 items-center gap-2 rounded-md px-3 text-left text-xs text-muted-foreground hover:bg-accent hover:text-accent-foreground focus-visible:outline-2 focus-visible:outline-ring data-[active=true]:bg-selection data-[active=true]:text-selection-foreground [@media(pointer:coarse)]:min-h-11"
 						data-active={section === item.id}
 						aria-current={section === item.id ? 'page' : undefined}
 						data-cuelume-toggle="tick"
@@ -233,7 +233,7 @@
 				{/each}
 			</nav>
 
-			<div class="min-h-0 flex-1 overflow-y-auto p-5">
+			<div class="min-h-0 flex-1 overflow-y-auto p-3">
 				{#if section === 'general'}
 					<section class="space-y-4" aria-labelledby="settings-general-title">
 						<div>
@@ -263,7 +263,7 @@
 										label: localeLabels[locale]
 									}))}
 									onValueChange={(value) => switchLocale(value as Locale)}
-									class="h-10 min-w-48 max-[640px]:h-11 max-[640px]:w-full"
+									class="h-8 min-w-48 max-[640px]:h-11 max-[640px]:w-full"
 								/>
 							</div>
 						</div>
@@ -345,19 +345,15 @@
 							{#if soundPreferences.enabled}
 								<div class="mt-4 space-y-4 border-t border-border pt-4">
 									<div>
-										<div class="flex items-center justify-between gap-3 text-xs">
-											<span>{m.video_editor_settings_sound_volume()}</span>
-											<span class="text-[var(--video-editor-muted)] tabular-nums">
-												{Math.round(soundPreferences.volume * 100)}%
-											</span>
-										</div>
-										<Slider
-											class="mt-3"
+										<SliderRow
+											label={m.video_editor_settings_sound_volume()}
+											value={soundPreferences.volume}
 											min={0}
 											max={1}
 											step={0.05}
-											value={soundPreferences.volume}
-											ariaLabel={m.video_editor_settings_sound_volume()}
+											precision={0}
+											displayScale={100}
+											suffix="%"
 											onValueChange={(value) => soundPreferences.setVolume(value)}
 											onValueCommit={() => previewEditorSound(soundPreferences.theme)}
 										/>
@@ -375,7 +371,7 @@
 													label: soundThemeLabel(theme)
 												}))}
 												onValueChange={(value) => setSoundTheme(value as InterfaceSoundTheme)}
-												class="mt-1 h-9 w-full"
+												class="mt-1 h-8 w-full"
 											/>
 										</div>
 										<Button
@@ -472,7 +468,7 @@
 									}))}
 									onValueChange={(value) =>
 										editorSettings.set('defaultTranscriptionModel', value as TranscriptionModel)}
-									class="mt-1 h-9 w-full"
+									class="mt-1 h-8 w-full"
 								/>
 							</div>
 							<div class="text-xs text-[var(--video-editor-muted)]">
@@ -489,7 +485,7 @@
 									}))}
 									onValueChange={(value) =>
 										editorSettings.set('defaultTranscriptionLanguage', value)}
-									class="mt-1 h-9 w-full"
+									class="mt-1 h-8 w-full"
 								/>
 							</div>
 							<div class="text-xs text-[var(--video-editor-muted)]">
@@ -510,7 +506,7 @@
 											'defaultTranscriptionQuantization',
 											value as TranscriptionQuantization
 										)}
-									class="mt-1 h-9 w-full"
+									class="mt-1 h-8 w-full"
 								/>
 							</div>
 							<div class="text-xs text-[var(--video-editor-muted)] sm:col-span-2">
@@ -533,7 +529,7 @@
 									]}
 									onValueChange={(value) =>
 										editorSettings.set('captionSearchMode', value as 'keyword' | 'semantic')}
-									class="mt-1 h-9 w-full"
+									class="mt-1 h-8 w-full"
 								/>
 								<p class="mt-1 text-[11px] leading-snug">
 									{m.video_editor_settings_caption_search_mode_description()}
@@ -586,8 +582,10 @@
 						{/if}
 
 						<div class="divide-y divide-border rounded-lg border border-border">
-							<div class="flex items-center justify-between gap-4 p-4">
-								<div>
+							<div
+								class="flex flex-col items-stretch gap-3 p-4 sm:flex-row sm:items-center sm:justify-between sm:gap-4"
+							>
+								<div class="min-w-0">
 									<p class="text-sm font-medium">{m.video_editor_settings_generate_proxies()}</p>
 									<p class="mt-0.5 text-xs text-[var(--video-editor-muted)]">
 										{m.video_editor_settings_generate_proxies_description({
@@ -596,6 +594,7 @@
 									</p>
 								</div>
 								<Button
+									class="w-full shrink-0 sm:w-auto"
 									type="button"
 									variant="outline"
 									size="sm"
@@ -614,14 +613,17 @@
 							</div>
 
 							<div class="p-4">
-								<div class="flex items-center justify-between gap-4">
-									<div>
+								<div
+									class="flex flex-col items-stretch gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4"
+								>
+									<div class="min-w-0">
 										<p class="text-sm font-medium">{m.video_editor_settings_clear_cache()}</p>
 										<p class="mt-0.5 text-xs text-[var(--video-editor-muted)]">
 											{m.video_editor_settings_clear_cache_description({ count: media.length })}
 										</p>
 									</div>
 									<Button
+										class="w-full shrink-0 sm:w-auto"
 										type="button"
 										variant="outline"
 										size="sm"
@@ -666,8 +668,10 @@
 								{/if}
 							</div>
 
-							<div class="flex items-center justify-between gap-4 p-4">
-								<div>
+							<div
+								class="flex flex-col items-stretch gap-3 p-4 sm:flex-row sm:items-center sm:justify-between sm:gap-4"
+							>
+								<div class="min-w-0">
 									<p class="text-sm font-medium">
 										{m.video_editor_settings_regenerate_thumbnails()}
 									</p>
@@ -676,6 +680,7 @@
 									</p>
 								</div>
 								<Button
+									class="w-full shrink-0 sm:w-auto"
 									type="button"
 									variant="outline"
 									size="sm"
@@ -693,8 +698,10 @@
 								</Button>
 							</div>
 
-							<div class="flex items-center justify-between gap-4 p-4">
-								<div>
+							<div
+								class="flex flex-col items-stretch gap-3 p-4 sm:flex-row sm:items-center sm:justify-between sm:gap-4"
+							>
+								<div class="min-w-0">
 									<p class="text-sm font-medium">{m.video_editor_settings_delete_proxies()}</p>
 									<p class="mt-0.5 text-xs text-[var(--video-editor-muted)]">
 										{m.video_editor_settings_delete_proxies_description({ count: proxyCount })}
@@ -704,6 +711,7 @@
 									</p>
 								</div>
 								<Button
+									class="w-full shrink-0 sm:w-auto"
 									type="button"
 									variant="outline"
 									size="sm"

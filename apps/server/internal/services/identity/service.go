@@ -47,7 +47,7 @@ var (
 	ErrNonceMismatch          = errors.New("oidc nonce mismatch")
 	ErrMissingIDToken         = errors.New("oidc token response did not contain an id token")
 	ErrIdentityCollision      = errors.New("external identity is already linked to another user")
-	ErrEmailConflict          = errors.New("an OpenPost account already uses this email")
+	ErrEmailConflict          = errors.New("a dopost account already uses this email")
 	ErrJITDisabled            = errors.New("just-in-time provisioning is disabled")
 	ErrVerifiedEmailRequired  = errors.New("a verified email claim is required")
 	ErrUserInfoSubject        = errors.New("userinfo subject does not match id token subject")
@@ -84,6 +84,7 @@ type Config struct {
 	Environment           EnvironmentProviderConfig
 	FirstParty            []EnvironmentProviderConfig
 	RegistrationsDisabled bool
+	WaitlistEnabled       bool
 	RequireExplicitSignup bool
 	DefaultAssuranceAge   time.Duration
 }
@@ -993,6 +994,9 @@ func (s *Service) insertJITUser(
 	user *models.User,
 	linkedIdentity *models.UserIdentity,
 ) error {
+	if s.config.WaitlistEnabled {
+		return ErrRegistrationsClosed
+	}
 	if err := credentialguard.LockFirstUserBootstrap(ctx, tx); err != nil {
 		return err
 	}

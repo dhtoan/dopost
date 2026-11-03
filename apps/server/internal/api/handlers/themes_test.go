@@ -83,6 +83,8 @@ func TestThemeHTTPLifecyclePreservesAdvancedManifestAndServesOpaqueAssets(t *tes
 	require.NoError(t, json.Unmarshal(libraryResponse.Body.Bytes(), &library))
 	require.Len(t, library.Items, 2)
 	require.Equal(t, themeID, library.Items[1].Reference.ID)
+	require.True(t, library.Items[1].IsOrganizationDefault, "the organization default setting is reported on the library summary")
+	require.Equal(t, 1, library.Items[1].AssignedWorkspaceCount, "the assigned Workspace is counted once on the library summary")
 	require.NotContains(t, libraryResponse.Body.String(), `"manifest"`)
 	require.NotContains(t, libraryResponse.Body.String(), `"draft"`)
 
@@ -229,8 +231,16 @@ func TestThemeHTTPLifecyclePreservesAdvancedManifestAndServesOpaqueAssets(t *tes
 	require.NotEqual(t, "Published update", rollbackState.Draft.Manifest.Description)
 	deleteInUse := themeRequest(t, e, http.MethodDelete, "/api/v1/themes/"+url.PathEscape(themeID)+"?organization_id=org-1&confirm=true", nil)
 	require.Equal(t, http.StatusConflict, deleteInUse.Code, deleteInUse.Body.String())
+	var workshopReference themes.ThemeReference
+	for _, summary := range catalog.Items {
+		if summary.Reference.ID == "workshop" {
+			workshopReference = summary.Reference
+			break
+		}
+	}
+	require.Equal(t, "workshop", workshopReference.ID)
 	lockedResponse := themeRequest(t, e, http.MethodPut, "/api/v1/theme-settings/organization", map[string]any{
-		"organization_id": "org-1", "default_reference": map[string]any{"kind": "built_in", "id": "workshop", "version": 2}, "assignments_locked": true,
+		"organization_id": "org-1", "default_reference": workshopReference, "assignments_locked": true,
 	})
 	require.Equal(t, http.StatusOK, lockedResponse.Code, lockedResponse.Body.String())
 	lockedSettingsResponse := themeRequest(t, e, http.MethodGet, "/api/v1/theme-settings?workspace_id=workspace-1", nil)
@@ -495,6 +505,10 @@ func TestThemeHTTPAvailableDetailDoesNotEnumerateStaleOrInaccessibleThemes(t *te
 	currentPath := "/api/v1/themes/available/" + url.PathEscape(themeID) + "?workspace_id=workspace-1&revision=2"
 	current := themeRequestAs(t, e, "workspace-admin-token", http.MethodGet, currentPath, nil)
 	require.Equal(t, http.StatusOK, current.Code, current.Body.String())
+	var currentDetail themes.PublishedThemeCatalogItem
+	require.NoError(t, json.Unmarshal(current.Body.Bytes(), &currentDetail))
+	require.Equal(t, "2", currentDetail.Manifest.Revision, "detail serves the advertised published head")
+	require.Equal(t, "Current preview", currentDetail.Manifest.Description)
 	for _, path := range []string{
 		"/api/v1/themes/available/" + url.PathEscape(themeID) + "?workspace_id=workspace-1&revision=1",
 		"/api/v1/themes/available/missing-theme?workspace_id=workspace-1&revision=2",

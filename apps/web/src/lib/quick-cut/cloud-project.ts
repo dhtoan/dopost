@@ -1,12 +1,12 @@
 import type { PortableQuickCutProjectDocument } from '@openpost/video-project';
 import { uploadMediaFile } from '$lib/media-upload-client';
 import {
-	cloudVideoProjectFamily,
 	CloudVideoProjectRepository,
-	type CloudVideoProject
+	type CloudVideoProject,
+	type CloudVideoProjectSummary
 } from '$lib/video-editor/cloud/project-repository';
-import type { MediaMetadata } from '$lib/video-editor/media/types';
-import { hashBlob } from '$lib/video-editor/project-bundle/bundle-utils';
+import type { MediaMetadata } from '@openpost/editor-shared/media';
+import { hashBlob } from '@openpost/editor-shared/project-bundle';
 import { deserializeProject } from './project';
 import type {
 	QuickCutProject,
@@ -47,7 +47,7 @@ export interface QuickCutCloudRepository {
 }
 
 export interface QuickCutCloudCatalogRepository extends QuickCutCloudRepository {
-	list(includeTrash?: boolean): Promise<Array<CloudVideoProject<QuickCutCloudDocument>>>;
+	listSummaries(includeTrash?: boolean): Promise<CloudVideoProjectSummary[]>;
 	get(projectId: string): Promise<CloudVideoProject<QuickCutCloudDocument>>;
 }
 
@@ -106,8 +106,13 @@ export function quickCutCloudDocument(project: QuickCutProject): QuickCutCloudDo
 		schemaFamily: 'quick-cut',
 		schemaVersion: 1,
 		timeline: {
-			sources: structuredClone(project.sources),
-			segments: structuredClone(project.segments)
+			sources: project.sources.map((source) => {
+				const saved = structuredClone(source);
+				delete saved.transcript;
+				return saved;
+			}),
+			segments: structuredClone(project.segments),
+			markers: project.markers ? structuredClone(project.markers) : undefined
 		},
 		settings: {
 			cutMode: project.cutMode,
@@ -130,6 +135,7 @@ export function quickCutProjectFromCloudDocument(document: QuickCutCloudDocument
 			name: document.name,
 			sources: document.timeline.sources,
 			segments: document.timeline.segments,
+			markers: document.timeline.markers,
 			cutMode: document.settings.cutMode,
 			merge: document.settings.merge,
 			removeMarkedRanges: document.settings.removeMarkedRanges,
@@ -139,14 +145,12 @@ export function quickCutProjectFromCloudDocument(document: QuickCutCloudDocument
 	);
 }
 
-export function isQuickCutCloudProject(project: CloudVideoProject<QuickCutCloudDocument>): boolean {
-	return cloudVideoProjectFamily(project) === 'quick-cut';
-}
-
 export async function listQuickCutCloudProjects(
-	repository: QuickCutCloudCatalogRepository
-): Promise<Array<CloudVideoProject<QuickCutCloudDocument>>> {
-	return (await repository.list()).filter(isQuickCutCloudProject);
+	repository: Pick<QuickCutCloudCatalogRepository, 'listSummaries'>
+): Promise<CloudVideoProjectSummary[]> {
+	return (await repository.listSummaries()).filter(
+		(project) => project.schemaFamily === 'quick-cut'
+	);
 }
 
 export async function loadQuickCutCloudProject(
@@ -248,9 +252,7 @@ async function createQuickCutCloudSession(
 async function requiredSourceFile(source: QuickCutSource): Promise<File> {
 	if (source.file) return source.file;
 	if (source.handle) return source.handle.getFile();
-	throw new Error(
-		`Source ${source.name} is missing. Reconnect the file before saving to OpenPost.`
-	);
+	throw new Error(`Source ${source.name} is missing. Reconnect the file before saving to dopost.`);
 }
 
 export function quickCutCloudRepository(

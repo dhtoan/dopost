@@ -1,6 +1,6 @@
 # Ten-User Pilot Evidence Log
 
-> **Empty research template.** No row represents a real OpenPost user until a named researcher records the session. Do not turn placeholders into testimonials or public proof.
+> **Empty research template.** No row represents a real dopost user until a named researcher records the session. Do not turn placeholders into testimonials or public proof.
 
 ## Pilot goal
 
@@ -11,7 +11,7 @@ Observe the complete path:
 1. understand the product and security boundary;
 2. choose Hosted service or self-hosted access with correct pricing expectations;
 3. connect at least two relevant destinations;
-4. create a canonical post and distinct renditions;
+4. create a canonical post and distinct variants;
 5. review and schedule or publish;
 6. recover from any provider or setup failure;
 7. return for another campaign within the agreed observation window.
@@ -20,7 +20,7 @@ Observe the complete path:
 
 Use an internal participant ID when public attribution is not approved.
 
-| # | Participant ID | Target-audience fit | Previous workflow | Onboarded at | Understood position | Connected 2+ destinations | Created distinct renditions | Scheduled or published | Main failure point | Returned within 7 days | Public quote permission | Campaign-example permission | Research owner |
+| # | Participant ID | Target-audience fit | Previous workflow | Onboarded at | Understood position | Connected 2+ destinations | Created distinct variants | Scheduled or published | Main failure point | Returned within 7 days | Public quote permission | Campaign-example permission | Research owner |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 1 | _Unassigned_ |  |  |  | _Not observed_ | _Not observed_ | _Not observed_ | _Not observed_ |  | _Not observed_ | No | No |  |
 | 2 | _Unassigned_ |  |  |  | _Not observed_ | _Not observed_ | _Not observed_ | _Not observed_ |  | _Not observed_ | No | No |  |
@@ -45,7 +45,7 @@ Copy this section once per participant.
 - What they expected before first use: `[VALUE]`
 - Time to understand the agent/provider-credential boundary: `[VALUE]`
 - Accounts attempted and connected: `[VALUE]`
-- Canonical post and rendition workflow: `[VALUE]`
+- Canonical post and variant workflow: `[VALUE]`
 - Schedule or publish result: `[VALUE]`
 - Exact provider/setup failure: `[VALUE]`
 - Recovery or support needed: `[VALUE]`
@@ -63,6 +63,6 @@ The attached launch recommendation suggests waiting for:
 - five users who complete the core workflow;
 - three useful attributed quotes with explicit permission;
 - two concrete campaign examples with explicit permission;
-- one honest comparison explaining why a user chose OpenPost over their previous workflow.
+- one honest comparison explaining why a user chose dopost over their previous workflow.
 
-These are readiness targets, not current OpenPost results. If the pilot does not reach them, report the gap and fix the observed failure points instead of filling it with anonymous praise.
+These are readiness targets, not current dopost results. If the pilot does not reach them, report the gap and fix the observed failure points instead of filling it with anonymous praise.

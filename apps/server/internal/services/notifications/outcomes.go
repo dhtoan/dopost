@@ -2,8 +2,11 @@ package notifications
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"net/url"
+	"strconv"
 	"strings"
 	"unicode"
 
@@ -85,7 +88,94 @@ func NewAccountNeedsAttentionOutcome(facts AccountAttentionFacts) (Outcome, erro
 	})
 }
 
+// AccountCredentialFailureFacts reports one healthy-to-failing credential
+// transition for a connected account. Generation scopes the event so every
+// failure inside one break coalesces per recipient, while a reconnected
+// account that breaks again starts a fresh generation.
+type AccountCredentialFailureFacts struct {
+	RecipientUserID string
+	WorkspaceID     string
+	AccountID       string
+	Generation      int64
+	Provider        string
+	AccountLabel    string
+}
+
+// NewAccountCredentialFailureOutcome records the account-scoped credential
+// break that routes to the people who can reconnect the account. It shares
+// the account attention topic and copy, but its event identity is the
+// account plus the claimed generation instead of a publication.
+func NewAccountCredentialFailureOutcome(facts AccountCredentialFailureFacts) (Outcome, error) {
+	generation := strconv.FormatInt(facts.Generation, 10)
+	return newOutcome(semanticOutcome{
+		recipientID: facts.RecipientUserID, workspaceID: facts.WorkspaceID,
+		topic: TypeAccountNeedsAttention, eventID: facts.AccountID + ":" + generation,
+		payload: map[string]any{
+			"account_id": facts.AccountID, "provider": facts.Provider,
+			"account_label": facts.AccountLabel, "credential_generation": generation,
+		},
+	})
+}
+
+// AccountCredentialFailureRecipients resolves who can reconnect an account:
+// the user who consented to its OAuth grant plus every active administrator
+// of the account's workspace. The set is deduplicated, keeps the connector
+// first, and may be empty; producers fall back to their existing recipients.
+func AccountCredentialFailureRecipients(ctx context.Context, db bun.IDB, account *models.SocialAccount) ([]string, error) {
+	recipients := make([]string, 0, 4)
+	seen := make(map[string]struct{}, 4)
+	addRecipient := func(userID string) {
+		userID = strings.TrimSpace(userID)
+		if userID == "" {
+			return
+		}
+		if _, ok := seen[userID]; ok {
+			return
+		}
+		seen[userID] = struct{}{}
+		recipients = append(recipients, userID)
+	}
+	if grantID := strings.TrimSpace(account.OAuthGrantID); grantID != "" {
+		grant := struct {
+			ConsentedByID string `bun:"consented_by_id"`
+		}{}
+		err := db.NewSelect().Model((*models.OAuthGrant)(nil)).
+			Column("consented_by_id").
+			Where("id = ?", grantID).
+			Scan(ctx, &grant)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return nil, fmt.Errorf("resolve account connector: %w", err)
+		}
+		if err == nil {
+			addRecipient(grant.ConsentedByID)
+		}
+	}
+	var admins []models.WorkspaceMember
+	if err := db.NewSelect().Model(&admins).
+		Column("user_id").
+		Where("workspace_id = ?", account.WorkspaceID).
+		Where("role = ?", models.WorkspaceRoleAdmin).
+		Where("status = ?", models.WorkspaceMemberStatusActive).
+		Scan(ctx); err != nil {
+		return nil, fmt.Errorf("resolve workspace administrators: %w", err)
+	}
+	for _, admin := range admins {
+		addRecipient(admin.UserID)
+	}
+	return recipients, nil
+}
+
+// putOptionalFact keeps an empty descriptive fact out of the payload entirely.
+// Semantic payloads reject empty strings, and a missing detail must never be
+// able to fail the transition that is reporting it.
+func putOptionalFact(payload map[string]any, key, value string) {
+	if trimmed := strings.TrimSpace(value); trimmed != "" {
+		payload[key] = trimmed
+	}
+}
+
 type EngagementReceivedFacts struct {
+	Kind            string
 	RecipientUserID string
 	WorkspaceID     string
 	EngagementID    string
@@ -96,10 +186,18 @@ type EngagementReceivedFacts struct {
 }
 
 func NewEngagementReceivedOutcome(facts EngagementReceivedFacts) (Outcome, error) {
+	kind := strings.TrimSpace(facts.Kind)
+	if kind == "" {
+		kind = "comment"
+	}
+	payload := map[string]any{"engagement_id": facts.EngagementID, "provider": facts.Provider, "activity_kind": kind}
+	putOptionalFact(payload, "publication_id", facts.PublicationID)
+	putOptionalFact(payload, "rendition_id", facts.RenditionID)
+	putOptionalFact(payload, "author_name", facts.AuthorName)
 	return newOutcome(semanticOutcome{
 		recipientID: facts.RecipientUserID, workspaceID: facts.WorkspaceID,
 		topic: TypeNewEngagement, eventID: facts.EngagementID,
-		payload: map[string]any{"engagement_id": facts.EngagementID, "publication_id": facts.PublicationID, "rendition_id": facts.RenditionID, "provider": facts.Provider, "author_name": facts.AuthorName},
+		payload: payload,
 	})
 }
 
@@ -309,8 +407,17 @@ func materializeEngagementOutcome(value semanticOutcome) (createInput, error) {
 	engagementID, _ := value.payload["engagement_id"].(string)
 	input.Title = "New engagement"
 	input.Body = "Someone replied to your post."
+	switch value.payload["activity_kind"] {
+	case "mention":
+		input.Title, input.Body = "New mention", "Someone mentioned your account."
+	case "review":
+		input.Title, input.Body = "New review", "Your business received a review."
+	}
 	input.Href = "/inbox/engagement?item=" + url.QueryEscape(engagementID)
 	input.Actions = []models.NotificationAction{{Label: "Open reply", Href: input.Href, Kind: "primary"}}
+	if value.payload["activity_kind"] == "mention" || value.payload["activity_kind"] == "review" {
+		input.Actions[0].Label = "Open item"
+	}
 	return input, nil
 }
 
@@ -328,14 +435,14 @@ func materializeReplyFailedOutcome(value semanticOutcome) (createInput, error) {
 	input := baseOutcomeInput(value)
 	if conversationID, ok := value.payload["conversation_id"].(string); ok {
 		input.Title = "Message failed"
-		input.Body = "OpenPost could not send a direct message."
+		input.Body = "dopost could not send a direct message."
 		input.Href = "/inbox/messages?conversation=" + url.QueryEscape(conversationID)
 		input.Actions = []models.NotificationAction{{Label: "Review message", Href: input.Href, Kind: "primary"}}
 		return input, nil
 	}
 	engagementID, _ := value.payload["engagement_id"].(string)
 	input.Title = "Reply failed"
-	input.Body = "OpenPost could not send a reply or engagement action."
+	input.Body = "dopost could not send a reply or engagement action."
 	input.Href = "/inbox/engagement?item=" + url.QueryEscape(engagementID)
 	input.Actions = []models.NotificationAction{{Label: "Review reply", Href: input.Href, Kind: "primary"}}
 	return input, nil
@@ -367,7 +474,7 @@ func materializeOwnershipTransferOutcome(value semanticOutcome) (createInput, er
 func materializeRequiredAccountOutcome(value semanticOutcome) (createInput, error) {
 	input := baseOutcomeInput(value)
 	input.Title = "Account action required"
-	input.Body = "Review this required account action in OpenPost."
+	input.Body = "Review this required account action in dopost."
 	input.Href = "/settings"
 	input.Actions = []models.NotificationAction{{Label: "Review settings", Href: input.Href, Kind: "primary"}}
 	return input, nil

@@ -6,11 +6,13 @@ import (
 )
 
 const (
-	ConnectionModeAppPassword = "app_password"
-	ConnectionModeBot         = "bot"
-	ConnectionModeOAuth       = "oauth"
-	ConnectionModeOAuthOOB    = "oauth_oob"
-	ConnectionModeWebhook     = "webhook"
+	ConnectionModeAppPassword    = "app_password"
+	ConnectionModeSSHSignature   = "ssh_signature"
+	ConnectionModeBot            = "bot"
+	ConnectionModeOAuth          = "oauth"
+	ConnectionModeInstagramLogin = "instagram_login"
+	ConnectionModeOAuthOOB       = "oauth_oob"
+	ConnectionModeWebhook        = "webhook"
 )
 
 // ProviderAppContract defines the instance-owned application fields required
@@ -29,23 +31,26 @@ func ApplicationContract(provider, connectionMode string) (ProviderAppContract, 
 	provider = strings.ToLower(strings.TrimSpace(provider))
 	connectionMode = normalizeConnectionMode(provider, connectionMode, AppConfig{})
 	contracts := map[string]ProviderAppContract{
-		providerBluesky + ":" + ConnectionModeAppPassword:  {Provider: providerBluesky, ConnectionMode: ConnectionModeAppPassword, AdapterBacked: true, BuiltIn: true},
-		providerDiscord + ":" + ConnectionModeWebhook:      {Provider: providerDiscord, ConnectionMode: ConnectionModeWebhook, AdapterBacked: true, BuiltIn: true},
-		providerDiscord + ":" + ConnectionModeBot:          {Provider: providerDiscord, ConnectionMode: ConnectionModeBot, RequiredFields: []string{"client_id", "client_secret", "bot_token", "redirect_uri"}, AdapterBacked: true},
-		providerPinterest + ":" + ConnectionModeOAuth:      {Provider: providerPinterest, ConnectionMode: ConnectionModeOAuth, RequiredFields: []string{"client_id", "client_secret", "redirect_uri"}, AdapterBacked: true},
-		providerTelegram + ":" + ConnectionModeBot:         {Provider: providerTelegram, ConnectionMode: ConnectionModeBot, RequiredFields: []string{"bot_token", "bot_username", "webhook_secret"}},
-		providerX + ":" + ConnectionModeOAuth:              {Provider: providerX, ConnectionMode: ConnectionModeOAuth, RequiredFields: []string{"client_id"}, AdapterBacked: true},
-		providerMastodon + ":" + ConnectionModeOAuthOOB:    {Provider: providerMastodon, ConnectionMode: ConnectionModeOAuthOOB, RequiredFields: []string{"client_id", "client_secret", "instance_url"}, AdapterBacked: true},
-		providerPixelfed + ":" + ConnectionModeOAuthOOB:    {Provider: providerPixelfed, ConnectionMode: ConnectionModeOAuthOOB, RequiredFields: []string{"client_id", "client_secret", "instance_url"}, AdapterBacked: true},
-		providerPeerTube + ":" + ConnectionModeAppPassword: {Provider: providerPeerTube, ConnectionMode: ConnectionModeAppPassword, AdapterBacked: true, BuiltIn: true},
-		providerLemmy + ":" + ConnectionModeAppPassword:    {Provider: providerLemmy, ConnectionMode: ConnectionModeAppPassword, AdapterBacked: true, BuiltIn: true},
-		providerPieFed + ":" + ConnectionModeAppPassword:   {Provider: providerPieFed, ConnectionMode: ConnectionModeAppPassword, AdapterBacked: true, BuiltIn: true},
-		providerFacebook + ":" + ConnectionModeOAuth:       {Provider: providerFacebook, ConnectionMode: ConnectionModeOAuth, RequiredFields: []string{"client_id"}, AdapterBacked: true},
-		providerInstagram + ":" + ConnectionModeOAuth:      {Provider: providerInstagram, ConnectionMode: ConnectionModeOAuth, RequiredFields: []string{"client_id"}, AdapterBacked: true},
-		providerLinkedIn + ":" + ConnectionModeOAuth:       {Provider: providerLinkedIn, ConnectionMode: ConnectionModeOAuth, RequiredFields: []string{"client_id"}, AdapterBacked: true},
-		providerThreads + ":" + ConnectionModeOAuth:        {Provider: providerThreads, ConnectionMode: ConnectionModeOAuth, RequiredFields: []string{"client_id"}, AdapterBacked: true},
-		providerTikTok + ":" + ConnectionModeOAuth:         {Provider: providerTikTok, ConnectionMode: ConnectionModeOAuth, RequiredFields: []string{"client_id"}, AdapterBacked: true},
-		providerYouTube + ":" + ConnectionModeOAuth:        {Provider: providerYouTube, ConnectionMode: ConnectionModeOAuth, RequiredFields: []string{"client_id"}, AdapterBacked: true},
+		providerBluesky + ":" + ConnectionModeAppPassword:      {Provider: providerBluesky, ConnectionMode: ConnectionModeAppPassword, AdapterBacked: true, BuiltIn: true},
+		providerDevNull + ":" + ConnectionModeSSHSignature:     {Provider: providerDevNull, ConnectionMode: ConnectionModeSSHSignature, AdapterBacked: true, BuiltIn: true},
+		providerDiscord + ":" + ConnectionModeWebhook:          {Provider: providerDiscord, ConnectionMode: ConnectionModeWebhook, AdapterBacked: true, BuiltIn: true},
+		providerDiscord + ":" + ConnectionModeBot:              {Provider: providerDiscord, ConnectionMode: ConnectionModeBot, RequiredFields: []string{"client_id", "client_secret", "bot_token", "redirect_uri"}, AdapterBacked: true},
+		providerPinterest + ":" + ConnectionModeOAuth:          {Provider: providerPinterest, ConnectionMode: ConnectionModeOAuth, RequiredFields: []string{"client_id", "client_secret", "redirect_uri"}, AdapterBacked: true},
+		providerTelegram + ":" + ConnectionModeBot:             {Provider: providerTelegram, ConnectionMode: ConnectionModeBot, RequiredFields: []string{"bot_token", "bot_username", "webhook_secret"}},
+		providerX + ":" + ConnectionModeOAuth:                  {Provider: providerX, ConnectionMode: ConnectionModeOAuth, RequiredFields: []string{"client_id"}, AdapterBacked: true},
+		providerMastodon + ":" + ConnectionModeOAuthOOB:        {Provider: providerMastodon, ConnectionMode: ConnectionModeOAuthOOB, RequiredFields: []string{"client_id", "client_secret", "instance_url"}, AdapterBacked: true},
+		providerPixelfed + ":" + ConnectionModeOAuthOOB:        {Provider: providerPixelfed, ConnectionMode: ConnectionModeOAuthOOB, RequiredFields: []string{"client_id", "client_secret", "instance_url"}, AdapterBacked: true},
+		providerPeerTube + ":" + ConnectionModeAppPassword:     {Provider: providerPeerTube, ConnectionMode: ConnectionModeAppPassword, AdapterBacked: true, BuiltIn: true},
+		providerLemmy + ":" + ConnectionModeAppPassword:        {Provider: providerLemmy, ConnectionMode: ConnectionModeAppPassword, AdapterBacked: true, BuiltIn: true},
+		providerPieFed + ":" + ConnectionModeAppPassword:       {Provider: providerPieFed, ConnectionMode: ConnectionModeAppPassword, AdapterBacked: true, BuiltIn: true},
+		providerFacebook + ":" + ConnectionModeOAuth:           {Provider: providerFacebook, ConnectionMode: ConnectionModeOAuth, RequiredFields: []string{"client_id"}, AdapterBacked: true},
+		providerGoogleBusiness + ":" + ConnectionModeOAuth:     {Provider: providerGoogleBusiness, ConnectionMode: ConnectionModeOAuth, RequiredFields: []string{"client_id"}, AdapterBacked: true},
+		providerInstagram + ":" + ConnectionModeOAuth:          {Provider: providerInstagram, ConnectionMode: ConnectionModeOAuth, RequiredFields: []string{"client_id"}, AdapterBacked: true},
+		providerInstagram + ":" + ConnectionModeInstagramLogin: {Provider: providerInstagram, ConnectionMode: ConnectionModeInstagramLogin, RequiredFields: []string{"client_id", "client_secret", "redirect_uri"}, AdapterBacked: true},
+		providerLinkedIn + ":" + ConnectionModeOAuth:           {Provider: providerLinkedIn, ConnectionMode: ConnectionModeOAuth, RequiredFields: []string{"client_id"}, AdapterBacked: true},
+		providerThreads + ":" + ConnectionModeOAuth:            {Provider: providerThreads, ConnectionMode: ConnectionModeOAuth, RequiredFields: []string{"client_id"}, AdapterBacked: true},
+		providerTikTok + ":" + ConnectionModeOAuth:             {Provider: providerTikTok, ConnectionMode: ConnectionModeOAuth, RequiredFields: []string{"client_id"}, AdapterBacked: true},
+		providerYouTube + ":" + ConnectionModeOAuth:            {Provider: providerYouTube, ConnectionMode: ConnectionModeOAuth, RequiredFields: []string{"client_id"}, AdapterBacked: true},
 	}
 	contract, ok := contracts[provider+":"+connectionMode]
 	return contract, ok
@@ -92,6 +97,8 @@ func normalizeConnectionMode(provider, connectionMode string, app AppConfig) str
 	switch provider {
 	case providerBluesky:
 		return ConnectionModeAppPassword
+	case providerDevNull:
+		return ConnectionModeSSHSignature
 	case providerDiscord:
 		if strings.TrimSpace(app.ClientID) != "" || strings.TrimSpace(app.ClientSecret) != "" || strings.TrimSpace(app.BotToken) != "" {
 			return ConnectionModeBot

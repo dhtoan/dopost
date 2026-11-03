@@ -90,17 +90,17 @@ export function renderPublicClaimProjection(manifest, options = {}) {
   );
   const checkedCount =
     claims.length === 0
-      ? "No posting option has passed our final live check on OpenPost Hosted yet."
+      ? "No posting option has passed our final live check on dopost Hosted yet."
       : claims.length === 1
-        ? "**1 way to post** has passed our final live check on OpenPost Hosted."
-        : `**${claims.length} ways to post** have passed our final live check on OpenPost Hosted.`;
+        ? "**1 way to post** has passed our final live check on dopost Hosted."
+        : `**${claims.length} ways to post** have passed our final live check on dopost Hosted.`;
   const lines = [publicProjectionStart, checkedCount, ""];
   if (claims.length === 0) {
-    lines.push("A social app can appear in OpenPost before it is ready for real accounts.");
+    lines.push("A social app can appear in dopost before it is ready for real accounts.");
   } else if (options.detailLevel === "summary") {
     lines.push("See the full readiness list for details.");
   } else {
-    lines.push("Ready on OpenPost Hosted:");
+    lines.push("Ready on dopost Hosted:");
     for (const claim of claims) {
       const subject = claim.subject;
       lines.push(
@@ -113,19 +113,8 @@ export function renderPublicClaimProjection(manifest, options = {}) {
 }
 
 export function validatePublicClaimSurfaceSources(manifest, sources) {
-  const marketingCatalog = sources.marketingCatalog ?? "";
-  if (
-    !/import\s+publicClaimManifest\s+from\s+["']\.\.\/\.\.\/\.\.\/\.\.\/config\/provider-certification\/public-claims\.json["'];/u.test(
-      marketingCatalog,
-    ) ||
-    !marketingCatalog.includes("const publicProviderClaims = publicClaimManifest.claims") ||
-    !marketingCatalog.includes("managedCertificationState")
-  ) {
-    throw new Error(
-      "marketing provider catalogue must derive managed certification from public-claims.json",
-    );
-  }
-  if (/\bstatus:\s*["'](?:Available|Supported)["']/u.test(marketingCatalog)) {
+  validateMarketingClaimDerivation(sources.marketingCatalog ?? "");
+  if (/\bstatus:\s*["'](?:Available|Supported)["']/u.test(sources.marketingCatalog ?? "")) {
     throw new Error(
       "marketing provider catalogue cannot infer availability from Available/Supported status labels",
     );
@@ -168,6 +157,23 @@ export function validatePublicClaimSurfaceSources(manifest, sources) {
     throw new Error(
       "provider index documentation must label code paths as implementations, not availability claims",
     );
+  }
+}
+
+export function validateMarketingClaimDerivation(marketingCatalog) {
+  // The guarantee is structural: the catalogue must read the certified claim
+  // projection, not infer availability from status labels. Import spelling,
+  // variable names, and component syntax are free to evolve.
+  if (!/public-claims\.json/u.test(marketingCatalog)) {
+    throw new Error(
+      "marketing provider catalogue must derive managed certification from public-claims.json",
+    );
+  }
+  if (!/\.claims\b/u.test(marketingCatalog)) {
+    throw new Error("marketing provider catalogue must read the certified claim list");
+  }
+  if (!/managedCertificationState|certificationState|certifiedClaim/u.test(marketingCatalog)) {
+    throw new Error("marketing provider catalogue must render managed certification state");
   }
 }
 

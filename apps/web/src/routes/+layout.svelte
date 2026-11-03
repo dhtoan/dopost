@@ -1,4 +1,6 @@
 <script lang="ts">
+	import AppBrandingRuntime from '$lib/components/app-branding-runtime.svelte';
+	import { appBranding } from '$lib/app-branding.svelte';
 	import './layout.css';
 	import PwaManager from '$lib/components/pwa-manager.svelte';
 	import NavigationProgress from '$lib/components/navigation-progress.svelte';
@@ -6,6 +8,7 @@
 	import { onMount, untrack } from 'svelte';
 	import { auth } from '$lib/stores/auth';
 	import { afterNavigate, beforeNavigate, goto } from '$app/navigation';
+	import { markHealthyNavigation } from '../hooks.client';
 	import { captureClientException, captureTelemetryPageView } from '@openpost/telemetry';
 	import { resolve } from '$app/paths';
 	import { resolveAppPath } from '$lib/app-path';
@@ -16,6 +19,7 @@
 	import InlineNotice from '$lib/components/inline-notice.svelte';
 	import { Button } from '$lib/components/ui/button';
 	import { m } from '$lib/paraglide/messages';
+	import { provideUiMessages } from '@openpost/ui/messages';
 	import { onboardingPathForPlan, paddleTransactionIDFromSearchParams } from '$lib/billing';
 	import { safeSameOriginRedirect } from '$lib/redirects';
 	import { soundPreferences } from '$lib/stores/sound-preferences.svelte';
@@ -26,7 +30,7 @@
 	import { Toaster } from '$lib/components/ui/sonner';
 	import { setUnsavedChanges, UnsavedChangesContext } from '$lib/unsaved-changes.svelte';
 	import { initializeAppTelemetry } from '$lib/telemetry';
-	import { isOrganizationOwnershipSettingsRoute } from '$lib/app-navigation';
+	import { isEditorRoute, isOrganizationOwnershipSettingsRoute } from '$lib/app-navigation';
 	import PublicHome from './_components/PublicHome.svelte';
 	import TelemetryConsent from '$lib/components/telemetry-consent.svelte';
 	import { QueryClientProvider } from '@tanstack/svelte-query';
@@ -37,6 +41,38 @@
 	import { ui } from '$lib/stores/ui.svelte';
 
 	let { children } = $props();
+	provideUiMessages({
+		editor_add_mention: m.editor_add_mention,
+		editor_search_characters: m.editor_search_characters,
+		editor_permission_required: m.editor_permission_required,
+		editor_rate_limited: m.editor_rate_limited,
+		editor_mention_limit: m.editor_mention_limit,
+		editor_mention_account_required: m.editor_mention_account_required,
+
+		editor_mentions: m.editor_mentions,
+		editor_searching: m.editor_searching,
+		editor_no_matches: m.editor_no_matches,
+		editor_lookup_failed: m.editor_lookup_failed,
+		editor_retry: m.editor_retry,
+
+		calendar_next: m.calendar_next,
+		calendar_previous: m.calendar_previous,
+		calendar_label: m.calendar_label,
+		common_close: m.common_close,
+		common_toggle_sidebar: m.common_toggle_sidebar,
+		common_mobile_sidebar_description: m.common_mobile_sidebar_description,
+		common_sidebar: m.common_sidebar,
+		// The shared color picker moved to @openpost/ui; keep its copy localized
+		// with the translations the app already ships.
+		color_picker_pick_from_screen: m.image_editor_pick_color,
+		color_picker_brand_colors: m.image_editor_brand_colors,
+		color_picker_recent_colors: m.image_editor_recent_colors,
+		color_picker_hex_color: m.image_editor_hex_color,
+		color_picker_hue: m.image_editor_hue,
+		color_picker_saturation: m.image_editor_saturation,
+		color_picker_lightness: m.image_editor_lightness,
+		color_picker_opacity: m.theme_editor_opacity
+	});
 	provideApplicationThemePreview();
 	const unsavedChanges = setUnsavedChanges(new UnsavedChangesContext());
 	const publicationQueryInvalidationBridge = createPublicationQueryInvalidationBridge(queryClient);
@@ -55,6 +91,7 @@
 
 	afterNavigate((navigation) => {
 		captureTelemetryPageView(navigation.to?.route.id ?? '/unknown');
+		if ($page.status < 400) markHealthyNavigation();
 	});
 
 	function warnBeforeUnload(event: BeforeUnloadEvent) {
@@ -75,6 +112,10 @@
 
 	let authState = $derived($auth);
 	let currentPath = $derived($page.url.pathname);
+	$effect(() => {
+		if (isEditorRoute(currentPath)) document.documentElement.dataset.density = 'editor';
+		else delete document.documentElement.dataset.density;
+	});
 	let isPreviewRoute = $derived(currentPath === '/preview');
 	let isPublicProfileRoute = $derived(currentPath.startsWith('/u/'));
 	$effect(() => {
@@ -103,11 +144,13 @@
 		'/impersonate',
 		'/cli/authorize',
 		'/oauth/authorize',
+		'/oauth/x-messaging',
 		'/accounts/mastodon/callback',
 		'/accounts/callback'
 	];
 
 	const standaloneRoutes = [
+		'/draft-import',
 		'/onboarding',
 		'/checkout',
 		'/verify-email',
@@ -119,11 +162,14 @@
 		'/impersonate',
 		'/cli/authorize',
 		'/oauth/authorize',
+		'/oauth/x-messaging',
 		'/accounts/mastodon/callback',
 		'/accounts/callback'
 	];
+	const isWorkflowEditor = $derived(/^\/workflows\/[0-9a-f-]+$/.test(currentPath));
 	let isStandaloneRoute = $derived(
-		standaloneRoutes.includes(currentPath) ||
+		isWorkflowEditor ||
+			standaloneRoutes.includes(currentPath) ||
 			isErrorRoute ||
 			isPublicProfileRoute ||
 			currentPath === '/image-editor' ||
@@ -163,6 +209,7 @@
 	);
 	let isPublicRoute = $derived(
 		currentPath === '/' ||
+			currentPath === '/draft-import' ||
 			isErrorRoute ||
 			isPublicProfileRoute ||
 			isPublicImageEditorRoute ||
@@ -188,6 +235,7 @@
 	let isOrganizationOwnershipRoute = $derived(isOrganizationOwnershipSettingsRoute($page.url));
 	let routeSkipsWorkspaceBootstrap = $derived(
 		currentPath === '/onboarding' ||
+			currentPath === '/draft-import' ||
 			currentPath === '/checkout' ||
 			currentPath === '/ownership-transfer' ||
 			isOrganizationOwnershipRoute ||
@@ -222,6 +270,9 @@
 
 		const redirect = safeSameOriginRedirect($page.url, '');
 		if (redirect) target.searchParams.set('redirect', redirect);
+		if (!redirect && currentPath === '/' && $page.url.searchParams.has('tool_draft')) {
+			target.searchParams.set('redirect', `${currentPath}${$page.url.search}`);
+		}
 		if (
 			!redirect &&
 			currentPath.startsWith('/image-editor/local_design_') &&
@@ -238,6 +289,7 @@
 	}
 
 	let pendingRedirect = $derived.by(() => {
+		if (currentPath === '/draft-import') return null;
 		if (authState.isLoading) return null;
 		if (authState.initializationError) return null;
 
@@ -504,25 +556,37 @@
 <svelte:window onbeforeunload={warnBeforeUnload} />
 
 <svelte:head>
-	<title>OpenPost</title>
+	<title>{appBranding.profile.display_name}</title>
 </svelte:head>
 
 <QueryClientProvider client={queryClient}>
-	<ThemeAppShell publicDefault={isPublicRoute && !isPreviewRoute} />
+	<ThemeAppShell publicDefault={isPublicRoute || isOrganizationOwnershipSettingsRoute($page.url)} />
+	<AppBrandingRuntime
+		enabled={!isPreviewRoute &&
+			!isPublicProfileRoute &&
+			!publicRoutes.some((route) => currentPath.startsWith(route)) &&
+			![
+				'/onboarding',
+				'/checkout',
+				'/ownership-transfer',
+				'/draft-import',
+				'/legal-acceptance'
+			].includes(currentPath)}
+	/>
 	<NavigationProgress />
 	{#if !isPreviewRoute}
 		<PwaManager />
-		<ModeWatcher
-			disableHeadScriptInjection
-			themeColors={{ light: '#faf9f7', dark: '#251f1c' }}
-		/>{/if}
+	{/if}
+	<ModeWatcher disableHeadScriptInjection themeColors={{ light: '#faf9f7', dark: '#251f1c' }} />
 	<Toaster position="bottom-center" richColors closeButton />
 	<TelemetryConsent
 		title={m.telemetry_consent_title()}
 		description={m.telemetry_consent_description()}
-		allowLabel={m.telemetry_consent_allow()}
+		allowLabel={m.telemetry_consent_accept()}
 		cookielessLabel={m.telemetry_consent_cookieless()}
-		offLabel={m.telemetry_consent_off()}
+		cookielessDescription={m.telemetry_consent_cookieless_description()}
+		optionsLabel={m.telemetry_consent_options()}
+		offLabel={m.telemetry_consent_decline()}
 		privacyLabel={m.telemetry_consent_privacy()}
 		privacyHref="https://openpo.st/privacy"
 		closeLabel={m.common_close()}
@@ -581,7 +645,7 @@
 				{@render children()}
 			{/if}
 		{:else if isStandaloneRoute}
-			{#if !isPublicProfileRoute && currentPath !== '/image-editor' && !currentPath.startsWith('/image-editor/') && !isPublicLocalEditorRoute}
+			{#if !isWorkflowEditor && !isPublicProfileRoute && currentPath !== '/image-editor' && !currentPath.startsWith('/image-editor/') && !isPublicLocalEditorRoute}
 				<div class="fixed top-4 right-4 z-20">
 					<LanguageSwitcher compact />
 				</div>

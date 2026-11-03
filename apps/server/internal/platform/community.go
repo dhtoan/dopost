@@ -9,7 +9,6 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
-	"time"
 )
 
 // Community posting is one publishing experience shared by Lemmy, PieFed,
@@ -136,16 +135,6 @@ func validCommunityHost(host string) bool {
 func CommunityTargetKey(provider, host, name string) string {
 	return strings.ToLower(strings.TrimSpace(provider)) + ":community:" +
 		strings.ToLower(strings.TrimSpace(host)) + ":" + strings.TrimSpace(name)
-}
-
-// ParseCommunityTargetKey splits a community destination key back into its
-// provider, host, and name.
-func ParseCommunityTargetKey(target string) (provider, host, name string, ok bool) {
-	parts := strings.Split(strings.TrimSpace(target), ":")
-	if len(parts) != 4 || parts[1] != "community" || parts[0] == "" || parts[2] == "" || parts[3] == "" {
-		return "", "", "", false
-	}
-	return parts[0], parts[2], parts[3], true
 }
 
 // CommunityDisplayRef renders the canonical "!name@host" handle.
@@ -312,37 +301,4 @@ func splitCommunityCommentRef(provider, ref string) (int64, int64, error) {
 		return 0, 0, fmt.Errorf("%s reply reference is invalid", provider)
 	}
 	return postID, commentID, nil
-}
-
-func normalizeCommunityAccountContent(provider, instanceURL string, id int64, profile, title string, body *string, actorID, published string, publishedAfter time.Time) (AccountContentItem, bool) {
-	publishedAt, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(published))
-	if err != nil || publishedAt.IsZero() {
-		return AccountContentItem{}, false
-	}
-	publishedAt = publishedAt.UTC()
-	actorID = strings.TrimSpace(actorID)
-	if actorID == "" || (!publishedAfter.IsZero() && publishedAt.Before(publishedAfter)) {
-		return AccountContentItem{}, false
-	}
-	item := AccountContentItem{
-		ProviderContentID: strings.TrimRight(instanceURL, "/") + "/post/" + strconv.FormatInt(id, 10),
-		ContentProfile:    profile,
-		Title:             title,
-		ExternalURL:       actorID,
-		PublishedAt:       publishedAt,
-		Origin:            AccountContentOriginExternal,
-		OriginConfidence:  AccountContentOriginConfidenceExact,
-	}
-	if body != nil {
-		item.Text = strings.TrimSpace(*body)
-	}
-	normalized, err := NormalizeAccountContentItem(provider, item)
-	return normalized, err == nil
-}
-
-func appendCommunityAccountContent(page *AccountContentPage, item AccountContentItem) {
-	page.Items = append(page.Items, item)
-	if page.BackfillWatermark.IsZero() || item.PublishedAt.Before(page.BackfillWatermark) {
-		page.BackfillWatermark = item.PublishedAt
-	}
 }

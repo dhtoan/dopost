@@ -14,12 +14,16 @@ export interface UploadMediaFileOptions {
 	altText?: string;
 	source?:
 		| 'upload'
+		| 'media_copy'
+		| 'image_optimization'
+		| 'image_fit'
 		| 'camera'
 		| 'image_editor_export'
 		| 'image_editor_edit'
 		| 'background_removal'
 		| 'stock_import'
 		| 'meme_generator'
+		| 'screenshot_template'
 		| 'video_editor_source';
 	assetKind?:
 		| 'library'
@@ -161,21 +165,6 @@ export async function uploadMediaFile({
 		}
 		return uploadViaMultipart(workspaceId, uploadFile, altText, metadata, onProgress, signal);
 	}
-}
-
-export function isSupportedMediaFile(file: File): boolean {
-	return (
-		file.type.startsWith('image/') ||
-		file.type.startsWith('video/') ||
-		file.type.startsWith('audio/') ||
-		[
-			'application/pdf',
-			'application/msword',
-			'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-			'application/vnd.ms-powerpoint',
-			'application/vnd.openxmlformats-officedocument.presentationml.presentation'
-		].includes(file.type)
-	);
 }
 
 export function shouldUseMultipartFallback(error: Error): boolean {
@@ -620,7 +609,7 @@ async function waitForVideoProcessing(
 		}
 		if (metadata.processing_status === 'failed' || metadata.analysis_status === 'failed') {
 			throw new UploadRequestError(
-				metadata.analysis_error || 'OpenPost could not process this video',
+				metadata.analysis_error || 'dopost could not process this video',
 				422
 			);
 		}

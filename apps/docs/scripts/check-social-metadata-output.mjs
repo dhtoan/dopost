@@ -1,7 +1,8 @@
 import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { docsSocialImageUrlForRoute } from "@openpost/social-images";
+import { parseFragment } from "parse5";
+import { docsSocialEntries, docsSocialImageUrlForRoute } from "@openpost/social-images";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const docsRoot = path.resolve(scriptDir, "..");
@@ -25,14 +26,30 @@ async function walkHtml(directory) {
 }
 
 const files = await walkHtml(dist);
+let checkedPages = 0;
 for (const file of files) {
   const html = await readFile(file, "utf8");
   const outputPath = path.relative(dist, file).split(path.sep).join("/");
   const route =
     outputPath === "index.html" ? "/" : `/${outputPath.replace(/(?:\/index)?\.html$/, "")}`;
+  const documentTitle = html.match(/<title>([^<]+) \| dopost Docs<\/title>/u)?.[1];
+  const headHTML = html.match(/<head(?:\s[^>]*)?>([\s\S]*?)<\/head>/iu)?.[1] ?? "";
+  const head = parseFragment(headHTML);
+  const noindex = head.childNodes.some((node) => {
+    if (node.tagName !== "meta") return false;
+    const name = node.attrs.find((attribute) => attribute.name === "name")?.value.toLowerCase();
+    const content = node.attrs
+      .find((attribute) => attribute.name === "content")
+      ?.value.toLowerCase();
+    return name === "robots" && content?.split(/[,\s]+/u).includes("noindex");
+  });
+  if (noindex) {
+    if (!documentTitle && !docsSocialEntries.some((entry) => entry.route === route)) continue;
+    problems.push(`${outputPath}: a catalogue page must remain indexable`);
+  }
+  checkedPages += 1;
   const imageUrl = docsSocialImageUrlForRoute(route);
   imageUrls.add(imageUrl);
-  const documentTitle = html.match(/<title>([^<]+) \| OpenPost Docs<\/title>/u)?.[1];
   const openGraphTitle = html.match(/property="og:title" content="([^"]+)"/u)?.[1];
   if (!documentTitle || openGraphTitle !== documentTitle) {
     problems.push(`${outputPath}: Open Graph title does not match the page title`);
@@ -40,7 +57,7 @@ for (const file of files) {
     problems.push(`${outputPath}: Open Graph title exceeds 80 characters`);
   }
   for (const expected of [
-    'property="og:site_name" content="OpenPost Docs"',
+    'property="og:site_name" content="dopost Docs"',
     'property="og:image:type" content="image/png"',
     'property="og:image:width" content="1200"',
     'property="og:image:height" content="630"',
@@ -57,7 +74,8 @@ for (const file of files) {
     problems.push(`${outputPath}: still references the retired social image renderer`);
   }
 
-  const imageFile = path.join(dist, new URL(imageUrl).pathname.slice(1));
+  const imagePath = new URL(imageUrl).pathname.replace(/^\/docs\//u, "");
+  const imageFile = path.join(dist, imagePath);
   try {
     const png = await readFile(imageFile);
     if (!png.subarray(1, 4).equals(Buffer.from("PNG"))) {
@@ -70,14 +88,14 @@ for (const file of files) {
   }
 }
 
-if (imageUrls.size !== files.length) {
+if (imageUrls.size !== checkedPages) {
   problems.push("docs routes do not have unique social image URLs");
 }
 const generatedImages = (await readdir(path.join(dist, "og"))).filter((file) =>
   file.endsWith(".png"),
 );
-if (generatedImages.length !== files.length) {
-  problems.push(`expected ${files.length} generated images, found ${generatedImages.length}`);
+if (generatedImages.length !== checkedPages) {
+  problems.push(`expected ${checkedPages} generated images, found ${generatedImages.length}`);
 }
 const redirects = await readFile(path.join(dist, "_redirects"), "utf8");
 if (!/^\/assets\/brand\/og-docs\.png \/og\/home\.png 302$/mu.test(redirects)) {
@@ -91,4 +109,4 @@ if (problems.length) {
   process.exit(1);
 }
 
-console.log(`Checked social metadata for ${files.length} docs routes.`);
+console.log(`Checked social metadata for ${checkedPages} docs routes.`);

@@ -16,6 +16,7 @@ import (
 	"github.com/openpost/backend/internal/services/lifecycle"
 	"github.com/openpost/backend/internal/services/organizationguard"
 	"github.com/openpost/backend/internal/services/providerwrite"
+	"github.com/openpost/backend/internal/services/publicationauth"
 	"github.com/openpost/backend/internal/services/publisher"
 	"github.com/uptrace/bun"
 )
@@ -163,7 +164,7 @@ func (s *Service) MarkAmbiguousWrite(ctx context.Context, payload string) {
 	}
 	execution, _, err := s.loadExecutionRule(ctx, input.ExecutionID, StatusReady)
 	if err == nil && execution != nil {
-		_ = s.failExecution(ctx, execution, "ambiguous_provider_result", "The worker stopped during the provider repost. OpenPost did not retry because the provider result may be ambiguous.")
+		_ = s.failExecution(ctx, execution, "ambiguous_provider_result", "The worker stopped during the provider repost. dopost did not retry because the provider result may be ambiguous.")
 	}
 }
 
@@ -402,7 +403,7 @@ func (s *Service) execute(ctx context.Context, executionID string) error {
 
 	result, err := s.executeRepostWrite(ctx, *execution, source, target, rendition, adapter, token)
 	if err != nil {
-		if persistErr := s.failExecution(ctx, execution, "provider_write_failed", "The provider write failed. OpenPost did not retry because the result may be ambiguous."); persistErr != nil {
+		if persistErr := s.failExecution(ctx, execution, "provider_write_failed", "The provider write failed. dopost did not retry because the result may be ambiguous."); persistErr != nil {
 			return errors.Join(err, persistErr)
 		}
 		return err
@@ -512,10 +513,13 @@ func (s *Service) executeRepostWrite(
 	jobExecution, _ := providerwrite.JobExecutionFromContext(ctx)
 	return providerwrite.New(s.db).Execute(ctx, providerwrite.Input{
 		OperationID: fmt.Sprintf("repost:%s:stage:%d", execution.ID, execution.CurrentStage),
-		JobID:       jobExecution.ID, WorkspaceID: execution.WorkspaceID,
+		JobID:       jobExecution.ID, WorkspaceID: execution.WorkspaceID, PublicationID: execution.PublicationID,
 		SocialAccountID: target.ID, TargetKey: repostProviderKey(target),
 		Provider: target.Platform, Operation: "repost", PayloadFingerprint: fingerprint,
 	}, func(sendCtx context.Context, control *providerwrite.Control) (platform.PublishResult, error) {
+		if err := publicationauth.RequireUnreviewedRepost(sendCtx, s.db, execution.PublicationID); err != nil {
+			return platform.PublishResult{}, err
+		}
 		allowed, reason, quotaErr := s.checkProviderWriteQuota(sendCtx, execution.WorkspaceID)
 		if quotaErr != nil {
 			return platform.PublishResult{}, quotaErr
@@ -673,6 +677,7 @@ func repostSourceURL(source models.SocialAccount, rendition models.Rendition) st
 		source.AccountUsername,
 		source.InstanceURL,
 		rendition.ExternalID,
+		rendition.OutputProfile,
 	)
 }
 

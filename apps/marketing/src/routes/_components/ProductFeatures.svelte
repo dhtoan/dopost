@@ -1,55 +1,67 @@
 <script lang="ts">
+	import { ditherSurface } from '@openpost/dither';
 	import ArrowUpRight from '@lucide/svelte/icons/arrow-up-right';
+	import ArrowDown from '@lucide/svelte/icons/arrow-down';
+	import Github from '@lucide/svelte/icons/github';
+	import FilePenLine from '@lucide/svelte/icons/file-pen-line';
+	import Check from '@lucide/svelte/icons/check';
 	import ThemeImage from './ThemeImage.svelte';
+	const detailScreenshotSizes = '(max-width: 760px) calc(100vw - 64px), 50vw';
 	const features = [
 		{
 			title: 'Your media library',
 			icon: '/assets/brand/features/media.svg',
 			text: 'Keep templates, brand assets, and fonts ready to reuse. Find files with tags, collections, and favorites. Draft alt text with AI.',
-			href: 'https://docs.openpo.st/guides/media',
+			href: 'https://openpo.st/docs/guides/media-library',
 			link: 'Organize your media'
 		},
 		{
 			title: 'Grow your network',
 			icon: '/assets/brand/features/grow.svg',
 			text: 'Find people to follow on Bluesky and Mastodon. Review recommendations and mutual connections, then choose who to follow.',
-			href: 'https://docs.openpo.st/guides/results',
+			href: 'https://openpo.st/docs/guides/accounts#turn-on-optional-account-features',
 			link: 'Explore Grow'
 		},
 		{
 			title: 'Auto repost',
 			icon: '/assets/brand/features/repost.svg',
-			text: 'Give a post another turn. Set delays and engagement rules, with overrides for individual posts.',
-			href: 'https://docs.openpo.st/guides/scheduling',
+			text: 'Give a post another turn. Manage repost rules in Workflows, with delays, engagement gates, and overrides for individual posts.',
+			href: 'https://openpo.st/docs/workflows/runs#reposts',
 			link: 'Set repost rules'
 		},
 		{
 			title: 'Inbox and DMs',
 			icon: '/assets/brand/features/inbox.svg',
 			text: 'Follow conversations and reply to comments and messages from supported connected accounts.',
-			href: 'https://docs.openpo.st/guides/results',
+			href: 'https://openpo.st/docs/guides/inbox',
 			link: 'See inbox support'
 		},
 		{
 			title: 'Connect your tools',
 			icon: '/assets/brand/features/automation.svg',
-			text: 'Bring OpenPost into the tools you already use. Draft with your AI assistant or connect a workflow in n8n.',
-			href: 'https://docs.openpo.st/guides/automation',
+			text: 'Bring dopost into the tools you already use. Call the TypeScript SDK, install the CLI from npm, draft with your AI assistant, or connect a workflow in n8n.',
+			href: 'https://openpo.st/docs/automate',
 			link: 'Connect your tools'
 		},
 		{
 			title: 'Teams and security',
 			icon: '/assets/brand/features/workspaces.svg',
 			text: 'Separate workspaces and member roles. Sign in with passkeys or two-factor authentication and manage active sessions.',
-			href: 'https://docs.openpo.st/guides/workspaces',
+			href: 'https://openpo.st/docs/guides/workspaces',
 			link: 'Explore account security'
 		}
 	];
 </script>
 
-<section id="features" class="product-features marketing-shell" aria-labelledby="features-title">
-	<div class="section-heading">
-		<h2 id="features-title">From the first idea<br />to the next conversation.</h2>
+<section
+	id="features"
+	class="product-features marketing-shell section-pad"
+	aria-labelledby="features-title"
+>
+	<div class="section-head">
+		<h2 id="features-title" class="section-heading">
+			From the first idea<br />to the next conversation.
+		</h2>
 		<p>Write, schedule, publish, and follow up.<br />Keep it all in one workspace.</p>
 	</div>
 	<article class="schedule feature-panel">
@@ -67,23 +79,28 @@
 				Pick a time or use your next free posting slot. Plan the week in your calendar, stagger
 				channels, and get a reminder when the queue runs low.
 			</p>
-			<a class="focus-ring" href="https://docs.openpo.st/guides/scheduling"
-				>Plan your publishing <ArrowUpRight size={17} /></a
+			<a
+				class="focus-ring"
+				href="https://openpo.st/docs/guides/publishing#schedule-and-calendar"
+				data-sveltekit-reload>Plan your publishing <ArrowUpRight size={17} /></a
 			>
 		</div>
 		<div class="visual mint">
 			<ThemeImage
 				lightSrc="/assets/screenshots/calendar-detail-light.webp"
 				darkSrc="/assets/screenshots/calendar-detail-dark.webp"
-				alt="OpenPost calendar showing scheduled publications across channels"
-				width={2272}
-				height={1600}
+				lightSrcset="/assets/screenshots/calendar-detail-light-768.webp 768w, /assets/screenshots/calendar-detail-light-1536.webp 1536w, /assets/screenshots/calendar-detail-light.webp 2256w"
+				darkSrcset="/assets/screenshots/calendar-detail-dark-768.webp 768w, /assets/screenshots/calendar-detail-dark-1536.webp 1536w, /assets/screenshots/calendar-detail-dark.webp 2256w"
+				sizes={detailScreenshotSizes}
+				alt="dopost calendar showing scheduled posts across channels"
+				width={2256}
+				height={1612}
 				loading="lazy"
 			/>
 		</div>
 	</article>
 	<div class="feature-pair">
-		<article class="feature-panel ai">
+		<article data-dither-panel use:ditherSurface class="feature-panel ai">
 			<div class="copy">
 				<h3 class="feature-heading">
 					<img
@@ -98,8 +115,10 @@
 					Explore ideas and compare directions. Use Social Sets to choose an account group, build
 					drafts for each channel, and review every version.
 				</p>
-				<a class="focus-ring" href="https://docs.openpo.st/guides/publishing#build-with-ai"
-					>Explore AI writing <ArrowUpRight size={17} /></a
+				<a
+					class="focus-ring"
+					href="https://openpo.st/docs/guides/publishing#build-with-ai"
+					data-sveltekit-reload>Explore AI writing <ArrowUpRight size={17} /></a
 				>
 			</div>
 			<ol class="idea-steps" aria-label="Build with AI">
@@ -125,7 +144,7 @@
 				</li>
 			</ol>
 		</article>
-		<article class="feature-panel memes">
+		<article data-dither-panel use:ditherSurface class="feature-panel memes">
 			<div class="copy">
 				<h3 class="feature-heading">
 					<img
@@ -140,15 +159,20 @@
 					Pick a template, write the captions, and swap in your images. Save the result to Media or
 					attach it to your post.
 				</p>
-				<a class="focus-ring" href="https://docs.openpo.st/guides/media#add-media-to-a-post"
-					>Make a meme <ArrowUpRight size={17} /></a
+				<a
+					class="focus-ring"
+					href="https://openpo.st/docs/guides/media-library#add-media-to-a-post"
+					data-sveltekit-reload>Make a meme <ArrowUpRight size={17} /></a
 				>
 			</div>
 			<div class="visual lilac">
 				<ThemeImage
 					lightSrc="/assets/screenshots/meme-creator-detail-light.webp"
 					darkSrc="/assets/screenshots/meme-creator-detail-dark.webp"
-					alt="OpenPost meme creator with editable captions and a rendered Drakeposting preview"
+					lightSrcset="/assets/screenshots/meme-creator-detail-light-768.webp 768w, /assets/screenshots/meme-creator-detail-light-1536.webp 1536w, /assets/screenshots/meme-creator-detail-light.webp 2764w"
+					darkSrcset="/assets/screenshots/meme-creator-detail-dark-768.webp 768w, /assets/screenshots/meme-creator-detail-dark-1536.webp 1536w, /assets/screenshots/meme-creator-detail-dark.webp 2764w"
+					sizes={detailScreenshotSizes}
+					alt="dopost meme creator with editable captions and a rendered Drakeposting preview"
 					width={2764}
 					height={1920}
 					loading="lazy"
@@ -171,7 +195,7 @@
 				Follow views, reach, engagement, and audience changes. Compare posts using the metrics your
 				connected platforms provide, then repurpose a post into a fresh draft.
 			</p>
-			<a class="focus-ring" href="https://docs.openpo.st/guides/results"
+			<a class="focus-ring" href="https://openpo.st/docs/guides/analytics" data-sveltekit-reload
 				>Explore analytics <ArrowUpRight size={17} /></a
 			>
 		</div>
@@ -179,11 +203,61 @@
 			<ThemeImage
 				lightSrc="/assets/screenshots/analytics-detail-light.webp"
 				darkSrc="/assets/screenshots/analytics-detail-dark.webp"
-				alt="Daily views chart in OpenPost analytics"
-				width={2108}
-				height={578}
+				lightSrcset="/assets/screenshots/analytics-detail-light-768.webp 768w, /assets/screenshots/analytics-detail-light-1536.webp 1536w, /assets/screenshots/analytics-detail-light.webp 2188w"
+				darkSrcset="/assets/screenshots/analytics-detail-dark-768.webp 768w, /assets/screenshots/analytics-detail-dark-1536.webp 1536w, /assets/screenshots/analytics-detail-dark.webp 2188w"
+				sizes={detailScreenshotSizes}
+				alt="Daily views chart in dopost analytics"
+				width={2188}
+				height={656}
 				loading="lazy"
 			/>
+		</div>
+	</article>
+	<article class="workflows feature-panel">
+		<div class="copy">
+			<h3 class="feature-heading">
+				<img
+					src="/assets/brand/features/workflows.svg"
+					alt=""
+					width="44"
+					height="44"
+					loading="lazy"
+				/>
+				<span>Turn updates into posts<br />with Workflows.</span>
+			</h3>
+			<p>
+				Build a workflow from a GitHub release, an RSS feed, or a schedule. Turn updates into
+				drafts, add AI or conditions, and keep a review step before scheduling.
+			</p>
+			<a class="focus-ring" href="https://openpo.st/docs/workflows" data-sveltekit-reload
+				>Build your first workflow <ArrowUpRight size={17} /></a
+			>
+		</div>
+		<div class="visual mint workflow-visual">
+			<div class="workflow-graph">
+				<ThemeImage
+					lightSrc="/assets/screenshots/workflows-detail-light.webp"
+					darkSrc="/assets/screenshots/workflows-detail-dark.webp"
+					alt="GitHub release connects to Create draft, then Review post in the workflow canvas"
+					width={1888}
+					height={408}
+					loading="lazy"
+				/>
+			</div>
+			<ol class="workflow-summary" aria-label="Example workflow">
+				<li><Github size={20} aria-hidden="true" /><span>GitHub release</span></li>
+				<li>
+					<ArrowDown size={16} aria-hidden="true" /><FilePenLine
+						size={20}
+						aria-hidden="true"
+					/><span>Create draft</span>
+				</li>
+				<li>
+					<ArrowDown size={16} aria-hidden="true" /><Check size={20} aria-hidden="true" /><span
+						>Review post</span
+					>
+				</li>
+			</ol>
 		</div>
 	</article>
 	<div class="more-features">
@@ -195,7 +269,9 @@
 					>
 				</h3>
 				<p>{feature.text}</p>
-				<a class="focus-ring" href={feature.href}>{feature.link} <ArrowUpRight size={16} /></a>
+				<a class="focus-ring" href={feature.href} data-sveltekit-reload
+					>{feature.link} <ArrowUpRight size={16} /></a
+				>
 			</article>
 		{/each}
 	</div>
@@ -203,21 +279,14 @@
 
 <style>
 	.product-features {
-		padding-block: 72px 24px;
 		scroll-margin-top: 4rem;
 	}
-	.section-heading {
+	.section-head {
 		display: flex;
 		align-items: end;
 		justify-content: space-between;
 		gap: 32px;
 		margin-bottom: 36px;
-	}
-	h2 {
-		font-size: clamp(32px, 3.5vw, 48px);
-		font-weight: 550;
-		line-height: 1.12;
-		letter-spacing: -0.035em;
 	}
 	h3 {
 		font-size: clamp(25px, 2.5vw, 34px);
@@ -249,8 +318,6 @@
 		overflow: hidden;
 		border-radius: 16px;
 		background: var(--card);
-		background-image: var(--marketing-dither-pattern);
-		background-size: 32px 32px;
 	}
 	.copy {
 		padding: 32px;
@@ -267,11 +334,18 @@
 		margin-top: 12px;
 	}
 	.schedule,
-	.analytics {
+	.analytics,
+	.workflows {
 		display: grid;
 		grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
 		align-items: center;
 		gap: 12px;
+	}
+	.workflows {
+		margin-top: 24px;
+	}
+	.workflow-summary {
+		display: none;
 	}
 	.visual {
 		display: flex;
@@ -366,15 +440,40 @@
 		}
 	}
 	@media (max-width: 760px) {
-		.product-features {
-			padding-block: 48px 0;
+		.workflow-graph {
+			display: none;
 		}
-		.section-heading {
+		.workflow-summary {
+			display: grid;
+			width: 100%;
+			gap: 28px;
+			margin: 0;
+			padding: 0;
+			list-style: none;
+		}
+		.workflow-summary li {
+			position: relative;
+			display: flex;
+			align-items: center;
+			gap: 12px;
+			padding: 16px;
+			border-radius: 10px;
+			background: var(--card);
+			color: var(--foreground);
+			font-size: 14px;
+		}
+		.workflow-summary :global(.lucide-arrow-down) {
+			position: absolute;
+			top: -22px;
+			left: 18px;
+		}
+		.section-head {
 			display: grid;
 			gap: 20px;
 		}
 		.schedule,
 		.analytics,
+		.workflows,
 		.feature-pair {
 			grid-template-columns: minmax(0, 1fr);
 		}

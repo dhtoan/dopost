@@ -20,7 +20,7 @@ const (
 	encryptedPrefix     = "openpost-ai-prompt:"
 )
 
-const FixedPostGenerationOutputPrompt = `Output requirements are managed by OpenPost. Return data that matches the supplied JSON Schema. Include one source_text value and every supplied target exactly once. Do not add targets or fields.`
+const FixedPostGenerationOutputPrompt = `Output requirements are managed by dopost. Return data that matches the supplied JSON Schema. Include one source_text value and every supplied target exactly once. Do not add targets or fields.`
 
 var (
 	ErrUnknownPrompt = errors.New("unknown AI prompt")
@@ -254,6 +254,7 @@ Write one strong canonical source text and one platform-appropriate rendition fo
 	{Key: platformPromptKey("lemmy"), Kind: "platform", Platform: "lemmy", Version: catalogVersion, Default: "Write a discussion title and body that respect the target community. Give enough context to stand alone. Avoid clickbait and promotional shorthand."},
 	{Key: platformPromptKey("piefed"), Kind: "platform", Platform: "piefed", Version: catalogVersion, Default: "Write a discussion title and body that respect the target community. Give enough context to stand alone. Avoid clickbait and promotional shorthand."},
 	{Key: platformPromptKey("bluesky"), Kind: "platform", Platform: "bluesky", Version: catalogVersion, Default: "Keep the post compact, conversational, and self-contained. Lead with the observation or update. Avoid hashtag piles, thread promises, and engagement bait."},
+	{Key: platformPromptKey("devnull"), Kind: "platform", Platform: "devnull", Version: catalogVersion, Default: "Write for developers. Lead with what shipped, broke, or changed and the technical detail that matters. Keep it plain and self-contained."},
 }
 
 var _ Resolver = (*Service)(nil)

@@ -1,5 +1,5 @@
 /*
-THESIS: OpenPost turns one founder's real company work into publishable content; refuse generic feature-icon banners.
+THESIS: dopost turns one founder's real company work into publishable content; refuse generic feature-icon banners.
 OWN-WORLD: Warm canvas, carbon ink, precise hairlines, tactile publishing tiles, and one scarce orange route through the work.
 STORY: Start with the company, shape the source, adapt destinations, publish, and inspect the result.
 FIRST VIEWPORT: A direct outcome statement owns the left; the actual Converge mark and publishing system provide proof beside it.
@@ -114,7 +114,7 @@ function svgShell(width, height, content, colors) {
 function logoLockup(colors, x, y, size = 28, inverted = false) {
   const color = inverted ? "#f7f1eb" : colors.ink;
   return `${brandMark({ x, y: y - size * 0.9, size: size * 0.92, color })}
-    <text x="${x + size * 1.22}" y="${y}" fill="${color}" font-family="Geist" font-size="${size}" font-weight="690" letter-spacing="${-size * 0.025}">OpenPost</text>`;
+    <text x="${x + size * 1.22}" y="${y}" fill="${color}" font-family="Geist" font-size="${size}" font-weight="690" letter-spacing="${-size * 0.025}">dopost</text>`;
 }
 
 function label(colors, text, x, y, size = 15) {
@@ -294,7 +294,7 @@ function story(spec, colors) {
     spec.width,
     spec.height,
     `${logoLockup(colors, pad, pad * 1.3, spec.width * 0.034, spec.theme === "dark")}
-      ${label(colors, "OpenPost workflow", pad, spec.height * 0.18, spec.width * 0.016)}
+      ${label(colors, "dopost workflow", pad, spec.height * 0.18, spec.width * 0.016)}
       ${textBlock({ text: spec.title, x: pad, y: spec.height * 0.27, size: spec.width * 0.084, lineHeight: spec.width * 0.086, widthChars: 18, fill: colors.ink, maxLines: 4 })}
       <path d="M ${spec.width * 0.19} ${spec.height * 0.55} V ${spec.height * 0.82}" stroke="${colors.border}" stroke-width="6" stroke-linecap="round" />
       ${steps.map((step, index) => {
@@ -320,35 +320,35 @@ function blankTemplate(spec, colors) {
 }
 
 const assets = [
-  { id: "x-paper", group: "banners", width: 1500, height: 500, type: "paper-banner", theme: "light", platform: "X header", alt: "OpenPost X header with the product promise and tactile publishing tiles." },
-  { id: "x-workshop-light", group: "banners", width: 1500, height: 500, type: "workshop-banner", theme: "light", platform: "X header", alt: "Light OpenPost X header with publishing activity cells." },
-  { id: "x-workshop-dark", group: "banners", width: 1500, height: 500, type: "workshop-banner", theme: "dark", platform: "X header", alt: "Dark OpenPost X header with publishing activity cells." },
-  { id: "linkedin-profile-paper", group: "banners", width: 1584, height: 396, type: "paper-banner", theme: "light", profileSafe: true, platform: "LinkedIn profile background", alt: "OpenPost LinkedIn profile banner with tactile publishing tiles." },
-  { id: "linkedin-profile-workshop-light", group: "banners", width: 1584, height: 396, type: "workshop-banner", theme: "light", profileSafe: true, platform: "LinkedIn profile background", alt: "Light OpenPost LinkedIn profile banner." },
-  { id: "linkedin-profile-workshop-dark", group: "banners", width: 1584, height: 396, type: "workshop-banner", theme: "dark", profileSafe: true, platform: "LinkedIn profile background", alt: "Dark OpenPost LinkedIn profile banner." },
-  { id: "linkedin-page-paper", group: "banners", width: 4200, height: 700, type: "paper-banner", theme: "light", pageBanner: true, platform: "LinkedIn Page cover", alt: "OpenPost LinkedIn Page cover with the product promise and tactile publishing tiles." },
-  { id: "linkedin-page-workshop-dark", group: "banners", width: 4200, height: 700, type: "workshop-banner", theme: "dark", pageBanner: true, platform: "LinkedIn Page cover", alt: "Dark OpenPost LinkedIn Page cover." },
-  { id: "avatar-400", group: "profile", width: 400, height: 400, type: "avatar", theme: "light", platform: "Profile image", alt: "OpenPost orange Converge symbol." },
-  { id: "avatar-800", group: "profile", width: 800, height: 800, type: "avatar", theme: "light", platform: "High-resolution profile image", alt: "OpenPost orange Converge symbol." },
-  { id: "content-team-square-light", group: "posts", width: 1080, height: 1080, type: "brand-card", theme: "light", label: "OpenPost", title: "The content team for companies of one.", platform: "Square feed post", alt: "The content team for companies of one." },
-  { id: "content-team-square-dark", group: "posts", width: 1080, height: 1080, type: "brand-card", theme: "dark", label: "OpenPost", title: "The content team for companies of one.", platform: "Square feed post", alt: "The content team for companies of one on a dark OpenPost background." },
+  { id: "x-paper", group: "banners", width: 1500, height: 500, type: "paper-banner", theme: "light", platform: "X header", alt: "dopost X header with the product promise and tactile publishing tiles." },
+  { id: "x-workshop-light", group: "banners", width: 1500, height: 500, type: "workshop-banner", theme: "light", platform: "X header", alt: "Light dopost X header with publishing activity cells." },
+  { id: "x-workshop-dark", group: "banners", width: 1500, height: 500, type: "workshop-banner", theme: "dark", platform: "X header", alt: "Dark dopost X header with publishing activity cells." },
+  { id: "linkedin-profile-paper", group: "banners", width: 1584, height: 396, type: "paper-banner", theme: "light", profileSafe: true, platform: "LinkedIn profile background", alt: "dopost LinkedIn profile banner with tactile publishing tiles." },
+  { id: "linkedin-profile-workshop-light", group: "banners", width: 1584, height: 396, type: "workshop-banner", theme: "light", profileSafe: true, platform: "LinkedIn profile background", alt: "Light dopost LinkedIn profile banner." },
+  { id: "linkedin-profile-workshop-dark", group: "banners", width: 1584, height: 396, type: "workshop-banner", theme: "dark", profileSafe: true, platform: "LinkedIn profile background", alt: "Dark dopost LinkedIn profile banner." },
+  { id: "linkedin-page-paper", group: "banners", width: 4200, height: 700, type: "paper-banner", theme: "light", pageBanner: true, platform: "LinkedIn Page cover", alt: "dopost LinkedIn Page cover with the product promise and tactile publishing tiles." },
+  { id: "linkedin-page-workshop-dark", group: "banners", width: 4200, height: 700, type: "workshop-banner", theme: "dark", pageBanner: true, platform: "LinkedIn Page cover", alt: "Dark dopost LinkedIn Page cover." },
+  { id: "avatar-400", group: "profile", width: 400, height: 400, type: "avatar", theme: "light", platform: "Profile image", alt: "dopost orange Converge symbol." },
+  { id: "avatar-800", group: "profile", width: 800, height: 800, type: "avatar", theme: "light", platform: "High-resolution profile image", alt: "dopost orange Converge symbol." },
+  { id: "content-team-square-light", group: "posts", width: 1080, height: 1080, type: "brand-card", theme: "light", label: "dopost", title: "The content team for companies of one.", platform: "Square feed post", alt: "The content team for companies of one." },
+  { id: "content-team-square-dark", group: "posts", width: 1080, height: 1080, type: "brand-card", theme: "dark", label: "dopost", title: "The content team for companies of one.", platform: "Square feed post", alt: "The content team for companies of one on a dark dopost background." },
   { id: "publish-everywhere-portrait", group: "posts", width: 1080, height: 1350, type: "portrait-card", theme: "light", label: "Publish clearly.", title: "Turn what you’re building into content for every channel.", platform: "Portrait feed post", alt: "Turn what you are building into content for every channel." },
   { id: "one-workspace-landscape", group: "posts", width: 1200, height: 675, type: "landscape-card", theme: "light", label: "One workspace", title: "Draft. Adapt. Schedule. Track.", body: "Keep the source, every destination version, and each publishing result together.", platform: "Landscape feed post", alt: "Draft, adapt, schedule, and track social content in one workspace." },
-  { id: "product-composer-landscape", group: "posts", width: 1200, height: 675, type: "landscape-card", theme: "light", label: "Inside OpenPost", title: "The publishing workflow stays together.", body: "Draft posts and threads, manage media, plan the calendar, and check every result.", screenshot: "main", platform: "Product screenshot post", alt: "OpenPost publishing workspace and composer." },
-  { id: "media-studio-landscape", group: "posts", width: 1200, height: 675, type: "landscape-card", theme: "light", label: "Media and Studio", title: "Prepare the asset where you publish it.", body: "Keep source files, alt text, favorites, and use history in the same content system.", screenshot: "media", platform: "Product screenshot post", alt: "OpenPost media library with reusable social assets." },
+  { id: "product-composer-landscape", group: "posts", width: 1200, height: 675, type: "landscape-card", theme: "light", label: "Inside dopost", title: "The publishing workflow stays together.", body: "Draft posts and threads, manage media, plan the calendar, and check every result.", screenshot: "main", platform: "Product screenshot post", alt: "dopost publishing workspace and composer." },
+  { id: "media-studio-landscape", group: "posts", width: 1200, height: 675, type: "landscape-card", theme: "light", label: "Media and Studio", title: "Prepare the asset where you publish it.", body: "Keep source files, alt text, favorites, and use history in the same content system.", screenshot: "media", platform: "Product screenshot post", alt: "dopost media library with reusable social assets." },
   { id: "destination-control-square", group: "posts", width: 1080, height: 1080, type: "brand-card", theme: "light", label: "Destination controls", title: "One idea. The right version for every channel.", platform: "Square feature post", alt: "One idea with the right version for every channel." },
-  { id: "activity-proof-landscape", group: "posts", width: 1200, height: 675, type: "landscape-card", theme: "dark", label: "Clear outcomes", title: "Know what published—and what needs attention.", body: "OpenPost keeps each destination result, error, and retry path visible.", platform: "Landscape feature post", alt: "OpenPost keeps publishing results and retry paths visible." },
-  { id: "01-content-team", group: "carousel", width: 1080, height: 1350, type: "carousel", slide: 1, theme: "light", label: "For solo founders", title: "A content team for a company of one.", body: "OpenPost keeps the work of shaping, scheduling, and tracking content in one system.", platform: "Carousel slide", alt: "A content team for a company of one." },
+  { id: "activity-proof-landscape", group: "posts", width: 1200, height: 675, type: "landscape-card", theme: "dark", label: "Clear outcomes", title: "Know what published—and what needs attention.", body: "dopost keeps each destination result, error, and retry path visible.", platform: "Landscape feature post", alt: "dopost keeps publishing results and retry paths visible." },
+  { id: "01-content-team", group: "carousel", width: 1080, height: 1350, type: "carousel", slide: 1, theme: "light", label: "For solo founders", title: "A content team for a company of one.", body: "dopost keeps the work of shaping, scheduling, and tracking content in one system.", platform: "Carousel slide", alt: "A content team for a company of one." },
   { id: "02-start-with-work", group: "carousel", width: 1080, height: 1350, type: "carousel", slide: 2, theme: "light", label: "Capture", title: "Start with the work.", body: "Bring a launch, product update, lesson, or idea into one shared source.", platform: "Carousel slide", alt: "Start with a launch, product update, lesson, or idea." },
   { id: "03-shape-every-channel", group: "carousel", width: 1080, height: 1350, type: "carousel", slide: 3, theme: "light", label: "Adapt", title: "Shape it for every channel.", body: "Keep the core idea, then change the copy, media, format, and settings each destination needs.", platform: "Carousel slide", alt: "Shape one core idea for every social channel." },
   { id: "04-keep-moving", group: "carousel", width: 1080, height: 1350, type: "carousel", slide: 4, theme: "light", label: "Publish", title: "Keep the campaign moving.", body: "Schedule the next wave, see every result, and retry only the posts that need attention.", platform: "Carousel slide", alt: "Schedule content, see every result, and retry only what needs attention." },
-  { id: "05-publish-everywhere", group: "carousel", width: 1080, height: 1350, type: "carousel", slide: 5, theme: "dark", label: "OpenPost", title: "Publish clearly.", body: "Turn what you’re building into content, adapt it for each destination, and keep every result together. openpo.st", platform: "Carousel slide", alt: "Publish clearly with OpenPost." },
-  { id: "workflow-story-light", group: "stories", width: 1080, height: 1920, type: "story", theme: "light", title: "Publish clearly.", platform: "Story or Reel cover", alt: "OpenPost workflow: capture, shape, schedule, and track." },
-  { id: "workflow-story-dark", group: "stories", width: 1080, height: 1920, type: "story", theme: "dark", title: "Publish clearly.", platform: "Story or Reel cover", alt: "OpenPost workflow on a dark background: capture, shape, schedule, and track." },
-  { id: "blank-square-light", group: "templates", width: 1080, height: 1080, type: "template", theme: "light", platform: "Editable square template", alt: "Blank light OpenPost square template." },
-  { id: "blank-square-dark", group: "templates", width: 1080, height: 1080, type: "template", theme: "dark", platform: "Editable square template", alt: "Blank dark OpenPost square template." },
-  { id: "blank-portrait-light", group: "templates", width: 1080, height: 1350, type: "template", theme: "light", platform: "Editable portrait template", alt: "Blank light OpenPost portrait template." },
-  { id: "blank-portrait-dark", group: "templates", width: 1080, height: 1350, type: "template", theme: "dark", platform: "Editable portrait template", alt: "Blank dark OpenPost portrait template." },
+  { id: "05-publish-everywhere", group: "carousel", width: 1080, height: 1350, type: "carousel", slide: 5, theme: "dark", label: "dopost", title: "Publish clearly.", body: "Turn what you’re building into content, adapt it for each destination, and keep every result together. openpo.st", platform: "Carousel slide", alt: "Publish clearly with dopost." },
+  { id: "workflow-story-light", group: "stories", width: 1080, height: 1920, type: "story", theme: "light", title: "Publish clearly.", platform: "Story or Reel cover", alt: "dopost workflow: capture, shape, schedule, and track." },
+  { id: "workflow-story-dark", group: "stories", width: 1080, height: 1920, type: "story", theme: "dark", title: "Publish clearly.", platform: "Story or Reel cover", alt: "dopost workflow on a dark background: capture, shape, schedule, and track." },
+  { id: "blank-square-light", group: "templates", width: 1080, height: 1080, type: "template", theme: "light", platform: "Editable square template", alt: "Blank light dopost square template." },
+  { id: "blank-square-dark", group: "templates", width: 1080, height: 1080, type: "template", theme: "dark", platform: "Editable square template", alt: "Blank dark dopost square template." },
+  { id: "blank-portrait-light", group: "templates", width: 1080, height: 1350, type: "template", theme: "light", platform: "Editable portrait template", alt: "Blank light dopost portrait template." },
+  { id: "blank-portrait-dark", group: "templates", width: 1080, height: 1350, type: "template", theme: "dark", platform: "Editable portrait template", alt: "Blank dark dopost portrait template." },
 ];
 
 function render(spec) {
@@ -416,7 +416,7 @@ try {
       (spec) => `<article><a href="../${spec.group}/${spec.id}.png"><img src="../${spec.group}/${spec.id}.png" alt="${escapeXml(spec.alt)}"></a><div><strong>${escapeXml(spec.id)}</strong><span>${spec.width} × ${spec.height} · ${escapeXml(spec.platform)}</span></div></article>`,
     )
     .join("");
-  const gallery = `<!doctype html><html><head><meta charset="utf-8"><title>OpenPost social kit</title><style>@font-face{font-family:Geist;src:url(data:font/woff2;base64,${fontData}) format('woff2');font-weight:100 900}*{box-sizing:border-box}body{margin:0;background:#1a1512;color:#eee9e3;font-family:Geist,system-ui;padding:52px}header{max-width:1800px;margin:0 auto 34px}h1{font-size:48px;letter-spacing:-.04em;margin:0 0 8px}p{color:#aaa097;margin:0}.grid{max-width:1800px;margin:auto;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:20px}article{background:#28211d;border:1px solid #453a33;border-radius:16px;overflow:hidden}a{display:grid;place-items:center;background:#0f0c0a;aspect-ratio:1.35;padding:12px}img{display:block;max-width:100%;max-height:100%;object-fit:contain}article div{padding:14px 16px 16px;display:grid;gap:5px}strong{font-size:14px}span{font-size:12px;color:#aaa097}</style></head><body><header><h1>OpenPost social kit</h1><p>${assets.length} ready-to-use assets with editable SVG sources.</p></header><main class="grid">${cards}</main></body></html>`;
+  const gallery = `<!doctype html><html><head><meta charset="utf-8"><title>dopost social kit</title><style>@font-face{font-family:Geist;src:url(data:font/woff2;base64,${fontData}) format('woff2');font-weight:100 900}*{box-sizing:border-box}body{margin:0;background:#1a1512;color:#eee9e3;font-family:Geist,system-ui;padding:52px}header{max-width:1800px;margin:0 auto 34px}h1{font-size:48px;letter-spacing:-.04em;margin:0 0 8px}p{color:#aaa097;margin:0}.grid{max-width:1800px;margin:auto;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:20px}article{background:#28211d;border:1px solid #453a33;border-radius:16px;overflow:hidden}a{display:grid;place-items:center;background:#0f0c0a;aspect-ratio:1.35;padding:12px}img{display:block;max-width:100%;max-height:100%;object-fit:contain}article div{padding:14px 16px 16px;display:grid;gap:5px}strong{font-size:14px}span{font-size:12px;color:#aaa097}</style></head><body><header><h1>dopost social kit</h1><p>${assets.length} ready-to-use assets with editable SVG sources.</p></header><main class="grid">${cards}</main></body></html>`;
   const previewDir = path.join(kitRoot, "preview");
   const galleryPath = path.join(previewDir, "index.html");
   await mkdir(previewDir, { recursive: true });
@@ -439,4 +439,4 @@ try {
   await browser.close();
 }
 
-console.log(`Rendered ${assets.length} OpenPost social assets.`);
+console.log(`Rendered ${assets.length} dopost social assets.`);

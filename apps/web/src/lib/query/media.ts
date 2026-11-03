@@ -252,6 +252,12 @@ function mediaMetadataItem(
 	id: string
 ): MediaMetadataItem {
 	const item: ParsedMediaMetadataItem = { id };
+	const source = stringValue(fields.get('source'));
+	if (source !== undefined) item.source = source;
+	const parent = stringValue(fields.get('parent_media_id'));
+	if (parent !== undefined) item.parent_media_id = parent;
+	const filename = stringValue(fields.get('original_filename'));
+	if (filename !== undefined) item.original_filename = filename;
 	const mimeType = stringValue(fields.get('mime_type'));
 	const altText = stringValue(fields.get('alt_text'));
 	const size = numberValue(fields.get('size'));
@@ -260,6 +266,24 @@ function mediaMetadataItem(
 	const posterThumbnailURL = stringValue(fields.get('poster_thumbnail_url'));
 	const analysisStatus = stringValue(fields.get('analysis_status'));
 	const analysisError = stringValue(fields.get('analysis_error'));
+	const url = stringValue(fields.get('url'));
+	if (url !== undefined) item.url = url;
+	const thumbnailUrl = stringValue(fields.get('thumbnail_url'));
+	if (thumbnailUrl !== undefined) item.thumbnail_url = thumbnailUrl;
+	const width = numberValue(fields.get('width'));
+	if (width !== undefined) item.width = width;
+	const height = numberValue(fields.get('height'));
+	if (height !== undefined) item.height = height;
+	const durationMs = numberValue(fields.get('duration_ms'));
+	if (durationMs !== undefined) item.duration_ms = durationMs;
+	const frameRate = numberValue(fields.get('frame_rate'));
+	if (frameRate !== undefined) item.frame_rate = frameRate;
+	const containerFormat = stringValue(fields.get('container_format'));
+	if (containerFormat !== undefined) item.container_format = containerFormat;
+	const videoCodec = stringValue(fields.get('video_codec'));
+	if (videoCodec !== undefined) item.video_codec = videoCodec;
+	const audioCodec = stringValue(fields.get('audio_codec'));
+	if (audioCodec !== undefined) item.audio_codec = audioCodec;
 	if (mimeType !== undefined) item.mime_type = mimeType;
 	if (altText !== undefined) item.alt_text = altText;
 	if (size !== undefined) item.size = size;

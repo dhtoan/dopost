@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestMastodonResolveAccountPublishingCapabilitiesReadsInstanceVideoLimits(t *testing.T) {
+func TestMastodonResolveAccountPublishingCapabilitiesReadsInstanceMediaLimits(t *testing.T) {
 	originalClient := httpClient
 	defer func() { httpClient = originalClient }()
 
@@ -29,6 +29,8 @@ func TestMastodonResolveAccountPublishingCapabilitiesReadsInstanceVideoLimits(t 
 				"statuses":{"max_characters":800,"max_media_attachments":6},
 				"media_attachments":{
 					"video_size_limit":209715200,
+                    "image_size_limit":1000000,
+                    "image_matrix_limit":12000000,
 					"supported_mime_types":["image/jpeg","video/mp4","video/webm"]
 				}
 			}
@@ -43,6 +45,8 @@ func TestMastodonResolveAccountPublishingCapabilitiesReadsInstanceVideoLimits(t 
 	if result.Constraints["max_video_size_bytes"] != int64(209715200) {
 		t.Fatalf("unexpected video size constraint: %#v", result.Constraints)
 	}
+	require.Equal(t, int64(1000000), result.Constraints["max_image_size_bytes"])
+	require.Equal(t, int64(12000000), result.Constraints["max_image_pixels"])
 	encoded, err := json.Marshal(result.Constraints["allowed_mimes"])
 	if err != nil {
 		t.Fatal(err)
@@ -105,7 +109,7 @@ func TestMastodonPublishAppliesStatusSettings(t *testing.T) {
 	assertFormValue(t, postedValues, "sensitive", "true")
 	assertFormValue(t, postedValues, "language", "pt")
 	if postedValues.Has("scheduled_at") {
-		t.Fatalf("OpenPost scheduling must not be forwarded to Mastodon: %#v", postedValues)
+		t.Fatalf("dopost scheduling must not be forwarded to Mastodon: %#v", postedValues)
 	}
 	assertFormValue(t, postedValues, "poll[expires_in]", "3600")
 	assertFormValue(t, postedValues, "poll[multiple]", "true")
@@ -166,4 +170,5 @@ func TestMastodonRepostKeepsTargetLocalSourceIDForUnrepost(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "target-local-source", result.ExternalID)
 	require.NoError(t, adapter.Unrepost(t.Context(), "token", "target", UnrepostRequest{RepostExternalID: result.ExternalID}))
+	require.Equal(t, 3, requests)
 }

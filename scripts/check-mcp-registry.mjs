@@ -9,7 +9,7 @@ const stableVersionPattern = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 
 export function validateMCPRegistryOwnership({ manifest, listings, docs }) {
   if (manifest?.name !== "io.github.rodrgds/openpost") {
-    throw new Error("config/mcp/server.json must retain the published OpenPost MCP name");
+    throw new Error("config/mcp/server.json must retain the published dopost MCP name");
   }
   if (!stableVersionPattern.test(String(manifest.version ?? ""))) {
     throw new Error("config/mcp/server.json version must be a stable semantic version");

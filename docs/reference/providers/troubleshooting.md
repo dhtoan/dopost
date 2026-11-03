@@ -16,7 +16,7 @@ The report checks server health, setup, tokens, and the current workspace. It al
 ## First Checks
 
 1. Inspect the provider's exact state in **Accounts**, with `openpost provider readiness`, or through `GET /api/v1/provider-readiness`.
-2. Compare the callback URL in the provider console with the OpenPost callback URL exactly.
+2. Compare the callback URL in the provider console with the dopost callback URL exactly.
 3. Confirm `OPENPOST_APP_URL` is the public HTTPS app origin.
 4. For media providers that fetch files server-side, confirm `OPENPOST_MEDIA_URL` or `OPENPOST_S3_PUBLIC_BASE_URL` is public HTTPS.
 5. Open the failed post and read the error for each account.
@@ -37,7 +37,7 @@ The report checks server health, setup, tokens, and the current workspace. It al
 
 Activity shows each account on its own. A post can work on one account and fail on another.
 
-| Failure                                                  | What OpenPost does                                                            | Next action                                                               |
+| Failure                                                  | What dopost does                                                              | Next action                                                               |
 | -------------------------------------------------------- | ----------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
 | Invalid content, unsupported media, or duplicate content | Stops automatic retries for that account                                      | Edit the draft, then publish again                                        |
 | Expired or revoked authentication                        | Stops automatic retries                                                       | Reconnect the account                                                     |
@@ -45,7 +45,7 @@ Activity shows each account on its own. A post can work on one account and fail 
 | Rate limit, network failure, or social network outage    | Waits longer between retries and uses the network's retry time when available | Wait, use **Retry account**, or retry all failed accounts from the notice |
 | Unknown rejection                                        | Keeps a safe generic message and does not guess that retrying is safe         | Review the draft and provider status                                      |
 
-OpenPost saves the error type, status, safe error code, next retry time, and the action you can take. It does not show full social network responses or account keys. A manual retry uses the same post job. It can retry one failed account or all failed accounts without posting again to accounts that already worked.
+dopost saves the error type, status, safe error code, next retry time, and the action you can take. It does not show full social network responses or account keys. A manual retry uses the same post job. It can retry one failed account or all failed accounts without posting again to accounts that already worked.
 
 ## X
 
@@ -57,7 +57,7 @@ OpenPost saves the error type, status, safe error code, next retry time, and the
 ## Mastodon
 
 - Custom instances must be public HTTPS and must allow app registration.
-- OpenPost rejects private, loopback, link-local, multicast, and local-address instance hosts.
+- dopost rejects private, loopback, link-local, multicast, and local-address instance hosts.
 - Preconfigured instances must preserve the exact `instance_url`; the persisted provider key is `mastodon:<instance_url>`.
 - Video support is instance-dependent. MP4, MOV, and WebM are the safest formats.
 
@@ -77,7 +77,7 @@ OpenPost saves the error type, status, safe error code, next retry time, and the
 
 ## Threads
 
-- Threads requires the Meta app's Threads product and scopes: `threads_basic`, `threads_content_publish`, `threads_manage_replies`, `threads_manage_insights`, and `threads_location_tagging`.
+- Threads requires the Meta app's Threads product and the scopes dopost requests: `threads_basic`, `threads_content_publish`, `threads_read_replies`, `threads_manage_replies`, `threads_manage_mentions`, `threads_manage_insights`, and `threads_location_tagging`.
 - If location search asks for reconnection, reconnect the Threads account so its token includes `threads_location_tagging`. The Meta app must have access to that permission.
 - Media URLs must be public HTTPS. Meta fetches media server-side and cannot use localhost, private DNS, or plain local paths.
 - For local testing, expose both the app callback and `/media/...` paths through a tunnel.
@@ -88,26 +88,30 @@ OpenPost saves the error type, status, safe error code, next retry time, and the
 - Facebook connects Pages, not personal profile timelines.
 - `facebook account has no manageable pages` usually means the user has no eligible Pages, lacks full control of the Page, or the app lacks `business_management` or `pages_show_list`. Business Portfolio Pages require `business_management` for discovery.
 - Page publishing requires `pages_show_list`, `pages_read_engagement`, and `pages_manage_posts`, often with Meta app review.
+- `Invalid Scopes: pages_read_user_content` (or `pages_manage_metadata`) during Facebook connect means the Meta app has not enabled that permission. dopost requests both: `pages_read_user_content` supports comment access, and Meta's Conversations API requires `pages_manage_metadata` to read Messenger conversations. Add both permissions to the app's use case, keep them in `Ready for testing` while in development mode, then reconnect the Facebook account.
 - Single-media posts and Stories support one JPEG, PNG, WebP, MP4, or MOV file. Multi-photo posts support 2–10 JPEG, PNG, or WebP images. Every media URL must use public HTTPS.
 
 ## Instagram
 
-- Instagram requires an Instagram Business or Creator account connected to a Facebook Page.
+- Instagram requires a Business or Creator account. Direct Instagram Login does not need a Facebook Page; Facebook Login requires a linked Page.
+- For Facebook Login, reading Instagram conversations requires a Meta app owned by a verified business, along with `instagram_basic`, `instagram_manage_messages`, and `pages_manage_metadata`. Direct Instagram Login uses `instagram_business_basic` and `instagram_business_manage_messages`. Enable Direct messages for the connected account; the person must message it first.
 - `facebook account has no connected instagram business accounts` means the authenticated Meta user has no eligible Page-backed Instagram account, lacks full control of the Page, or the app lacks required scopes. Business Portfolio Pages require `business_management` for discovery.
-- Publishing requires `instagram_basic`, `instagram_content_publish`, Page scopes, and often Meta app review.
+- Facebook Login publishing requires `instagram_basic`, `instagram_content_publish`, and Page scopes. Direct Instagram Login uses `instagram_business_basic` and `instagram_business_content_publish`. Both methods need Meta approval for the intended users.
+- `100/33` means Meta cannot access the requested object or operation, which can involve permissions or object availability. Check Instagram before retrying a failed delivery. If the post is already live, do not publish it again.
+- `Invalid Scopes: pages_read_user_content` during Instagram connect is the same Meta dependency error as Facebook: `instagram_basic` depends on `pages_read_user_content`. Meta's Conversations API also requires `pages_manage_metadata` to read Instagram messages. Enable both on the Meta app alongside the Instagram and Page scopes above, then reconnect.
 - Instagram does not publish text-only posts. Feed posts use one image, carousels use 2–10 JPEG, PNG, WebP, MP4, or MOV items, and Stories use one image or video. Reels use one video.
 
 ## TikTok
 
 - TikTok requires Login Kit plus Content Posting API access.
-- Required scopes are `user.info.basic`, `user.info.profile`, `video.publish`, and `video.upload`.
+- The publishing scopes are `user.info.basic`, `video.publish`, and `video.upload`. `user.info.profile`, `user.info.stats`, and `video.list` add username, analytics, and public video ID reconciliation. Set `OPENPOST_DISABLE_TIKTOK_DISPLAY_API=true` when the app lacks Display API approval. Basic identity remains available without those optional scopes.
 - The redirect URI in the TikTok app must match `https://your-domain.com/api/v1/accounts/tiktok/callback` or the configured `redirect_uri`.
 - TikTok publishes one MP4 or MOV video, or a photo post with 1–35 JPEG or WebP images. Every media URL must use public HTTPS; text-only posts are not supported.
 
 ## YouTube
 
 - Enable YouTube Data API v3 in the Google Cloud project.
-- The OAuth app needs profile/email scopes plus `youtube.readonly` and `youtube.upload`.
+- dopost requests `youtube.readonly`, `youtube.upload`, `youtube`, `yt-analytics.readonly`, and `youtube.force-ssl`. Google profile and email scopes are not required. Comments, replies, and moderation need `youtube.force-ssl`; reconnect the channel after adding or approving scopes.
 - `google account has no YouTube channels` means the authenticated Google account has no eligible channel available to the OAuth app.
 - `invalidTitle` usually means the first non-empty line of the post or YouTube variant is invalid for a video title.
 - Uploads are private by default and support one video attachment in the current adapter.

@@ -1,3 +1,7 @@
+import { PublicationReviews } from "@/components/publication-reviews";
+import { NativeText as Text } from "@/components/native-text";
+import { AccountAvatar } from "@/components/account-avatar";
+import { MediaImage } from "@/components/media-image";
 import { router, Stack, useLocalSearchParams } from "expo-router";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import DateTimePicker from "@react-native-community/datetimepicker";
@@ -10,18 +14,30 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
-  Text,
   View,
 } from "react-native";
 
 import { DelayedQueryPlaceholder, InitialQueryError, QueryNotice } from "@/components/query-state";
-import { BodyText, Button, Card, Screen, StatusBadge, SectionHeader } from "@/components/ui";
+import {
+  BodyText,
+  Button,
+  ContentSection,
+  Screen,
+  StatusBadge,
+  SectionHeader,
+} from "@/components/ui";
 import { api, errorMessage } from "@/lib/api/client";
 import { applyPickerValue, firstPickerStep, type PickerStep } from "@/lib/date-time-picker";
-import { formatDateTime, platformLabel, statusColor } from "@/lib/format";
+import { accountHandle, formatDateTime, platformLabel } from "@/lib/format";
 import { errorHaptic, successHaptic } from "@/lib/haptics";
 import { invalidatePublicationData } from "@/lib/query-cache";
-import { currentWorkspaceId, prefetchPublicationEditor, usePublication } from "@/lib/queries";
+import {
+  currentWorkspaceId,
+  prefetchPublicationEditor,
+  useAccounts,
+  usePublication,
+  useWorkspaceCapabilities,
+} from "@/lib/queries";
 import type { PublicationActivity } from "@/lib/query-policy";
 import { getWorkspaceId } from "@/lib/api/token-store";
 import {
@@ -33,6 +49,8 @@ import {
   type WorkspaceQueryScope,
 } from "@/lib/query-session";
 import { useNativeTheme } from "@/theme";
+import { textCardImages } from "@/lib/delivery-media";
+import { attachmentRequirement, renditionImages } from "@/lib/publication-renditions";
 
 type PublicationMutationScope = WorkspaceQueryScope & {
   publicationId: string;
@@ -47,6 +65,9 @@ export default function PostScreen() {
   const theme = useNativeTheme();
   const { colors, spacing, typography } = theme.manifest;
   const queryClient = useQueryClient();
+  const accounts = useAccounts();
+  const canEdit = Boolean(useWorkspaceCapabilities()?.can_edit);
+  const [expandedDestination, setExpandedDestination] = useState<string | null>(null);
   const { id } = useLocalSearchParams<{ id: string }>();
   const [pickerStep, setPickerStep] = useState<PickerStep | null>(null);
   const [newDate, setNewDate] = useState<Date | null>(null);
@@ -214,7 +235,7 @@ export default function PostScreen() {
           <QueryNotice message="You are offline. The current post remains visible." offline />
         ) : null}
 
-        <Card style={{ gap: spacing.small }}>
+        <ContentSection style={{ gap: spacing.small }}>
           <View style={[styles.headerRow, { gap: spacing.small }]}>
             <StatusBadge status={status} />
             {pub.scheduled_at ? <BodyText>{formatDateTime(pub.scheduled_at)}</BodyText> : null}
@@ -232,232 +253,330 @@ export default function PostScreen() {
               {body}
             </BodyText>
           ) : null}
-        </Card>
+        </ContentSection>
 
-        <SectionHeader label={`Destinations · ${pub.renditions?.length ?? 0}`} />
-        <View style={{ gap: spacing.small }}>
-          {(pub.renditions ?? []).map((rendition) => (
-            <Card key={rendition.id}>
-              <View style={styles.renditionRow}>
-                <View
-                  style={[
-                    styles.platformDot,
-                    {
-                      backgroundColor: statusColor(
-                        rendition.status ?? "draft",
-                        colors.status,
-                        colors.onSurfaceVariant,
-                      ),
-                    },
-                  ]}
-                />
-                <View style={{ flex: 1, gap: spacing.extraSmall }}>
-                  <Text style={[typography.bodyLarge, { color: colors.onSurface }]}>
-                    {platformLabel(rendition.platform ?? "")}
-                    {rendition.target_key ? ` · ${rendition.target_key}` : ""}
-                  </Text>
-                  <StatusBadge status={rendition.status ?? "draft"} />
-                </View>
-              </View>
-              {rendition.body && rendition.body !== body ? (
-                <BodyText selectable style={{ marginTop: 8 }}>
-                  {rendition.body}
-                </BodyText>
-              ) : null}
-              {rendition.error_message ? (
-                <BodyText style={{ color: colors.error, marginTop: 8 }} selectable>
-                  {rendition.error_message}
-                  {rendition.error_retry_at
-                    ? `\nRetrying ${formatDateTime(rendition.error_retry_at)}`
-                    : ""}
-                </BodyText>
-              ) : null}
-              {rendition.external_url ? (
-                <Pressable
-                  accessibilityRole="link"
-                  onPress={() => void Linking.openURL(rendition.external_url!)}
-                  style={styles.externalLink}
-                >
-                  <Text style={[typography.labelLarge, { color: colors.primary }]}>
-                    View published post
-                  </Text>
-                </Pressable>
-              ) : null}
-            </Card>
+        {(pub.media ?? [])
+          .filter((media) => media.mime_type?.startsWith("image/"))
+          .map((media) => (
+            <MediaImage
+              key={media.id}
+              uri={media.url}
+              size="original"
+              contentFit="contain"
+              style={{ width: "100%", height: 200 }}
+              accessibilityLabel={media.original_filename || "Post image"}
+            />
           ))}
+        <View style={{ gap: spacing.small }}>
+          <SectionHeader label={`Destinations · ${pub.renditions?.length ?? 0}`} />
+          {(pub.renditions ?? []).map((rendition) => {
+            const account = accounts.data?.find(
+              (account) => account.id === rendition.social_account_id,
+            );
+            const platform = platformLabel(rendition.platform);
+            const label = accountHandle(
+              account?.account_username,
+              platform,
+              rendition.platform,
+              account?.alias,
+            );
+            const expanded = expandedDestination === rendition.id;
+            return (
+              <View
+                key={rendition.id}
+                style={{
+                  borderBottomWidth: StyleSheet.hairlineWidth,
+                  borderBottomColor: colors.outlineVariant,
+                }}
+              >
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`${platform}, ${label}, ${rendition.status}`}
+                  accessibilityState={{ expanded }}
+                  onPress={() => setExpandedDestination(expanded ? null : rendition.id)}
+                  style={[styles.renditionRow, { minHeight: 52 }]}
+                >
+                  <AccountAvatar
+                    name={label}
+                    platform={rendition.platform}
+                    avatarUrl={account?.account_avatar_url}
+                  />
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text
+                      numberOfLines={2}
+                      style={[typography.labelLarge, { color: colors.onSurface }]}
+                    >
+                      {label}
+                    </Text>
+                    {label !== platform ? <BodyText>{platform}</BodyText> : null}
+                  </View>
+                  <StatusBadge status={rendition.status} />
+                </Pressable>
+                {rendition.error_message ? (
+                  <BodyText
+                    selectable
+                    style={{ color: colors.error, paddingBottom: spacing.small }}
+                  >
+                    {rendition.error_message}
+                    {rendition.error_retry_at
+                      ? `\nRetrying ${formatDateTime(rendition.error_retry_at)}`
+                      : ""}
+                  </BodyText>
+                ) : null}
+                {expanded ? (
+                  <View style={{ gap: spacing.small, paddingBottom: spacing.small }}>
+                    <BodyText selectable>{rendition.body || "No text"}</BodyText>
+                    {textCardImages(rendition).map((media) => (
+                      <MediaImage
+                        key={media.id}
+                        uri={media.url}
+                        size="original"
+                        accessibilityLabel={media.alt_text || "Post image"}
+                        contentFit="contain"
+                        style={{
+                          width: "100%",
+                          aspectRatio: media.width && media.height ? media.width / media.height : 1,
+                        }}
+                      />
+                    ))}
+                    {renditionImages(rendition).map((media) => (
+                      <MediaImage
+                        key={media.id}
+                        uri={media.url}
+                        size="original"
+                        accessibilityLabel={media.alt_text || "Post image"}
+                        contentFit="contain"
+                        style={{
+                          width: "100%",
+                          aspectRatio: media.width && media.height ? media.width / media.height : 1,
+                        }}
+                      />
+                    ))}
+                    {(rendition.segments ?? []).flatMap((segment) => {
+                      const requirement = attachmentRequirement(segment.settings);
+                      return requirement &&
+                        !segment.media?.some((item) =>
+                          item.mime_type.startsWith(`${requirement.kind}/`),
+                        )
+                        ? [
+                            <BodyText key={segment.id}>
+                              {requirement.kind === "video" ? "Demo video needed" : "Image needed"}
+                              {"\n"}
+                              {requirement.brief}
+                            </BodyText>,
+                          ]
+                        : [];
+                    })}
+                    {rendition.target_key && rendition.target_key !== rendition.platform ? (
+                      <BodyText>{rendition.target_key}</BodyText>
+                    ) : null}
+                    {rendition.schedule_override ? (
+                      <BodyText>{formatDateTime(rendition.schedule_override)}</BodyText>
+                    ) : null}
+                    {rendition.external_url ? (
+                      <Button
+                        title="View published post"
+                        intent="quiet"
+                        onPress={() => void Linking.openURL(rendition.external_url!)}
+                      />
+                    ) : null}
+                  </View>
+                ) : null}
+              </View>
+            );
+          })}
         </View>
 
-        <SectionHeader label="Actions" />
-        <View style={{ gap: spacing.small }}>
-          {status === "draft" || status === "ready" ? (
-            <>
-              <Button
-                title="Edit"
-                intent="primary"
-                onPress={() => {
-                  const scope = captureScope();
-                  void prefetchPublicationEditor(
-                    queryClient,
-                    scope.workspaceId,
-                    scope.publicationId,
-                  );
-                  router.push({
-                    pathname: "/publications/[id]/edit",
-                    params: { id: scope.publicationId },
-                  });
-                }}
-              />
-              {pub.scheduled_at ? (
-                <Button
-                  title="Schedule & queue"
-                  intent="ordinary"
-                  onPress={() =>
-                    run(
-                      async (scope) => {
-                        const { error, response } = await api().POST(
-                          "/publications/{id}/schedule",
-                          {
-                            params: { path: { id: scope.publicationId } },
-                            body: { expected_revision: pub.revision ?? 0 },
+        {pub.review_state ? (
+          <PublicationReviews key={`${pub.workspace_id}:${pub.id}`} publication={pub} />
+        ) : null}
+
+        {canEdit ? (
+          <>
+            <SectionHeader label="Actions" />
+            <View style={{ gap: spacing.small }}>
+              {status === "draft" || status === "ready" ? (
+                <>
+                  <Button
+                    title="Edit"
+                    intent="primary"
+                    onPress={() => {
+                      const scope = captureScope();
+                      void prefetchPublicationEditor(
+                        queryClient,
+                        scope.workspaceId,
+                        scope.publicationId,
+                      );
+                      router.push({
+                        pathname: "/publications/[id]/edit",
+                        params: { id: scope.publicationId },
+                      });
+                    }}
+                  />
+                  {pub.scheduled_at ? (
+                    <Button
+                      title="Schedule & queue"
+                      intent="ordinary"
+                      onPress={() =>
+                        run(
+                          async (scope) => {
+                            const { error, response } = await api().POST(
+                              "/publications/{id}/schedule",
+                              {
+                                params: { path: { id: scope.publicationId } },
+                                body: { expected_revision: pub.revision ?? 0 },
+                              },
+                            );
+                            if (error)
+                              throw new Error(await errorMessage(response, "Could not schedule"));
                           },
-                        );
-                        if (error)
-                          throw new Error(await errorMessage(response, "Could not schedule"));
+                          { activities: ["draft", "scheduled"], calendar: true, haptic: true },
+                        )
+                      }
+                    />
+                  ) : null}
+                </>
+              ) : null}
+
+              {status === "scheduled" ? (
+                <>
+                  <Button
+                    title="Reschedule"
+                    intent="ordinary"
+                    onPress={() =>
+                      setPickerStep((current) =>
+                        current
+                          ? null
+                          : firstPickerStep(Platform.OS === "android" ? "android" : "ios"),
+                      )
+                    }
+                  />
+                  <Button
+                    title="Cancel schedule"
+                    intent="destructive"
+                    onPress={() =>
+                      run(
+                        async (scope) => {
+                          const { error, response } = await api().POST(
+                            "/publications/{id}/cancel",
+                            {
+                              params: { path: { id: scope.publicationId } },
+                              body: { expected_revision: pub.revision ?? 0 },
+                            },
+                          );
+                          if (error)
+                            throw new Error(await errorMessage(response, "Could not cancel"));
+                        },
+                        { activities: ["draft", "scheduled"], calendar: true, haptic: true },
+                      )
+                    }
+                  />
+                </>
+              ) : null}
+
+              {status === "failed" ? (
+                <>
+                  <Button
+                    title="Retry failed destinations"
+                    intent="primary"
+                    onPress={() =>
+                      run(
+                        async (scope) => {
+                          const { error, response } = await api().POST(
+                            "/publications/{id}/retry-failed",
+                            {
+                              params: { path: { id: scope.publicationId } },
+                            },
+                          );
+                          if (error)
+                            throw new Error(await errorMessage(response, "Could not retry"));
+                        },
+                        { activities: ["failed", "scheduled"], calendar: true, haptic: true },
+                      )
+                    }
+                  />
+                  <Button
+                    title={
+                      pub.failure_dismissed_at
+                        ? "Restore in failed posts"
+                        : "Dismiss from failed posts"
+                    }
+                    intent="quiet"
+                    onPress={() =>
+                      run(
+                        async (scope) => {
+                          const result = pub.failure_dismissed_at
+                            ? await api().DELETE("/publications/{id}/failure-dismissal", {
+                                params: { path: { id: scope.publicationId } },
+                              })
+                            : await api().POST("/publications/{id}/failure-dismissal", {
+                                params: { path: { id: scope.publicationId } },
+                              });
+                          if (result.error)
+                            throw new Error(
+                              await errorMessage(result.response, "Could not update failed post"),
+                            );
+                        },
+                        { activities: ["failed"], haptic: true },
+                      )
+                    }
+                  />
+                </>
+              ) : null}
+
+              {(status === "failed" || status === "scheduled") && pub.revision !== undefined ? (
+                <Button
+                  title="Delete post"
+                  intent="destructive"
+                  onPress={() =>
+                    Alert.alert("Delete post?", "This removes it from the queue permanently.", [
+                      { text: "Cancel", style: "cancel" },
+                      {
+                        text: "Delete",
+                        style: "destructive",
+                        onPress: () => {
+                          void (async () => {
+                            const deleted = await run(
+                              async (scope) => {
+                                const { error, response } = await api().DELETE(
+                                  "/publications/{id}",
+                                  {
+                                    params: {
+                                      path: { id: scope.publicationId },
+                                      query: {
+                                        confirm: true,
+                                        expected_revision: pub.revision!,
+                                      },
+                                    },
+                                  },
+                                );
+                                if (error)
+                                  throw new Error(await errorMessage(response, "Could not delete"));
+                              },
+                              {
+                                activities: [status === "scheduled" ? "scheduled" : "failed"],
+                                calendar: status === "scheduled",
+                              },
+                            );
+                            if (deleted) router.back();
+                          })();
+                        },
                       },
-                      { activities: ["draft", "scheduled"], calendar: true, haptic: true },
-                    )
+                    ])
                   }
                 />
               ) : null}
-            </>
-          ) : null}
 
-          {status === "scheduled" ? (
-            <>
-              <Button
-                title="Reschedule"
-                intent="ordinary"
-                onPress={() =>
-                  setPickerStep((current) =>
-                    current ? null : firstPickerStep(Platform.OS === "android" ? "android" : "ios"),
-                  )
-                }
-              />
-              <Button
-                title="Cancel schedule"
-                intent="destructive"
-                onPress={() =>
-                  run(
-                    async (scope) => {
-                      const { error, response } = await api().POST("/publications/{id}/cancel", {
-                        params: { path: { id: scope.publicationId } },
-                        body: { expected_revision: pub.revision ?? 0 },
-                      });
-                      if (error) throw new Error(await errorMessage(response, "Could not cancel"));
-                    },
-                    { activities: ["draft", "scheduled"], calendar: true, haptic: true },
-                  )
-                }
-              />
-            </>
-          ) : null}
-
-          {status === "failed" ? (
-            <>
-              <Button
-                title="Retry failed destinations"
-                intent="primary"
-                onPress={() =>
-                  run(
-                    async (scope) => {
-                      const { error, response } = await api().POST(
-                        "/publications/{id}/retry-failed",
-                        {
-                          params: { path: { id: scope.publicationId } },
-                        },
-                      );
-                      if (error) throw new Error(await errorMessage(response, "Could not retry"));
-                    },
-                    { activities: ["failed", "scheduled"], calendar: true, haptic: true },
-                  )
-                }
-              />
-              <Button
-                title={
-                  pub.failure_dismissed_at ? "Restore in failed posts" : "Dismiss from failed posts"
-                }
-                intent="quiet"
-                onPress={() =>
-                  run(
-                    async (scope) => {
-                      const result = pub.failure_dismissed_at
-                        ? await api().DELETE("/publications/{id}/failure-dismissal", {
-                            params: { path: { id: scope.publicationId } },
-                          })
-                        : await api().POST("/publications/{id}/failure-dismissal", {
-                            params: { path: { id: scope.publicationId } },
-                          });
-                      if (result.error)
-                        throw new Error(
-                          await errorMessage(result.response, "Could not update failed post"),
-                        );
-                    },
-                    { activities: ["failed"], haptic: true },
-                  )
-                }
-              />
-            </>
-          ) : null}
-
-          {(status === "failed" || status === "scheduled") && pub.revision !== undefined ? (
-            <Button
-              title="Delete post"
-              intent="destructive"
-              onPress={() =>
-                Alert.alert("Delete post?", "This removes it from the queue permanently.", [
-                  { text: "Cancel", style: "cancel" },
-                  {
-                    text: "Delete",
-                    style: "destructive",
-                    onPress: () => {
-                      void (async () => {
-                        const deleted = await run(
-                          async (scope) => {
-                            const { error, response } = await api().DELETE("/publications/{id}", {
-                              params: {
-                                path: { id: scope.publicationId },
-                                query: {
-                                  confirm: true,
-                                  expected_revision: pub.revision!,
-                                },
-                              },
-                            });
-                            if (error)
-                              throw new Error(await errorMessage(response, "Could not delete"));
-                          },
-                          {
-                            activities: [status === "scheduled" ? "scheduled" : "failed"],
-                            calendar: status === "scheduled",
-                          },
-                        );
-                        if (deleted) router.back();
-                      })();
-                    },
-                  },
-                ])
-              }
-            />
-          ) : null}
-
-          {status === "published" ? (
-            <BodyText style={{ textAlign: "center" }}>
-              Published. Open a destination above to see the live post.
-            </BodyText>
-          ) : null}
-        </View>
-
-        {pickerStep && status === "scheduled" ? (
-          <Card style={{ marginTop: spacing.medium, gap: spacing.small }}>
+              {status === "published" ? (
+                <BodyText style={{ textAlign: "center" }}>
+                  Published. Open a destination above to see the live post.
+                </BodyText>
+              ) : null}
+            </View>
+          </>
+        ) : null}
+        {canEdit && pickerStep && status === "scheduled" ? (
+          <ContentSection style={{ marginTop: spacing.medium, gap: spacing.small }}>
             <DateTimePicker
               value={newDate ?? (pub.scheduled_at ? new Date(pub.scheduled_at) : nextHour())}
               mode={pickerStep}
@@ -482,7 +601,7 @@ export default function PostScreen() {
             {newDate && reschedule.isPending ? (
               <BodyText>Moving to {formatDateTime(newDate.toISOString())}...</BodyText>
             ) : null}
-          </Card>
+          </ContentSection>
         ) : null}
       </ScrollView>
     </Screen>
@@ -510,15 +629,5 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
-  },
-  platformDot: {
-    width: 8,
-    height: 32,
-    borderRadius: 4,
-  },
-  externalLink: {
-    minHeight: 48,
-    justifyContent: "center",
-    marginTop: 4,
   },
 });

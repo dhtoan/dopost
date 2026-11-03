@@ -240,7 +240,7 @@ func TestDiscordBotListsOnlyPermittedTextAndAnnouncementChannels(t *testing.T) {
 		case "/api/v10/guilds/100":
 			return jsonResponse(req, `{"id":"100","roles":[{"id":"100","permissions":"3072"},{"id":"role-1","permissions":"0"}]}`), nil
 		case "/api/v10/users/@me":
-			return jsonResponse(req, `{"id":"bot-1","username":"OpenPost"}`), nil
+			return jsonResponse(req, `{"id":"bot-1","username":"dopost"}`), nil
 		case "/api/v10/guilds/100/members/bot-1":
 			return jsonResponse(req, `{"roles":["role-1"],"user":{"id":"bot-1"}}`), nil
 		case "/api/v10/guilds/100/channels":
@@ -562,18 +562,94 @@ func TestDiscordBotAmbiguousSendIsMarkedNeverReplay(t *testing.T) {
 	}
 }
 
-func TestDiscordWebhookDeleteRegression(t *testing.T) {
+func TestDiscordBotInvalidInstanceTokenFailsPublishWithServerConfigurationCode(t *testing.T) {
 	originalClient := httpClient
 	defer func() { httpClient = originalClient }()
 
 	httpClient = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
-		if req.Method != http.MethodDelete || req.URL.String() != "https://discord.com/api/webhooks/123/token/messages/message-1" {
-			t.Fatalf("unexpected webhook delete %s %s", req.Method, req.URL.String())
+		if req.Header.Get("Authorization") != "Bot global-bot-token" {
+			t.Fatalf("bot authorization missing from %s", req.URL.Path)
 		}
-		return &http.Response{StatusCode: http.StatusNoContent, Header: http.Header{}, Body: io.NopCloser(strings.NewReader("")), Request: req}, nil
+		if req.URL.Path != "/api/v10/guilds/100" {
+			t.Fatalf("unexpected request %s %s", req.Method, req.URL.String())
+			return nil, errors.New("unexpected request")
+		}
+		return &http.Response{
+			StatusCode: http.StatusUnauthorized, Header: http.Header{},
+			Body: io.NopCloser(strings.NewReader(`{"message": "401: Unauthorized", "code": 0}`)), Request: req,
+		}, nil
 	})}
 
-	if err := NewDiscordAdapter().DeletePublished(t.Context(), "https://discord.com/api/webhooks/123/token", "message-1"); err != nil {
-		t.Fatal(err)
+	req := &PublishRequest{Content: "Ship it", Settings: map[string]interface{}{"channel_id": "channel-1"}}
+	_, err := NewDiscordBotAdapter("app", "secret", "global-bot-token", "https://openpost.test/callback").Publish(t.Context(), "ignored", "100", req)
+	var providerErr *HTTPError
+	if !errors.As(err, &providerErr) {
+		t.Fatalf("expected provider failure, got %v", err)
+	}
+	if providerErr.Code != "discord:bot_token_invalid" || providerErr.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("instance bot token rejection was not normalized: %#v", providerErr)
+	}
+}
+
+func TestDiscordBotUnauthorizedMessageSendNormalizesInstanceTokenCode(t *testing.T) {
+	originalClient := httpClient
+	defer func() { httpClient = originalClient }()
+
+	httpClient = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		switch req.URL.Path {
+		case "/api/v10/guilds/100":
+			return jsonResponse(req, `{"id":"100","roles":[{"id":"100","permissions":"3072"}]}`), nil
+		case "/api/v10/users/@me":
+			return jsonResponse(req, `{"id":"bot-1"}`), nil
+		case "/api/v10/guilds/100/members/bot-1":
+			return jsonResponse(req, `{"user":{"id":"bot-1"}}`), nil
+		case "/api/v10/guilds/100/channels":
+			return jsonResponse(req, `[{"id":"channel-1","guild_id":"100","name":"general","type":0}]`), nil
+		case "/api/v10/channels/channel-1/messages":
+			return &http.Response{
+				StatusCode: http.StatusUnauthorized, Header: http.Header{},
+				Body: io.NopCloser(strings.NewReader(`{"message": "401: Unauthorized", "code": 0}`)), Request: req,
+			}, nil
+		default:
+			t.Fatalf("unexpected request %s %s", req.Method, req.URL.String())
+			return nil, errors.New("unexpected request")
+		}
+	})}
+
+	req := &PublishRequest{Content: "Ship it", Settings: map[string]interface{}{"channel_id": "channel-1"}}
+	_, err := NewDiscordBotAdapter("app", "secret", "global-bot-token", "https://openpost.test/callback").Publish(t.Context(), "ignored", "100", req)
+	var providerErr *HTTPError
+	if !errors.As(err, &providerErr) {
+		t.Fatalf("expected provider failure, got %v", err)
+	}
+	if providerErr.Code != "discord:bot_token_invalid" || providerErr.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("instance bot token rejection was not normalized: %#v", providerErr)
+	}
+}
+
+func TestDiscordBotUserOAuthUnauthorizedKeepsProviderFailure(t *testing.T) {
+	originalClient := httpClient
+	defer func() { httpClient = originalClient }()
+
+	httpClient = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Path != "/api/v10/users/@me" || req.Header.Get("Authorization") != "Bearer user-token" {
+			t.Fatalf("unexpected request %s %s", req.Method, req.URL.String())
+			return nil, errors.New("unexpected request")
+		}
+		return &http.Response{
+			StatusCode: http.StatusUnauthorized, Header: http.Header{},
+			Body: io.NopCloser(strings.NewReader(`{"message": "401: Unauthorized", "code": 0}`)), Request: req,
+		}, nil
+	})}
+
+	// GetProfile authenticates with the user's OAuth token, so its rejection
+	// must never surface as the instance bot token's configuration failure.
+	_, err := NewDiscordBotAdapter("app", "secret", "global-bot-token", "https://openpost.test/callback").GetProfile(t.Context(), "user-token")
+	var providerErr *HTTPError
+	if !errors.As(err, &providerErr) {
+		t.Fatalf("expected provider failure, got %v", err)
+	}
+	if providerErr.Code == "discord:bot_token_invalid" {
+		t.Fatalf("user oauth rejection was misclassified as instance bot token failure: %#v", providerErr)
 	}
 }

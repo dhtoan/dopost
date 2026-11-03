@@ -10,7 +10,10 @@ import {
   docsSocialImageUrlForRoute,
   marketingPrerenderEntries,
   marketingSocialEntries,
+  previewTools,
   resolveMarketingSocial,
+  marketingTelemetryPath,
+  documentationTelemetryPath,
 } from "./index.js";
 
 function assertStaticImageUrl(entry, owner, expected) {
@@ -46,7 +49,7 @@ test("every social entry is unique and uses its published static image", () => {
   for (const entry of docsSocialEntries) {
     assert.ok(!seen.has(`id:${entry.id}`), `duplicate social entry id:${entry.id}`);
     seen.add(`id:${entry.id}`);
-    assertStaticImageUrl(entry, entry.id, `https://docs.openpo.st/og/${entry.key}.png`);
+    assertStaticImageUrl(entry, entry.id, `https://openpo.st/docs/og/${entry.key}.png`);
     images.add(entry.imageUrl);
     assert.match(entry.imageAlt, /OpenPost documentation social preview\.$/u);
     const page = pages.get(entry.page);
@@ -66,7 +69,7 @@ test("every social entry is unique and uses its published static image", () => {
   assert.equal(docsSocialImageKey("/guides/quickstart?source=test"), "guides--quickstart");
   assert.equal(
     docsSocialImageUrlForRoute("/api-reference/accounts/list-accounts"),
-    "https://docs.openpo.st/og/api-reference--accounts--list-accounts.png",
+    "https://openpo.st/docs/og/api-reference--accounts--list-accounts.png",
   );
   assertUniqueDocumentationRoutes(docsPageCatalog);
   assert.throws(
@@ -82,6 +85,17 @@ test("every social entry is unique and uses its published static image", () => {
     /Unknown marketing prerender section/u,
   );
   assert.equal(resolveMarketingSocial("/unknown").imageUrl, "https://openpo.st/og/home.png");
+  assert.equal(
+    marketingTelemetryPath("/platforms/bluesky/?token=private#fragment"),
+    "/platforms/bluesky",
+  );
+  assert.equal(marketingTelemetryPath("/private/customer@example.com"), "/unknown");
+  assert.equal(documentationTelemetryPath("/docs/?token=private"), "/docs");
+  assert.equal(
+    documentationTelemetryPath("/docs/guides/quickstart?token=private"),
+    "/docs/guides/quickstart",
+  );
+  assert.equal(documentationTelemetryPath("/private/customer@example.com"), "/docs/unknown");
 });
 
 test("documentation corpus policy is complete canonical metadata", () => {
@@ -90,6 +104,10 @@ test("documentation corpus policy is complete canonical metadata", () => {
     "providers",
     "cli",
     "mcp",
+    "automate",
+    "workflows",
+    "video-editor",
+    "image-editor",
     "installation",
     "self-hosting",
     "configuration",
@@ -122,5 +140,17 @@ test("documentation corpus policy is complete canonical metadata", () => {
 test("published social images use the declared 1200 x 630 dimensions", async () => {
   for (const image of ["../../../assets/brand/og-image.png", "../../../assets/brand/og-docs.png"]) {
     assert.deepEqual(await pngDimensions(image), { width: 1200, height: 630 });
+  }
+});
+
+test("preview-only platforms carry a marker without merging publishing catalogues", () => {
+  const reddit = previewTools.find((tool) => tool.slug === "reddit-post-preview");
+  assert.ok(reddit, "reddit preview tool entry is missing");
+  assert.equal(reddit.previewOnly, true, "reddit preview tool must be marked preview-only");
+  for (const tool of previewTools) {
+    assert.ok(!("publishing" in tool), `${tool.slug} must not carry a publishing-catalogue field`);
+    if (tool.slug !== "reddit-post-preview") {
+      assert.ok(!tool.previewOnly, `${tool.slug} must not be marked preview-only`);
+    }
   }
 });

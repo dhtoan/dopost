@@ -1,10 +1,10 @@
 ---
-description: Find the architecture, setup, API, frontend, backend, testing, contribution, and release documentation for OpenPost.
+description: Find the architecture, setup, API, frontend, backend, testing, contribution, and release documentation for dopost.
 ---
 
 # Developer Docs
 
-Use these docs when you are changing OpenPost itself: backend routes, platform adapters, frontend components, generated clients, MCP tools, billing infrastructure, database migrations, tests, or release behavior.
+Use these docs when you are changing dopost itself: backend routes, platform adapters, frontend components, generated clients, MCP tools, billing infrastructure, database migrations, tests, or release behavior.
 
 Developer docs are separate from user-facing docs and self-hosting docs. They can assume repository access, local toolchains, and willingness to run checks.
 
@@ -29,10 +29,11 @@ Developer docs are separate from user-facing docs and self-hosting docs. They ca
 ## Frontend, MCP, and launch work
 
 - [Frontend](frontend.md) covers SvelteKit app conventions.
+- [Product screenshots](screenshots.md) covers refreshing canonical UI captures.
 - [MCP and ChatGPT App](mcp.md) covers tool-server and Apps SDK integration notes.
 - [Production Architecture](production-readiness.md) records shared hosted and self-hosted architecture, provider verification, and release checks.
 
 ## Adjacent docs
 
-- If you are using OpenPost through the web app, CLI, or MCP client, start with [User Docs](https://docs.openpo.st/guides/quickstart).
-- If you are deploying or operating an instance, start with [Self-Hosting Docs](https://docs.openpo.st/self-hosting/).
+- If you are using dopost through the web app, CLI, or MCP client, start with [User Docs](https://openpo.st/docs/guides/quickstart).
+- If you are deploying or operating an instance, start with [Self-Hosting Docs](https://openpo.st/docs/self-hosting/).

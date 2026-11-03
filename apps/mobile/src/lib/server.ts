@@ -4,7 +4,7 @@ import { normalizeServerUrl } from "./server-url";
 export const HOSTED_URL = "https://app.openpo.st";
 
 export type ServerConfig = {
-  /** Origin of the OpenPost server, e.g. https://app.openpo.st */
+  /** Origin of the dopost server, e.g. https://app.openpo.st */
   baseUrl: string;
   isHosted: boolean;
 };

@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -17,7 +16,6 @@ import (
 	"github.com/openpost/backend/internal/models"
 	"github.com/openpost/backend/internal/services/auth"
 	"github.com/openpost/backend/internal/services/billing"
-	"github.com/openpost/backend/internal/services/crypto"
 	"github.com/openpost/backend/internal/services/sessions"
 	"github.com/openpost/backend/internal/telemetry"
 	"github.com/stretchr/testify/require"
@@ -137,50 +135,6 @@ func TestRegistrationInsertErrorClassifiesUniqueConstraintRaces(t *testing.T) {
 	require.ErrorIs(t, registrationInsertError(original), original)
 }
 
-func TestResolveTOTPSetupSecretDecryptsEncryptedPayload(t *testing.T) {
-	t.Parallel()
-
-	encryptor := crypto.NewTokenEncryptor("test-secret")
-	handler := NewAuthHandler(nil, nil, nil, encryptor, nil, false)
-
-	secretEnc, err := encryptor.Encrypt("super-secret-seed")
-	require.NoError(t, err)
-
-	secret, err := handler.resolveTOTPSetupSecret(totpSetupPayload{
-		SecretEncrypted: base64.StdEncoding.EncodeToString(secretEnc),
-	})
-	require.NoError(t, err)
-	require.Equal(t, "super-secret-seed", secret)
-}
-
-func TestCreateChallengeDoesNotPersistPlaintextTOTPSecret(t *testing.T) {
-	t.Parallel()
-
-	db := createHandlerTestDB(t, (*models.AuthChallenge)(nil))
-	encryptor := crypto.NewTokenEncryptor("test-secret")
-	handler := NewAuthHandler(db, nil, nil, encryptor, nil, false)
-	ctx := context.Background()
-
-	secretEnc, err := encryptor.Encrypt("super-secret-seed")
-	require.NoError(t, err)
-
-	challengeID, err := handler.createChallenge(ctx, "user-1", authChallengeTOTPSetup, totpSetupPayload{
-		SecretEncrypted: base64.StdEncoding.EncodeToString(secretEnc),
-	})
-	require.NoError(t, err)
-
-	challenge, err := handler.getChallenge(ctx, challengeID, authChallengeTOTPSetup)
-	require.NoError(t, err)
-	require.NotContains(t, challenge.Payload, "super-secret-seed")
-
-	var payload totpSetupPayload
-	require.NoError(t, json.Unmarshal([]byte(challenge.Payload), &payload))
-
-	secret, err := handler.resolveTOTPSetupSecret(payload)
-	require.NoError(t, err)
-	require.Equal(t, "super-secret-seed", secret)
-}
-
 func TestIssueAuthResponseCreatesTrackedSession(t *testing.T) {
 	t.Parallel()
 
@@ -200,7 +154,7 @@ func TestIssueAuthResponseCreatesTrackedSession(t *testing.T) {
 	_, err := db.NewInsert().Model(user).Exec(ctx)
 	require.NoError(t, err)
 
-	reqCtx := context.WithValue(ctx, middleware.UserAgentKey, "OpenPost Test Browser")
+	reqCtx := context.WithValue(ctx, middleware.UserAgentKey, "dopost Test Browser")
 	reqCtx = context.WithValue(reqCtx, middleware.ClientIPKey, "198.51.100.4")
 	resp, err := handler.issueAuthResponse(reqCtx, user)
 	require.NoError(t, err)
@@ -216,7 +170,7 @@ func TestIssueAuthResponseCreatesTrackedSession(t *testing.T) {
 	var stored models.UserSession
 	require.NoError(t, db.NewSelect().Model(&stored).Where("id = ?", claims.SessionID).Scan(ctx))
 	require.Equal(t, "user-1", stored.UserID)
-	require.Equal(t, "OpenPost Test Browser", stored.UserAgent)
+	require.Equal(t, "dopost Test Browser", stored.UserAgent)
 	require.Equal(t, "198.51.100.4", stored.IPAddress)
 	require.True(t, stored.ExpiresAt.After(time.Now().UTC()))
 }

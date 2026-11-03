@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { appBranding } from '$lib/app-branding.svelte';
 	import { onMount } from 'svelte';
 	import { ThemeIcon, ProtectedIcon } from '$lib/themes/icons';
 	import { captureTelemetryEvent } from '@openpost/telemetry';
@@ -28,6 +29,8 @@
 	import { startImageEditorMetric } from '$lib/image-editor/telemetry';
 	import EditorStart from '$lib/components/editor-start.svelte';
 	import EditorFormatButton from '$lib/components/editor-format-button.svelte';
+	import { Disclosure } from '$lib/components/editor-density';
+	import SectionHeading from '$lib/components/section-heading.svelte';
 	import TemplatePreview from '$lib/image-editor/components/template-preview.svelte';
 	import { editorHandoffReturnURL } from '$lib/editor-handoff';
 
@@ -53,8 +56,9 @@
 	let error = $state('');
 	let enabled = $state(true);
 	let presets = $state<ImageEditorPreset[]>([]);
-	let templates = $state<ImageEditorTemplate[]>([]);
+	let templates = $state.raw<ImageEditorTemplate[]>([]);
 	let showAllTemplates = $state(false);
+	let templateSearch = $state('');
 	let customWidth = $state(1080);
 	let customHeight = $state(1080);
 	let creationSequence = 0;
@@ -76,9 +80,26 @@
 		'builtin-linkedin-insight'
 	]);
 	let featuredTemplates = $derived(
-		templates.filter((template) => featuredTemplateIDs.has(template.id))
+		templates.filter((template) => template.built_in && featuredTemplateIDs.has(template.id))
 	);
-	let visibleTemplates = $derived(showAllTemplates ? templates : featuredTemplates);
+	let normalizedTemplateSearch = $derived(templateSearch.trim().toLocaleLowerCase());
+	let workspaceTemplates = $derived(
+		templates.filter(
+			(template) => !template.built_in && templateMatchesSearch(template, normalizedTemplateSearch)
+		)
+	);
+	let starterTemplates = $derived(
+		templates.filter(
+			(template) => template.built_in && templateMatchesSearch(template, normalizedTemplateSearch)
+		)
+	);
+	let visibleStarterTemplates = $derived(
+		normalizedTemplateSearch || showAllTemplates
+			? starterTemplates
+			: featuredTemplates.filter((template) =>
+					templateMatchesSearch(template, normalizedTemplateSearch)
+				)
+	);
 	let usableContent = $derived(
 		configReady &&
 			(!enabled || (Boolean(workspaceID) && templatesReady && templatesWorkspaceID === workspaceID))
@@ -359,13 +380,46 @@
 				return template.name;
 		}
 	}
+
+	function templateMatchesSearch(template: ImageEditorTemplate, query: string): boolean {
+		if (!query) return true;
+		return `${templateName(template)} ${template.category}`.toLocaleLowerCase().includes(query);
+	}
 </script>
 
-<svelte:head><title>{m.image_editor_new_design()} · {m.image_editor_title()}</title></svelte:head>
+<svelte:head>
+	<title>{m.image_editor_new_design()} · {appBranding.title(m.image_editor_title())}</title>
+	<meta
+		name="description"
+		content="Create posts, carousel pages, Story slides, and thumbnails in your browser."
+	/>
+	<link rel="canonical" href="https://app.openpo.st/image-editor/new" />
+	<meta property="og:site_name" content="dopost" />
+	<meta property="og:type" content="website" />
+	<meta property="og:title" content="Free social media image editor - dopost Image Editor" />
+	<meta
+		property="og:description"
+		content="Create posts, carousel pages, Story slides, and thumbnails in your browser."
+	/>
+	<meta property="og:url" content="https://app.openpo.st/image-editor/new" />
+	<meta property="og:image" content="https://app.openpo.st/og/app-image-editor.png" />
+	<meta property="og:image:secure_url" content="https://app.openpo.st/og/app-image-editor.png" />
+	<meta property="og:image:type" content="image/png" />
+	<meta property="og:image:width" content="1200" />
+	<meta property="og:image:height" content="630" />
+	<meta property="og:image:alt" content="Image Editor dopost editor social preview." />
+	<meta name="twitter:card" content="summary_large_image" />
+	<meta name="twitter:title" content="Free social media image editor - dopost Image Editor" />
+	<meta
+		name="twitter:description"
+		content="Create posts, carousel pages, Story slides, and thumbnails in your browser."
+	/>
+	<meta name="twitter:image" content="https://app.openpo.st/og/app-image-editor.png" />
+	<meta name="twitter:image:alt" content="Image Editor dopost editor social preview." />
+</svelte:head>
 
 <div class="image-editor-theme min-h-dvh bg-background">
 	<EditorStart
-		kind="image"
 		title={m.editor_start_image_title()}
 		description={m.editor_start_workspace_image_description()}
 	>
@@ -456,9 +510,9 @@
 			{/if}
 
 			<section aria-labelledby="preset-heading">
-				<h2 id="preset-heading" class="mb-3 text-base font-semibold">
+				<SectionHeading level={2} size="section" id="preset-heading" class="mb-3">
 					{m.image_editor_choose_format()}
-				</h2>
+				</SectionHeading>
 				<div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
 					{#each presets as preset (preset.key)}
 						<EditorFormatButton
@@ -473,12 +527,11 @@
 				</div>
 			</section>
 
-			<details class="mt-4 border-b pb-4">
-				<summary class="min-h-11 cursor-pointer py-3 text-sm font-medium"
-					>{m.image_editor_custom_size()}</summary
-				>
+			<Disclosure class="mt-4" label={m.image_editor_custom_size()}>
 				<section class="pt-3" aria-labelledby="custom-heading">
-					<h2 id="custom-heading" class="text-sm font-semibold">{m.image_editor_custom_size()}</h2>
+					<SectionHeading level={2} size="section" id="custom-heading">
+						{m.image_editor_custom_size()}
+					</SectionHeading>
 					<p class="mt-1 text-xs text-muted-foreground">{m.image_editor_custom_limits()}</p>
 					<div class="mt-3 grid gap-3 sm:grid-cols-[1fr_1fr_auto]">
 						<label class="grid gap-1 text-xs">
@@ -498,55 +551,93 @@
 						</Button>
 					</div>
 				</section>
-			</details>
-			<section class="mt-8" aria-labelledby="templates-heading">
+			</Disclosure>
+			<section class="mt-8 space-y-7" aria-labelledby="templates-heading">
 				<div class="mb-3">
-					<h2 id="templates-heading" class="text-base font-semibold">
-						{m.image_editor_starter_templates()}
-					</h2>
-					<p class="mt-0.5 text-sm text-muted-foreground">
-						{m.image_editor_starter_templates_body()}
+					<SectionHeading level={2} size="section" id="templates-heading">
+						{m.image_editor_templates()}
+					</SectionHeading>
+					<div class="relative mt-3 max-w-sm">
+						<ThemeIcon
+							role="search"
+							class="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
+						/>
+						<Input
+							bind:value={templateSearch}
+							class="pl-9"
+							placeholder={m.image_editor_search_templates()}
+							aria-label={m.image_editor_search_templates()}
+						/>
+					</div>
+				</div>
+				{#if workspaceTemplates.length > 0}
+					<section aria-labelledby="workspace-templates-heading">
+						<h3 id="workspace-templates-heading" class="text-sm font-semibold">
+							{m.image_editor_workspace_templates()}
+						</h3>
+						<p class="mt-0.5 text-xs text-muted-foreground">
+							{m.image_editor_workspace_templates_body()}
+						</p>
+						<div class="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+							{#each workspaceTemplates as template (template.id)}
+								{@render templateCard(template)}
+							{/each}
+						</div>
+					</section>
+				{/if}
+				{#if visibleStarterTemplates.length > 0}
+					<section aria-labelledby="starter-templates-heading">
+						<h3 id="starter-templates-heading" class="text-sm font-semibold">
+							{m.image_editor_starter_templates()}
+						</h3>
+						<p class="mt-0.5 text-xs text-muted-foreground">
+							{m.image_editor_starter_templates_body()}
+						</p>
+						<div class="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+							{#each visibleStarterTemplates as template (template.id)}
+								{@render templateCard(template)}
+							{/each}
+						</div>
+						{#if !normalizedTemplateSearch && starterTemplates.length > featuredTemplates.length}
+							<Button
+								class="mt-4"
+								variant="outline"
+								onclick={() => (showAllTemplates = !showAllTemplates)}
+							>
+								{showAllTemplates
+									? m.image_editor_show_fewer_templates()
+									: m.image_editor_show_all_templates({ count: starterTemplates.length })}
+							</Button>
+						{/if}
+					</section>
+				{/if}
+				{#if normalizedTemplateSearch && workspaceTemplates.length === 0 && visibleStarterTemplates.length === 0}
+					<p class="rounded-lg border border-dashed p-5 text-sm text-muted-foreground">
+						{m.image_editor_no_templates_found()}
 					</p>
-				</div>
-				<div class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-					{#each visibleTemplates as template (template.id)}
-						<button
-							type="button"
-							class="rounded-xl border bg-card p-3 text-left transition-colors hover:border-primary/40 hover:bg-primary/2 focus-visible:ring-2 focus-visible:ring-primary/25 focus-visible:outline-none"
-							onclick={() => createTemplate(template)}
-							disabled={Boolean(creating)}
-						>
-							<div class="mb-3 aspect-[4/3] overflow-hidden rounded-lg border">
-								<TemplatePreview
-									document={template.document}
-									label={templateName(template)}
-									compact
-								/>
-							</div>
-							<div class="flex items-center gap-2">
-								<span class="min-w-0 flex-1 truncate text-sm font-medium"
-									>{templateName(template)}</span
-								>
-								{#if creating === template.id}<ProtectedIcon
-										icon="loading"
-										class="size-4 animate-spin"
-									/>{/if}
-							</div>
-						</button>
-					{/each}
-				</div>
-				{#if templates.length > featuredTemplates.length}
-					<Button
-						class="mt-4"
-						variant="outline"
-						onclick={() => (showAllTemplates = !showAllTemplates)}
-					>
-						{showAllTemplates
-							? m.image_editor_show_fewer_templates()
-							: m.image_editor_show_all_templates({ count: templates.length })}
-					</Button>
 				{/if}
 			</section>
 		{/if}
 	</EditorStart>
 </div>
+
+{#snippet templateCard(template: ImageEditorTemplate)}
+	<button
+		type="button"
+		aria-label={templateName(template)}
+		class="rounded-xl border bg-card p-3 text-left transition-colors hover:border-primary/40 hover:bg-primary/2 focus-visible:ring-2 focus-visible:ring-primary/25 focus-visible:outline-none"
+		onclick={() => createTemplate(template)}
+		disabled={Boolean(creating)}
+	>
+		<div class="mb-3 aspect-[4/3] overflow-hidden rounded-lg border">
+			<TemplatePreview document={template.document} label={templateName(template)} compact />
+		</div>
+		<div class="flex items-center gap-2">
+			<span class="min-w-0 flex-1 truncate text-sm font-medium">{templateName(template)}</span>
+			{#if creating === template.id}<ProtectedIcon
+					icon="loading"
+					class="size-4 animate-spin motion-reduce:animate-none"
+				/>{/if}
+		</div>
+	</button>
+{/snippet}

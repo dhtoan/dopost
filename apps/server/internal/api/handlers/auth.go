@@ -29,6 +29,7 @@ import (
 	"github.com/openpost/backend/internal/services/passwordmail"
 	"github.com/openpost/backend/internal/services/ratelimit"
 	"github.com/openpost/backend/internal/services/sessions"
+	"github.com/openpost/backend/internal/services/waitlist"
 	"github.com/openpost/backend/internal/telemetry"
 	"github.com/openpost/backend/internal/usernames"
 	"github.com/uptrace/bun"
@@ -63,6 +64,7 @@ type AuthHandler struct {
 	mfa                       *mfa.Service
 	mfaRecovery               *mfarecovery.Service
 	registrationsDisabled     bool
+	waitlist                  *waitlist.Service
 	publicProfilesEnabled     bool
 	limiter                   *ratelimit.Limiter
 	passwordResetSender       passwordmail.PasswordResetSender
@@ -150,7 +152,7 @@ var (
 type RegisterInput struct {
 	Body struct {
 		Email               string `json:"email" format:"email" doc:"User email address"`
-		Username            string `json:"username,omitempty" minLength:"3" maxLength:"30" pattern:"^[A-Za-z0-9](?:[A-Za-z0-9_-]*[A-Za-z0-9])?$" doc:"Optional unique public username; OpenPost creates one from the email when omitted"`
+		Username            string `json:"username,omitempty" minLength:"3" maxLength:"30" pattern:"^[A-Za-z0-9](?:[A-Za-z0-9_-]*[A-Za-z0-9])?$" doc:"Optional unique public username; dopost creates one from the email when omitted"`
 		Password            string `json:"password" minLength:"12" maxLength:"1024" doc:"User password (min 12 characters)"`
 		AcceptedLegal       *bool  `json:"accepted_legal,omitempty" doc:"Whether the user accepted the current terms and privacy policy"`
 		PurchaseChoiceToken string `json:"purchase_choice_token,omitempty" doc:"Integrity-protected hosted plan and billing-period choice; required for hosted registration"`
@@ -326,7 +328,7 @@ type MeOutput struct {
 
 type AuthSessionStateOutput struct {
 	Body struct {
-		Authenticated bool         `json:"authenticated" doc:"Whether the request has a valid OpenPost session"`
+		Authenticated bool         `json:"authenticated" doc:"Whether the request has a valid dopost session"`
 		User          *UserProfile `json:"user,omitempty"`
 	}
 }
@@ -421,9 +423,11 @@ type recoveryCodeChallengePayload struct {
 }
 
 type passkeyChallengePayload struct {
-	SessionData string `json:"session_data"`
-	SessionID   string `json:"session_id,omitempty"`
-	Action      string `json:"action,omitempty"`
+	ParentChallengeID string          `json:"parent_challenge_id,omitempty"`
+	Options           json.RawMessage `json:"options,omitempty"`
+	SessionData       string          `json:"session_data"`
+	SessionID         string          `json:"session_id,omitempty"`
+	Action            string          `json:"action,omitempty"`
 }
 
 func (h *AuthHandler) Register(api huma.API) {
@@ -481,6 +485,9 @@ func (h *AuthHandler) captureSignupCompleted(ctx context.Context, userID string,
 }
 
 func (h *AuthHandler) validateRegistrationRequest(ctx context.Context, input *RegisterInput) (bool, error) {
+	if h.waitlist != nil {
+		return false, huma.Error403Forbidden("Hosted registration is not open yet; join the waitlist")
+	}
 	if _, err := h.resolvePurchaseChoice(input.Body.PurchaseChoiceToken, "", ""); err != nil {
 		return false, err
 	}
@@ -579,6 +586,9 @@ func (h *AuthHandler) registerUserWithPolicy(ctx context.Context, email, usernam
 }
 
 func (h *AuthHandler) insertRegistrationUser(ctx context.Context, tx bun.Tx, user *models.User) error {
+	if h.waitlist != nil {
+		return errRegistrationsDisabled
+	}
 	if err := credentialguard.LockFirstUserBootstrap(ctx, tx); err != nil {
 		return err
 	}
@@ -627,7 +637,7 @@ func (h *AuthHandler) Login(api huma.API) {
 		Summary:     "Login with email and password",
 		Tags:        []string{tagAuth},
 		Middlewares: huma.Middlewares{middleware.RequestMetadataMiddleware()},
-		Errors:      []int{401},
+		Errors:      []int{401, 429},
 	}, func(ctx context.Context, input *LoginInput) (*AuthOutput, error) {
 		normalizedEmail := strings.TrimSpace(strings.ToLower(input.Body.Email))
 		if !h.allowAuthAttempt(clientIP(ctx), "login:ip", 20, 15*time.Minute) {
@@ -642,6 +652,9 @@ func (h *AuthHandler) Login(api huma.API) {
 			Where("email = ?", normalizedEmail).
 			Scan(ctx)
 		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				_ = h.auth.CheckPassword(input.Body.Password, "")
+			}
 			return nil, huma.Error401Unauthorized("invalid credentials")
 		}
 		if h.identity != nil {
@@ -650,6 +663,7 @@ func (h *AuthHandler) Login(api huma.API) {
 				return nil, huma.Error500InternalServerError("failed to evaluate sign-in policy")
 			}
 			if !allowed {
+				_ = h.auth.CheckPassword(input.Body.Password, "")
 				return nil, huma.Error401Unauthorized("invalid credentials")
 			}
 		}
@@ -716,7 +730,7 @@ func (h *AuthHandler) VerifyTOTPLogin(api huma.API) {
 		Summary:     "Complete MFA login with a TOTP code",
 		Tags:        []string{tagAuth},
 		Middlewares: huma.Middlewares{middleware.RequestMetadataMiddleware()},
-		Errors:      []int{400, 401},
+		Errors:      []int{400, 401, 429},
 	}, func(ctx context.Context, input *VerifyTOTPLoginInput) (*AuthOutput, error) {
 		challenge, err := h.getChallenge(ctx, input.Body.MFAToken, authChallengeLoginMFA)
 		if err != nil {
@@ -747,8 +761,8 @@ func (h *AuthHandler) VerifyTOTPLogin(api huma.API) {
 			return nil, huma.Error401Unauthorized("invalid authenticator code")
 		}
 
-		if err := h.deleteChallenge(ctx, challenge.ID); err != nil {
-			return nil, huma.Error500InternalServerError("failed to finish MFA login")
+		if err := consumeChallengeWithDB(ctx, h.db, challenge.ID, challenge.UserID, authChallengeLoginMFA); err != nil {
+			return nil, huma.Error401Unauthorized("invalid or expired MFA token")
 		}
 
 		return h.issueAuthResponse(ctx, user)
@@ -836,11 +850,16 @@ func (h *AuthHandler) BeginPasskeyLogin(api huma.API) {
 		Path:        "/auth/login/passkey/options",
 		Summary:     "Begin MFA login with a passkey",
 		Tags:        []string{tagAuth},
-		Errors:      []int{400, 401},
+		Middlewares: huma.Middlewares{middleware.RequestMetadataMiddleware()},
+		Errors:      []int{400, 401, 429},
 	}, func(ctx context.Context, input *BeginPasskeyLoginInput) (*PasskeyCeremonyOutput, error) {
 		challenge, err := h.getChallenge(ctx, input.Body.MFAToken, authChallengeLoginMFA)
 		if err != nil {
 			return nil, huma.Error401Unauthorized("invalid or expired MFA token")
+		}
+
+		if !h.allowAuthAttempt(clientIP(ctx), "mfa:ip", 20, 15*time.Minute) || !h.allowAuthAttempt(challenge.UserID, "mfa:user", 10, 15*time.Minute) {
+			return nil, huma.Error429TooManyRequests("too many MFA attempts")
 		}
 
 		user, err := h.getUserByID(ctx, challenge.UserID)
@@ -871,16 +890,22 @@ func (h *AuthHandler) BeginPasskeyLogin(api huma.API) {
 			return nil, huma.Error500InternalServerError("failed to persist passkey challenge")
 		}
 
-		passkeyChallengeID, err := h.createChallenge(ctx, user.ID, authChallengePasskeyLogin, passkeyChallengePayload{
-			SessionData: sessionData,
+		optionData, err := json.Marshal(options)
+		if err != nil {
+			return nil, huma.Error500InternalServerError("failed to persist passkey options")
+		}
+		passkeyChallengeID, storedOptions, err := h.createLoginPasskeyChallenge(ctx, challenge, passkeyChallengePayload{
+			Options:           optionData,
+			ParentChallengeID: challenge.ID,
+			SessionData:       sessionData,
 		})
 		if err != nil {
-			return nil, huma.Error500InternalServerError("failed to create passkey challenge")
+			return nil, huma.Error429TooManyRequests("a passkey attempt is already in progress")
 		}
 
 		resp := &PasskeyCeremonyOutput{}
 		resp.Body.ChallengeID = passkeyChallengeID
-		resp.Body.Options = options
+		resp.Body.Options = storedOptions
 		return resp, nil
 	})
 }
@@ -893,11 +918,15 @@ func (h *AuthHandler) FinishPasskeyLogin(api huma.API) {
 		Summary:     "Complete MFA login with a passkey",
 		Tags:        []string{tagAuth},
 		Middlewares: huma.Middlewares{middleware.RequestMetadataMiddleware()},
-		Errors:      []int{400, 401},
+		Errors:      []int{400, 401, 429},
 	}, func(ctx context.Context, input *FinishPasskeyLoginInput) (*AuthOutput, error) {
 		challenge, err := h.getChallenge(ctx, input.Body.ChallengeID, authChallengePasskeyLogin)
 		if err != nil {
 			return nil, huma.Error401Unauthorized("invalid or expired passkey challenge")
+		}
+
+		if !h.allowAuthAttempt(clientIP(ctx), "mfa:ip", 20, 15*time.Minute) || !h.allowAuthAttempt(challenge.UserID, "mfa:user", 10, 15*time.Minute) {
+			return nil, huma.Error429TooManyRequests("too many MFA attempts")
 		}
 
 		user, err := h.getUserByID(ctx, challenge.UserID)
@@ -933,8 +962,17 @@ func (h *AuthHandler) FinishPasskeyLogin(api huma.API) {
 		if err := h.markPasskeyUsed(ctx, user.ID, credential.ID); err != nil {
 			return nil, huma.Error500InternalServerError("failed to update passkey state")
 		}
-		if err := h.deleteChallenge(ctx, challenge.ID); err != nil {
-			return nil, huma.Error500InternalServerError("failed to finish passkey login")
+		err = h.db.RunInTx(ctx, &sql.TxOptions{}, func(txCtx context.Context, tx bun.Tx) error {
+			if payload.ParentChallengeID == "" {
+				return sql.ErrNoRows
+			}
+			if err := consumeChallengeWithDB(txCtx, tx, payload.ParentChallengeID, user.ID, authChallengeLoginMFA); err != nil {
+				return err
+			}
+			return consumeChallengeWithDB(txCtx, tx, challenge.ID, user.ID, authChallengePasskeyLogin)
+		})
+		if err != nil {
+			return nil, huma.Error401Unauthorized("invalid or expired MFA token")
 		}
 
 		return h.issueAuthResponse(ctx, user)
@@ -2001,7 +2039,9 @@ func (h *AuthHandler) issueAuthResponse(ctx context.Context, user *models.User) 
 	}
 
 	resp := &AuthOutput{}
-	resp.Body.Token = token
+	if !middleware.HasBrowserOrigin(ctx) {
+		resp.Body.Token = token
+	}
 	resp.Body.User = h.profileForUser(ctx, user)
 	resp.SetCookie = sessionCookie(token, expiresAt, middleware.IsSecureRequest(ctx)).String()
 	return resp, nil
@@ -2365,4 +2405,37 @@ func deviceName(ua string) string {
 		device = "Linux"
 	}
 	return device
+}
+
+func (h *AuthHandler) SetRateLimiter(limiter *ratelimit.Limiter) { h.limiter = limiter }
+
+func (h *AuthHandler) createLoginPasskeyChallenge(ctx context.Context, parent *models.AuthChallenge, payload passkeyChallengePayload) (string, json.RawMessage, error) {
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return "", nil, err
+	}
+	record := &models.AuthChallenge{ID: "passkey_" + parent.ID, UserID: parent.UserID, Type: authChallengePasskeyLogin, Payload: string(data), ExpiresAt: parent.ExpiresAt, CreatedAt: time.Now().UTC()}
+	result, err := h.db.NewInsert().Model(record).On("CONFLICT (id) DO NOTHING").Exec(ctx)
+	if err != nil {
+		return "", nil, err
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		return "", nil, err
+	}
+	if count == 1 {
+		return record.ID, payload.Options, nil
+	}
+	existing, err := h.getChallenge(ctx, record.ID, authChallengePasskeyLogin)
+	if err != nil {
+		return "", nil, err
+	}
+	var stored passkeyChallengePayload
+	if err = json.Unmarshal([]byte(existing.Payload), &stored); err != nil {
+		return "", nil, err
+	}
+	if stored.ParentChallengeID != parent.ID || len(stored.Options) == 0 {
+		return "", nil, sql.ErrNoRows
+	}
+	return existing.ID, stored.Options, nil
 }

@@ -23,12 +23,14 @@
 		gpuEffect,
 		ondraft,
 		oncommit,
-		compact = false
+		compact = false,
+		activeChannel = $bindable<CurveChannel>('master')
 	}: {
 		gpuEffect: GpuEffect;
 		ondraft: (params: GpuParamValues | null) => void;
 		oncommit: (params: GpuParamValues) => void;
 		compact?: boolean;
+		activeChannel?: CurveChannel;
 	} = $props();
 
 	type ChannelDraft = Record<CurveChannel, CurvePoint[]>;
@@ -41,6 +43,8 @@
 
 	const SIZE = 256;
 	const SAMPLE_STEPS = 96;
+	const MARKER_RADIUS_PX = 7;
+	const POINT_HIT_SIZE_PX = 44;
 	const channelColors = {
 		master: '#e8e4dc',
 		red: '#f87171',
@@ -49,7 +53,8 @@
 	} satisfies Record<CurveChannel, string>;
 
 	let svg = $state<SVGSVGElement>();
-	let activeChannel = $state<CurveChannel>('master');
+	let plotWidth = $state(SIZE);
+	let plotHeight = $state(SIZE);
 	let selectedPointIndex = $state<number | null>(null);
 	let draft = $state<ChannelDraft>(readAllChannels({}));
 	let drag = $state<DragState | null>(null);
@@ -66,6 +71,10 @@
 
 	const activePoints = $derived(draft[activeChannel]);
 	const activeColor = $derived(channelColors[activeChannel]);
+	const viewUnitsPerPixelX = $derived(SIZE / Math.max(1, plotWidth));
+	const viewUnitsPerPixelY = $derived(SIZE / Math.max(1, plotHeight));
+	const pointHitWidth = $derived(POINT_HIT_SIZE_PX * viewUnitsPerPixelX);
+	const pointHitHeight = $derived(POINT_HIT_SIZE_PX * viewUnitsPerPixelY);
 	const channelLabels = $derived<Record<CurveChannel, string>>({
 		master: m.video_editor_curves_master(),
 		red: m.video_editor_curves_red(),
@@ -245,17 +254,49 @@
 		ondraft(null);
 	}
 
+	/**
+	 * Pure arrow/PageUp/PageDown/Home/End delta for one curve point so the
+	 * keyboard-move hot path stays a flat switch instead of a nested ternary
+	 * chain. Returns null for keys that do not move the point.
+	 */
+	function curveKeyboardDelta(
+		key: string,
+		pointY: number,
+		step: number,
+		largeStep: number
+	): { x: number; y: number } | null {
+		switch (key) {
+			case 'ArrowLeft':
+				return { x: -step, y: 0 };
+			case 'ArrowRight':
+				return { x: step, y: 0 };
+			case 'ArrowDown':
+				return { x: 0, y: -step };
+			case 'ArrowUp':
+				return { x: 0, y: step };
+			case 'PageDown':
+				return { x: 0, y: -largeStep };
+			case 'PageUp':
+				return { x: 0, y: largeStep };
+			case 'Home':
+				return { x: 0, y: -pointY };
+			case 'End':
+				return { x: 0, y: 1 - pointY };
+			default:
+				return null;
+		}
+	}
+
 	function movePointByKeyboard(event: KeyboardEvent, index: number): void {
+		const deletingPoint = event.key === 'Delete' || event.key === 'Backspace';
+		// Protected endpoints still own deletion keys, so they cannot delete editor content.
+		if (deletingPoint) event.preventDefault();
 		if (!gpuEffect.enabled) return;
 		const points = draft[activeChannel];
 		const point = points[index];
 		if (!point) return;
-		if (
-			(event.key === 'Delete' || event.key === 'Backspace') &&
-			index > 0 &&
-			index < points.length - 1
-		) {
-			event.preventDefault();
+		if (deletingPoint) {
+			if (index === 0 || index === points.length - 1) return;
 			cancelKeyboardCommit();
 			commitChannel(
 				activeChannel,
@@ -272,16 +313,8 @@
 			return;
 		}
 		const step = event.altKey ? 0.001 : event.shiftKey ? 0.05 : 0.01;
-		const delta =
-			event.key === 'ArrowLeft'
-				? { x: -step, y: 0 }
-				: event.key === 'ArrowRight'
-					? { x: step, y: 0 }
-					: event.key === 'ArrowDown'
-						? { x: 0, y: -step }
-						: event.key === 'ArrowUp'
-							? { x: 0, y: step }
-							: null;
+		const largeStep = event.altKey ? 0.01 : event.shiftKey ? 0.5 : 0.1;
+		const delta = curveKeyboardDelta(event.key, point.y, step, largeStep);
 		if (!delta) return;
 		event.preventDefault();
 		const next = movedPoints(points, index, { x: point.x + delta.x, y: point.y + delta.y });
@@ -351,21 +384,18 @@
 		? 'flex h-full min-h-0 flex-col p-1'
 		: 'mt-2 rounded-lg border border-[var(--video-editor-border)] p-2'}"
 >
-	<div class="flex items-center gap-1 {compact ? 'mb-1 shrink-0' : 'mb-2 flex-wrap'}">
-		<span
-			class="mr-auto text-[10px] font-medium text-[var(--video-editor-muted)] uppercase {compact
-				? 'sr-only'
-				: ''}"
-		>
+	<div class="items-center gap-1 {compact ? 'mb-1 flex shrink-0' : 'mb-2 grid grid-cols-4'}">
+		<span class="sr-only">
 			{m.video_editor_curves_channel()}
 		</span>
 		{#each CURVE_CHANNELS as channel (channel)}
 			<button
 				type="button"
-				class={`${compact ? 'h-6 min-w-0 flex-1 overflow-hidden px-1 text-[8px]' : 'min-h-11 min-w-11 px-2 text-xs'} rounded font-medium focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--video-editor-focus)] ${activeChannel === channel ? 'bg-[var(--video-editor-selection)] text-[var(--video-editor-selection-text)]' : 'text-[var(--video-editor-muted)] hover:bg-[var(--video-editor-control-hover)]'}`}
+				class={`${compact ? 'h-6 min-w-0 flex-1 overflow-hidden px-1 text-xs' : 'min-h-11 min-w-11 px-2 text-xs'} rounded font-medium focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--video-editor-focus)] ${activeChannel === channel ? 'bg-[var(--video-editor-selection)] text-[var(--video-editor-selection-text)]' : 'text-[var(--video-editor-muted)] hover:bg-[var(--video-editor-control-hover)]'}`}
 				disabled={!gpuEffect.enabled || drag !== null}
+				aria-label={channelLabels[channel]}
+				title={channelLabels[channel]}
 				aria-pressed={activeChannel === channel}
-				style:color={activeChannel === channel ? channelColors[channel] : undefined}
 				onclick={() => selectChannel(channel)}
 			>
 				{compact ? channelLabels[channel].slice(0, 1) : channelLabels[channel]}
@@ -375,7 +405,7 @@
 			type="button"
 			class="flex {compact
 				? 'size-6'
-				: 'size-11'} items-center justify-center rounded text-[var(--video-editor-muted)] hover:bg-[var(--video-editor-control-hover)] hover:text-[var(--video-editor-text)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--video-editor-focus)] disabled:opacity-35"
+				: 'col-start-3 size-11 justify-self-end'} items-center justify-center rounded text-[var(--video-editor-muted)] hover:bg-[var(--video-editor-control-hover)] hover:text-[var(--video-editor-text)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--video-editor-focus)] disabled:opacity-35"
 			disabled={!gpuEffect.enabled ||
 				drag !== null ||
 				selectedPointIndex === null ||
@@ -391,7 +421,7 @@
 			type="button"
 			class="flex {compact
 				? 'size-6'
-				: 'size-11'} items-center justify-center rounded text-[var(--video-editor-muted)] hover:bg-[var(--video-editor-control-hover)] hover:text-[var(--video-editor-text)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--video-editor-focus)] disabled:opacity-35"
+				: 'size-11 justify-self-end'} items-center justify-center rounded text-[var(--video-editor-muted)] hover:bg-[var(--video-editor-control-hover)] hover:text-[var(--video-editor-text)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--video-editor-focus)] disabled:opacity-35"
 			disabled={!gpuEffect.enabled || drag !== null || isIdentityCurve(activePoints)}
 			aria-label={m.video_editor_curves_reset_channel({ channel: channelLabels[activeChannel] })}
 			title={m.video_editor_curves_reset_channel({ channel: channelLabels[activeChannel] })}
@@ -402,6 +432,8 @@
 	</div>
 
 	<div
+		bind:clientWidth={plotWidth}
+		bind:clientHeight={plotHeight}
 		class="relative w-full overflow-hidden rounded-md border border-white/10 bg-black/55 {compact
 			? 'min-h-0 flex-1'
 			: 'aspect-square'}"
@@ -431,6 +463,7 @@
 					x2={position * SIZE}
 					y2={SIZE}
 					stroke="rgba(148,163,184,0.2)"
+					vector-effect="non-scaling-stroke"
 				/>
 				<line
 					x1="0"
@@ -438,12 +471,14 @@
 					x2={SIZE}
 					y2={position * SIZE}
 					stroke="rgba(148,163,184,0.2)"
+					vector-effect="non-scaling-stroke"
 				/>
 			{/each}
 			<path
 				d={`M 0 ${SIZE} L ${SIZE} 0`}
 				stroke="rgba(148,163,184,0.35)"
 				stroke-dasharray="4 4"
+				vector-effect="non-scaling-stroke"
 				fill="none"
 			/>
 			{#if activeChannel === 'master'}
@@ -452,6 +487,7 @@
 						d={curvePath(draft[channel])}
 						stroke={channelColors[channel]}
 						stroke-width="1.25"
+						vector-effect="non-scaling-stroke"
 						opacity="0.3"
 						fill="none"
 					/>
@@ -462,11 +498,18 @@
 					stroke={channelColors.master}
 					stroke-width="1.25"
 					stroke-dasharray="5 4"
+					vector-effect="non-scaling-stroke"
 					opacity="0.35"
 					fill="none"
 				/>
 			{/if}
-			<path d={curvePath(activePoints)} stroke={activeColor} stroke-width="2" fill="none" />
+			<path
+				d={curvePath(activePoints)}
+				stroke={activeColor}
+				stroke-width="2"
+				vector-effect="non-scaling-stroke"
+				fill="none"
+			/>
 			{#each activePoints as point, index (`${activeChannel}-${index}`)}
 				<line
 					x1={point.x * SIZE}
@@ -475,16 +518,22 @@
 					y2={(1 - point.y) * SIZE}
 					stroke={activeColor}
 					opacity="0.18"
+					vector-effect="non-scaling-stroke"
 				/>
 				<rect
-					x={Math.max(0, Math.min(SIZE - 44, point.x * SIZE - 22))}
-					y={Math.max(0, Math.min(SIZE - 44, (1 - point.y) * SIZE - 22))}
-					width="44"
-					height="44"
-					rx="22"
+					x={Math.max(0, Math.min(SIZE - pointHitWidth, point.x * SIZE - pointHitWidth / 2))}
+					y={Math.max(
+						0,
+						Math.min(SIZE - pointHitHeight, (1 - point.y) * SIZE - pointHitHeight / 2)
+					)}
+					width={pointHitWidth}
+					height={pointHitHeight}
+					rx={pointHitWidth / 2}
+					ry={pointHitHeight / 2}
 					fill="transparent"
 					stroke={selectedPointIndex === index ? '#ffffff' : 'transparent'}
 					stroke-width="2"
+					vector-effect="non-scaling-stroke"
 					class="cursor-move focus:outline-none focus-visible:stroke-[oklch(0.85_0.14_85)] focus-visible:stroke-[4px]"
 					data-curve-point={index}
 					tabindex={gpuEffect.enabled ? 0 : -1}
@@ -505,15 +554,18 @@
 					onfocus={() => (selectedPointIndex = index)}
 					onblur={commitKeyboardDraft}
 				></rect>
-				<circle
+				<ellipse
 					cx={point.x * SIZE}
 					cy={(1 - point.y) * SIZE}
-					r="7"
+					rx={MARKER_RADIUS_PX * viewUnitsPerPixelX}
+					ry={MARKER_RADIUS_PX * viewUnitsPerPixelY}
 					fill={activeColor}
 					stroke="rgba(3,7,18,0.95)"
 					stroke-width="2"
+					vector-effect="non-scaling-stroke"
 					pointer-events="none"
-				></circle>
+					data-curve-marker={index}
+				></ellipse>
 			{/each}
 		</svg>
 	</div>

@@ -2,6 +2,7 @@
 	import { onDestroy, untrack } from 'svelte';
 	import { OpenPostFabricAdapter } from '../fabric-adapter';
 	import { queueImageEditorPreview } from '../preview-queue';
+	import { imageEditorPageDimensions } from '../page-dimensions';
 	import type { ImageEditorDocument, ImageEditorPage } from '../types';
 
 	let {
@@ -25,13 +26,19 @@
 	} = $props();
 
 	let page = $derived(explicitPage ?? document.pages[0]);
-	let dimensionKey = $derived(explicitDimensionKey ?? `${document.width_px}:${document.height_px}`);
+	let pageSize = $derived(
+		page
+			? imageEditorPageDimensions(document, page)
+			: { width: document.width_px, height: document.height_px }
+	);
+	let dimensionKey = $derived(explicitDimensionKey ?? `${pageSize.width}:${pageSize.height}`);
 	let adapter = $state.raw<OpenPostFabricAdapter | null>(null);
 	let renderError = $state(false);
 	let imageURL = $state('');
 	let visible = $state(false);
 	let lastRenderedPage: ImageEditorPage | null = null;
 	let lastRenderedDimensionKey = '';
+	const previewKey = Symbol('image-preview');
 
 	function observePreview(node: HTMLElement): () => void {
 		if (!cached) return () => undefined;
@@ -57,7 +64,7 @@
 		let disposed = false;
 		const currentPage = page;
 		if (!currentPage) return () => undefined;
-		const renderScale = Math.min(1, 512 / Math.max(document.width_px, document.height_px));
+		const renderScale = Math.min(1, 512 / Math.max(pageSize.width, pageSize.height));
 		const next = new OpenPostFabricAdapter({
 			canvas,
 			document,
@@ -106,7 +113,7 @@
 		const nextDocument = untrack(() => document);
 		const controller = new AbortController();
 		renderError = false;
-		void queueImageEditorPreview(nextDocument, nextPage, controller.signal)
+		void queueImageEditorPreview(nextDocument, nextPage, controller.signal, previewKey)
 			.then((blob) => {
 				if (controller.signal.aborted) return;
 				const previousURL = imageURL;
@@ -115,8 +122,12 @@
 				lastRenderedDimensionKey = nextDimensionKey;
 				if (previousURL) URL.revokeObjectURL(previousURL);
 			})
-			.catch(() => {
-				if (!controller.signal.aborted) renderError = true;
+			.catch((cause: unknown) => {
+				if (
+					!controller.signal.aborted &&
+					!(cause instanceof DOMException && cause.name === 'AbortError')
+				)
+					renderError = true;
 			});
 		return () => controller.abort();
 	});
@@ -130,15 +141,20 @@
 	{#if page}
 		<div
 			{@attach observePreview}
-			class="template-preview-frame relative max-h-full max-w-full overflow-hidden shadow-sm"
+			class="template-preview-frame pasteboard-checker relative max-h-full max-w-full overflow-hidden shadow-sm"
 			role="img"
 			aria-label={label || document.title}
-			style:aspect-ratio={`${document.width_px} / ${document.height_px}`}
-			style:width={document.width_px / document.height_px >= 4 / 3 ? '100%' : 'auto'}
-			style:height={document.width_px / document.height_px >= 4 / 3 ? 'auto' : '100%'}
+			style:aspect-ratio={`${pageSize.width} / ${pageSize.height}`}
+			style:width={pageSize.width / pageSize.height >= 4 / 3 ? '100%' : 'auto'}
+			style:height={pageSize.width / pageSize.height >= 4 / 3 ? 'auto' : '100%'}
 		>
 			{#if cached}
-				{#if imageURL}<img src={imageURL} alt="" class="block size-full object-contain" />{/if}
+				{#if imageURL}<img
+						src={imageURL}
+						alt=""
+						draggable={false}
+						class="block size-full object-contain"
+					/>{/if}
 			{:else}
 				{#key dimensionKey}
 					<canvas {@attach attachPreview} class="block size-full" aria-hidden="true"></canvas>
@@ -162,26 +178,5 @@
 	.template-preview-frame canvas {
 		width: 100% !important;
 		height: 100% !important;
-	}
-
-	.template-preview-frame {
-		--image-editor-checker-light: color-mix(
-			in oklch,
-			var(--canvas-pasteboard) 82%,
-			var(--canvas-grid)
-		);
-		--image-editor-checker-dark: var(--canvas-grid);
-		background-color: var(--image-editor-checker-light);
-		background-image:
-			linear-gradient(45deg, var(--image-editor-checker-dark) 25%, transparent 25%),
-			linear-gradient(-45deg, var(--image-editor-checker-dark) 25%, transparent 25%),
-			linear-gradient(45deg, transparent 75%, var(--image-editor-checker-dark) 75%),
-			linear-gradient(-45deg, transparent 75%, var(--image-editor-checker-dark) 75%);
-		background-position:
-			0 0,
-			0 8px,
-			8px -8px,
-			-8px 0;
-		background-size: 16px 16px;
 	}
 </style>

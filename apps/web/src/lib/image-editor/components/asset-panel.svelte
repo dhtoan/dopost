@@ -1,9 +1,17 @@
 <script lang="ts">
+	import { onDestroy } from 'svelte';
+	import { inspectImageEditorMediaAnimation } from '../media-ingestion';
+	import { imageEditorErrorMessage } from '$lib/image-editor/animation-error-message';
 	import { ContextMenu } from 'bits-ui';
 	import { useImageEditor } from '../editor.svelte';
 	import { queryImageEditorBrandKit, queryImageEditorMedia } from '$lib/query/image-editor';
 	import { mediaQueryKeys } from '@openpost/query-catalog';
 	import { queryClient } from '$lib/query/client';
+	import { queryMediaMetadata } from '$lib/query/media';
+	import {
+		captureQueryMutationSession,
+		queryMutationSessionIsCurrent
+	} from '$lib/query/authorization-boundary';
 	import { loadImageEditorBrandFonts } from '../fonts';
 	import { listGuestImageEditorMedia, storeGuestImageEditorMedia } from '../local-persistence';
 	import type { ImageEditorMediaItem } from '../types';
@@ -14,7 +22,11 @@
 	import MediaTagFilter from '$lib/components/media-tag-filter.svelte';
 	import * as Tooltip from '$lib/components/ui/tooltip';
 	import MediaPicker from '$lib/components/media-picker.svelte';
+	import EmptyState from '$lib/components/empty-state.svelte';
 	import MediaPreviewImage from '$lib/components/media-preview-image.svelte';
+	import PageLoading from '$lib/components/page-loading.svelte';
+	import MediaThumbnail from '$lib/components/media-thumbnail.svelte';
+	import CameraCapture from '$lib/components/camera-capture.svelte';
 	import StockMediaBrowser from '$lib/components/stock-media-browser.svelte';
 	import { uploadMediaFile } from '$lib/media-upload-client';
 	import { listMediaTags, type MediaTag } from '$lib/media-tags';
@@ -24,23 +36,52 @@
 	import { m } from '$lib/paraglide/messages';
 	import { writeImageEditorMediaDrag, type ImageEditorMediaDragPayload } from '../media-drag';
 
-	let { guestMode = false }: { guestMode?: boolean } = $props();
+	let {
+		guestMode = false,
+		mode = 'dock',
+		onclose
+	}: {
+		guestMode?: boolean;
+	} & (
+		| { mode?: 'dock'; onclose?: () => void }
+		| { mode: 'overlay'; onclose: () => void }
+	) = $props();
 	const editor = useImageEditor();
+	const ingestionAbort = new AbortController();
+	onDestroy(() => ingestionAbort.abort());
 	let media = $state<ImageEditorMediaItem[]>([]);
 	let loading = $state(false);
 	let error = $state('');
 	let search = $state('');
 	let pickerOpen = $state(false);
-	let stockOpen = $state(false);
+	let pickerInitialMode = $state<'library' | 'upload' | 'camera' | 'stock'>('upload');
+	let guestSource = $state<'library' | 'stock' | 'camera'>('library');
+	let stockMediaTarget: ReturnType<typeof captureMediaTarget> | undefined;
 	let replaceMode = $state(false);
+	let addedMessage = $state('');
 	let loadedWorkspaceID = '';
 	let dragPreview: HTMLElement | null = null;
 	let guestFileInput = $state<HTMLInputElement | null>(null);
+	let searchInput = $state<HTMLInputElement | null>(null);
+	let overlayFocused = false;
 	let tags = $state<MediaTag[]>([]);
 	let selectedTagIDs = $state.raw<string[]>([]);
 	let showUntagged = $state(false);
 	let sort = $state<'newest' | 'oldest' | 'name' | 'size' | 'recently_used'>('newest');
 
+	$effect(() => {
+		if (mode === 'overlay' && !overlayFocused && searchInput) {
+			overlayFocused = true;
+			searchInput.focus({ preventScroll: true });
+		}
+	});
+
+	function handleOverlayKeydown(event: KeyboardEvent): void {
+		if (mode === 'overlay' && event.key === 'Escape') {
+			event.stopPropagation();
+			onclose?.();
+		}
+	}
 	$effect(() => {
 		const scopeID = guestMode ? editor.id : editor.workspaceID;
 		const revision = editor.mediaLibraryRevision;
@@ -76,7 +117,7 @@
 			editor.setBrandKit(nextBrand);
 			await loadImageEditorBrandFonts(nextBrand);
 		} catch (cause) {
-			error = cause instanceof Error ? cause.message : m.image_editor_load_assets_failed();
+			error = imageEditorErrorMessage(cause) ?? m.image_editor_load_assets_failed();
 		} finally {
 			loading = false;
 		}
@@ -90,7 +131,7 @@
 				? await listGuestImageEditorMedia(editor.id, search)
 				: await queryImageEditorMedia(editor.workspaceID, search, 'image', mediaListOptions());
 		} catch (cause) {
-			error = cause instanceof Error ? cause.message : m.image_editor_search_failed();
+			error = imageEditorErrorMessage(cause) ?? m.image_editor_search_failed();
 		} finally {
 			loading = false;
 		}
@@ -115,31 +156,92 @@
 		return undefined;
 	}
 
-	function addMedia(item: ImageEditorMediaItem, replace = replaceMode): void {
-		if (editor.backgroundImagePickerActive) {
-			editor.setPageBackgroundImage(item.id);
+	function captureMediaTarget(replace = replaceMode) {
+		return {
+			session: captureQueryMutationSession(),
+			workspaceID: editor.workspaceID,
+			designID: editor.id,
+			pageID: editor.activePageID,
+			selectedID: editor.selectedLayers[0]?.id,
+			selectedMediaID: editor.selectedLayers[0]?.image?.media_id,
+			background: editor.backgroundImagePickerActive,
+			backgroundRevision: editor.backgroundImagePickerRevision,
+			replace
+		};
+	}
+
+	function mediaTargetIsCurrent(target: ReturnType<typeof captureMediaTarget>): boolean {
+		return (
+			!ingestionAbort.signal.aborted &&
+			editor.workspaceID === target.workspaceID &&
+			editor.id === target.designID &&
+			editor.activePageID === target.pageID &&
+			(guestMode || queryMutationSessionIsCurrent(target.session))
+		);
+	}
+
+	function setBackgroundMedia(id: string, name: string): void {
+		editor.setPageBackgroundImage(id);
+		editor.backgroundImagePickerActive = false;
+		addedMessage = m.image_editor_media_added({ name });
+	}
+
+	async function addMedia(
+		item: Pick<ImageEditorMediaItem, 'id' | 'mime_type' | 'original_filename' | 'width' | 'height'>,
+		replace = replaceMode,
+		target = captureMediaTarget(replace)
+	): Promise<void> {
+		if (!mediaTargetIsCurrent(target)) return;
+		if (target.background) {
+			if (
+				editor.backgroundImagePickerActive &&
+				editor.backgroundImagePickerRevision === target.backgroundRevision
+			)
+				setBackgroundMedia(item.id, item.original_filename);
 			return;
 		}
-		const selected = editor.selectedLayers[0];
-		if (replace && selected?.image) {
+		let animation: import('../types').ImageEditorAnimation | undefined;
+		try {
+			animation = await inspectImageEditorMediaAnimation(
+				{ id: item.id, mime_type: item.mime_type, name: item.original_filename },
+				ingestionAbort.signal
+			);
+		} catch (cause) {
+			if (!ingestionAbort.signal.aborted && mediaTargetIsCurrent(target))
+				error = imageEditorErrorMessage(cause) ?? m.image_editor_animation_failed();
+			return;
+		}
+		if (!mediaTargetIsCurrent(target)) return;
+		const selected = editor.activePage?.layers.find((layer) => layer.id === target.selectedID);
+		if (target.replace && selected?.image?.media_id !== target.selectedMediaID) return;
+		if (target.replace && selected?.image) {
 			editor.updateLayer(selected.id, {
 				name: item.original_filename || selected.name,
 				image: {
 					...selected.image,
 					media_id: item.id,
+					animation,
 					source_width: item.width || selected.image.source_width,
 					source_height: item.height || selected.image.source_height
 				}
 			});
 			replaceMode = false;
+			addedMessage = m.image_editor_media_added({ name: item.original_filename });
 			return;
 		}
 		editor.addImage({
 			id: item.id,
+			animation,
 			width: item.width,
 			height: item.height,
 			name: item.original_filename
 		});
+		addedMessage = m.image_editor_media_added({ name: item.original_filename });
+	}
+
+	function openPicker(mode: typeof pickerInitialMode): void {
+		pickerInitialMode = mode;
+		pickerOpen = true;
 	}
 
 	function startMediaDrag(
@@ -175,19 +277,42 @@
 		if (!(input instanceof HTMLInputElement)) return;
 		const files = Array.from(input.files ?? []);
 		if (files.length === 0) return;
+		const target = captureMediaTarget();
 		loading = true;
 		error = '';
 		try {
 			for (const file of files) {
-				const item = await storeGuestImageEditorMedia(editor.id, file);
+				const item = await storeGuestImageEditorMedia(target.designID, file, {
+					signal: ingestionAbort.signal
+				});
+				if (!mediaTargetIsCurrent(target)) return;
 				media = [item, ...media];
 			}
-			if (files.length === 1) addMedia(media[0]);
+			if (files.length === 1) await addMedia(media[0], target.replace, target);
 		} catch (cause) {
-			error = cause instanceof Error ? cause.message : m.image_editor_search_failed();
+			error = imageEditorErrorMessage(cause) ?? m.image_editor_search_failed();
 		} finally {
 			loading = false;
 			input.value = '';
+		}
+	}
+
+	async function captureGuestPhoto(file: File): Promise<void> {
+		const target = captureMediaTarget();
+		loading = true;
+		error = '';
+		try {
+			const item = await storeGuestImageEditorMedia(target.designID, file, {
+				signal: ingestionAbort.signal
+			});
+			if (!mediaTargetIsCurrent(target)) return;
+			media = [item, ...media];
+			await addMedia(item, target.replace, target);
+			guestSource = 'library';
+		} catch (cause) {
+			error = imageEditorErrorMessage(cause) ?? m.image_editor_search_failed();
+		} finally {
+			loading = false;
 		}
 	}
 
@@ -205,17 +330,24 @@
 	}
 
 	async function addStockMedia(file: File, asset: StockAsset): Promise<void> {
+		const target = stockMediaTarget;
+		stockMediaTarget = undefined;
+		if (!target || !mediaTargetIsCurrent(target)) return;
 		loading = true;
 		error = '';
 		try {
 			const provenance = stockProvenance(asset);
 			if (guestMode) {
-				const item = await storeGuestImageEditorMedia(editor.id, file, { provenance });
+				const item = await storeGuestImageEditorMedia(target.designID, file, {
+					provenance,
+					signal: ingestionAbort.signal
+				});
+				if (!mediaTargetIsCurrent(target)) return;
 				media = [item, ...media];
-				addMedia(item);
+				await addMedia(item, target.replace, target);
 			} else {
 				const uploaded = await uploadMediaFile({
-					workspaceId: editor.workspaceID,
+					workspaceId: target.workspaceID,
 					file,
 					source: 'stock_import',
 					retentionClass: 'library',
@@ -223,29 +355,62 @@
 					tagId: uploadTagID(),
 					prepareVideo: false
 				});
+				if (!mediaTargetIsCurrent(target)) return;
 				await queryClient.invalidateQueries({
-					queryKey: mediaQueryKeys.lists(editor.workspaceID)
+					queryKey: mediaQueryKeys.lists(target.workspaceID)
 				});
 				editor.refreshMediaLibrary();
 				await loadAll();
 				const item = media.find((entry) => entry.id === uploaded.id);
-				if (item) addMedia(item);
-				else editor.addImage({ id: uploaded.id, name: uploaded.original_filename });
+				if (item) await addMedia(item, target.replace, target);
+				else
+					await addMedia(
+						{
+							id: uploaded.id,
+							original_filename: uploaded.original_filename,
+							mime_type: file.type,
+							width: 0,
+							height: 0
+						},
+						target.replace,
+						target
+					);
 			}
-			stockOpen = false;
+			guestSource = 'library';
 		} catch (cause) {
-			error = cause instanceof Error ? cause.message : m.stock_media_download_failed();
+			error = imageEditorErrorMessage(cause) ?? m.stock_media_download_failed();
 		} finally {
 			loading = false;
 		}
 	}
 </script>
 
-<div class="flex h-full min-h-0 min-w-0 flex-col overflow-hidden">
-	<div class="flex min-h-10 items-center border-b px-3">
-		<h2 class="text-sm font-medium text-foreground">
+<div
+	class={mode === 'overlay'
+		? 'flex max-h-[70dvh] w-80 min-w-0 flex-col overflow-hidden rounded-xl border bg-popover shadow-xl'
+		: 'flex h-full min-h-0 min-w-0 flex-col overflow-hidden'}
+	role={mode === 'overlay' ? 'dialog' : undefined}
+	aria-modal={mode === 'overlay' ? true : undefined}
+	aria-label={mode === 'overlay' ? m.image_editor_media() : undefined}
+	onkeydown={handleOverlayKeydown}
+>
+	<div class="flex min-h-8 items-center border-b px-3">
+		<h2 class="min-w-0 flex-1 text-sm font-medium text-foreground">
 			{m.image_editor_media()}
 		</h2>
+		{#if onclose}
+			<Button variant="ghost" size="xs" onclick={() => onclose?.()}>
+				{m.common_done()}
+			</Button>
+			<Button
+				variant="ghost"
+				size="icon-xs"
+				aria-label={m.common_close()}
+				onclick={() => onclose?.()}
+			>
+				<ThemeIcon role="close" class="size-3.5" />
+			</Button>
+		{/if}
 	</div>
 	{#if error}
 		<div class="m-2 rounded-md bg-destructive/10 p-2 text-xs text-destructive" role="alert">
@@ -253,150 +418,210 @@
 		</div>
 	{/if}
 	<div class="min-h-0 flex-1 overflow-y-auto p-2">
-		<section class="mb-4">
-			<h3 class="mb-2 text-xs font-semibold">{m.image_editor_add()}</h3>
-			<div class="grid grid-cols-2 gap-1.5">
+		<section class="mb-3">
+			<h3 class="mb-1.5 text-xs font-semibold">{m.image_editor_add()}</h3>
+			<div class="flex gap-1" role="toolbar" aria-label={m.image_editor_add()}>
 				<Button
 					variant="outline"
-					size="sm"
-					class="min-h-11 justify-start"
+					size="icon-sm"
+					aria-label={m.image_editor_text()}
+					title={m.image_editor_text()}
 					onclick={() => editor.addText()}
 				>
 					<ProtectedIcon icon="editor-text" />
-					{m.image_editor_text()}
 				</Button>
 				<Button
 					variant="outline"
-					size="sm"
-					class="min-h-11 justify-start"
+					size="icon-sm"
+					aria-label={m.image_editor_rectangle()}
+					title={m.image_editor_rectangle()}
 					onclick={() => editor.addShape('rectangle')}
 				>
-					<ProtectedIcon icon="editor-shapes" />
-					{m.image_editor_rectangle()}
+					<ProtectedIcon icon="editor-shape-rectangle" />
 				</Button>
 				<Button
 					variant="outline"
-					size="sm"
-					class="min-h-11 justify-start"
+					size="icon-sm"
+					aria-label={m.image_editor_rounded_rectangle()}
+					title={m.image_editor_rounded_rectangle()}
 					onclick={() => editor.addShape('rounded_rectangle')}
 				>
-					<ProtectedIcon icon="editor-shapes" class="rounded-sm" />
-					{m.image_editor_rounded_rectangle()}
+					<ProtectedIcon icon="editor-shape-rounded-rectangle" />
 				</Button>
 				<Button
 					variant="outline"
-					size="sm"
-					class="min-h-11 justify-start"
+					size="icon-sm"
+					aria-label={m.image_editor_ellipse()}
+					title={m.image_editor_ellipse()}
 					onclick={() => editor.addShape('ellipse')}
 				>
-					<ProtectedIcon icon="editor-shapes" />
-					{m.image_editor_ellipse()}
+					<ProtectedIcon icon="editor-shape-ellipse" />
 				</Button>
 				<Button
 					variant="outline"
-					size="sm"
-					class="col-span-2 min-h-11 justify-start"
+					size="icon-sm"
+					aria-label={m.image_editor_line()}
+					title={m.image_editor_line()}
 					onclick={() => editor.addShape('line')}
 				>
 					<ThemeIcon role="remove" />
-					{m.image_editor_line()}
 				</Button>
 			</div>
 		</section>
-		{#if !guestMode}
-			<div class="mb-2 space-y-2">
-				<div class="overflow-x-auto pb-1">
-					<MediaTagFilter
-						{tags}
-						selectedIds={selectedTagIDs}
-						untagged={showUntagged}
-						onChange={changeTagFilters}
-					/>
-				</div>
-				<AppSelect
-					value={sort}
-					onValueChange={(value) => {
-						sort = value as typeof sort;
-						void searchMedia();
+		<section class="mb-3 space-y-1.5">
+			<h3 class="text-xs font-semibold">{m.media_source()}</h3>
+			<div
+				class={guestMode ? 'grid grid-cols-3 gap-1' : 'grid grid-cols-4 gap-1'}
+				role="toolbar"
+				aria-label={m.media_source()}
+			>
+				{#if !guestMode}
+					<Button
+						variant="secondary"
+						size="xs"
+						class="min-w-0 px-1"
+						onclick={() => searchInput?.focus()}
+					>
+						<ThemeIcon role="media" />
+						<span class="truncate">{m.image_editor_workspace_category()}</span>
+					</Button>
+				{/if}
+				<Button
+					variant={guestMode && guestSource === 'library' ? 'secondary' : 'outline'}
+					size="xs"
+					class="min-w-0 px-1"
+					onclick={() => {
+						if (guestMode) {
+							guestSource = 'library';
+							guestFileInput?.click();
+						} else openPicker('upload');
 					}}
-					options={[
-						{ value: 'newest', label: m.media_sort_newest() },
-						{ value: 'oldest', label: m.media_sort_oldest() },
-						{ value: 'name', label: m.media_sort_name() },
-						{ value: 'size', label: m.media_sort_size() },
-						{ value: 'recently_used', label: m.media_recently_used() }
-					]}
-					class="h-8 w-full min-w-0 text-xs"
-				/>
+				>
+					<ThemeIcon role="upload" />
+					<span class="truncate">{m.media_upload_device()}</span>
+				</Button>
+				<Button
+					variant={guestMode && guestSource === 'stock' ? 'secondary' : 'outline'}
+					size="xs"
+					class="min-w-0 px-1"
+					onclick={() => (guestMode ? (guestSource = 'stock') : openPicker('stock'))}
+				>
+					<ThemeIcon role="image" />
+					<span class="truncate">{m.stock_media()}</span>
+				</Button>
+				<Button
+					variant={guestMode && guestSource === 'camera' ? 'secondary' : 'outline'}
+					size="xs"
+					class="min-w-0 px-1"
+					onclick={() => (guestMode ? (guestSource = 'camera') : openPicker('camera'))}
+				>
+					<ThemeIcon role="camera" />
+					<span class="truncate">{m.media_camera()}</span>
+				</Button>
+			</div>
+		</section>
+		{#if addedMessage}
+			<div
+				class="mb-3 flex items-center gap-2 rounded-md border bg-muted/30 px-2.5 py-2 text-xs"
+				role="status"
+				aria-live="polite"
+			>
+				<ThemeIcon role="check" class="size-3.5 text-success-foreground" />
+				<span class="min-w-0 flex-1 truncate">{addedMessage}</span>
+				{#if onclose}
+					<Button variant="ghost" size="xs" onclick={() => onclose?.()}>{m.common_done()}</Button>
+				{/if}
 			</div>
 		{/if}
-		<form
-			class="mb-2 flex gap-1"
-			onsubmit={(event) => {
-				event.preventDefault();
-				void searchMedia();
-			}}
-		>
-			<div class="relative min-w-0 flex-1">
-				<ThemeIcon
-					role="search"
-					class="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-muted-foreground"
-				/>
-				<Input
-					bind:value={search}
-					class="h-8 pl-7 text-xs"
-					placeholder={m.image_editor_search_media()}
-				/>
-			</div>
-			<Tooltip.Root>
-				<Tooltip.Trigger>
-					{#snippet child({ props })}
-						<Button
-							{...props}
-							variant="outline"
-							size="icon-sm"
-							type="submit"
-							aria-label={m.image_editor_search_media()}
-						>
-							<ThemeIcon role="search" />
-						</Button>
-					{/snippet}
-				</Tooltip.Trigger>
-				<Tooltip.Content>{m.image_editor_search_media()}</Tooltip.Content>
-			</Tooltip.Root>
-		</form>
 		<Input
 			bind:ref={guestFileInput}
 			type="file"
-			accept="image/png,image/jpeg,image/webp"
+			accept="image/png,image/jpeg,image/webp,image/gif"
 			multiple
 			class="sr-only !size-px !p-0"
 			onchange={uploadGuestMedia}
 		/>
-		<Button
-			variant="outline"
-			size="sm"
-			class="mb-2 w-full"
-			onclick={() => (guestMode ? guestFileInput?.click() : (pickerOpen = true))}
-		>
-			<ThemeIcon role="upload" />
-			{m.image_editor_upload_camera()}
-		</Button>
-		{#if guestMode}
-			<Button
-				variant={stockOpen ? 'secondary' : 'outline'}
-				size="sm"
-				class="mb-3 w-full"
-				onclick={() => (stockOpen = !stockOpen)}
-			>
-				<ThemeIcon role="image" />
-				{stockOpen ? m.common_close() : m.stock_media()}
-			</Button>
-			{#if stockOpen}
-				<div class="mb-4 rounded-lg border bg-card p-2">
-					<StockMediaBrowser accept="photo" compact onSelect={addStockMedia} />
+		{#if !guestMode || guestSource === 'library'}
+			{#if !guestMode}
+				<div class="mb-2 space-y-2">
+					<div class="overflow-x-auto pb-1">
+						<MediaTagFilter
+							{tags}
+							selectedIds={selectedTagIDs}
+							untagged={showUntagged}
+							onChange={changeTagFilters}
+						/>
+					</div>
+					<AppSelect
+						value={sort}
+						onValueChange={(value) => {
+							sort = value as typeof sort;
+							void searchMedia();
+						}}
+						options={[
+							{ value: 'newest', label: m.media_sort_newest() },
+							{ value: 'oldest', label: m.media_sort_oldest() },
+							{ value: 'name', label: m.media_sort_name() },
+							{ value: 'size', label: m.media_sort_size() },
+							{ value: 'recently_used', label: m.media_recently_used() }
+						]}
+						class="h-7 w-full min-w-0 text-xs"
+					/>
 				</div>
 			{/if}
+			<form
+				class="mb-2 flex gap-1"
+				onsubmit={(event) => {
+					event.preventDefault();
+					void searchMedia();
+				}}
+			>
+				<div class="relative min-w-0 flex-1">
+					<ThemeIcon
+						role="search"
+						class="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-muted-foreground"
+					/>
+					<Input
+						bind:ref={searchInput}
+						bind:value={search}
+						class="h-7 pl-7 text-xs"
+						placeholder={m.image_editor_search_media()}
+						aria-label={m.image_editor_search_media()}
+					/>
+				</div>
+				<Tooltip.Root>
+					<Tooltip.Trigger>
+						{#snippet child({ props })}
+							<Button
+								{...props}
+								variant="outline"
+								size="icon-sm"
+								type="submit"
+								aria-label={m.image_editor_search_media()}
+							>
+								<ThemeIcon role="search" />
+							</Button>
+						{/snippet}
+					</Tooltip.Trigger>
+					<Tooltip.Content>{m.image_editor_search_media()}</Tooltip.Content>
+				</Tooltip.Root>
+			</form>
+		{/if}
+		{#if guestMode && guestSource === 'stock'}
+			<div class="mb-4 rounded-lg border bg-card p-2">
+				<StockMediaBrowser
+					accept="photo"
+					compact
+					onSelectStart={() => {
+						stockMediaTarget = captureMediaTarget();
+					}}
+					onSelect={addStockMedia}
+				/>
+			</div>
+		{:else if guestMode && guestSource === 'camera'}
+			<div class="mb-4">
+				<CameraCapture onCapture={captureGuestPhoto} />
+			</div>
 		{/if}
 		{#if editor.backgroundImagePickerActive}
 			<div
@@ -424,12 +649,9 @@
 			</Button>
 		{/if}
 
-		{#if loading}
-			<div class="flex min-h-40 items-center justify-center text-sm text-muted-foreground">
-				<ProtectedIcon icon="loading" class="mr-2 size-4 animate-spin" />
-				{m.common_loading()}
-			</div>
-		{:else}
+		{#if (!guestMode || guestSource === 'library') && loading && media.length === 0}
+			<PageLoading layout="gallery" label={m.common_loading()} items={6} />
+		{:else if !guestMode || guestSource === 'library'}
 			<section>
 				<h3 class="mb-2 text-xs font-semibold">{m.image_editor_all_media()}</h3>
 				{#if media.length > 0}
@@ -450,6 +672,7 @@
 													{
 														id: item.id,
 														name: item.original_filename,
+														mime_type: item.mime_type,
 														width: item.width,
 														height: item.height
 													},
@@ -458,11 +681,10 @@
 											ondragend={finishMediaDrag}
 											disabled={!editor.canEdit}
 										>
-											<img
-												src={getAuthenticatedMediaURL(item.thumbnail_url || item.url)}
-												alt={item.alt_text || item.original_filename}
+											<MediaThumbnail
+												{item}
+												fallbackAlt={item.original_filename}
 												class="aspect-square w-full object-cover transition-transform group-hover:scale-[1.02]"
-												loading="lazy"
 											/>
 											<span class="block truncate border-t px-1.5 py-1 text-xs"
 												>{item.original_filename}</span
@@ -502,9 +724,13 @@
 						{/each}
 					</div>
 				{:else}
-					<p class="rounded-md border border-dashed p-4 text-center text-xs text-muted-foreground">
-						{emptyMediaMessage}
-					</p>
+					<EmptyState
+						themeIconRole="media"
+						title={emptyMediaMessage}
+						variant="muted"
+						size="sm"
+						headingLevel={4}
+					/>
 				{/if}
 			</section>
 		{/if}
@@ -523,26 +749,43 @@
 		showCreate={false}
 		presentation="dialog"
 		desktopSize="default"
-		initialMode="upload"
+		initialMode={pickerInitialMode}
 		autoConfirmUploads
 		title={m.image_editor_add_image()}
 		onConfirm={async (ids) => {
 			const id = ids[0];
 			if (!id) return;
+			const target = captureMediaTarget();
+			if (target.background) {
+				setBackgroundMedia(id, m.image_editor_image());
+			} else {
+				try {
+					const listed = media.find((entry) => entry.id === id);
+					const item =
+						listed ??
+						(await queryMediaMetadata(target.workspaceID, [id])).media.find(
+							(entry) => entry.id === id
+						);
+					if (!item) throw new Error(m.image_editor_export_missing_media());
+					await addMedia(
+						{
+							id: item.id,
+							mime_type: item.mime_type ?? '',
+							original_filename: item.original_filename ?? m.image_editor_image(),
+							width: item.width ?? 0,
+							height: item.height ?? 0
+						},
+						target.replace,
+						target
+					);
+				} catch (cause) {
+					if (mediaTargetIsCurrent(target))
+						error = imageEditorErrorMessage(cause) ?? m.image_editor_animation_failed();
+				}
+			}
+			if (!mediaTargetIsCurrent(target)) return;
 			editor.refreshMediaLibrary();
 			await loadAll();
-			const item = media.find((entry) => entry.id === id);
-			if (item) addMedia(item);
-			else if (replaceMode && editor.selectedLayers[0]?.image) {
-				const selected = editor.selectedLayers[0];
-				editor.updateLayer(selected.id, {
-					image: {
-						...selected.image!,
-						media_id: id
-					}
-				});
-				replaceMode = false;
-			} else editor.addImage({ id });
 		}}
 	/>
 {/if}

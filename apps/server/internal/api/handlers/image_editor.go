@@ -25,12 +25,13 @@ import (
 	"github.com/openpost/backend/internal/api/middleware"
 	"github.com/openpost/backend/internal/models"
 	"github.com/openpost/backend/internal/services/medialifecycle"
+	"github.com/rivo/uniseg"
 	"github.com/uptrace/bun"
 	"github.com/uptrace/bun/dialect"
 )
 
 const (
-	imageEditorSchemaVersion       = 1
+	imageEditorSchemaVersion       = 2
 	imageEditorSnapshotVersion     = 1
 	imageEditorPageStorageVersion  = 1
 	imageEditorColorGradeVersion   = 1
@@ -89,6 +90,7 @@ type ImageEditorTextCurve struct {
 
 type ImageEditorTextValue struct {
 	Text           string                `json:"text"`
+	Runs           []ImageEditorTextRun  `json:"runs,omitempty"`
 	FontFamily     string                `json:"font_family"`
 	FontAssetID    string                `json:"font_asset_id,omitempty"`
 	FontWeight     int                   `json:"font_weight"`
@@ -106,6 +108,15 @@ type ImageEditorTextValue struct {
 	StrokeWidth    float64               `json:"stroke_width"`
 	Shadow         ImageEditorTextShadow `json:"shadow"`
 	Curve          *ImageEditorTextCurve `json:"curve,omitempty"`
+}
+
+type ImageEditorTextRun struct {
+	Start      int     `json:"start"`
+	End        int     `json:"end"`
+	FontWeight *int    `json:"font_weight,omitempty"`
+	FontStyle  *string `json:"font_style,omitempty"`
+	Underline  *bool   `json:"underline,omitempty"`
+	Color      *string `json:"color,omitempty"`
 }
 
 type ImageEditorImageAdjustments struct {
@@ -140,6 +151,28 @@ type ImageEditorImageValue struct {
 	Crop              ImageEditorCrop             `json:"crop"`
 	Adjustments       ImageEditorImageAdjustments `json:"adjustments"`
 	ColorGradeVersion int                         `json:"color_grade_version,omitempty" enum:"1"`
+	LensEffect        *ImageEditorLensEffect      `json:"lens_effect,omitempty"`
+	Animation         *ImageEditorAnimation       `json:"animation,omitempty"`
+}
+
+type ImageEditorLensEffect struct {
+	Kind      string  `json:"kind" enum:"flare,starburst,mist,prism,bokeh"`
+	Amount    float64 `json:"amount" minimum:"0" maximum:"1"`
+	Threshold float64 `json:"threshold" minimum:"0" maximum:"1"`
+	Size      float64 `json:"size" minimum:"0" maximum:"1"`
+	Angle     float64 `json:"angle" minimum:"-180" maximum:"180"`
+	Blades    int     `json:"blades" minimum:"3" maximum:"8"`
+}
+
+type ImageEditorAnimationFrame struct {
+	SourceIndex int `json:"source_index" minimum:"0" maximum:"199"`
+	DurationMS  int `json:"duration_ms" minimum:"20" maximum:"10000"`
+}
+
+type ImageEditorAnimation struct {
+	SourceFrameCount int                         `json:"source_frame_count" minimum:"1" maximum:"200"`
+	Repeat           int                         `json:"repeat" minimum:"-1" maximum:"65535"`
+	Frames           []ImageEditorAnimationFrame `json:"frames" minItems:"1" maxItems:"200"`
 }
 
 type ImageEditorShapeValue struct {
@@ -275,6 +308,8 @@ type ImageEditorColorGrade struct {
 type ImageEditorPagePayload struct {
 	ID                  string                     `json:"id"`
 	Name                string                     `json:"name"`
+	WidthPX             *int                       `json:"width_px,omitempty"`
+	HeightPX            *int                       `json:"height_px,omitempty"`
 	BackgroundColor     string                     `json:"background_color"`
 	Background          *ImageEditorPageBackground `json:"background,omitempty"`
 	Guides              *ImageEditorPageGuides     `json:"guides,omitempty"`
@@ -292,6 +327,8 @@ type ImageEditorPageGuides struct {
 
 type imageEditorStoredPageState struct {
 	StorageVersion    int                        `json:"storage_version"`
+	WidthPX           *int                       `json:"width_px,omitempty"`
+	HeightPX          *int                       `json:"height_px,omitempty"`
 	Background        *ImageEditorPageBackground `json:"background"`
 	Guides            *ImageEditorPageGuides     `json:"guides,omitempty"`
 	ColorGradeVersion int                        `json:"color_grade_version,omitempty"`
@@ -306,12 +343,19 @@ func (page ImageEditorPagePayload) BackgroundMediaID() string {
 }
 
 type ImageEditorExportDefaults struct {
-	Format     string  `json:"format" enum:"png,jpeg,webp"`
+	Format     string  `json:"format" enum:"png,jpeg,webp,gif"`
 	Quality    float64 `json:"quality" minimum:"0.1" maximum:"1"`
 	MatteColor string  `json:"matte_color"`
 }
 
+type ImageEditorTemplateSlot struct {
+	Name          string `json:"name" minLength:"1" maxLength:"100"`
+	TargetID      string `json:"target_id" minLength:"1"`
+	MaxCharacters int    `json:"max_characters" minimum:"1" maximum:"2000"`
+}
+
 type ImageEditorDocumentPayload struct {
+	TemplateSlots    []ImageEditorTemplateSlot `json:"template_slots,omitempty" maxItems:"20"`
 	SchemaVersion    int                       `json:"schema_version"`
 	Title            string                    `json:"title"`
 	PresetKey        string                    `json:"preset_key"`
@@ -383,6 +427,7 @@ type ImageEditorPresetOutput struct {
 type ListImageEditorDesignsInput struct {
 	WorkspaceID string `query:"workspace_id" required:"true"`
 	Search      string `query:"search"`
+	Trashed     bool   `query:"trashed" doc:"List recoverable deleted designs instead of active designs."`
 	Limit       int    `query:"limit" minimum:"1" maximum:"100"`
 	Offset      int    `query:"offset" minimum:"0"`
 }
@@ -402,7 +447,7 @@ type CreateImageEditorDesignInput struct {
 		PresetKey       string `json:"preset_key"`
 		WidthPX         int    `json:"width_px"`
 		HeightPX        int    `json:"height_px"`
-		SourceMediaID   string `json:"source_media_id,omitempty"`
+		SourceMediaID   string `json:"source_media_id,omitempty" doc:"Source library image. Reopens its active editing design when one exists."`
 		ClientRequestID string `json:"client_request_id,omitempty" maxLength:"200" doc:"Stable client request ID used to make design creation idempotent"`
 	}
 }
@@ -499,6 +544,18 @@ type GetImageEditorRevisionOutput struct {
 	Body ImageEditorRevisionResponse
 }
 
+type DeleteImageEditorRevisionInput struct {
+	PathID     string `path:"id"`
+	RevisionID string `path:"revision_id"`
+	Confirm    bool   `query:"confirm" required:"true" doc:"Confirm permanent removal of this named checkpoint"`
+}
+
+type DeleteImageEditorRevisionOutput struct {
+	Body struct {
+		Deleted bool `json:"deleted"`
+	}
+}
+
 type CreateImageEditorCheckpointInput struct {
 	PathID string `path:"id"`
 	Body   struct {
@@ -584,7 +641,7 @@ func (h *ImageEditorHandler) registerReturnTokens(api huma.API) {
 		OperationID:   "create-image-editor-return-token",
 		Method:        http.MethodPost,
 		Path:          "/image-editor/return-tokens",
-		Summary:       "Create a one-time OpenPost Image Editor composer return token",
+		Summary:       "Create a one-time dopost Image Editor composer return token",
 		Tags:          []string{tagImageEditor},
 		DefaultStatus: http.StatusCreated,
 		Middlewares:   huma.Middlewares{middleware.AuthMiddleware(api, h.auth)},
@@ -594,7 +651,7 @@ func (h *ImageEditorHandler) registerReturnTokens(api huma.API) {
 		OperationID: "complete-image-editor-return-token",
 		Method:      http.MethodPost,
 		Path:        "/image-editor/return-tokens/{token}/complete",
-		Summary:     "Store ordered OpenPost Image Editor exports for a composer return",
+		Summary:     "Store ordered dopost Image Editor exports for a composer return",
 		Tags:        []string{tagImageEditor},
 		Middlewares: huma.Middlewares{middleware.AuthMiddleware(api, h.auth)},
 		Errors:      []int{400, 403, 404, 409},
@@ -603,7 +660,7 @@ func (h *ImageEditorHandler) registerReturnTokens(api huma.API) {
 		OperationID: "consume-image-editor-return-token",
 		Method:      http.MethodPost,
 		Path:        "/image-editor/return-tokens/{token}/consume",
-		Summary:     "Consume a completed OpenPost Image Editor composer return token",
+		Summary:     "Consume a completed dopost Image Editor composer return token",
 		Tags:        []string{tagImageEditor},
 		Middlewares: huma.Middlewares{middleware.AuthMiddleware(api, h.auth)},
 		Errors:      []int{400, 403, 404, 409},
@@ -615,7 +672,7 @@ func (h *ImageEditorHandler) registerPresets(api huma.API) {
 		OperationID: "list-image-editor-presets",
 		Method:      http.MethodGet,
 		Path:        "/image-editor/presets",
-		Summary:     "List OpenPost Image Editor presets and runtime configuration",
+		Summary:     "List dopost Image Editor presets and runtime configuration",
 		Tags:        []string{tagImageEditor},
 	}, func(_ context.Context, _ *struct{}) (*ImageEditorPresetOutput, error) {
 		out := &ImageEditorPresetOutput{}
@@ -632,7 +689,7 @@ func (h *ImageEditorHandler) registerDesigns(api huma.API) {
 		OperationID: "list-image-editor-designs",
 		Method:      http.MethodGet,
 		Path:        "/image-editor/designs",
-		Summary:     "List OpenPost Image Editor designs",
+		Summary:     "List dopost Image Editor designs",
 		Tags:        []string{tagImageEditor},
 		Middlewares: huma.Middlewares{middleware.AuthMiddleware(api, h.auth)},
 		Errors:      []int{400, 403},
@@ -642,7 +699,7 @@ func (h *ImageEditorHandler) registerDesigns(api huma.API) {
 		OperationID:   "create-image-editor-design",
 		Method:        http.MethodPost,
 		Path:          "/image-editor/designs",
-		Summary:       "Create an OpenPost Image Editor design",
+		Summary:       "Create a dopost Image Editor design",
 		Tags:          []string{tagImageEditor},
 		DefaultStatus: http.StatusCreated,
 		Middlewares:   huma.Middlewares{middleware.AuthMiddleware(api, h.auth)},
@@ -653,17 +710,24 @@ func (h *ImageEditorHandler) registerDesigns(api huma.API) {
 		OperationID: "get-image-editor-design",
 		Method:      http.MethodGet,
 		Path:        "/image-editor/designs/{id}",
-		Summary:     "Get an OpenPost Image Editor design",
+		Summary:     "Get a dopost Image Editor design",
 		Tags:        []string{tagImageEditor},
 		Middlewares: huma.Middlewares{middleware.AuthMiddleware(api, h.auth)},
 		Errors:      []int{403, 404},
 	}, h.getDesign)
 
 	huma.Register(api, huma.Operation{
+		OperationID: "restore-image-editor-design", Method: http.MethodPost,
+		Path: "/image-editor/designs/{id}/restore", Summary: "Restore a trashed dopost Image Editor design",
+		Tags: []string{tagImageEditor}, Middlewares: huma.Middlewares{middleware.AuthMiddleware(api, h.auth)},
+		Errors: []int{403, 404},
+	}, h.restoreDesign)
+
+	huma.Register(api, huma.Operation{
 		OperationID: "update-image-editor-design",
 		Method:      http.MethodPatch,
 		Path:        "/image-editor/designs/{id}",
-		Summary:     "Save an OpenPost Image Editor design with optimistic concurrency",
+		Summary:     "Save a dopost Image Editor design with optimistic concurrency",
 		Tags:        []string{tagImageEditor},
 		Middlewares: huma.Middlewares{middleware.AuthMiddleware(api, h.auth)},
 		Errors:      []int{400, 403, 404, 409},
@@ -673,7 +737,7 @@ func (h *ImageEditorHandler) registerDesigns(api huma.API) {
 		OperationID: "delete-image-editor-design",
 		Method:      http.MethodDelete,
 		Path:        "/image-editor/designs/{id}",
-		Summary:     "Move an OpenPost Image Editor design to trash",
+		Summary:     "Move a dopost Image Editor design to trash",
 		Tags:        []string{tagImageEditor},
 		Middlewares: huma.Middlewares{middleware.AuthMiddleware(api, h.auth)},
 		Errors:      []int{403, 404},
@@ -683,7 +747,7 @@ func (h *ImageEditorHandler) registerDesigns(api huma.API) {
 		OperationID: "toggle-image-editor-design-favorite",
 		Method:      http.MethodPatch,
 		Path:        "/image-editor/designs/{id}/favorite",
-		Summary:     "Toggle an OpenPost Image Editor design favorite",
+		Summary:     "Toggle a dopost Image Editor design favorite",
 		Tags:        []string{tagImageEditor},
 		Middlewares: huma.Middlewares{middleware.AuthMiddleware(api, h.auth)},
 		Errors:      []int{403, 404},
@@ -693,7 +757,7 @@ func (h *ImageEditorHandler) registerDesigns(api huma.API) {
 		OperationID: "duplicate-image-editor-design",
 		Method:      http.MethodPost,
 		Path:        "/image-editor/designs/{id}/duplicate",
-		Summary:     "Duplicate an OpenPost Image Editor design",
+		Summary:     "Duplicate a dopost Image Editor design",
 		Tags:        []string{tagImageEditor},
 		Middlewares: huma.Middlewares{middleware.AuthMiddleware(api, h.auth)},
 		Errors:      []int{403, 404},
@@ -705,7 +769,7 @@ func (h *ImageEditorHandler) registerRevisions(api huma.API) {
 		OperationID: "list-image-editor-design-revisions",
 		Method:      http.MethodGet,
 		Path:        "/image-editor/designs/{id}/revisions",
-		Summary:     "List OpenPost Image Editor design recovery revisions and checkpoints",
+		Summary:     "List dopost Image Editor design recovery revisions and checkpoints",
 		Tags:        []string{tagImageEditor},
 		Middlewares: huma.Middlewares{middleware.AuthMiddleware(api, h.auth)},
 		Errors:      []int{400, 403, 404},
@@ -715,17 +779,28 @@ func (h *ImageEditorHandler) registerRevisions(api huma.API) {
 		OperationID: "get-image-editor-design-revision",
 		Method:      http.MethodGet,
 		Path:        "/image-editor/designs/{id}/revisions/{revision_id}",
-		Summary:     "Inspect an OpenPost Image Editor design revision",
+		Summary:     "Inspect a dopost Image Editor design revision",
 		Tags:        []string{tagImageEditor},
 		Middlewares: huma.Middlewares{middleware.AuthMiddleware(api, h.auth)},
 		Errors:      []int{400, 403, 404},
 	}, h.getRevision)
 
 	huma.Register(api, huma.Operation{
+		OperationID: "delete-image-editor-design-checkpoint",
+		Method:      http.MethodDelete,
+		Path:        "/image-editor/designs/{id}/revisions/{revision_id}",
+		Summary:     "Remove a named dopost Image Editor checkpoint",
+		Description: "Removes only the selected named checkpoint and its snapshot references. The current design and other versions remain unchanged.",
+		Tags:        []string{tagImageEditor},
+		Middlewares: huma.Middlewares{middleware.AuthMiddleware(api, h.auth)},
+		Errors:      []int{400, 403, 404},
+	}, h.deleteRevision)
+
+	huma.Register(api, huma.Operation{
 		OperationID: "create-image-editor-design-checkpoint",
 		Method:      http.MethodPost,
 		Path:        "/image-editor/designs/{id}/revisions",
-		Summary:     "Create a named OpenPost Image Editor design checkpoint",
+		Summary:     "Create a named dopost Image Editor design checkpoint",
 		Tags:        []string{tagImageEditor},
 		Middlewares: huma.Middlewares{middleware.AuthMiddleware(api, h.auth)},
 		Errors:      []int{400, 403, 404, 409},
@@ -735,7 +810,7 @@ func (h *ImageEditorHandler) registerRevisions(api huma.API) {
 		OperationID: "restore-image-editor-design-revision",
 		Method:      http.MethodPost,
 		Path:        "/image-editor/designs/{id}/revisions/{revision_id}/restore",
-		Summary:     "Restore an OpenPost Image Editor design revision as a new head",
+		Summary:     "Restore a dopost Image Editor design revision as a new head",
 		Tags:        []string{tagImageEditor},
 		Middlewares: huma.Middlewares{middleware.AuthMiddleware(api, h.auth)},
 		Errors:      []int{400, 403, 404, 409},
@@ -744,7 +819,7 @@ func (h *ImageEditorHandler) registerRevisions(api huma.API) {
 
 func (h *ImageEditorHandler) ensureEnabled() error {
 	if !h.enabled {
-		return huma.Error404NotFound("OpenPost Image Editor is disabled")
+		return huma.Error404NotFound("dopost Image Editor is disabled")
 	}
 	return nil
 }
@@ -780,14 +855,18 @@ func (h *ImageEditorHandler) listDesigns(ctx context.Context, input *ListImageEd
 	if limit <= 0 || limit > 100 {
 		limit = 50
 	}
+	deletionPredicate := "deleted_at IS NULL"
+	if input.Trashed {
+		deletionPredicate = "deleted_at IS NOT NULL"
+	}
 	query := h.db.NewSelect().Model((*models.DesignDocument)(nil)).
-		Where("workspace_id = ? AND deleted_at IS NULL", input.WorkspaceID)
+		Where("workspace_id = ?", input.WorkspaceID).Where(deletionPredicate)
 	if search := strings.TrimSpace(input.Search); search != "" {
 		query = query.Where("LOWER(title) LIKE ?", "%"+strings.ToLower(search)+"%")
 	}
 	total, err := query.Count(ctx)
 	if err != nil {
-		return nil, huma.Error500InternalServerError("failed to count OpenPost Image Editor designs")
+		return nil, huma.Error500InternalServerError("failed to count dopost Image Editor designs")
 	}
 	var rows []struct {
 		models.DesignDocument
@@ -808,7 +887,7 @@ func (h *ImageEditorHandler) listDesigns(ctx context.Context, input *ListImageEd
 			ORDER BY r.created_at ASC
 			LIMIT 1
 		) AS fallback_preview_media_id`).
-		Where("d.workspace_id = ? AND d.deleted_at IS NULL", input.WorkspaceID).
+		Where("d.workspace_id = ?", input.WorkspaceID).Where("d."+deletionPredicate).
 		Apply(func(q *bun.SelectQuery) *bun.SelectQuery {
 			if search := strings.TrimSpace(input.Search); search != "" {
 				return q.Where("LOWER(d.title) LIKE ?", "%"+strings.ToLower(search)+"%")
@@ -820,7 +899,7 @@ func (h *ImageEditorHandler) listDesigns(ctx context.Context, input *ListImageEd
 		Offset(input.Offset).
 		Scan(ctx, &rows)
 	if err != nil {
-		return nil, huma.Error500InternalServerError("failed to list OpenPost Image Editor designs")
+		return nil, huma.Error500InternalServerError("failed to list dopost Image Editor designs")
 	}
 	out := &ListImageEditorDesignsOutput{}
 	out.Body.Total = total
@@ -903,6 +982,9 @@ func (h *ImageEditorHandler) createDesign(ctx context.Context, input *CreateImag
 	); err != nil {
 		return nil, err
 	}
+	if existing, err := h.sourceEditingDesign(ctx, document); err != nil || existing != nil {
+		return existing, err
+	}
 	payload := ImageEditorDocumentPayload{
 		SchemaVersion: imageEditorSchemaVersion,
 		Title:         title,
@@ -919,15 +1001,43 @@ func (h *ImageEditorHandler) createDesign(ctx context.Context, input *CreateImag
 	if err := validateImageEditorPayload(payload); err != nil {
 		return nil, huma.Error400BadRequest(err.Error())
 	}
-	if err := h.insertCreatedDesign(ctx, document, payload.Pages, now); err != nil {
+	return h.completeDesignCreation(ctx, document, payload.Pages, clientRequestID)
+}
+
+func (h *ImageEditorHandler) completeDesignCreation(ctx context.Context, document *models.DesignDocument, pages []ImageEditorPagePayload, clientRequestID string) (*CreateImageEditorDesignOutput, error) {
+	if err := h.insertCreatedDesign(ctx, document, pages, document.CreatedAt); err != nil {
+		if existing, lookupErr := h.sourceEditingDesign(ctx, document); lookupErr == nil && existing != nil {
+			return existing, nil
+		}
 		if clientRequestID != "" {
-			if response, responseErr := h.documentResponse(ctx, documentID); responseErr == nil {
+			if response, responseErr := h.documentResponse(ctx, document.ID); responseErr == nil {
 				return &CreateImageEditorDesignOutput{Body: *response}, nil
 			}
 		}
-		return nil, huma.Error500InternalServerError("failed to create OpenPost Image Editor design")
+		return nil, huma.Error500InternalServerError("failed to create dopost Image Editor design")
 	}
 	response, err := h.documentResponse(ctx, document.ID)
+	if err != nil {
+		return nil, err
+	}
+	return &CreateImageEditorDesignOutput{Body: *response}, nil
+}
+
+func (h *ImageEditorHandler) sourceEditingDesign(ctx context.Context, source *models.DesignDocument) (*CreateImageEditorDesignOutput, error) {
+	if source.SourceMediaID == "" {
+		return nil, nil
+	}
+	var existing models.DesignDocument
+	err := h.db.NewSelect().Model(&existing).
+		Where("workspace_id = ? AND source_media_id = ? AND deleted_at IS NULL", source.WorkspaceID, source.SourceMediaID).
+		Scan(ctx)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, huma.Error500InternalServerError("failed to find source editing design")
+	}
+	response, err := h.documentResponse(ctx, existing.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -952,7 +1062,7 @@ func (h *ImageEditorHandler) resolveCreateDesignRequest(
 		Where("id = ? AND workspace_id = ? AND created_by_id = ?", documentID, workspaceID, userID).
 		Exists(ctx)
 	if err != nil {
-		return "", nil, huma.Error500InternalServerError("failed to check OpenPost Image Editor design request")
+		return "", nil, huma.Error500InternalServerError("failed to check dopost Image Editor design request")
 	}
 	if !exists {
 		return documentID, nil, nil
@@ -987,6 +1097,7 @@ func (h *ImageEditorHandler) attachCreateDesignSource(
 	if err != nil {
 		return huma.Error500InternalServerError("failed to load source media")
 	}
+	document.SourceMediaID = media.ID
 	document.CoverPreviewMediaID = media.ID
 	page.Layers = append(page.Layers, newImageEditorImageLayer(media, width, height))
 	return nil
@@ -1036,7 +1147,7 @@ func (h *ImageEditorHandler) updateDesign(ctx context.Context, input *UpdateImag
 		return nil, err
 	}
 	if document.Revision != input.Body.ExpectedRevision {
-		return nil, huma.NewError(http.StatusConflict, "OpenPost Image Editor design changed elsewhere; reload or save a copy")
+		return nil, huma.NewError(http.StatusConflict, "dopost Image Editor design changed elsewhere; reload or save a copy")
 	}
 	if err := h.validateMediaReferences(
 		ctx,
@@ -1095,11 +1206,11 @@ func (h *ImageEditorHandler) updateDesign(ctx context.Context, input *UpdateImag
 		)
 	})
 	if errors.Is(err, errImageEditorRevisionConflict) {
-		return nil, huma.NewError(http.StatusConflict, "OpenPost Image Editor design changed elsewhere; reload or save a copy")
+		return nil, huma.NewError(http.StatusConflict, "dopost Image Editor design changed elsewhere; reload or save a copy")
 	}
 	if err != nil {
-		log.Printf("failed to save OpenPost Image Editor design %s: %v", document.ID, err)
-		return nil, huma.Error500InternalServerError("failed to save OpenPost Image Editor design")
+		log.Printf("failed to save dopost Image Editor design %s: %v", document.ID, err)
+		return nil, huma.Error500InternalServerError("failed to save dopost Image Editor design")
 	}
 	response, err := h.documentResponse(ctx, document.ID)
 	if err != nil {
@@ -1127,15 +1238,51 @@ func (h *ImageEditorHandler) deleteDesign(ctx context.Context, input *DeleteImag
 		Where("id = ? AND deleted_at IS NULL", document.ID).
 		Exec(ctx)
 	if err != nil {
-		return nil, huma.Error500InternalServerError("failed to delete OpenPost Image Editor design")
+		return nil, huma.Error500InternalServerError("failed to delete dopost Image Editor design")
 	}
 	affected, _ := result.RowsAffected()
 	if affected == 0 {
-		return nil, huma.Error404NotFound("OpenPost Image Editor design not found")
+		return nil, huma.Error404NotFound("dopost Image Editor design not found")
 	}
 	return &DeleteImageEditorDesignOutput{Body: struct {
 		Deleted bool `json:"deleted"`
 	}{Deleted: true}}, nil
+}
+
+func (h *ImageEditorHandler) restoreDesign(ctx context.Context, input *DeleteImageEditorDesignInput) (*GetImageEditorDesignOutput, error) {
+	if err := h.ensureEnabled(); err != nil {
+		return nil, err
+	}
+	var document models.DesignDocument
+	err := h.db.NewSelect().Model(&document).Where("id = ? AND deleted_at IS NOT NULL", input.PathID).Scan(ctx)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, huma.Error404NotFound("trashed dopost Image Editor design not found")
+	}
+	if err != nil {
+		return nil, huma.Error500InternalServerError("failed to load trashed design")
+	}
+	if _, err := h.requireAccess(ctx, document.WorkspaceID, true); err != nil {
+		return nil, err
+	}
+	result, err := h.db.NewUpdate().Model((*models.DesignDocument)(nil)).
+		Set("deleted_at = NULL").Set("source_media_id = NULL").
+		Set("updated_at = ?", time.Now().UTC()).Set("revision = revision + 1").
+		Where("id = ? AND deleted_at IS NOT NULL", document.ID).Exec(ctx)
+	if err != nil {
+		return nil, huma.Error500InternalServerError("failed to restore design")
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return nil, huma.Error500InternalServerError("failed to restore design")
+	}
+	if affected == 0 {
+		return nil, huma.Error404NotFound("trashed design not found")
+	}
+	response, err := h.documentResponse(ctx, document.ID)
+	if err != nil {
+		return nil, err
+	}
+	return &GetImageEditorDesignOutput{Body: *response}, nil
 }
 
 func (h *ImageEditorHandler) toggleDesignFavorite(ctx context.Context, input *ToggleImageEditorDesignFavoriteInput) (*ToggleImageEditorDesignFavoriteOutput, error) {
@@ -1156,7 +1303,7 @@ func (h *ImageEditorHandler) toggleDesignFavorite(ctx context.Context, input *To
 		WherePK().
 		Exec(ctx)
 	if err != nil {
-		return nil, huma.Error500InternalServerError("failed to update OpenPost Image Editor design favorite")
+		return nil, huma.Error500InternalServerError("failed to update dopost Image Editor design favorite")
 	}
 	out := &ToggleImageEditorDesignFavoriteOutput{}
 	out.Body.IsFavorite = document.IsFavorite
@@ -1205,7 +1352,7 @@ func (h *ImageEditorHandler) duplicateDesign(ctx context.Context, input *Duplica
 		}
 		return replaceImageEditorMediaReferences(txCtx, tx, document, payload.Pages)
 	}); err != nil {
-		return nil, huma.Error500InternalServerError("failed to duplicate OpenPost Image Editor design")
+		return nil, huma.Error500InternalServerError("failed to duplicate dopost Image Editor design")
 	}
 	response, err := h.documentResponse(ctx, document.ID)
 	if err != nil {
@@ -1228,7 +1375,7 @@ func (h *ImageEditorHandler) listRevisions(ctx context.Context, input *ListImage
 	var revisions []models.DesignRevision
 	cursor, err := decodeEditorRevisionCursor(input.Cursor)
 	if err != nil {
-		return nil, huma.Error400BadRequest("invalid OpenPost Image Editor revision cursor")
+		return nil, huma.Error400BadRequest("invalid dopost Image Editor revision cursor")
 	}
 	limit := editorRevisionLimit(input.Limit)
 	query := h.db.NewSelect().Model(&revisions).
@@ -1244,7 +1391,7 @@ func (h *ImageEditorHandler) listRevisions(ctx context.Context, input *ListImage
 		)
 	}
 	if err := query.Scan(ctx); err != nil {
-		return nil, huma.Error500InternalServerError("failed to list OpenPost Image Editor revisions")
+		return nil, huma.Error500InternalServerError("failed to list dopost Image Editor revisions")
 	}
 	nextCursor := ""
 	if len(revisions) > limit {
@@ -1259,7 +1406,7 @@ func (h *ImageEditorHandler) listRevisions(ctx context.Context, input *ListImage
 	currentUserID := middleware.GetUserID(ctx)
 	actors, err := loadEditorRevisionActors(ctx, h.db, actorIDs, currentUserID)
 	if err != nil {
-		return nil, huma.Error500InternalServerError("failed to load OpenPost Image Editor revision actors")
+		return nil, huma.Error500InternalServerError("failed to load dopost Image Editor revision actors")
 	}
 	out := &ListImageEditorRevisionsOutput{}
 	out.Body.NextCursor = nextCursor
@@ -1292,12 +1439,12 @@ func (h *ImageEditorHandler) getRevision(
 		return nil, err
 	}
 	if err := validateImageEditorPayload(snapshot.Document); err != nil {
-		return nil, huma.Error400BadRequest("OpenPost Image Editor revision is invalid")
+		return nil, huma.Error400BadRequest("dopost Image Editor revision is invalid")
 	}
 	currentUserID := middleware.GetUserID(ctx)
 	actors, err := loadEditorRevisionActors(ctx, h.db, []string{revision.CreatedByID}, currentUserID)
 	if err != nil {
-		return nil, huma.Error500InternalServerError("failed to load OpenPost Image Editor revision actor")
+		return nil, huma.Error500InternalServerError("failed to load dopost Image Editor revision actor")
 	}
 	return &GetImageEditorRevisionOutput{Body: ImageEditorRevisionResponse{
 		Summary: imageRevisionSummary(
@@ -1320,16 +1467,71 @@ func (h *ImageEditorHandler) loadImageEditorRevisionSnapshot(
 		Where("id = ? AND design_document_id = ?", revisionID, documentID).
 		Scan(ctx)
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, imageEditorRevisionSnapshot{}, huma.Error404NotFound("OpenPost Image Editor revision not found")
+		return nil, imageEditorRevisionSnapshot{}, huma.Error404NotFound("dopost Image Editor revision not found")
 	}
 	if err != nil {
-		return nil, imageEditorRevisionSnapshot{}, huma.Error500InternalServerError("failed to load OpenPost Image Editor revision")
+		return nil, imageEditorRevisionSnapshot{}, huma.Error500InternalServerError("failed to load dopost Image Editor revision")
 	}
 	snapshot, err := decompressImageEditorSnapshot(revision.Snapshot)
 	if err != nil {
-		return nil, imageEditorRevisionSnapshot{}, huma.Error400BadRequest("OpenPost Image Editor revision is corrupt")
+		return nil, imageEditorRevisionSnapshot{}, huma.Error400BadRequest("dopost Image Editor revision is corrupt")
 	}
 	return &revision, snapshot, nil
+}
+
+func (h *ImageEditorHandler) deleteRevision(ctx context.Context, input *DeleteImageEditorRevisionInput) (*DeleteImageEditorRevisionOutput, error) {
+	if err := h.ensureEnabled(); err != nil {
+		return nil, err
+	}
+	document, err := h.loadDocument(ctx, input.PathID)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := h.requireAccess(ctx, document.WorkspaceID, true); err != nil {
+		return nil, err
+	}
+	if !input.Confirm {
+		return nil, huma.Error400BadRequest("checkpoint removal requires confirmation")
+	}
+	err = h.db.RunInTx(ctx, &sql.TxOptions{}, func(txCtx context.Context, tx bun.Tx) error {
+		var revision models.DesignRevision
+		query := tx.NewSelect().Model(&revision).Where("id = ? AND design_document_id = ?", input.RevisionID, document.ID)
+		if tx.Dialect().Name() == dialect.PG {
+			query = query.For("UPDATE")
+		}
+		if err := query.Scan(txCtx); errors.Is(err, sql.ErrNoRows) {
+			return huma.Error404NotFound("dopost Image Editor checkpoint not found")
+		} else if err != nil {
+			return err
+		}
+		if revision.Kind != "checkpoint" {
+			return huma.Error400BadRequest("only named checkpoints can be removed")
+		}
+		var mediaIDs []string
+		if err := tx.NewSelect().Model((*models.DesignRevisionMediaReference)(nil)).Column("media_id").Where("revision_id = ?", revision.ID).Scan(txCtx, &mediaIDs); err != nil {
+			return err
+		}
+		if _, err := tx.NewDelete().Model((*models.DesignRevisionMediaReference)(nil)).Where("revision_id = ?", revision.ID).Exec(txCtx); err != nil {
+			return err
+		}
+		if _, err := tx.NewDelete().Model((*models.DesignRevisionMediaIndexState)(nil)).Where("revision_id = ?", revision.ID).Exec(txCtx); err != nil {
+			return err
+		}
+		if _, err := tx.NewDelete().Model(&revision).WherePK().Exec(txCtx); err != nil {
+			return err
+		}
+		return medialifecycle.TouchWithDB(txCtx, tx, mediaIDs, time.Now().UTC())
+	})
+	if err != nil {
+		var status huma.StatusError
+		if errors.As(err, &status) {
+			return nil, err
+		}
+		return nil, huma.Error500InternalServerError("failed to remove dopost Image Editor checkpoint")
+	}
+	out := &DeleteImageEditorRevisionOutput{}
+	out.Body.Deleted = true
+	return out, nil
 }
 
 func (h *ImageEditorHandler) createCheckpoint(ctx context.Context, input *CreateImageEditorCheckpointInput) (*CreateImageEditorCheckpointOutput, error) {
@@ -1398,15 +1600,15 @@ func (h *ImageEditorHandler) createCheckpoint(ctx context.Context, input *Create
 		)
 	})
 	if errors.Is(err, errImageEditorRevisionConflict) {
-		return nil, huma.NewError(http.StatusConflict, "OpenPost Image Editor design changed elsewhere; reload before creating a checkpoint")
+		return nil, huma.NewError(http.StatusConflict, "dopost Image Editor design changed elsewhere; reload before creating a checkpoint")
 	}
 	if err != nil || revision == nil {
-		return nil, huma.Error500InternalServerError("failed to create OpenPost Image Editor checkpoint")
+		return nil, huma.Error500InternalServerError("failed to create dopost Image Editor checkpoint")
 	}
 	currentUserID := middleware.GetUserID(ctx)
 	actors, err := loadEditorRevisionActors(ctx, h.db, []string{currentUserID}, currentUserID)
 	if err != nil {
-		return nil, huma.Error500InternalServerError("failed to load OpenPost Image Editor revision actor")
+		return nil, huma.Error500InternalServerError("failed to load dopost Image Editor revision actor")
 	}
 	return &CreateImageEditorCheckpointOutput{Body: imageRevisionSummary(
 		*revision,
@@ -1436,15 +1638,15 @@ func (h *ImageEditorHandler) restoreRevision(ctx context.Context, input *Restore
 		now,
 	)
 	if errors.Is(err, errImageEditorRevisionConflict) {
-		return nil, huma.NewError(http.StatusConflict, "OpenPost Image Editor design changed elsewhere; reload before restoring")
+		return nil, huma.NewError(http.StatusConflict, "dopost Image Editor design changed elsewhere; reload before restoring")
 	}
 	if err != nil {
 		var statusError huma.StatusError
 		if errors.As(err, &statusError) {
 			return nil, err
 		}
-		log.Printf("failed to restore OpenPost Image Editor design %s: %v", document.ID, err)
-		return nil, huma.Error500InternalServerError("failed to restore OpenPost Image Editor revision")
+		log.Printf("failed to restore dopost Image Editor design %s: %v", document.ID, err)
+		return nil, huma.Error500InternalServerError("failed to restore dopost Image Editor revision")
 	}
 	response, err := h.documentResponse(ctx, document.ID)
 	if err != nil {
@@ -1520,7 +1722,7 @@ func (h *ImageEditorHandler) prepareImageEditorRevisionRestore(
 		return current, target, err
 	}
 	if err := validateImageEditorPayload(target.Document); err != nil {
-		return current, target, huma.Error400BadRequest("OpenPost Image Editor revision is invalid")
+		return current, target, huma.Error400BadRequest("dopost Image Editor revision is invalid")
 	}
 	if err := validateImageEditorMediaReferences(
 		ctx,
@@ -1650,11 +1852,11 @@ func (h *ImageEditorHandler) createReturnToken(ctx context.Context, input *Creat
 	}
 	constraints, err := json.Marshal(input.Body.Constraints)
 	if err != nil || len(constraints) > 32<<10 {
-		return nil, huma.Error400BadRequest("OpenPost Image Editor return constraints are invalid")
+		return nil, huma.Error400BadRequest("dopost Image Editor return constraints are invalid")
 	}
 	rawToken, tokenHash, err := newImageEditorReturnToken()
 	if err != nil {
-		return nil, huma.Error500InternalServerError("failed to create OpenPost Image Editor return token")
+		return nil, huma.Error500InternalServerError("failed to create dopost Image Editor return token")
 	}
 	now := time.Now().UTC()
 	record := &models.DesignReturnToken{
@@ -1674,7 +1876,7 @@ func (h *ImageEditorHandler) createReturnToken(ctx context.Context, input *Creat
 		record.Purpose = "post_media"
 	}
 	if _, err := h.db.NewInsert().Model(record).Exec(ctx); err != nil {
-		return nil, huma.Error500InternalServerError("failed to store OpenPost Image Editor return token")
+		return nil, huma.Error500InternalServerError("failed to store dopost Image Editor return token")
 	}
 	out := &CreateImageEditorReturnTokenOutput{}
 	out.Body.Token = rawToken
@@ -1689,21 +1891,21 @@ func (h *ImageEditorHandler) completeReturnToken(ctx context.Context, input *Com
 		return nil, err
 	}
 	if !record.CompletedAt.IsZero() || !record.ConsumedAt.IsZero() {
-		return nil, huma.NewError(http.StatusConflict, "OpenPost Image Editor return token has already been used")
+		return nil, huma.NewError(http.StatusConflict, "dopost Image Editor return token has already been used")
 	}
 	mediaIDs := uniqueImageEditorStringsInOrder(input.Body.MediaIDs)
 	if len(mediaIDs) == 0 || len(mediaIDs) > record.MaxSelection {
-		return nil, huma.Error400BadRequest("OpenPost Image Editor export count does not match the return constraints")
+		return nil, huma.Error400BadRequest("dopost Image Editor export count does not match the return constraints")
 	}
 	var media []models.MediaAttachment
 	err = h.db.NewSelect().Model(&media).
 		Where("workspace_id = ? AND processing_status = ? AND id IN (?)", record.WorkspaceID, mediaReadyStatus, bun.List(mediaIDs)).
 		Scan(ctx)
 	if err != nil {
-		return nil, huma.Error500InternalServerError("failed to validate OpenPost Image Editor exports")
+		return nil, huma.Error500InternalServerError("failed to validate dopost Image Editor exports")
 	}
 	if len(media) != len(mediaIDs) {
-		return nil, huma.Error400BadRequest("every OpenPost Image Editor export must belong to the workspace")
+		return nil, huma.Error400BadRequest("every dopost Image Editor export must belong to the workspace")
 	}
 	var constraints struct {
 		AllowedMIMEs []string `json:"allowed_mimes"`
@@ -1712,7 +1914,7 @@ func (h *ImageEditorHandler) completeReturnToken(ctx context.Context, input *Com
 		MaxFileSize  int64    `json:"max_file_size"`
 	}
 	if err := json.Unmarshal([]byte(record.ConstraintsJSON), &constraints); err != nil {
-		return nil, huma.Error400BadRequest("OpenPost Image Editor return constraints are invalid")
+		return nil, huma.Error400BadRequest("dopost Image Editor return constraints are invalid")
 	}
 	allowedMIMEs := make(map[string]struct{}, len(constraints.AllowedMIMEs))
 	for _, mime := range constraints.AllowedMIMEs {
@@ -1721,20 +1923,20 @@ func (h *ImageEditorHandler) completeReturnToken(ctx context.Context, input *Com
 	for _, item := range media {
 		if len(allowedMIMEs) > 0 {
 			if _, ok := allowedMIMEs[strings.ToLower(item.MimeType)]; !ok {
-				return nil, huma.Error400BadRequest("an OpenPost Image Editor export format is not supported by the composer")
+				return nil, huma.Error400BadRequest("a dopost Image Editor export format is not supported by the composer")
 			}
 		}
 		if constraints.MaxWidth > 0 && item.Width > constraints.MaxWidth {
-			return nil, huma.Error400BadRequest("an OpenPost Image Editor export is wider than the composer allows")
+			return nil, huma.Error400BadRequest("a dopost Image Editor export is wider than the composer allows")
 		}
 		if constraints.MaxHeight > 0 && item.Height > constraints.MaxHeight {
-			return nil, huma.Error400BadRequest("an OpenPost Image Editor export is taller than the composer allows")
+			return nil, huma.Error400BadRequest("a dopost Image Editor export is taller than the composer allows")
 		}
 		if constraints.MaxFileSize > 0 && item.Size > constraints.MaxFileSize {
-			return nil, huma.Error400BadRequest("an OpenPost Image Editor export is larger than the composer allows")
+			return nil, huma.Error400BadRequest("a dopost Image Editor export is larger than the composer allows")
 		}
 		if input.Body.DesignID != "" && item.DesignDocumentID != input.Body.DesignID {
-			return nil, huma.Error400BadRequest("every OpenPost Image Editor export must come from the returning design")
+			return nil, huma.Error400BadRequest("every dopost Image Editor export must come from the returning design")
 		}
 	}
 	if input.Body.DesignID != "" {
@@ -1742,7 +1944,7 @@ func (h *ImageEditorHandler) completeReturnToken(ctx context.Context, input *Com
 			Where("id = ? AND workspace_id = ? AND deleted_at IS NULL", input.Body.DesignID, record.WorkspaceID).
 			Count(ctx)
 		if err != nil || count != 1 {
-			return nil, huma.Error400BadRequest("OpenPost Image Editor design must belong to the workspace")
+			return nil, huma.Error400BadRequest("dopost Image Editor design must belong to the workspace")
 		}
 	}
 	encodedIDs, _ := json.Marshal(mediaIDs)
@@ -1754,12 +1956,12 @@ func (h *ImageEditorHandler) completeReturnToken(ctx context.Context, input *Com
 		Where("id = ? AND completed_at IS NULL AND consumed_at IS NULL", record.ID).
 		Exec(ctx)
 	if err != nil {
-		log.Printf("failed to complete OpenPost Image Editor return token %s: %v", record.ID, err)
-		return nil, huma.Error500InternalServerError("failed to complete OpenPost Image Editor return token")
+		log.Printf("failed to complete dopost Image Editor return token %s: %v", record.ID, err)
+		return nil, huma.Error500InternalServerError("failed to complete dopost Image Editor return token")
 	}
 	affected, _ := result.RowsAffected()
 	if affected != 1 {
-		return nil, huma.NewError(http.StatusConflict, "OpenPost Image Editor return token has already been used")
+		return nil, huma.NewError(http.StatusConflict, "dopost Image Editor return token has already been used")
 	}
 	out := &CompleteImageEditorReturnTokenOutput{}
 	out.Body.ReturnURL = record.ReturnURL
@@ -1772,10 +1974,10 @@ func (h *ImageEditorHandler) consumeReturnToken(ctx context.Context, input *Cons
 		return nil, err
 	}
 	if record.CompletedAt.IsZero() {
-		return nil, huma.NewError(http.StatusConflict, "OpenPost Image Editor return token is not complete")
+		return nil, huma.NewError(http.StatusConflict, "dopost Image Editor return token is not complete")
 	}
 	if !record.ConsumedAt.IsZero() {
-		return nil, huma.NewError(http.StatusConflict, "OpenPost Image Editor return token has already been consumed")
+		return nil, huma.NewError(http.StatusConflict, "dopost Image Editor return token has already been consumed")
 	}
 	now := time.Now().UTC()
 	result, err := h.db.NewUpdate().Model((*models.DesignReturnToken)(nil)).
@@ -1783,11 +1985,11 @@ func (h *ImageEditorHandler) consumeReturnToken(ctx context.Context, input *Cons
 		Where("id = ? AND consumed_at IS NULL", record.ID).
 		Exec(ctx)
 	if err != nil {
-		return nil, huma.Error500InternalServerError("failed to consume OpenPost Image Editor return token")
+		return nil, huma.Error500InternalServerError("failed to consume dopost Image Editor return token")
 	}
 	affected, _ := result.RowsAffected()
 	if affected != 1 {
-		return nil, huma.NewError(http.StatusConflict, "OpenPost Image Editor return token has already been consumed")
+		return nil, huma.NewError(http.StatusConflict, "dopost Image Editor return token has already been consumed")
 	}
 	out := &ConsumeImageEditorReturnTokenOutput{}
 	out.Body.WorkspaceID = record.WorkspaceID
@@ -1795,7 +1997,7 @@ func (h *ImageEditorHandler) consumeReturnToken(ctx context.Context, input *Cons
 	out.Body.Purpose = record.Purpose
 	out.Body.DesignID = record.DesignID
 	if err := json.Unmarshal([]byte(record.ResultMediaIDs), &out.Body.MediaIDs); err != nil {
-		return nil, huma.Error500InternalServerError("OpenPost Image Editor return token result is corrupt")
+		return nil, huma.Error500InternalServerError("dopost Image Editor return token result is corrupt")
 	}
 	if err := json.Unmarshal([]byte(record.ConstraintsJSON), &out.Body.Constraints); err != nil {
 		out.Body.Constraints = map[string]any{}
@@ -1805,7 +2007,7 @@ func (h *ImageEditorHandler) consumeReturnToken(ctx context.Context, input *Cons
 
 func (h *ImageEditorHandler) loadReturnToken(ctx context.Context, rawToken string) (*models.DesignReturnToken, error) {
 	if strings.TrimSpace(rawToken) == "" {
-		return nil, huma.Error400BadRequest("OpenPost Image Editor return token is required")
+		return nil, huma.Error400BadRequest("dopost Image Editor return token is required")
 	}
 	hash := sha256.Sum256([]byte(rawToken))
 	var record models.DesignReturnToken
@@ -1813,13 +2015,13 @@ func (h *ImageEditorHandler) loadReturnToken(ctx context.Context, rawToken strin
 		Where("token_hash = ? AND user_id = ?", hex.EncodeToString(hash[:]), middleware.GetUserID(ctx)).
 		Scan(ctx)
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, huma.Error404NotFound("OpenPost Image Editor return token not found")
+		return nil, huma.Error404NotFound("dopost Image Editor return token not found")
 	}
 	if err != nil {
-		return nil, huma.Error500InternalServerError("failed to load OpenPost Image Editor return token")
+		return nil, huma.Error500InternalServerError("failed to load dopost Image Editor return token")
 	}
 	if time.Now().UTC().After(record.ExpiresAt) {
-		return nil, huma.Error404NotFound("OpenPost Image Editor return token has expired")
+		return nil, huma.Error404NotFound("dopost Image Editor return token has expired")
 	}
 	if _, err := h.requireAccess(ctx, record.WorkspaceID, true); err != nil {
 		return nil, err
@@ -1840,7 +2042,7 @@ func newImageEditorReturnToken() (string, string, error) {
 func normalizeImageEditorReturnURL(raw string) (string, error) {
 	parsed, err := url.ParseRequestURI(strings.TrimSpace(raw))
 	if err != nil || parsed.IsAbs() || parsed.Host != "" || !strings.HasPrefix(parsed.Path, "/") || strings.HasPrefix(parsed.Path, "//") {
-		return "", errors.New("image editor return URL must be a same-origin OpenPost route")
+		return "", errors.New("image editor return URL must be a same-origin dopost route")
 	}
 	path := parsed.Path
 	allowed := path == "/" ||
@@ -1872,10 +2074,10 @@ func (h *ImageEditorHandler) loadDocument(ctx context.Context, id string) (*mode
 		Where("id = ? AND deleted_at IS NULL", id).
 		Scan(ctx)
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, huma.Error404NotFound("OpenPost Image Editor design not found")
+		return nil, huma.Error404NotFound("dopost Image Editor design not found")
 	}
 	if err != nil {
-		return nil, huma.Error500InternalServerError("failed to load OpenPost Image Editor design")
+		return nil, huma.Error500InternalServerError("failed to load dopost Image Editor design")
 	}
 	return &document, nil
 }
@@ -1930,22 +2132,28 @@ func imageEditorDocumentPayload(
 		Where("design_document_id = ?", document.ID).
 		OrderExpr("display_order ASC").
 		Scan(ctx); err != nil {
-		return payload, errors.New("failed to load OpenPost Image Editor pages")
+		return payload, errors.New("failed to load dopost Image Editor pages")
 	}
 	payload.Pages = make([]ImageEditorPagePayload, 0, len(pages))
 	for _, page := range pages {
 		var layers []ImageEditorLayer
 		if err := json.Unmarshal([]byte(page.SceneJSON), &layers); err != nil {
-			return payload, errors.New("OpenPost Image Editor design contains an invalid page")
+			return payload, errors.New("dopost Image Editor design contains an invalid page")
 		}
 		background := defaultImageEditorPageBackground(page.BackgroundColor)
 		var guides *ImageEditorPageGuides
 		var colorGradeVersion int
 		var colorGrade *ImageEditorColorGrade
+		var pageWidth, pageHeight *int
 		if encoded := strings.TrimSpace(page.BackgroundJSON); encoded != "" && encoded != "{}" {
-			storedBackground, storedGuides, storedColorGradeVersion, storedColorGrade, err := decodeImageEditorPageState(encoded, page.BackgroundColor)
+			var err error
+			var storedBackground *ImageEditorPageBackground
+			var storedGuides *ImageEditorPageGuides
+			var storedColorGradeVersion int
+			var storedColorGrade *ImageEditorColorGrade
+			storedBackground, storedGuides, storedColorGradeVersion, storedColorGrade, pageWidth, pageHeight, err = decodeImageEditorPageState(encoded, page.BackgroundColor)
 			if err != nil {
-				return payload, errors.New("OpenPost Image Editor design contains an invalid page background")
+				return payload, errors.New("dopost Image Editor design contains an invalid page background")
 			}
 			background = storedBackground
 			guides = storedGuides
@@ -1955,6 +2163,8 @@ func imageEditorDocumentPayload(
 		payload.Pages = append(payload.Pages, ImageEditorPagePayload{
 			ID:                  page.ID,
 			Name:                page.Name,
+			WidthPX:             pageWidth,
+			HeightPX:            pageHeight,
 			BackgroundColor:     page.BackgroundColor,
 			Background:          background,
 			Guides:              guides,
@@ -2003,10 +2213,10 @@ func validateImageEditorMediaReferences(
 	}
 	valid, err := allEditorMediaBelongToWorkspace(ctx, db, workspaceID, ids, "")
 	if err != nil {
-		return huma.Error500InternalServerError("failed to validate OpenPost Image Editor media")
+		return huma.Error500InternalServerError("failed to validate dopost Image Editor media")
 	}
 	if !valid {
-		return huma.Error400BadRequest("every OpenPost Image Editor media reference must belong to the workspace")
+		return huma.Error400BadRequest("every dopost Image Editor media reference must belong to the workspace")
 	}
 	return nil
 }
@@ -2027,7 +2237,7 @@ func resolveImageEditorDimensions(presetKey string, customWidth, customHeight in
 			return preset.WidthPX, preset.HeightPX, key, nil
 		}
 	}
-	return 0, 0, "", fmt.Errorf("unknown OpenPost Image Editor preset")
+	return 0, 0, "", fmt.Errorf("unknown dopost Image Editor preset")
 }
 
 func validateImageEditorDimensions(width, height int) error {
@@ -2042,8 +2252,8 @@ func validateImageEditorDimensions(width, height int) error {
 
 //nolint:gocyclo // Document validation reports precise failures across bounded pages and hierarchy.
 func validateImageEditorPayload(payload ImageEditorDocumentPayload) error {
-	if payload.SchemaVersion != imageEditorSchemaVersion {
-		return fmt.Errorf("unsupported OpenPost Image Editor schema version")
+	if payload.SchemaVersion != 1 && payload.SchemaVersion != imageEditorSchemaVersion {
+		return fmt.Errorf("unsupported dopost Image Editor schema version")
 	}
 	if strings.TrimSpace(payload.Title) == "" || len([]rune(payload.Title)) > 160 {
 		return fmt.Errorf("image editor title must be between 1 and 160 characters")
@@ -2054,13 +2264,31 @@ func validateImageEditorPayload(payload ImageEditorDocumentPayload) error {
 	if len(payload.Pages) == 0 || len(payload.Pages) > imageEditorMaxPages {
 		return fmt.Errorf("image editor designs must contain between 1 and %d pages", imageEditorMaxPages)
 	}
-	if !oneOfImageEditorString(payload.ExportDefaults.Format, "png", "jpeg", "webp") ||
+	if !oneOfImageEditorString(payload.ExportDefaults.Format, "png", "jpeg", "webp", "gif") ||
 		!finiteImageEditorNumber(payload.ExportDefaults.Quality) ||
 		payload.ExportDefaults.Quality < 0.1 ||
 		payload.ExportDefaults.Quality > 1 ||
 		(payload.ExportDefaults.MatteColor != "" &&
 			!imageEditorHexColor.MatchString(payload.ExportDefaults.MatteColor)) {
 		return fmt.Errorf("image editor export defaults are invalid")
+	}
+	if len(payload.TemplateSlots) > 20 {
+		return fmt.Errorf("too many template slots")
+	}
+	slotNames := map[string]bool{}
+	for _, slot := range payload.TemplateSlots {
+		found := false
+		for _, page := range payload.Pages {
+			for _, layer := range page.Layers {
+				if layer.ID == slot.TargetID && layer.Text != nil {
+					found = true
+				}
+			}
+		}
+		if !found || strings.TrimSpace(slot.Name) == "" || len(slot.Name) > 100 || slotNames[slot.Name] || slot.MaxCharacters < 1 || slot.MaxCharacters > 2000 {
+			return fmt.Errorf("invalid template text slot")
+		}
+		slotNames[slot.Name] = true
 	}
 	encoded, err := json.Marshal(payload)
 	if err != nil || len(encoded) > imageEditorMaxDocumentBytes {
@@ -2069,67 +2297,126 @@ func validateImageEditorPayload(payload ImageEditorDocumentPayload) error {
 	pageIDs := make(map[string]struct{}, len(payload.Pages))
 	layerIDs := make(map[string]struct{})
 	for _, page := range payload.Pages {
-		if strings.TrimSpace(page.ID) == "" {
-			return fmt.Errorf("every OpenPost Image Editor page requires an ID")
-		}
-		if _, exists := pageIDs[page.ID]; exists {
-			return fmt.Errorf("image editor page IDs must be unique")
-		}
-		pageIDs[page.ID] = struct{}{}
-		if len(page.Layers) > imageEditorMaxLayersPerPage {
-			return fmt.Errorf("an OpenPost Image Editor page cannot contain more than %d layers", imageEditorMaxLayersPerPage)
-		}
-		if err := validateImageEditorPageBackground(page); err != nil {
+		if err := validateImageEditorPage(payload, page, pageIDs, layerIDs); err != nil {
 			return err
 		}
-		if err := validateImageEditorPageColorGrade(page); err != nil {
-			return err
+	}
+	return nil
+}
+
+func validateImageEditorPage(payload ImageEditorDocumentPayload, page ImageEditorPagePayload, pageIDs, layerIDs map[string]struct{}) error {
+	if strings.TrimSpace(page.ID) == "" {
+		return fmt.Errorf("every dopost Image Editor page requires an ID")
+	}
+	if _, exists := pageIDs[page.ID]; exists {
+		return fmt.Errorf("image editor page IDs must be unique")
+	}
+	pageIDs[page.ID] = struct{}{}
+	if (page.WidthPX == nil) != (page.HeightPX == nil) ||
+		(payload.SchemaVersion == 1 && page.WidthPX != nil) {
+		return fmt.Errorf("image editor page dimensions require schema version %d and both axes", imageEditorSchemaVersion)
+	}
+	width, height := imageEditorPageDimensions(payload, page)
+	if err := validateImageEditorDimensions(width, height); err != nil {
+		return err
+	}
+	if len(page.Layers) > imageEditorMaxLayersPerPage {
+		return fmt.Errorf("a dopost Image Editor page cannot contain more than %d layers", imageEditorMaxLayersPerPage)
+	}
+	if err := validateImageEditorPageTextSchema(payload.SchemaVersion, page.Layers); err != nil {
+		return err
+	}
+	if err := validateImageEditorPageBackground(page); err != nil {
+		return err
+	}
+	if err := validateImageEditorPageColorGrade(page); err != nil {
+		return err
+	}
+	if err := validateImageEditorPageGuides(payload, page); err != nil {
+		return err
+	}
+
+	pageLayerIDs, parents, err := collectImageEditorPageLayers(page, layerIDs)
+	if err != nil {
+		return err
+	}
+	return validateImageEditorLayerHierarchy(parents, pageLayerIDs)
+}
+
+func validateImageEditorPageTextSchema(schemaVersion int, layers []ImageEditorLayer) error {
+	if schemaVersion != 1 {
+		return nil
+	}
+	for _, layer := range layers {
+		if layer.Text != nil && len(layer.Text.Runs) > 0 {
+			return fmt.Errorf("text emphasis requires image editor schema version 2")
 		}
-		if page.Guides != nil {
-			if len(page.Guides.Horizontal) > 100 || len(page.Guides.Vertical) > 100 {
-				return fmt.Errorf("image editor pages cannot contain more than 100 guides per axis")
-			}
-			for _, value := range page.Guides.Horizontal {
-				if !finiteImageEditorNumber(value) || value < 0 || value > float64(payload.HeightPX) {
-					return fmt.Errorf("image editor horizontal guides must remain inside the page")
-				}
-			}
-			for _, value := range page.Guides.Vertical {
-				if !finiteImageEditorNumber(value) || value < 0 || value > float64(payload.WidthPX) {
-					return fmt.Errorf("image editor vertical guides must remain inside the page")
-				}
+	}
+	return nil
+}
+
+func imageEditorPageDimensions(document ImageEditorDocumentPayload, page ImageEditorPagePayload) (int, int) {
+	if page.WidthPX != nil && page.HeightPX != nil {
+		return *page.WidthPX, *page.HeightPX
+	}
+	return document.WidthPX, document.HeightPX
+}
+
+func validateImageEditorPageGuides(payload ImageEditorDocumentPayload, page ImageEditorPagePayload) error {
+	if page.Guides != nil {
+		if len(page.Guides.Horizontal) > 100 || len(page.Guides.Vertical) > 100 {
+			return fmt.Errorf("image editor pages cannot contain more than 100 guides per axis")
+		}
+		for _, value := range page.Guides.Horizontal {
+			_, height := imageEditorPageDimensions(payload, page)
+			if !finiteImageEditorNumber(value) || value < 0 || value > float64(height) {
+				return fmt.Errorf("image editor horizontal guides must remain inside the page")
 			}
 		}
-		pageLayerIDs := make(map[string]struct{}, len(page.Layers))
-		parents := make(map[string]string, len(page.Layers))
-		for _, layer := range page.Layers {
-			if strings.TrimSpace(layer.ID) == "" {
-				return fmt.Errorf("every OpenPost Image Editor layer requires an ID")
-			}
-			if _, exists := layerIDs[layer.ID]; exists {
-				return fmt.Errorf("image editor layer IDs must be unique across the document")
-			}
-			layerIDs[layer.ID] = struct{}{}
-			pageLayerIDs[layer.ID] = struct{}{}
-			parents[layer.ID] = layer.ParentID
-			if err := validateImageEditorLayer(layer); err != nil {
-				return err
+		for _, value := range page.Guides.Vertical {
+			width, _ := imageEditorPageDimensions(payload, page)
+			if !finiteImageEditorNumber(value) || value < 0 || value > float64(width) {
+				return fmt.Errorf("image editor vertical guides must remain inside the page")
 			}
 		}
-		for id, parentID := range parents {
-			if parentID == "" {
-				continue
+	}
+	return nil
+}
+
+func collectImageEditorPageLayers(page ImageEditorPagePayload, layerIDs map[string]struct{}) (map[string]struct{}, map[string]string, error) {
+	pageLayerIDs := make(map[string]struct{}, len(page.Layers))
+	parents := make(map[string]string, len(page.Layers))
+	for _, layer := range page.Layers {
+		if strings.TrimSpace(layer.ID) == "" {
+			return nil, nil, fmt.Errorf("every dopost Image Editor layer requires an ID")
+		}
+		if _, exists := layerIDs[layer.ID]; exists {
+			return nil, nil, fmt.Errorf("image editor layer IDs must be unique across the document")
+		}
+		layerIDs[layer.ID] = struct{}{}
+		pageLayerIDs[layer.ID] = struct{}{}
+		parents[layer.ID] = layer.ParentID
+		if err := validateImageEditorLayer(layer); err != nil {
+			return nil, nil, err
+		}
+	}
+	return pageLayerIDs, parents, nil
+}
+
+func validateImageEditorLayerHierarchy(parents map[string]string, pageLayerIDs map[string]struct{}) error {
+	for id, parentID := range parents {
+		if parentID == "" {
+			continue
+		}
+		if _, exists := pageLayerIDs[parentID]; !exists {
+			return fmt.Errorf("image editor layer %s references a missing parent", id)
+		}
+		seen := map[string]bool{id: true}
+		for current := parentID; current != ""; current = parents[current] {
+			if seen[current] {
+				return fmt.Errorf("image editor layer hierarchy cannot contain cycles")
 			}
-			if _, exists := pageLayerIDs[parentID]; !exists {
-				return fmt.Errorf("image editor layer %s references a missing parent", id)
-			}
-			seen := map[string]bool{id: true}
-			for current := parentID; current != ""; current = parents[current] {
-				if seen[current] {
-					return fmt.Errorf("image editor layer hierarchy cannot contain cycles")
-				}
-				seen[current] = true
-			}
+			seen[current] = true
 		}
 	}
 	return nil
@@ -2197,7 +2484,7 @@ func validateImageEditorPageBackground(page ImageEditorPagePayload) error {
 
 func validateTransparentImageEditorBackground(background *ImageEditorPageBackground) error {
 	if background.Gradient != nil || background.Image != nil {
-		return fmt.Errorf("transparent OpenPost Image Editor backgrounds cannot include fill properties")
+		return fmt.Errorf("transparent dopost Image Editor backgrounds cannot include fill properties")
 	}
 	return nil
 }
@@ -2206,14 +2493,14 @@ func validateSolidImageEditorBackground(background *ImageEditorPageBackground) e
 	if !imageEditorHexColor.MatchString(background.Color) ||
 		background.Gradient != nil ||
 		background.Image != nil {
-		return fmt.Errorf("solid OpenPost Image Editor backgrounds are invalid")
+		return fmt.Errorf("solid dopost Image Editor backgrounds are invalid")
 	}
 	return nil
 }
 
 func validateGradientImageEditorBackground(background *ImageEditorPageBackground) error {
 	if background.Image != nil {
-		return fmt.Errorf("gradient OpenPost Image Editor backgrounds cannot include an image")
+		return fmt.Errorf("gradient dopost Image Editor backgrounds cannot include an image")
 	}
 	return validateImageEditorGradient(background.Gradient)
 }
@@ -2223,13 +2510,33 @@ func validateImageImageEditorBackground(background *ImageEditorPageBackground) e
 		background.Image == nil ||
 		strings.TrimSpace(background.Image.MediaID) == "" ||
 		!oneOfImageEditorString(background.Image.Fit, "cover", "contain", "stretch") {
-		return fmt.Errorf("image OpenPost Image Editor backgrounds are invalid")
+		return fmt.Errorf("image dopost Image Editor backgrounds are invalid")
 	}
 	return nil
 }
 
 //nolint:gocyclo // Layer-specific validation is centralized so every write path enforces identical limits.
 func validateImageEditorLayer(layer ImageEditorLayer) error {
+	if err := validateImageEditorBaseLayer(layer); err != nil {
+		return err
+	}
+	switch layer.Type {
+	case "text":
+		return validateImageEditorTextLayer(layer)
+	case "image":
+		return validateImageEditorImageLayer(layer)
+	case "shape":
+		return validateImageEditorShapeLayer(layer)
+	case "paint":
+		return validateImageEditorPaintLayer(layer)
+	case "group":
+		return validateImageEditorGroupLayer(layer)
+	default:
+		return fmt.Errorf("unsupported dopost Image Editor layer type")
+	}
+}
+
+func validateImageEditorBaseLayer(layer ImageEditorLayer) error {
 	if !finiteImageEditorNumber(layer.Opacity) || layer.Opacity < 0 || layer.Opacity > 1 {
 		return fmt.Errorf("image editor layer opacity must be between 0 and 1")
 	}
@@ -2248,6 +2555,10 @@ func validateImageEditorLayer(layer ImageEditorLayer) error {
 	if layer.Transform.Width < 0 || layer.Transform.Height < 0 {
 		return fmt.Errorf("image editor layer dimensions cannot be negative")
 	}
+	return validateImageEditorLayerOverlays(layer)
+}
+
+func validateImageEditorLayerOverlays(layer ImageEditorLayer) error {
 	if layer.Mask != nil {
 		if !oneOfImageEditorString(layer.Mask.Shape, "rectangle", "rounded_rectangle", "circle", "ellipse", "diamond") ||
 			!finiteImageEditorNumber(layer.Mask.Inset) ||
@@ -2265,167 +2576,285 @@ func validateImageEditorLayer(layer ImageEditorLayer) error {
 			return err
 		}
 	}
-	if layer.Effects != nil {
-		if !oneOfImageEditorString(layer.Effects.BlendMode, "normal", "multiply", "screen", "overlay", "darken", "lighten", "soft_light") {
-			return fmt.Errorf("image editor layer blend mode is invalid")
+	return validateImageEditorLayerEffects(layer)
+}
+
+func validateImageEditorLayerEffects(layer ImageEditorLayer) error {
+	if layer.Effects == nil {
+		return nil
+	}
+	if !oneOfImageEditorString(layer.Effects.BlendMode, "normal", "multiply", "screen", "overlay", "darken", "lighten", "soft_light") {
+		return fmt.Errorf("image editor layer blend mode is invalid")
+	}
+	if err := validateImageEditorShadowEffect(layer.Effects.DropShadow); err != nil {
+		return err
+	}
+	if err := validateImageEditorShadowEffect(layer.Effects.InnerShadow); err != nil {
+		return err
+	}
+	return validateImageEditorStrokeEffect(layer.Effects.Stroke)
+}
+
+func validateImageEditorTextLayer(layer ImageEditorLayer) error {
+	if layer.Text == nil || layer.Image != nil || layer.Shape != nil || layer.Paint != nil {
+		return fmt.Errorf("text layers require only text properties")
+	}
+	if !imageEditorTextContentValid(layer.Text) {
+		return fmt.Errorf("text layer properties are invalid")
+	}
+	if !imageEditorHexColor.MatchString(layer.Text.Color) {
+		return fmt.Errorf("text colors must use hexadecimal values")
+	}
+	if !imageEditorTextEffectsValid(layer.Text) {
+		return fmt.Errorf("text effects are invalid")
+	}
+	if !imageEditorTextRunsValid(layer.Text) {
+		return fmt.Errorf("text emphasis ranges are invalid")
+	}
+	if layer.Text.Curve != nil && !imageEditorTextCurveValid(layer.Text.Curve) {
+		return fmt.Errorf("text curve is invalid")
+	}
+	return nil
+}
+
+func imageEditorTextRunsValid(text *ImageEditorTextValue) bool {
+	if len(text.Runs) > 2000 {
+		return false
+	}
+	length := uniseg.GraphemeClusterCount(text.Text)
+	lastEnd := 0
+	for _, run := range text.Runs {
+		if !imageEditorTextRunValid(run, lastEnd, length) {
+			return false
 		}
-		if err := validateImageEditorShadowEffect(layer.Effects.DropShadow); err != nil {
-			return err
-		}
-		if err := validateImageEditorShadowEffect(layer.Effects.InnerShadow); err != nil {
-			return err
-		}
-		if err := validateImageEditorStrokeEffect(layer.Effects.Stroke); err != nil {
-			return err
+		lastEnd = run.End
+	}
+	return true
+}
+
+func imageEditorTextRunValid(run ImageEditorTextRun, lastEnd, length int) bool {
+	if run.Start < lastEnd || run.End <= run.Start || run.End > length {
+		return false
+	}
+	if run.FontWeight == nil && run.FontStyle == nil && run.Underline == nil && run.Color == nil {
+		return false
+	}
+	if run.FontWeight != nil && (*run.FontWeight < 100 || *run.FontWeight > 900) {
+		return false
+	}
+	if run.FontStyle != nil && !oneOfImageEditorString(*run.FontStyle, "normal", "italic") {
+		return false
+	}
+	return run.Color == nil || imageEditorHexColor.MatchString(*run.Color)
+}
+
+func imageEditorTextContentValid(text *ImageEditorTextValue) bool {
+	return text.FontSize > 0 &&
+		finiteImageEditorNumber(text.FontSize) &&
+		text.FontWeight >= 100 &&
+		text.FontWeight <= 900 &&
+		oneOfImageEditorString(text.FontStyle, "normal", "italic") &&
+		(text.Wrap == "" || oneOfImageEditorString(text.Wrap, "word", "character")) &&
+		oneOfImageEditorString(text.Align, "left", "center", "right", "justify") &&
+		text.LineHeight > 0 &&
+		finiteImageEditorNumber(text.LineHeight) &&
+		finiteImageEditorNumber(text.LetterSpacing) &&
+		text.StrokeWidth >= 0 &&
+		finiteImageEditorNumber(text.StrokeWidth) &&
+		len([]rune(text.Text)) <= 20_000
+}
+
+func imageEditorTextEffectsValid(text *ImageEditorTextValue) bool {
+	return (text.HighlightColor == "" || imageEditorHexColor.MatchString(text.HighlightColor)) &&
+		(text.StrokeColor == "" || imageEditorHexColor.MatchString(text.StrokeColor)) &&
+		imageEditorHexColor.MatchString(text.Shadow.Color) &&
+		finiteImageEditorNumber(text.Shadow.Blur) &&
+		finiteImageEditorNumber(text.Shadow.OffsetX) &&
+		finiteImageEditorNumber(text.Shadow.OffsetY) &&
+		text.Shadow.Blur >= 0 &&
+		text.Shadow.Blur <= 100
+}
+
+func imageEditorTextCurveValid(curve *ImageEditorTextCurve) bool {
+	return oneOfImageEditorString(curve.Type, "none", "arc_up", "arc_down", "wave", "circle", "ellipse") &&
+		finiteImageEditorNumber(curve.Strength) &&
+		curve.Strength >= 0.05 &&
+		curve.Strength <= 1 &&
+		finiteImageEditorNumber(curve.Offset) &&
+		curve.Offset >= -1 &&
+		curve.Offset <= 1
+}
+
+func validateImageEditorImageLayer(layer ImageEditorLayer) error {
+	if layer.Image == nil || layer.Text != nil || layer.Shape != nil || layer.Paint != nil || strings.TrimSpace(layer.Image.MediaID) == "" {
+		return fmt.Errorf("image layers require only image properties and a media ID")
+	}
+	crop := layer.Image.Crop
+	if !imageEditorCropValid(layer.Image.Fit, crop) {
+		return fmt.Errorf("image crop must stay within normalized image bounds")
+	}
+	adjustments := layer.Image.Adjustments
+	if err := validateImageEditorColorTools(adjustments.Wheels, adjustments.Curves); err != nil {
+		return err
+	}
+	if layer.Image.ColorGradeVersion != 0 && layer.Image.ColorGradeVersion != imageEditorColorGradeVersion {
+		return fmt.Errorf("unsupported image editor layer color grade version")
+	}
+	if !imageEditorAdjustmentsValid(adjustments) {
+		return fmt.Errorf("image adjustments must be between -1 and 1")
+	}
+	if !finiteImageEditorNumber(adjustments.Blur) || adjustments.Blur < 0 || adjustments.Blur > 1 {
+		return fmt.Errorf("image blur must be between 0 and 1")
+	}
+	if err := validateImageEditorLensEffect(layer.Image.LensEffect); err != nil {
+		return err
+	}
+	return validateImageEditorAnimation(layer.Image.Animation)
+}
+
+func validateImageEditorLensEffect(effect *ImageEditorLensEffect) error {
+	if effect == nil {
+		return nil
+	}
+	if !oneOfImageEditorString(effect.Kind, "flare", "starburst", "mist", "prism", "bokeh") || effect.Blades < 3 || effect.Blades > 8 || !finiteImageEditorNumber(effect.Angle) || effect.Angle < -180 || effect.Angle > 180 {
+		return fmt.Errorf("invalid lens effect")
+	}
+	for _, value := range []float64{effect.Amount, effect.Threshold, effect.Size} {
+		if !finiteImageEditorNumber(value) || value < 0 || value > 1 {
+			return fmt.Errorf("lens effect values must be between zero and one")
 		}
 	}
-	switch layer.Type {
-	case "text":
-		if layer.Text == nil || layer.Image != nil || layer.Shape != nil || layer.Paint != nil {
-			return fmt.Errorf("text layers require only text properties")
+	return nil
+}
+
+func validateImageEditorAnimation(animation *ImageEditorAnimation) error {
+	if animation == nil {
+		return nil
+	}
+	if animation.SourceFrameCount < 1 || animation.SourceFrameCount > 200 || animation.Repeat < -1 || animation.Repeat > 65535 || len(animation.Frames) < 1 || len(animation.Frames) > 200 {
+		return fmt.Errorf("invalid GIF animation")
+	}
+	duration := 0
+	for _, frame := range animation.Frames {
+		if frame.SourceIndex < 0 || frame.SourceIndex >= animation.SourceFrameCount || frame.DurationMS < 20 || frame.DurationMS > 10000 || frame.DurationMS%10 != 0 {
+			return fmt.Errorf("invalid GIF frame or timing")
 		}
-		if layer.Text.FontSize <= 0 ||
-			!finiteImageEditorNumber(layer.Text.FontSize) ||
-			layer.Text.FontWeight < 100 ||
-			layer.Text.FontWeight > 900 ||
-			!oneOfImageEditorString(layer.Text.FontStyle, "normal", "italic") ||
-			(layer.Text.Wrap != "" && !oneOfImageEditorString(layer.Text.Wrap, "word", "character")) ||
-			!oneOfImageEditorString(layer.Text.Align, "left", "center", "right", "justify") ||
-			layer.Text.LineHeight <= 0 ||
-			!finiteImageEditorNumber(layer.Text.LineHeight) ||
-			!finiteImageEditorNumber(layer.Text.LetterSpacing) ||
-			layer.Text.StrokeWidth < 0 ||
-			!finiteImageEditorNumber(layer.Text.StrokeWidth) ||
-			len([]rune(layer.Text.Text)) > 20_000 {
-			return fmt.Errorf("text layer properties are invalid")
+		duration += frame.DurationMS
+	}
+	if duration > 60000 {
+		return fmt.Errorf("GIF animation exceeds 60 seconds")
+	}
+	return nil
+}
+
+func imageEditorCropValid(fit string, crop ImageEditorCrop) bool {
+	return oneOfImageEditorString(fit, "cover", "contain", "stretch") &&
+		finiteImageEditorNumber(crop.X) &&
+		finiteImageEditorNumber(crop.Y) &&
+		finiteImageEditorNumber(crop.Width) &&
+		finiteImageEditorNumber(crop.Height) &&
+		crop.X >= 0 &&
+		crop.Y >= 0 &&
+		crop.Width > 0 &&
+		crop.Height > 0 &&
+		crop.X+crop.Width <= 1.000001 &&
+		crop.Y+crop.Height <= 1.000001
+}
+
+func imageEditorAdjustmentsValid(adjustments ImageEditorImageAdjustments) bool {
+	for _, value := range []float64{
+		adjustments.Brightness,
+		adjustments.Contrast,
+		adjustments.Saturation,
+		adjustments.Temperature,
+		adjustments.Tint,
+		adjustments.Vibrance,
+		adjustments.Hue,
+		adjustments.Exposure,
+		adjustments.Highlights,
+		adjustments.Shadows,
+	} {
+		if !finiteImageEditorNumber(value) || value < -1 || value > 1 {
+			return false
 		}
-		if !imageEditorHexColor.MatchString(layer.Text.Color) {
-			return fmt.Errorf("text colors must use hexadecimal values")
-		}
-		if (layer.Text.HighlightColor != "" && !imageEditorHexColor.MatchString(layer.Text.HighlightColor)) ||
-			(layer.Text.StrokeColor != "" && !imageEditorHexColor.MatchString(layer.Text.StrokeColor)) ||
-			!imageEditorHexColor.MatchString(layer.Text.Shadow.Color) ||
-			!finiteImageEditorNumber(layer.Text.Shadow.Blur) ||
-			!finiteImageEditorNumber(layer.Text.Shadow.OffsetX) ||
-			!finiteImageEditorNumber(layer.Text.Shadow.OffsetY) ||
-			layer.Text.Shadow.Blur < 0 ||
-			layer.Text.Shadow.Blur > 100 {
-			return fmt.Errorf("text effects are invalid")
-		}
-		if layer.Text.Curve != nil &&
-			(!oneOfImageEditorString(layer.Text.Curve.Type, "none", "arc_up", "arc_down", "wave", "circle", "ellipse") ||
-				!finiteImageEditorNumber(layer.Text.Curve.Strength) ||
-				layer.Text.Curve.Strength < 0.05 ||
-				layer.Text.Curve.Strength > 1 ||
-				!finiteImageEditorNumber(layer.Text.Curve.Offset) ||
-				layer.Text.Curve.Offset < -1 ||
-				layer.Text.Curve.Offset > 1) {
-			return fmt.Errorf("text curve is invalid")
-		}
-	case "image":
-		if layer.Image == nil || layer.Text != nil || layer.Shape != nil || layer.Paint != nil || strings.TrimSpace(layer.Image.MediaID) == "" {
-			return fmt.Errorf("image layers require only image properties and a media ID")
-		}
-		crop := layer.Image.Crop
-		if !oneOfImageEditorString(layer.Image.Fit, "cover", "contain", "stretch") ||
-			!finiteImageEditorNumber(crop.X) ||
-			!finiteImageEditorNumber(crop.Y) ||
-			!finiteImageEditorNumber(crop.Width) ||
-			!finiteImageEditorNumber(crop.Height) ||
-			crop.X < 0 ||
-			crop.Y < 0 ||
-			crop.Width <= 0 ||
-			crop.Height <= 0 ||
-			crop.X+crop.Width > 1.000001 ||
-			crop.Y+crop.Height > 1.000001 {
-			return fmt.Errorf("image crop must stay within normalized image bounds")
-		}
-		adjustments := layer.Image.Adjustments
-		if err := validateImageEditorColorTools(adjustments.Wheels, adjustments.Curves); err != nil {
+	}
+	return true
+}
+
+func validateImageEditorShapeLayer(layer ImageEditorLayer) error {
+	if layer.Shape == nil || layer.Text != nil || layer.Image != nil || layer.Paint != nil {
+		return fmt.Errorf("shape layers require only shape properties")
+	}
+	if !oneOfImageEditorString(layer.Shape.Kind, "rectangle", "rounded_rectangle", "ellipse", "line") ||
+		layer.Shape.StrokeWidth < 0 ||
+		layer.Shape.Radius < 0 ||
+		!finiteImageEditorNumber(layer.Shape.StrokeWidth) ||
+		!finiteImageEditorNumber(layer.Shape.Radius) {
+		return fmt.Errorf("shape layer properties are invalid")
+	}
+	if !imageEditorHexColor.MatchString(layer.Shape.Fill) || !imageEditorHexColor.MatchString(layer.Shape.Stroke) {
+		return fmt.Errorf("shape colors must use hexadecimal values")
+	}
+	return nil
+}
+
+func validateImageEditorPaintLayer(layer ImageEditorLayer) error {
+	if layer.Paint == nil || layer.Text != nil || layer.Image != nil || layer.Shape != nil {
+		return fmt.Errorf("paint layers require only paint properties")
+	}
+	if !paintPropertiesValid(layer.Paint) {
+		return fmt.Errorf("paint layer properties are invalid")
+	}
+	if err := validatePaintGeometry(layer.Paint); err != nil {
+		return err
+	}
+	if layer.Paint.Kind == "gradient" {
+		if err := validateImageEditorGradient(layer.Paint.Gradient); err != nil {
 			return err
 		}
-		if layer.Image.ColorGradeVersion != 0 && layer.Image.ColorGradeVersion != imageEditorColorGradeVersion {
-			return fmt.Errorf("unsupported image editor layer color grade version")
+	} else if layer.Paint.Gradient != nil {
+		return fmt.Errorf("only gradient paint layers can include gradient properties")
+	}
+	return nil
+}
+
+func paintPropertiesValid(paint *ImageEditorPaintValue) bool {
+	return oneOfImageEditorString(paint.Kind, "stroke", "fill", "gradient") &&
+		imageEditorHexColor.MatchString(paint.Color) &&
+		finiteImageEditorNumber(paint.Size) &&
+		paint.Size > 0 &&
+		paint.Size <= 512 &&
+		finiteImageEditorNumber(paint.Opacity) &&
+		paint.Opacity >= 0 &&
+		paint.Opacity <= 1 &&
+		finiteImageEditorNumber(paint.SourceWidth) &&
+		finiteImageEditorNumber(paint.SourceHeight) &&
+		paint.SourceWidth > 0 &&
+		paint.SourceHeight > 0 &&
+		len(paint.Points) <= 100_000 &&
+		len(paint.Spans) <= 250_000
+}
+
+func validatePaintGeometry(paint *ImageEditorPaintValue) error {
+	for _, point := range paint.Points {
+		if !finiteImageEditorNumber(point.X) || !finiteImageEditorNumber(point.Y) {
+			return fmt.Errorf("paint layer points must be finite")
 		}
-		for _, value := range []float64{
-			adjustments.Brightness,
-			adjustments.Contrast,
-			adjustments.Saturation,
-			adjustments.Temperature,
-			adjustments.Tint,
-			adjustments.Vibrance,
-			adjustments.Hue,
-			adjustments.Exposure,
-			adjustments.Highlights,
-			adjustments.Shadows,
-		} {
-			if !finiteImageEditorNumber(value) || value < -1 || value > 1 {
-				return fmt.Errorf("image adjustments must be between -1 and 1")
-			}
+	}
+	for _, span := range paint.Spans {
+		if !finiteImageEditorNumber(span.X) ||
+			!finiteImageEditorNumber(span.Y) ||
+			!finiteImageEditorNumber(span.Width) ||
+			span.Width <= 0 {
+			return fmt.Errorf("paint layer spans are invalid")
 		}
-		if !finiteImageEditorNumber(adjustments.Blur) || adjustments.Blur < 0 || adjustments.Blur > 1 {
-			return fmt.Errorf("image blur must be between 0 and 1")
-		}
-	case "shape":
-		if layer.Shape == nil || layer.Text != nil || layer.Image != nil || layer.Paint != nil {
-			return fmt.Errorf("shape layers require only shape properties")
-		}
-		if !oneOfImageEditorString(layer.Shape.Kind, "rectangle", "rounded_rectangle", "ellipse", "line") ||
-			layer.Shape.StrokeWidth < 0 ||
-			layer.Shape.Radius < 0 ||
-			!finiteImageEditorNumber(layer.Shape.StrokeWidth) ||
-			!finiteImageEditorNumber(layer.Shape.Radius) {
-			return fmt.Errorf("shape layer properties are invalid")
-		}
-		if !imageEditorHexColor.MatchString(layer.Shape.Fill) || !imageEditorHexColor.MatchString(layer.Shape.Stroke) {
-			return fmt.Errorf("shape colors must use hexadecimal values")
-		}
-	case "paint":
-		if layer.Paint == nil || layer.Text != nil || layer.Image != nil || layer.Shape != nil {
-			return fmt.Errorf("paint layers require only paint properties")
-		}
-		if !oneOfImageEditorString(layer.Paint.Kind, "stroke", "fill", "gradient") ||
-			!imageEditorHexColor.MatchString(layer.Paint.Color) ||
-			!finiteImageEditorNumber(layer.Paint.Size) ||
-			layer.Paint.Size <= 0 ||
-			layer.Paint.Size > 512 ||
-			!finiteImageEditorNumber(layer.Paint.Opacity) ||
-			layer.Paint.Opacity < 0 ||
-			layer.Paint.Opacity > 1 ||
-			!finiteImageEditorNumber(layer.Paint.SourceWidth) ||
-			!finiteImageEditorNumber(layer.Paint.SourceHeight) ||
-			layer.Paint.SourceWidth <= 0 ||
-			layer.Paint.SourceHeight <= 0 ||
-			len(layer.Paint.Points) > 100_000 ||
-			len(layer.Paint.Spans) > 250_000 {
-			return fmt.Errorf("paint layer properties are invalid")
-		}
-		for _, point := range layer.Paint.Points {
-			if !finiteImageEditorNumber(point.X) || !finiteImageEditorNumber(point.Y) {
-				return fmt.Errorf("paint layer points must be finite")
-			}
-		}
-		for _, span := range layer.Paint.Spans {
-			if !finiteImageEditorNumber(span.X) ||
-				!finiteImageEditorNumber(span.Y) ||
-				!finiteImageEditorNumber(span.Width) ||
-				span.Width <= 0 {
-				return fmt.Errorf("paint layer spans are invalid")
-			}
-		}
-		if layer.Paint.Kind == "gradient" {
-			if err := validateImageEditorGradient(layer.Paint.Gradient); err != nil {
-				return err
-			}
-		} else if layer.Paint.Gradient != nil {
-			return fmt.Errorf("only gradient paint layers can include gradient properties")
-		}
-	case "group":
-		if layer.Text != nil || layer.Image != nil || layer.Shape != nil || layer.Paint != nil || layer.Effects != nil || layer.Mask != nil || layer.EraseMask != nil {
-			return fmt.Errorf("group layers cannot contain visual properties")
-		}
-	default:
-		return fmt.Errorf("unsupported OpenPost Image Editor layer type")
+	}
+	return nil
+}
+
+func validateImageEditorGroupLayer(layer ImageEditorLayer) error {
+	if layer.Text != nil || layer.Image != nil || layer.Shape != nil || layer.Paint != nil || layer.Effects != nil || layer.Mask != nil || layer.EraseMask != nil {
+		return fmt.Errorf("group layers cannot contain visual properties")
 	}
 	return nil
 }
@@ -2555,6 +2984,8 @@ func insertImageEditorPages(ctx context.Context, tx bun.Tx, documentID string, p
 		background := normalizeImageEditorPageBackground(page.Background, page.BackgroundColor)
 		backgroundJSON, err := json.Marshal(imageEditorStoredPageState{
 			StorageVersion:    imageEditorPageStorageVersion,
+			WidthPX:           page.WidthPX,
+			HeightPX:          page.HeightPX,
 			Background:        background,
 			Guides:            page.Guides,
 			ColorGradeVersion: page.ColorGradeVersion,
@@ -2587,28 +3018,28 @@ func insertImageEditorPages(ctx context.Context, tx bun.Tx, documentID string, p
 func decodeImageEditorPageState(
 	encoded string,
 	fallbackColor string,
-) (*ImageEditorPageBackground, *ImageEditorPageGuides, int, *ImageEditorColorGrade, error) {
+) (*ImageEditorPageBackground, *ImageEditorPageGuides, int, *ImageEditorColorGrade, *int, *int, error) {
 	var versionProbe struct {
 		StorageVersion int `json:"storage_version"`
 	}
 	if err := json.Unmarshal([]byte(encoded), &versionProbe); err != nil {
-		return nil, nil, 0, nil, err
+		return nil, nil, 0, nil, nil, nil, err
 	}
 	if versionProbe.StorageVersion == 0 {
 		var legacy ImageEditorPageBackground
 		if err := json.Unmarshal([]byte(encoded), &legacy); err != nil {
-			return nil, nil, 0, nil, err
+			return nil, nil, 0, nil, nil, nil, err
 		}
-		return normalizeImageEditorPageBackground(&legacy, fallbackColor), nil, 0, nil, nil
+		return normalizeImageEditorPageBackground(&legacy, fallbackColor), nil, 0, nil, nil, nil, nil
 	}
 	if versionProbe.StorageVersion != imageEditorPageStorageVersion {
-		return nil, nil, 0, nil, fmt.Errorf("unsupported image editor page storage version %d", versionProbe.StorageVersion)
+		return nil, nil, 0, nil, nil, nil, fmt.Errorf("unsupported image editor page storage version %d", versionProbe.StorageVersion)
 	}
 	var state imageEditorStoredPageState
 	if err := json.Unmarshal([]byte(encoded), &state); err != nil {
-		return nil, nil, 0, nil, err
+		return nil, nil, 0, nil, nil, nil, err
 	}
-	return normalizeImageEditorPageBackground(state.Background, fallbackColor), state.Guides, state.ColorGradeVersion, state.ColorGrade, nil
+	return normalizeImageEditorPageBackground(state.Background, fallbackColor), state.Guides, state.ColorGradeVersion, state.ColorGrade, state.WidthPX, state.HeightPX, nil
 }
 
 func replaceImageEditorMediaReferences(ctx context.Context, tx bun.Tx, document *models.DesignDocument, pages []ImageEditorPagePayload) error {
@@ -2787,7 +3218,7 @@ func decompressImageEditorSnapshot(compressed []byte) (imageEditorRevisionSnapsh
 	const envelopeAllowance = 64 << 10
 	data, err := io.ReadAll(io.LimitReader(reader, imageEditorMaxDocumentBytes+envelopeAllowance+1))
 	if err != nil || len(data) > imageEditorMaxDocumentBytes+envelopeAllowance {
-		return snapshot, fmt.Errorf("invalid OpenPost Image Editor snapshot")
+		return snapshot, fmt.Errorf("invalid dopost Image Editor snapshot")
 	}
 	var probe struct {
 		SnapshotVersion int `json:"snapshot_version"`
@@ -2802,7 +3233,7 @@ func decompressImageEditorSnapshot(compressed []byte) (imageEditorRevisionSnapsh
 		return snapshot, nil
 	}
 	if probe.SnapshotVersion != imageEditorSnapshotVersion {
-		return snapshot, fmt.Errorf("unsupported OpenPost Image Editor snapshot version %d", probe.SnapshotVersion)
+		return snapshot, fmt.Errorf("unsupported dopost Image Editor snapshot version %d", probe.SnapshotVersion)
 	}
 	if err := json.Unmarshal(data, &snapshot); err != nil {
 		return snapshot, err

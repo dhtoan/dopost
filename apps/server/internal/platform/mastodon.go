@@ -88,6 +88,8 @@ func (m *MastodonAdapter) GetProfile(ctx context.Context, accessToken string) (*
 	return compatUserProfile(profile, FediverseSoftwareUnknown), nil
 }
 
+func (m *MastodonAdapter) AccountCapabilityKeyInput(AccountCapabilityInput) string { return "" }
+
 func (m *MastodonAdapter) ResolveAccountPublishingCapabilities(ctx context.Context, accessToken string, _ AccountCapabilityInput) (AccountCapabilityResult, error) {
 	return compatPublishingCapabilities(ctx, m.compat.instanceURL, accessToken, "Mastodon", "mastodon", true)
 }
@@ -97,6 +99,9 @@ func (m *MastodonAdapter) UploadMedia(ctx context.Context, accessToken, _ string
 }
 
 func (m *MastodonAdapter) Publish(ctx context.Context, accessToken, _ string, req *PublishRequest) (PublishResult, error) {
+	if err := m.ValidateMentionTargets(ctx, accessToken, req); err != nil {
+		return PublishResult{}, err
+	}
 	prepared := PublishResult{ProviderState: "create_status", RetrySafety: PublishRetryIdempotent, IdempotencyTTL: time.Hour}
 	if err := req.BeginWrite(prepared); err != nil {
 		return PublishResult{}, err

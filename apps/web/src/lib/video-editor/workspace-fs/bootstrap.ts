@@ -4,7 +4,7 @@
  * stranded tmp files from prior crashes.
  *
  * Ported from FreeCut (MIT) — bootstrap.ts, without legacy-layout migrations
- * (OpenPost workspaces start at the current layout).
+ * (dopost workspaces start at the current layout).
  */
 
 import { createLogger } from './logger';
@@ -25,7 +25,7 @@ export type WorkspaceMarker = {
 	createdAt: number;
 };
 
-const README_TEMPLATE = `# OpenPost Video Editor workspace
+const README_TEMPLATE = `# dopost Video Editor workspace
 
 This folder holds your video editing projects. Everything here stays on your
 machine — nothing is uploaded.

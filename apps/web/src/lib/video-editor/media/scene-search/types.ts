@@ -1,4 +1,4 @@
-// Ported from FreeCut (MIT), adapted to OpenPost's workspace store.
+// Ported from FreeCut (MIT), adapted to dopost's workspace store.
 
 import type { PaletteEntry } from './dominant-colors';
 

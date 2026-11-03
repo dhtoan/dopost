@@ -1,17 +1,17 @@
 import { describe, expect, expectTypeOf, it, vi } from 'vitest';
-import { resolveBuiltInTheme } from './builtins.js';
+import { resolveBuiltInTheme } from '@openpost/ui/themes/builtins.js';
 import type {
 	ResolvedTheme,
 	ThemeFontFace,
 	ThemeRuntimeFontFace,
 	WebResolvedTheme
-} from './contracts.js';
+} from '@openpost/ui/themes/contracts.js';
 import {
 	createThemeFontPlan,
 	stageThemeFontPlan,
 	type ThemeFontEnvironment,
 	type ThemeFontFaceHandle
-} from './font-stage.js';
+} from '@openpost/ui/themes/font-stage.js';
 
 function storedFace(family: string, weight: number, revision = '1'): ThemeFontFace {
 	return {
@@ -121,6 +121,35 @@ describe('web theme font staging', () => {
 		expect(handles).toHaveLength(2);
 		expect(add).not.toHaveBeenCalled();
 		expect(remove).not.toHaveBeenCalled();
+
+		let resolveBundled!: (ready: boolean) => void;
+		const bundled = new Promise<boolean>((resolve) => {
+			resolveBundled = resolve;
+		});
+		const readyAdd = vi.fn();
+		const readyEnvironment = {
+			...environment,
+			loadBundled: () => bundled,
+			createUploaded: () => ({ load: async () => undefined }),
+			add: readyAdd
+		};
+		const pending = stageThemeFontPlan(plan, readyEnvironment);
+		await Promise.resolve();
+		expect(readyAdd, 'uploaded faces wait for bundled readiness').not.toHaveBeenCalled();
+		resolveBundled(true);
+		const stage = await pending;
+		expect(readyAdd).toHaveBeenCalledTimes(2);
+		stage.release();
+
+		const failedAdd = vi.fn();
+		await expect(
+			stageThemeFontPlan(plan, {
+				...readyEnvironment,
+				loadBundled: async () => false,
+				add: failedAdd
+			})
+		).rejects.toThrow('Bundled theme font is unavailable');
+		expect(failedAdd, 'bundled failure must install no uploaded face').not.toHaveBeenCalled();
 	});
 
 	it('releases every namespaced uploaded face exactly once', async () => {

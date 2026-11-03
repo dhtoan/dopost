@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { page } from 'vitest/browser';
+import { workspaceSettingsQueryKeys } from '@openpost/query-catalog';
 import { render } from 'vitest-browser-svelte';
 import { client } from '$lib/api/client';
 import { queryClient } from '$lib/query/client';
@@ -15,21 +15,21 @@ describe('WorkspaceSetupGuide', () => {
 		queryClient.clear();
 	});
 
-	it('shows server-projected progress and only its authorized next action', async () => {
+	it('shows the server-projected progress and checklist while reusing cached reads', async () => {
 		mocks.get.mockResolvedValue({
 			data: {
 				visible: true,
 				activated: false,
 				completed_steps: 3,
 				total_steps: 4,
-				next_step: 'publication',
-				next_action: 'create_publication',
-				action_href: '/',
+				next_step: 'destination',
+				next_action: 'connect_destination',
+				action_href: '/settings?tab=accounts',
 				steps: [
 					{ id: 'workspace', completed: true },
-					{ id: 'destination', completed: true },
+					{ id: 'destination', completed: false },
 					{ id: 'composition', completed: true },
-					{ id: 'publication', completed: false }
+					{ id: 'publication', completed: true }
 				]
 			}
 		});
@@ -40,10 +40,13 @@ describe('WorkspaceSetupGuide', () => {
 		const guide = screen.getByTestId('workspace-setup-guide-home');
 		await expect.element(guide).toBeVisible();
 		await expect.element(guide).toHaveTextContent('3 of 4 complete');
-		await expect.element(guide).toHaveTextContent('Schedule or submit your first Publication');
+		await expect.element(guide).toHaveTextContent('Finish setting up this Workspace');
+		await expect.element(guide).toHaveTextContent('Workspace');
+		await expect.element(guide).toHaveTextContent('Write something');
+		await expect.element(guide).toHaveTextContent('Publish a post');
 		await expect
-			.element(screen.getByRole('link', { name: 'Create a Publication' }))
-			.toHaveAttribute('href', '/');
+			.element(screen.getByRole('link', { name: 'Connect an account' }))
+			.toHaveAttribute('href', '/accounts');
 		expect(mocks.get).toHaveBeenCalledWith('/workspaces/{id}/setup', {
 			params: { path: { id: 'workspace-1' } },
 			signal: expect.any(AbortSignal)
@@ -58,6 +61,8 @@ describe('WorkspaceSetupGuide', () => {
 			data: {
 				visible: false,
 				activated: true,
+				next_action: 'create_publication',
+				action_href: '/',
 				completed_steps: 3,
 				total_steps: 3,
 				steps: []
@@ -67,6 +72,11 @@ describe('WorkspaceSetupGuide', () => {
 		const screen = await render(WorkspaceSetupGuide, {
 			workspaceID: 'workspace-1'
 		});
+		await expect
+			.poll(
+				() => queryClient.getQueryState(workspaceSettingsQueryKeys.setup('workspace-1'))?.status
+			)
+			.toBe('success');
 		await expect.element(screen.getByTestId('workspace-setup-guide-home')).not.toBeInTheDocument();
 	});
 
@@ -87,6 +97,8 @@ describe('WorkspaceSetupGuide', () => {
 				data: {
 					visible: false,
 					activated: true,
+					next_action: 'create_publication',
+					action_href: '/',
 					completed_steps: 3,
 					total_steps: 3,
 					steps: []
@@ -98,6 +110,14 @@ describe('WorkspaceSetupGuide', () => {
 		});
 		await expect.element(screen.getByTestId('workspace-setup-guide-home')).toBeVisible();
 		ui.refreshWorkspaceSetup();
+		await expect.poll(() => mocks.get).toHaveBeenCalledTimes(2);
+		expect(mocks.get).toHaveBeenNthCalledWith(2, '/workspaces/{id}/setup', {
+			params: { path: { id: 'workspace-1' } },
+			signal: expect.any(AbortSignal)
+		});
+		await expect
+			.poll(() => queryClient.getQueryData(workspaceSettingsQueryKeys.setup('workspace-1')))
+			.toMatchObject({ visible: false, action_href: '/' });
 		await expect.element(screen.getByTestId('workspace-setup-guide-home')).not.toBeInTheDocument();
 	});
 });

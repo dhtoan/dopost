@@ -3,7 +3,7 @@
 	import { error } from '@sveltejs/kit';
 	import ArrowRight from '@lucide/svelte/icons/arrow-right';
 	import ArrowLeft from '@lucide/svelte/icons/arrow-left';
-	import { Button } from '$lib/components/ui/button';
+	import { Button } from '@openpost/ui/components/button';
 	import PlatformIcon from '$lib/components/platform-icon.svelte';
 	import HeroAccent from '../../_components/HeroAccent.svelte';
 	import ProductScreenshot from '../../_components/ProductScreenshot.svelte';
@@ -29,7 +29,7 @@
 	{#if story}
 		<section class="channel-hero" aria-labelledby="channel-title">
 			<div>
-				<h1 id="channel-title">{story.title}</h1>
+				<h1 id="channel-title" class="marketing-title">{story.title}</h1>
 				<p class="marketing-copy">{story.intro}</p>
 				<Button href={managedSignupUrl} size="lg"
 					>Start your free trial <ArrowRight data-icon="inline-end" /></Button
@@ -62,7 +62,7 @@
 			<figure class="story-product">
 				<ProductScreenshot
 					src={`/assets/screenshots/${story.visual}-dark.webp`}
-					alt={`OpenPost ${story.visual.replaceAll('-', ' ')} for preparing ${platform.name} content`}
+					alt={`dopost ${story.visual.replaceAll('-', ' ')} for preparing ${platform.name} content`}
 					label={`${platform.name} workflow`}
 				/>
 				<figcaption>The tools for your next {platform.name} post, already together.</figcaption>
@@ -79,7 +79,7 @@
 		<section class="channel-faq" aria-labelledby="channel-questions">
 			<div>
 				<h2 id="channel-questions">A little more about<br />{platform.name}.</h2>
-				<a href={platform.docsUrl} class="focus-ring text-link"
+				<a href={platform.docsUrl} class="focus-ring text-link" data-sveltekit-reload
 					>Help with connecting accounts <ArrowRight size={16} /></a
 				>
 			</div>
@@ -91,7 +91,7 @@
 				<details>
 					<summary>What can I prepare for {platform.name}?</summary>
 					<p>
-						OpenPost includes these formats. Check the options available to your account before
+						dopost includes these formats. Check the options available to your account before
 						scheduling.
 					</p>
 					<ul>
@@ -111,9 +111,8 @@
 				<details>
 					<summary>Do I need to install anything?</summary>
 					<p>
-						No. OpenPost Cloud runs in your browser. You can also try the free image and video
-						editors before creating an account. Full video editing works best in desktop Chrome or
-						Edge.
+						No. dopost Cloud runs in your browser. You can also try the free image and video editors
+						before creating an account. Full video editing works best in desktop Chrome or Edge.
 					</p>
 					<a href="/tools">Try the free tools</a>
 				</details>
@@ -122,9 +121,9 @@
 	{:else}
 		<section class="channel-unavailable">
 			<PlatformIcon platform={platform.short} class="size-10" />
-			<h1>{platform.name} is not available yet.</h1>
+			<h1 class="marketing-title">{platform.name} is not available yet.</h1>
 			<p class="marketing-copy">
-				You cannot connect or publish to {platform.name} in OpenPost right now. Explore the other channels,
+				You cannot connect or publish to {platform.name} in dopost right now. Explore the other channels,
 				or contact us if this is the one your business needs.
 			</p>
 			<Button href="/platforms">Explore other channels <ArrowRight data-icon="inline-end" /></Button
@@ -145,12 +144,6 @@
 	}
 	h1 {
 		margin: 0 0 24px;
-		max-width: 15ch;
-		font-size: clamp(40px, 5vw, 70px);
-		line-height: 1.06;
-		letter-spacing: -0.04em;
-		font-weight: 550;
-		text-wrap: balance;
 	}
 	.channel-hero :global(.marketing-copy) {
 		margin-bottom: 28px;

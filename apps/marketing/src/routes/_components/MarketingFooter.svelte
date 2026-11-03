@@ -4,7 +4,7 @@
 	import HeroAccent from './HeroAccent.svelte';
 	import ThemeImage from './ThemeImage.svelte';
 	import ArrowUpRight from '@lucide/svelte/icons/arrow-up-right';
-	import { Button } from '$lib/components/ui/button';
+	import { Button } from '@openpost/ui/components/button';
 	import Github from '@lucide/svelte/icons/github';
 	import MessageCircle from '@lucide/svelte/icons/message-circle';
 	import Volume2 from '@lucide/svelte/icons/volume-2';
@@ -17,6 +17,7 @@
 		managedSignupUrl,
 		managedTrialNote
 	} from '../_marketing';
+	import { getChannelStory } from '../platforms/_stories';
 	import { openTelemetryPreferences } from '@openpost/telemetry';
 
 	const groups = marketingNavigation.footerGroups;
@@ -39,7 +40,7 @@
 		<div class="sendoff-copy">
 			<h2>Go make something<br /><HeroAccent>worth sharing.</HeroAccent></h2>
 			<Button href={managedSignupUrl} size="lg"
-				>Try OpenPost <ArrowUpRight data-icon="inline-end" /></Button
+				>Try dopost <ArrowUpRight data-icon="inline-end" /></Button
 			>
 			<p>{managedTrialNote}</p>
 		</div>
@@ -59,7 +60,7 @@
 				<a
 					href={resolve('/')}
 					class="focus-ring inline-flex min-h-11 items-center gap-2 rounded-md"
-					aria-label="OpenPost home"
+					aria-label="dopost home"
 				>
 					<ThemeImage
 						lightSrc="/assets/brand/logo.svg"
@@ -70,7 +71,7 @@
 						class="shrink-0"
 					/>
 					<span class="font-brand text-sm leading-none font-semibold tracking-[-0.02em]"
-						>OpenPost</span
+						>dopost</span
 					>
 				</a>
 				<p class="mt-4 max-w-xs text-sm leading-6 text-muted-foreground">
@@ -97,17 +98,32 @@
 						Discord
 					</a>
 				</div>
+				<Button
+					{...externalHref('https://www.google.com/preferences/source?q=openpo.st')}
+					variant="outline"
+					target="_blank"
+					rel="noopener noreferrer"
+					class="mt-5 min-h-11"
+				>
+					Prefer dopost on Google <ArrowUpRight data-icon="inline-end" />
+				</Button>
 				<div
 					class="platform-guides mt-6 text-muted-foreground"
 					aria-label="Platform publishing guides"
 				>
-					{#each platforms.filter((platform) => !['pinterest', 'telegram'].includes(platform.slug)) as platform (platform.slug)}
+					{#each platforms.filter( (platform) => getChannelStory(platform.slug) ) as platform (platform.slug)}
 						<a
 							href={resolve(`/platforms/${platform.slug}`)}
-							class="focus-ring inline-flex size-11 items-center justify-center rounded-md text-muted-foreground/75 transition-colors hover:text-primary"
+							class="focus-ring inline-flex min-h-11 items-center justify-center rounded-md text-muted-foreground/75 transition-colors hover:text-primary {platform.slug ===
+							'youtube'
+								? 'col-span-2 px-2 text-sm font-medium'
+								: 'size-11'}"
 							aria-label={`${platform.name} guide`}
 						>
-							<PlatformIcon platform={platform.short} class="size-4" />
+							{#if platform.slug === 'youtube'}YouTube{:else}<PlatformIcon
+									platform={platform.short}
+									class="size-4"
+								/>{/if}
 						</a>
 					{/each}
 				</div>
@@ -147,7 +163,7 @@
 		<div
 			class="marketing-shell flex flex-col gap-3 py-5 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between"
 		>
-			<span>© 2026 OpenPost</span>
+			<span>© 2026 dopost</span>
 			<span class="flex flex-wrap items-center gap-x-5 gap-y-1">
 				<span class="hidden sm:inline">Made in Porto. For your business.</span>
 				<button
@@ -169,7 +185,7 @@
 					class="focus-ring inline-flex min-h-11 items-center rounded-md transition-colors hover:text-foreground"
 					onclick={openTelemetryPreferences}
 				>
-					Analytics choices
+					Cookie preferences
 				</button>
 				<a
 					class="focus-ring inline-flex min-h-11 items-center rounded-md transition-colors hover:text-foreground"

@@ -31,7 +31,7 @@ func TestQueueReminderSweepSendsLowRunwayOncePerDepletionEpisode(t *testing.T) {
 	require.Len(t, jobs, 1)
 	require.NoError(t, service.HandleJob(t.Context(), jobs[0].Type, jobs[0].Payload))
 	require.Len(t, sender.messages, 1)
-	require.Equal(t, "Your OpenPost queue has 3 days left", sender.messages[0].Title)
+	require.Equal(t, "Your dopost queue has 3 days left", sender.messages[0].Title)
 	require.Contains(t, sender.messages[0].Body, "One")
 	require.Equal(t, "https://app.openpost.test/calendar", sender.messages[0].ActionURL)
 
@@ -88,7 +88,7 @@ func TestLowRunwayReminderSendsForAnAlreadyEmptyActivatedWorkspace(t *testing.T)
 	require.Len(t, jobs, 1)
 	require.NoError(t, service.HandleJob(t.Context(), jobs[0].Type, jobs[0].Payload))
 	require.Len(t, sender.messages, 1)
-	require.Equal(t, "Your OpenPost queue has 0 days left", sender.messages[0].Title)
+	require.Equal(t, "Your dopost queue has 0 days left", sender.messages[0].Title)
 }
 
 func TestQueueEmptiedReminderOnlyFiresAfterTheLastQueuedPublicationFinishes(t *testing.T) {
@@ -103,17 +103,34 @@ func TestQueueEmptiedReminderOnlyFiresAfterTheLastQueuedPublicationFinishes(t *t
 	})
 	require.NoError(t, err)
 
+	// The seeded publication is still queued, so finishing it cannot report an
+	// empty queue.
+	require.NoError(t, service.RecordQueueEmptiedAfterPublication(t.Context(), db, "workspace-1", "queued"))
+	require.Empty(t, queueReminderEmailJobs(t, db), "a still-queued publication must not report an empty queue")
+
+	// A second publication stays queued after the first finishes, so the queue
+	// is still not empty.
+	seedQueuedPublication(t, db, "later", now.Add(4*24*time.Hour))
 	_, err = db.NewUpdate().Model((*models.Publication)(nil)).Set("status = ?", models.PublicationStatusPublished).Where("id = ?", "queued").Exec(t.Context())
 	require.NoError(t, err)
 	_, err = db.NewUpdate().Model((*models.Rendition)(nil)).Set("status = ?", models.RenditionStatusPublished).Where("publication_id = ?", "queued").Exec(t.Context())
 	require.NoError(t, err)
 	require.NoError(t, service.RecordQueueEmptiedAfterPublication(t.Context(), db, "workspace-1", "queued"))
-	require.NoError(t, service.RecordQueueEmptiedAfterPublication(t.Context(), db, "workspace-1", "queued"))
+	require.Empty(t, queueReminderEmailJobs(t, db), "a later queued publication must not report an empty queue")
+
+	// Finishing the last queued publication reports the empty queue once, even
+	// when the same completion is replayed.
+	_, err = db.NewUpdate().Model((*models.Publication)(nil)).Set("status = ?", models.PublicationStatusPublished).Where("id = ?", "later").Exec(t.Context())
+	require.NoError(t, err)
+	_, err = db.NewUpdate().Model((*models.Rendition)(nil)).Set("status = ?", models.RenditionStatusPublished).Where("publication_id = ?", "later").Exec(t.Context())
+	require.NoError(t, err)
+	require.NoError(t, service.RecordQueueEmptiedAfterPublication(t.Context(), db, "workspace-1", "later"))
+	require.NoError(t, service.RecordQueueEmptiedAfterPublication(t.Context(), db, "workspace-1", "later"))
 	jobs := queueReminderEmailJobs(t, db)
 	require.Len(t, jobs, 1)
 	require.NoError(t, service.HandleJob(t.Context(), jobs[0].Type, jobs[0].Payload))
 	require.Len(t, sender.messages, 1)
-	require.Equal(t, "Your OpenPost queue is empty", sender.messages[0].Title)
+	require.Equal(t, "Your dopost queue is empty", sender.messages[0].Title)
 }
 
 func TestQueueEmptiedReminderCatchesQueueFilledAndDrainedBetweenSweeps(t *testing.T) {
@@ -179,7 +196,7 @@ func TestQueueEmptiedReminderSupersedesPendingLowRunwayEmail(t *testing.T) {
 		require.NoError(t, service.HandleJob(t.Context(), job.Type, job.Payload))
 	}
 	require.Len(t, sender.messages, 1)
-	require.Equal(t, "Your OpenPost queue is empty", sender.messages[0].Title)
+	require.Equal(t, "Your dopost queue is empty", sender.messages[0].Title)
 }
 
 func TestQueueReminderSettingsRequireActiveMembershipAndPropagateAuthorizationErrors(t *testing.T) {

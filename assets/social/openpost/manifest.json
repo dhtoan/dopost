@@ -11,7 +11,7 @@
       "theme": "light",
       "png": "banners/x-paper.png",
       "svg": "banners/x-paper.svg",
-      "alt": "OpenPost X header with the product promise and tactile publishing tiles."
+      "alt": "dopost X header with the product promise and tactile publishing tiles."
     },
     {
       "id": "x-workshop-light",
@@ -22,7 +22,7 @@
       "theme": "light",
       "png": "banners/x-workshop-light.png",
       "svg": "banners/x-workshop-light.svg",
-      "alt": "Light OpenPost X header with publishing activity cells."
+      "alt": "Light dopost X header with publishing activity cells."
     },
     {
       "id": "x-workshop-dark",
@@ -33,7 +33,7 @@
       "theme": "dark",
       "png": "banners/x-workshop-dark.png",
       "svg": "banners/x-workshop-dark.svg",
-      "alt": "Dark OpenPost X header with publishing activity cells."
+      "alt": "Dark dopost X header with publishing activity cells."
     },
     {
       "id": "linkedin-profile-paper",
@@ -44,7 +44,7 @@
       "theme": "light",
       "png": "banners/linkedin-profile-paper.png",
       "svg": "banners/linkedin-profile-paper.svg",
-      "alt": "OpenPost LinkedIn profile banner with tactile publishing tiles."
+      "alt": "dopost LinkedIn profile banner with tactile publishing tiles."
     },
     {
       "id": "linkedin-profile-workshop-light",
@@ -55,7 +55,7 @@
       "theme": "light",
       "png": "banners/linkedin-profile-workshop-light.png",
       "svg": "banners/linkedin-profile-workshop-light.svg",
-      "alt": "Light OpenPost LinkedIn profile banner."
+      "alt": "Light dopost LinkedIn profile banner."
     },
     {
       "id": "linkedin-profile-workshop-dark",
@@ -66,7 +66,7 @@
       "theme": "dark",
       "png": "banners/linkedin-profile-workshop-dark.png",
       "svg": "banners/linkedin-profile-workshop-dark.svg",
-      "alt": "Dark OpenPost LinkedIn profile banner."
+      "alt": "Dark dopost LinkedIn profile banner."
     },
     {
       "id": "linkedin-page-paper",
@@ -77,7 +77,7 @@
       "theme": "light",
       "png": "banners/linkedin-page-paper.png",
       "svg": "banners/linkedin-page-paper.svg",
-      "alt": "OpenPost LinkedIn Page cover with the product promise and tactile publishing tiles."
+      "alt": "dopost LinkedIn Page cover with the product promise and tactile publishing tiles."
     },
     {
       "id": "linkedin-page-workshop-dark",
@@ -88,7 +88,7 @@
       "theme": "dark",
       "png": "banners/linkedin-page-workshop-dark.png",
       "svg": "banners/linkedin-page-workshop-dark.svg",
-      "alt": "Dark OpenPost LinkedIn Page cover."
+      "alt": "Dark dopost LinkedIn Page cover."
     },
     {
       "id": "avatar-400",
@@ -99,7 +99,7 @@
       "theme": "light",
       "png": "profile/avatar-400.png",
       "svg": "profile/avatar-400.svg",
-      "alt": "OpenPost orange Converge symbol."
+      "alt": "dopost orange Converge symbol."
     },
     {
       "id": "avatar-800",
@@ -110,7 +110,7 @@
       "theme": "light",
       "png": "profile/avatar-800.png",
       "svg": "profile/avatar-800.svg",
-      "alt": "OpenPost orange Converge symbol."
+      "alt": "dopost orange Converge symbol."
     },
     {
       "id": "content-team-square-light",
@@ -132,7 +132,7 @@
       "theme": "dark",
       "png": "posts/content-team-square-dark.png",
       "svg": "posts/content-team-square-dark.svg",
-      "alt": "The content team for companies of one on a dark OpenPost background."
+      "alt": "The content team for companies of one on a dark dopost background."
     },
     {
       "id": "publish-everywhere-portrait",
@@ -165,7 +165,7 @@
       "theme": "light",
       "png": "posts/product-composer-landscape.png",
       "svg": "posts/product-composer-landscape.svg",
-      "alt": "OpenPost publishing workspace and composer."
+      "alt": "dopost publishing workspace and composer."
     },
     {
       "id": "media-studio-landscape",
@@ -176,7 +176,7 @@
       "theme": "light",
       "png": "posts/media-studio-landscape.png",
       "svg": "posts/media-studio-landscape.svg",
-      "alt": "OpenPost media library with reusable social assets."
+      "alt": "dopost media library with reusable social assets."
     },
     {
       "id": "destination-control-square",
@@ -198,7 +198,7 @@
       "theme": "dark",
       "png": "posts/activity-proof-landscape.png",
       "svg": "posts/activity-proof-landscape.svg",
-      "alt": "OpenPost keeps publishing results and retry paths visible."
+      "alt": "dopost keeps publishing results and retry paths visible."
     },
     {
       "id": "01-content-team",
@@ -253,7 +253,7 @@
       "theme": "dark",
       "png": "carousel/05-publish-everywhere.png",
       "svg": "carousel/05-publish-everywhere.svg",
-      "alt": "Publish clearly with OpenPost."
+      "alt": "Publish clearly with dopost."
     },
     {
       "id": "workflow-story-light",
@@ -264,7 +264,7 @@
       "theme": "light",
       "png": "stories/workflow-story-light.png",
       "svg": "stories/workflow-story-light.svg",
-      "alt": "OpenPost workflow: capture, shape, schedule, and track."
+      "alt": "dopost workflow: capture, shape, schedule, and track."
     },
     {
       "id": "workflow-story-dark",
@@ -275,7 +275,7 @@
       "theme": "dark",
       "png": "stories/workflow-story-dark.png",
       "svg": "stories/workflow-story-dark.svg",
-      "alt": "OpenPost workflow on a dark background: capture, shape, schedule, and track."
+      "alt": "dopost workflow on a dark background: capture, shape, schedule, and track."
     },
     {
       "id": "blank-square-light",
@@ -286,7 +286,7 @@
       "theme": "light",
       "png": "templates/blank-square-light.png",
       "svg": "templates/blank-square-light.svg",
-      "alt": "Blank light OpenPost square template."
+      "alt": "Blank light dopost square template."
     },
     {
       "id": "blank-square-dark",
@@ -297,7 +297,7 @@
       "theme": "dark",
       "png": "templates/blank-square-dark.png",
       "svg": "templates/blank-square-dark.svg",
-      "alt": "Blank dark OpenPost square template."
+      "alt": "Blank dark dopost square template."
     },
     {
       "id": "blank-portrait-light",
@@ -308,7 +308,7 @@
       "theme": "light",
       "png": "templates/blank-portrait-light.png",
       "svg": "templates/blank-portrait-light.svg",
-      "alt": "Blank light OpenPost portrait template."
+      "alt": "Blank light dopost portrait template."
     },
     {
       "id": "blank-portrait-dark",
@@ -319,7 +319,7 @@
       "theme": "dark",
       "png": "templates/blank-portrait-dark.png",
       "svg": "templates/blank-portrait-dark.svg",
-      "alt": "Blank dark OpenPost portrait template."
+      "alt": "Blank dark dopost portrait template."
     }
   ]
 }

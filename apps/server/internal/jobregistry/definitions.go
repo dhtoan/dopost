@@ -13,16 +13,20 @@ const (
 	TypeMediaCleanup            = "media_cleanup"
 	TypeStorageDelete           = "storage_delete"
 	TypeFeedbackDelivery        = "deliver_feedback"
+	TypeWaitlistNotification    = "waitlist_notification"
+	TypeYouTubeProfileSweep     = "youtube_profile_sweep"
+	TypeYouTubeProfileAccount   = "youtube_profile_account"
 	TypeAnalyticsSweep          = "analytics_sweep"
 	TypeAnalyticsAccount        = "analytics_account_sync"
 	TypeAnalyticsRendition      = "analytics_rendition_sync"
-	TypeAccountContentDiscovery = "account_content_discovery"
 	TypeBillingWebhook          = "billing_paddle_webhook"
 	TypeEngagementSweep         = "engagement_sweep"
 	TypeMessagingSweep          = "messaging_sweep"
 	TypeEngagementSync          = "engagement_sync"
+	TypeEngagementAccountSync   = "engagement_account_sync"
 	TypeMessagesSync            = "messages_sync"
 	TypeEngagementAction        = "engagement_action"
+	TypeEngagementReviewAction  = "engagement_review_action"
 	TypeMessageSend             = "message_send"
 	TypeNotificationEmail       = "notification_email"
 	TypeQueueReminderSweep      = "queue_reminder_sweep"
@@ -34,9 +38,16 @@ const (
 	TypeGrowthDiscovery         = "growth_discovery"
 	TypeGrowthFollow            = "growth_follow"
 	TypePublicationBuild        = "publication_build"
+	TypeRepurposeSuggestions    = "repurpose_suggestions"
+	TypeImageGeneration         = "image_generation"
 	TypeBotIngress              = "bot_ingress"
 	TypeScheduledAccountCheck   = "scheduled_account_preflight"
 	TypeExternalWebhookDelivery = "external_webhook_delivery"
+	TypePostImportSync          = "post_import_sync"
+	TypeWorkflowSweep           = "workflow_sweep"
+	TypeWorkflowPoll            = "workflow_poll"
+	TypeWorkflowRun             = "workflow_run"
+	TypeWorkflowApprovalNotice  = "workflow_approval_notice"
 )
 
 // ExecutionKind selects the injected implementation for a registered Job.
@@ -50,6 +61,8 @@ const (
 	ExecuteMediaCleanup          ExecutionKind = "media_cleanup"
 	ExecuteStorageDelete         ExecutionKind = "storage_delete"
 	ExecuteFeedback              ExecutionKind = "feedback"
+	ExecuteWaitlist              ExecutionKind = "waitlist"
+	ExecuteYouTubeProfile        ExecutionKind = "youtube_profile"
 	ExecuteAnalytics             ExecutionKind = "analytics"
 	ExecuteBilling               ExecutionKind = "billing"
 	ExecuteEngagement            ExecutionKind = "engagement"
@@ -60,9 +73,13 @@ const (
 	ExecuteVideo                 ExecutionKind = "video"
 	ExecuteGrowth                ExecutionKind = "growth"
 	ExecutePublicationBuild      ExecutionKind = "publication_build"
+	ExecuteRepurposeSuggestions  ExecutionKind = "repurpose_suggestions"
+	ExecuteImageGeneration       ExecutionKind = "image_generation"
 	ExecuteBotIngress            ExecutionKind = "bot_ingress"
 	ExecuteScheduledAccountCheck ExecutionKind = "scheduled_account_preflight"
 	ExecuteExternalWebhook       ExecutionKind = "external_webhook"
+	ExecutePostImport            ExecutionKind = "post_import"
+	ExecuteWorkflow              ExecutionKind = "workflow"
 )
 
 // FailurePolicy describes how the runtime interprets an execution error.
@@ -102,9 +119,12 @@ type Definition struct {
 }
 
 var definitions = map[string]Definition{
-	TypePublishPublication: definition(TypePublishPublication, 3, ExecutePublishPublication, FailurePublish, RecoveryReconcilePublication),
+	TypeYouTubeProfileSweep:   providerReadDefinition(TypeYouTubeProfileSweep, 5, ExecuteYouTubeProfile, RecoveryRequeue, "YouTube profile refresh failed.", ""),
+	TypeYouTubeProfileAccount: providerReadDefinition(TypeYouTubeProfileAccount, 5, ExecuteYouTubeProfile, RecoveryRequeue, "YouTube profile refresh failed.", ""),
+	TypeWaitlistNotification:  definition(TypeWaitlistNotification, 10, ExecuteWaitlist, FailureDefault, RecoveryRequeue),
+	TypePublishPublication:    definition(TypePublishPublication, 3, ExecutePublishPublication, FailurePublish, RecoveryReconcilePublication),
 	TypeRefreshToken: providerReadDefinition(TypeRefreshToken, 5, ExecuteRefreshToken, RecoveryRequeue,
-		"Token refresh failed. OpenPost will retry when the failure is temporary.", ""),
+		"Token refresh failed. dopost will retry when the failure is temporary.", ""),
 	TypeMediaCleanup: {
 		Type: TypeMediaCleanup, DefaultMaxAttempts: 3, Recurrence: 24 * time.Hour,
 		Execution: ExecuteMediaCleanup, Failure: FailureMediaCleanup, Recovery: RecoveryRequeue,
@@ -113,33 +133,33 @@ var definitions = map[string]Definition{
 	TypeStorageDelete:    definition(TypeStorageDelete, 10, ExecuteStorageDelete, FailureDefault, RecoveryRequeue),
 	TypeFeedbackDelivery: definition(TypeFeedbackDelivery, 3, ExecuteFeedback, FailureDefault, RecoveryRequeue),
 	TypeAnalyticsSweep: providerReadDefinition(TypeAnalyticsSweep, 3, ExecuteAnalytics, RecoverySupersedeSweep,
-		"Analytics collection failed. OpenPost will retry when the failure is temporary.",
+		"Analytics collection failed. dopost will retry when the failure is temporary.",
 		"A later analytics sweep remains queued; this sweep will not retry."),
 	TypeAnalyticsAccount: providerReadDefinition(TypeAnalyticsAccount, 3, ExecuteAnalytics, RecoveryRequeue,
-		"Analytics collection failed. OpenPost will retry when the failure is temporary.", ""),
+		"Analytics collection failed. dopost will retry when the failure is temporary.", ""),
 	TypeAnalyticsRendition: providerReadDefinition(TypeAnalyticsRendition, 3, ExecuteAnalytics, RecoveryRequeue,
-		"Analytics collection failed. OpenPost will retry when the failure is temporary.", ""),
-	TypeAccountContentDiscovery: {
-		Type: TypeAccountContentDiscovery, DefaultMaxAttempts: 3,
-		Execution: ExecuteAnalytics, Failure: FailureProviderRead, Recovery: RecoveryRequeue,
-		FailureMessage: "Account content discovery failed. OpenPost will retry when the failure is temporary.",
-		identity:       accountContentDiscoveryIdentity,
-	},
+		"Analytics collection failed. dopost will retry when the failure is temporary.", ""),
 	TypeBillingWebhook: definition(TypeBillingWebhook, 8, ExecuteBilling, FailureDefault, RecoveryRequeue),
 	TypeEngagementSweep: providerReadDefinition(TypeEngagementSweep, 5, ExecuteEngagement, RecoverySupersedeSweep,
-		"Engagement collection failed. OpenPost will retry when the failure is temporary.",
+		"Engagement collection failed. dopost will retry when the failure is temporary.",
 		"A later engagement sweep remains queued; this sweep will not retry."),
 	TypeEngagementSync: providerReadDefinition(TypeEngagementSync, 5, ExecuteEngagement, RecoveryRequeue,
-		"Engagement collection failed. OpenPost will retry when the failure is temporary.", ""),
+		"Engagement collection failed. dopost will retry when the failure is temporary.", ""),
+	TypeEngagementAccountSync: providerReadDefinition(TypeEngagementAccountSync, 5, ExecuteEngagement, RecoveryRequeue,
+		"Account activity collection failed. dopost will retry when the failure is temporary.", ""),
 	TypeMessagingSweep: providerReadDefinition(TypeMessagingSweep, 5, ExecuteMessaging, RecoverySupersedeSweep,
-		"Messaging collection failed. OpenPost will retry when the failure is temporary.",
+		"Messaging collection failed. dopost will retry when the failure is temporary.",
 		"A later Messaging sweep remains queued; this sweep will not retry."),
 	TypeMessagesSync: providerReadDefinition(TypeMessagesSync, 5, ExecuteMessaging, RecoveryRequeue,
-		"Messaging collection failed. OpenPost will retry when the failure is temporary.", ""),
+		"Messaging collection failed. dopost will retry when the failure is temporary.", ""),
+	TypeEngagementReviewAction: {
+		Type: TypeEngagementReviewAction, DefaultMaxAttempts: 1, Execution: ExecuteEngagement, Failure: FailureProviderWrite, Recovery: RecoveryRequeue,
+		FailureMessage: "The review reply could not complete. Inspect its receipt before replacing the reply.",
+	},
 	TypeEngagementAction: providerWriteDefinition(TypeEngagementAction, ExecuteEngagement,
-		"The provider write failed. OpenPost did not retry because the provider result may be ambiguous."),
+		"The provider write failed. dopost did not retry because the provider result may be ambiguous."),
 	TypeMessageSend: providerWriteDefinition(TypeMessageSend, ExecuteMessaging,
-		"The provider write failed. OpenPost did not retry because the provider result may be ambiguous."),
+		"The provider write failed. dopost did not retry because the provider result may be ambiguous."),
 	TypeNotificationEmail: definition(TypeNotificationEmail, 5, ExecuteNotification, FailureDefault, RecoveryRequeue),
 	TypeQueueReminderSweep: {
 		Type: TypeQueueReminderSweep, DefaultMaxAttempts: 3, Recurrence: time.Hour,
@@ -147,17 +167,21 @@ var definitions = map[string]Definition{
 	},
 	TypeOwnershipTransferExpiry: definition(TypeOwnershipTransferExpiry, 5, ExecuteOrganizationOwnership, FailureDefault, RecoveryRequeue),
 	TypeRepostSweep: providerReadDefinition(TypeRepostSweep, 3, ExecuteRepost, RecoverySupersedeSweep,
-		"Repost evaluation failed. OpenPost will retry when the failure is temporary.",
+		"Repost evaluation failed. dopost will retry when the failure is temporary.",
 		"A later repost sweep remains queued; this sweep will not retry."),
 	TypeRepostEvaluate: providerReadDefinition(TypeRepostEvaluate, 3, ExecuteRepost, RecoveryRequeue,
-		"Repost evaluation failed. OpenPost will retry when the failure is temporary.", ""),
+		"Repost evaluation failed. dopost will retry when the failure is temporary.", ""),
 	TypeRepostExecute: providerWriteDefinition(TypeRepostExecute, ExecuteRepost,
-		"The provider repost failed. OpenPost did not retry because the provider result may be ambiguous."),
+		"The provider repost failed. dopost did not retry because the provider result may be ambiguous."),
 	TypeMediaAnalyze: definition(TypeMediaAnalyze, 3, ExecuteVideo, FailureDefault, RecoveryRequeue),
 	TypeGrowthDiscovery: providerReadDefinition(TypeGrowthDiscovery, 3, ExecuteGrowth, RecoveryRequeue,
-		"Growth discovery failed. OpenPost will retry when the failure is temporary.", ""),
+		"Growth discovery failed. dopost will retry when the failure is temporary.", ""),
 	TypeGrowthFollow: providerWriteDefinition(TypeGrowthFollow, ExecuteGrowth,
-		"The provider follow failed. OpenPost did not retry because the provider result may be ambiguous."),
+		"The provider follow failed. dopost did not retry because the provider result may be ambiguous."),
+	TypeImageGeneration: definition(TypeImageGeneration, 10, ExecuteImageGeneration, FailureDefault, RecoveryRequeue),
+	TypeRepurposeSuggestions: {
+		Type: TypeRepurposeSuggestions, DefaultMaxAttempts: 3, Execution: ExecuteRepurposeSuggestions, Failure: FailureDefault, Recovery: RecoveryRequeue, identity: repurposeIdentity,
+	},
 	TypePublicationBuild: {
 		Type: TypePublicationBuild, DefaultMaxAttempts: 2,
 		Execution: ExecutePublicationBuild, Failure: FailureDefault, Recovery: RecoveryRequeue,
@@ -172,9 +196,15 @@ var definitions = map[string]Definition{
 	TypeScheduledAccountCheck: {
 		Type: TypeScheduledAccountCheck, DefaultMaxAttempts: 3, Recurrence: 15 * time.Minute,
 		Execution: ExecuteScheduledAccountCheck, Failure: FailureProviderRead, Recovery: RecoveryRequeue,
-		FailureMessage: "A scheduled account check failed. OpenPost will retry without changing the account connection.",
+		FailureMessage: "A scheduled account check failed. dopost will retry without changing the account connection.",
 	},
 	TypeExternalWebhookDelivery: definition(TypeExternalWebhookDelivery, 8, ExecuteExternalWebhook, FailureDefault, RecoveryRequeue),
+	TypePostImportSync: providerReadDefinition(TypePostImportSync, 3, ExecutePostImport, RecoveryRequeue,
+		"Native post import failed. dopost will resume from its stored checkpoint when the failure is temporary.", ""),
+	TypeWorkflowSweep:          {Type: TypeWorkflowSweep, DefaultMaxAttempts: 5, Recurrence: time.Minute, Execution: ExecuteWorkflow, Failure: FailureDefault, Recovery: RecoveryRequeue},
+	TypeWorkflowPoll:           definition(TypeWorkflowPoll, 3, ExecuteWorkflow, FailureDefault, RecoveryRequeue),
+	TypeWorkflowRun:            definition(TypeWorkflowRun, 5, ExecuteWorkflow, FailureDefault, RecoveryRequeue),
+	TypeWorkflowApprovalNotice: definition(TypeWorkflowApprovalNotice, 5, ExecuteWorkflow, FailureDefault, RecoveryRequeue),
 }
 
 func definition(jobType string, attempts int, execution ExecutionKind, failure FailurePolicy, recovery RecoveryPolicy) Definition {

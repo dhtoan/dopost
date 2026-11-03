@@ -1,9 +1,10 @@
 <!--
-THESIS: Make OpenPost and its price legible before sign-in without duplicating the full marketing site.
+THESIS: Make dopost and its price legible before sign-in without duplicating the full marketing site.
 STORY: A visitor understands the product, sees every plan, and can start a trial or inspect the full product site.
 FIRST VIEWPORT: Brand and sign-in sit above the offer; entry price and trial terms stay beside the primary action.
 -->
 <script lang="ts">
+	import { appBranding } from '$lib/app-branding.svelte';
 	import { ArrowRight, CalendarClock, ChartNoAxesCombined, PanelsTopLeft } from '@lucide/svelte';
 	import LanguageSwitcher from '$lib/components/language-switcher.svelte';
 	import Logo from '$lib/components/Logo.svelte';
@@ -37,7 +38,7 @@ FIRST VIEWPORT: Brand and sign-in sit above the offer; entry price and trial ter
 </script>
 
 <svelte:head>
-	<title>{m.public_home_meta_title()}</title>
+	<title>{appBranding.title(m.public_home_meta_title())}</title>
 	<meta name="description" content={m.public_home_meta_description()} />
 	<link rel="canonical" href="https://app.openpo.st/" />
 </svelte:head>
@@ -55,9 +56,7 @@ FIRST VIEWPORT: Brand and sign-in sit above the offer; entry price and trial ter
 				aria-label={m.public_home_product_site_label()}
 			>
 				<Logo width={36} height={28} decorative />
-				<span class="font-brand text-sm leading-none font-semibold tracking-[-0.02em]"
-					>OpenPost</span
-				>
+				<span class="font-brand text-sm leading-none font-semibold tracking-[-0.02em]">dopost</span>
 			</a>
 			<div class="flex items-center gap-1.5">
 				<Button href="/login" variant="ghost" size="sm">{m.landing_sign_in()}</Button>

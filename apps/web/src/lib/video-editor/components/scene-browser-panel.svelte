@@ -22,6 +22,7 @@
 	} from '$lib/video-editor/media/scene-search/library-palette';
 	import { splitTextBySpans } from '$lib/video-editor/media/scene-search/match-highlight';
 	import type { MediaScene } from '$lib/video-editor/media/scene-search/types';
+	import { formatMediaDuration } from '$lib/media-duration';
 	import SceneThumbnail from './scene-thumbnail.svelte';
 
 	let batchBusy = $state(false);
@@ -55,16 +56,6 @@
 
 	onMount(() => void sceneBrowser.loadAll());
 	onDestroy(clearSceneDragData);
-
-	function formatTime(seconds: number): string {
-		const total = Math.max(0, Math.floor(seconds));
-		const hours = Math.floor(total / 3600);
-		const minutes = Math.floor((total % 3600) / 60);
-		const secs = total % 60;
-		return hours > 0
-			? `${hours}:${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}`
-			: `${minutes}:${String(secs).padStart(2, '0')}`;
-	}
 
 	async function analyze(force: boolean): Promise<void> {
 		if (batchBusy || analyzableMedia.length === 0) return;
@@ -135,12 +126,13 @@
 				data-scene-browser-search
 				class="h-8 w-full rounded-md border border-[var(--video-editor-border)] bg-[var(--video-editor-panel)] pr-2 pl-7 text-xs placeholder:text-[var(--video-editor-muted)] focus-visible:border-[var(--video-editor-focus-border)] focus-visible:ring-2 focus-visible:ring-[color-mix(in_oklch,var(--video-editor-focus)_25%,transparent)]"
 				placeholder={m.video_editor_scene_search()}
+				aria-label={m.video_editor_scene_search()}
 				bind:value={sceneBrowser.query}
 			/>
 		</label>
 		<div class="flex gap-1">
 			<div
-				class="flex h-7 shrink-0 items-center rounded-md border border-[var(--video-editor-border)] p-0.5"
+				class="flex h-[25px] shrink-0 items-center rounded-md border border-[var(--video-editor-border)] p-0.5"
 				role="group"
 				aria-label={m.video_editor_scene_search_mode()}
 			>
@@ -172,7 +164,7 @@
 			>
 				<Select.Trigger
 					aria-label={m.video_editor_scene_scope_all()}
-					class="h-7 min-w-0 flex-1 justify-between rounded-md border border-[var(--video-editor-border)] bg-[var(--video-editor-panel)] px-2 text-[11px] shadow-none"
+					class="h-[25px] min-w-0 flex-1 justify-between rounded-md border border-[var(--video-editor-border)] bg-[var(--video-editor-panel)] px-2 text-[11px] shadow-none"
 				>
 					<span class="truncate"
 						>{sceneBrowser.scope
@@ -189,7 +181,7 @@
 			</Select.Root>
 			<button
 				type="button"
-				class="flex h-7 items-center gap-1 rounded-md border border-[var(--video-editor-border)] px-2 text-[11px] hover:bg-[var(--video-editor-control-hover)] focus-visible:outline-2 focus-visible:outline-[var(--video-editor-focus)] disabled:opacity-50"
+				class="flex h-[25px] items-center gap-1 rounded-md border border-[var(--video-editor-border)] px-2 text-[11px] hover:bg-[var(--video-editor-control-hover)] focus-visible:outline-2 focus-visible:outline-[var(--video-editor-focus)] disabled:opacity-50"
 				disabled={batchBusy || analyzableMedia.length === 0}
 				title={m.video_editor_scene_analyze()}
 				onclick={() => analyze(false)}
@@ -204,7 +196,7 @@
 			<button
 				type="button"
 				class:active={sceneBrowser.colorMode}
-				class="flex h-7 items-center rounded-md border border-[var(--video-editor-border)] px-2 text-[11px] hover:bg-[var(--video-editor-control-hover)] focus-visible:outline-2 focus-visible:outline-[var(--video-editor-focus)] [&.active]:border-[var(--video-editor-focus-border)] [&.active]:bg-[var(--video-editor-selection)]"
+				class="flex h-[25px] items-center rounded-md border border-[var(--video-editor-border)] px-2 text-[11px] hover:bg-[var(--video-editor-control-hover)] focus-visible:outline-2 focus-visible:outline-[var(--video-editor-focus)] [&.active]:border-[var(--video-editor-focus-border)] [&.active]:bg-[var(--video-editor-selection)]"
 				aria-label={sceneBrowser.colorMode
 					? m.video_editor_scene_colors_hide()
 					: m.video_editor_scene_colors()}
@@ -214,7 +206,7 @@
 			</button>
 		</div>
 		{#if sceneBrowser.colorMode && libraryColors.length > 0}
-			<div class="space-y-1" aria-label={m.video_editor_scene_library_colors()}>
+			<div class="space-y-1" role="group" aria-label={m.video_editor_scene_library_colors()}>
 				<div class="flex items-center justify-between text-[10px] text-[var(--video-editor-muted)]">
 					<span>{m.video_editor_scene_library_colors()}</span>
 					{#if sceneBrowser.referencePalette}
@@ -338,7 +330,7 @@
 								<span
 									class="absolute right-1 bottom-1 rounded bg-[var(--video-editor-control)] px-1 font-mono text-[9px] text-[var(--video-editor-text)]"
 								>
-									{formatTime(scene.startSec)}
+									{formatMediaDuration(scene.startSec)}
 								</span>
 								<button
 									type="button"
@@ -374,11 +366,12 @@
 									class="truncate text-[9px] text-[var(--video-editor-muted)]"
 									title={ranked.mediaFileName}
 								>
-									{ranked.mediaFileName} · {formatTime(scene.endSec - scene.startSec)}
+									{ranked.mediaFileName} · {formatMediaDuration(scene.endSec - scene.startSec)}
 								</p>
 								{#if sceneBrowser.query || sceneBrowser.referencePalette}
 									<div
 										class="flex flex-wrap gap-1"
+										role="group"
 										aria-label={m.video_editor_scene_match_signals()}
 									>
 										{#if ranked.signals.keywordMatched}

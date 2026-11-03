@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { appBranding } from '$lib/app-branding.svelte';
 	import { readQueryErrorMessage } from '$lib/query/error-message';
 	import { page } from '$app/state';
 	import { resolve } from '$app/paths';
@@ -20,6 +21,7 @@
 	} from '@openpost/query-catalog';
 	import { authQueryAPI } from '$lib/query/auth';
 	import { publicProfileQueryAPI } from '$lib/query/public-profiles';
+	import { auth } from '$lib/stores/auth';
 
 	type ActivityCell = NonNullable<PublicProfile['activity']>[number] | null;
 
@@ -51,7 +53,7 @@
 				? (readQueryErrorMessage(authConfigurationQuery.error) ?? '')
 				: ''
 	);
-	const profileName = $derived(profile?.display_name || profile?.username || 'OpenPost');
+	const profileName = $derived(profile?.display_name || profile?.username || 'dopost');
 	const title = $derived(profile ? `${profileName} (@${profile.username})` : 'Public profile');
 	const activityCells = $derived.by<ActivityCell[]>(() => {
 		const days = profile?.activity ?? [];
@@ -82,7 +84,15 @@
 	const topPlatforms = $derived(profile?.top_platforms ?? []);
 	const topWorkspaces = $derived(profile?.top_workspaces ?? []);
 	const visibleFields = $derived(profile?.visible_fields ?? []);
-	const showsActivity = $derived(visibleFields.includes('activity'));
+	const hasPublishingStats = $derived.by(() => {
+		const lifetime = profile?.lifetime_posts ?? 0;
+		const peak = profile?.peak_posts ?? 0;
+		const activeDays = profile?.active_days ?? 0;
+		const currentStreak = profile?.current_streak ?? 0;
+		const longestStreak = profile?.longest_streak ?? 0;
+		return lifetime > 0 || peak > 0 || activeDays > 0 || currentStreak > 0 || longestStreak > 0;
+	});
+	const showsActivity = $derived(visibleFields.includes('activity') && hasPublishingStats);
 	const showsPlatforms = $derived(visibleFields.includes('platforms'));
 	const showsWorkspaces = $derived(visibleFields.includes('workspaces'));
 	const initials = $derived.by(() => {
@@ -95,10 +105,27 @@
 			.join('');
 	});
 	const showRecentActivity: Attachment<HTMLElement> = (node) => {
-		const frame = requestAnimationFrame(() => {
-			node.scrollLeft = Math.max(0, node.scrollWidth - node.clientWidth);
-		});
-		return () => cancelAnimationFrame(frame);
+		let followsRecent = true;
+		let knownScrollEnd = Math.max(0, node.scrollWidth - node.clientWidth);
+		const revealRecent = () => {
+			knownScrollEnd = Math.max(0, node.scrollWidth - node.clientWidth);
+			if (followsRecent) node.scrollLeft = knownScrollEnd;
+		};
+		const trackScroll = () => {
+			const scrollEnd = Math.max(0, node.scrollWidth - node.clientWidth);
+			// Resize can clamp scrolling before its observer runs. That is not a request for older dates.
+			if (scrollEnd !== knownScrollEnd) return;
+			followsRecent = scrollEnd - node.scrollLeft <= 1;
+		};
+		const frame = requestAnimationFrame(revealRecent);
+		const observer = new ResizeObserver(revealRecent);
+		observer.observe(node);
+		node.addEventListener('scroll', trackScroll, { passive: true });
+		return () => {
+			cancelAnimationFrame(frame);
+			observer.disconnect();
+			node.removeEventListener('scroll', trackScroll);
+		};
 	};
 
 	function formatNumber(value: number): string {
@@ -121,12 +148,12 @@
 </script>
 
 <svelte:head>
-	<title>{title} - OpenPost</title>
+	<title>{title} - {appBranding.profile.display_name}</title>
 	<meta
 		name="description"
 		content={profile
-			? `See ${profileName}'s public publishing profile on OpenPost.`
-			: 'Public OpenPost publishing profile.'}
+			? `See ${profileName}'s public publishing profile on dopost.`
+			: 'Public dopost publishing profile.'}
 	/>
 	<meta name="robots" content={profile ? 'index, follow' : 'noindex'} />
 </svelte:head>
@@ -139,14 +166,19 @@
 				class="focus-ring inline-flex min-h-11 items-center gap-2 rounded-md"
 			>
 				<Logo width={34} height={27} decorative />
-				<span class="font-brand text-sm leading-none font-semibold tracking-[-0.02em]"
-					>OpenPost</span
-				>
+				<span class="font-brand text-sm leading-none font-semibold tracking-[-0.02em]">dopost</span>
 			</a>
-			<Button href={resolve('/register' as const)} variant="outline" size="sm">
-				Create your profile
-				<ArrowRight data-icon="inline-end" />
-			</Button>
+			{#if $auth.isAuthenticated}
+				<Button href={`${resolve('/settings' as const)}?tab=profile`} variant="outline" size="sm">
+					{m.settings_profile()}
+					<ArrowRight data-icon="inline-end" />
+				</Button>
+			{:else if !$auth.isLoading}
+				<Button href={resolve('/register' as const)} variant="outline" size="sm">
+					Create your profile
+					<ArrowRight data-icon="inline-end" />
+				</Button>
+			{/if}
 		</div>
 	</header>
 
@@ -188,7 +220,7 @@
 					<h1 data-theme-type="title" data-app-title class="mt-4 text-balance">
 						{m.public_profile_unavailable_body()}
 					</h1>
-					<Button href={resolve('/' as const)} class="mt-8">Visit OpenPost</Button>
+					<Button href={resolve('/' as const)} class="mt-8">Visit dopost</Button>
 				</div>
 			</div>
 		{:else if loadState === 'error'}
@@ -288,7 +320,14 @@
 						{/if}
 					</div>
 					<p class="sr-only">One square per day. Stronger color means more publications.</p>
-					<div class="activity-scroll mt-4 overflow-x-auto pb-2" {@attach showRecentActivity}>
+					<!-- svelte-ignore a11y_no_noninteractive_tabindex (Keyboard users need this scroll region to reach older activity dates.) -->
+					<div
+						class="activity-scroll focus-ring mt-4 overflow-x-auto rounded-sm pb-2"
+						role="region"
+						aria-labelledby="activity-title"
+						tabindex="0"
+						{@attach showRecentActivity}
+					>
 						<div class="activity-field">
 							<div class="activity-months" aria-hidden="true">
 								{#each monthLabels as month (`${month.label}-${month.column}`)}
@@ -309,7 +348,7 @@
 										class:level-3={day?.level === 3}
 										class:level-4={day?.level === 4}
 										style:--cell-delay={`${Math.min(index, 90) * 7}ms`}
-										title={day ? `${day.date}: ${plural(day.count, 'publication')}` : undefined}
+										title={day ? `${day.date}: ${plural(day.count, 'post')}` : undefined}
 									></i>
 								{/each}
 							</div>

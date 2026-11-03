@@ -1,3 +1,6 @@
+import { PLATFORM_LIMITS } from '@openpost/platform-text';
+import { TELEGRAM_CAPTION_LIMIT } from '../_marketing';
+
 export type ChannelStory = {
 	title: string;
 	intro: string;
@@ -47,7 +50,7 @@ const channelStories = {
 		],
 		question: 'Can I use my personal Facebook profile?',
 		answer:
-			'OpenPost’s Facebook integration is for Pages. Personal profiles and Groups are not supported. You need permission to manage the Page you want to use.'
+			'dopost’s Facebook integration is for Pages. Personal profiles and Groups are not supported. You need permission to manage the Page you want to use.'
 	},
 	linkedin: {
 		title: 'Let your work do the talking on LinkedIn.',
@@ -78,7 +81,7 @@ const channelStories = {
 		],
 		question: 'Can I post to my profile and a company Page?',
 		answer:
-			'OpenPost includes personal-profile and company-Page posting. Company Pages need a connected member with the right Page permissions. Available posting options depend on that account.'
+			'dopost includes personal-profile and company-Page posting. Company Pages need a connected member with the right Page permissions. Available posting options depend on that account.'
 	},
 	tiktok: {
 		preview: studioPhoto,
@@ -140,7 +143,7 @@ const channelStories = {
 		],
 		question: 'Which Instagram accounts can I use?',
 		answer:
-			'OpenPost’s Instagram connection requires a professional account. Personal accounts are not supported. Reels, Stories, and feed posts have different requirements, so check the options shown for your account.'
+			'dopost’s Instagram connection requires a professional account. Personal accounts are not supported. Reels, Stories, and feed posts have different requirements, so check the options shown for your account.'
 	},
 	x: {
 		title: 'Keep the ideas coming on X.',
@@ -157,7 +160,7 @@ const channelStories = {
 			},
 			{
 				title: 'Make every character useful.',
-				text: 'Check the count as you write, including links. OpenPost uses the posting limit available to your connected account, so a short update and a longer post get the right checks.'
+				text: 'Check the count as you write, including links. dopost uses the posting limit available to your connected account, so a short update and a longer post get the right checks.'
 			},
 			{
 				title: 'Keep launch day from becoming a copy-and-paste job.',
@@ -171,7 +174,7 @@ const channelStories = {
 		],
 		question: 'Can I write longer posts with an X subscription?',
 		answer:
-			'OpenPost checks the subscription and posting limits available to your connected X account. When the account’s longer-post access cannot be confirmed, it uses the standard limit.'
+			'dopost checks the subscription and posting limits available to your connected X account. When the account’s longer-post access cannot be confirmed, it uses the standard limit.'
 	},
 	bluesky: {
 		title: 'Keep up with your people on Bluesky.',
@@ -188,7 +191,7 @@ const channelStories = {
 			},
 			{
 				title: 'Give longer ideas a thread.',
-				text: 'Keep each part short and readable. OpenPost keeps the order of your thread together while you edit, so you can follow the whole thought before it goes out.'
+				text: 'Keep each part short and readable. dopost keeps the order of your thread together while you edit, so you can follow the whole thought before it goes out.'
 			},
 			{
 				title: 'Bring Bluesky into your weekly plan.',
@@ -202,7 +205,7 @@ const channelStories = {
 		],
 		question: 'Do I use my usual Bluesky password?',
 		answer:
-			'Use an app password created in Bluesky’s settings. It gives OpenPost a separate connection you can remove without changing your main password.'
+			'Use an app password created in Bluesky’s settings. It gives dopost a separate connection you can remove without changing your main password.'
 	},
 	mastodon: {
 		title: 'Share with your Mastodon community.',
@@ -233,7 +236,7 @@ const channelStories = {
 		],
 		question: 'Can I connect my own Mastodon server?',
 		answer:
-			'You can connect an account on a public Mastodon server. Servers may set different post lengths and media limits. OpenPost checks the limits reported by the connected server.'
+			'You can connect an account on a public Mastodon server. Servers may set different post lengths and media limits. dopost checks the limits reported by the connected server.'
 	},
 	pixelfed: {
 		title: 'Put your photos where your Fediverse audience is.',
@@ -254,7 +257,7 @@ const channelStories = {
 			},
 			{
 				title: 'Respect the instance you publish to.',
-				text: 'Photo and album limits can differ by server. OpenPost checks the connected instance and validates before scheduling.'
+				text: 'Photo and album limits can differ by server. dopost checks the connected instance and validates before scheduling.'
 			}
 		],
 		ideas: [
@@ -264,7 +267,7 @@ const channelStories = {
 		],
 		question: 'Can I connect my own Pixelfed instance?',
 		answer:
-			'You can connect an account on a public Pixelfed instance. Photo and album limits can differ by server. OpenPost checks the limits reported by the connected instance.'
+			'You can connect an account on a public Pixelfed instance. Photo and album limits can differ by server. dopost checks the limits reported by the connected instance.'
 	},
 	peertube: {
 		title: 'Publish videos to your own channel.',
@@ -285,7 +288,7 @@ const channelStories = {
 			},
 			{
 				title: 'Trust the processing state.',
-				text: 'Transcoding takes time. OpenPost reports the video as published only after the instance confirms it, and keeps checking while it processes.'
+				text: 'Transcoding takes time. dopost reports the video as published only after the instance confirms it, and keeps checking while it processes.'
 			}
 		],
 		ideas: [
@@ -295,7 +298,7 @@ const channelStories = {
 		],
 		question: 'Which channel will my video publish to?',
 		answer:
-			'The channel you connect is the destination. If your account owns several channels, pick one during setup. Each channel is a separate destination in OpenPost.'
+			'The channel you connect is the destination. If your account owns several channels, pick one during setup. Each channel is a separate destination in dopost.'
 	},
 	lemmy: {
 		title: 'Join the Lemmy discussion properly.',
@@ -308,11 +311,11 @@ const channelStories = {
 		sections: [
 			{
 				title: 'Write for one community at a time.',
-				text: 'Each rendition targets one community with its own title, body, and validation. Adapting a post for another community means reviewing it again.'
+				text: 'Each variant targets one community with its own title, body, and validation. Adapting a post for another community means reviewing it again.'
 			},
 			{
 				title: 'Keep the rules next to the editor.',
-				text: 'The community description and rules stay alongside your draft, and OpenPost rechecks posting restrictions before submission.'
+				text: 'The community description and rules stay alongside your draft, and dopost rechecks posting restrictions before submission.'
 			},
 			{
 				title: 'Stay for the conversation.',
@@ -338,7 +341,7 @@ const channelStories = {
 		visual: 'main',
 		sections: [
 			{
-				title: 'One community, one rendition.',
+				title: 'One community, one variant.',
 				text: 'Each post targets one community with its own title, body, and validation. Nothing is shared implicitly across communities.'
 			},
 			{
@@ -355,7 +358,7 @@ const channelStories = {
 			'A link with a title written for the community',
 			'An update adapted from your launch notes'
 		],
-		question: 'How is PieFed different from Lemmy in OpenPost?',
+		question: 'How is PieFed different from Lemmy in dopost?',
 		answer:
 			'The authoring experience is shared, but PieFed connects through its own native API with its own adapter, validation, and community resolution.'
 	},
@@ -388,7 +391,7 @@ const channelStories = {
 		],
 		question: 'Can I post images and video on Threads?',
 		answer:
-			'OpenPost includes text, image, carousel, and video formats for Threads. Available formats and file limits depend on the connected account and the posting options shown in OpenPost.'
+			'dopost includes text, image, carousel, and video formats for Threads. Available formats and file limits depend on the connected account and the posting options shown in dopost.'
 	},
 	youtube: {
 		preview: { ...studioPhoto, title: 'From clay to coffee cup' },
@@ -449,9 +452,71 @@ const channelStories = {
 			'An event reminder with the date and timezone',
 			'A useful resource for new members'
 		],
-		question: 'Does OpenPost read my Discord conversations?',
+		question: 'Does dopost read my Discord conversations?',
 		answer:
 			'No. The Discord connection sends messages through a channel webhook. It does not read the channel inbox. You need permission to create that connection in your Discord server.'
+	},
+	telegram: {
+		title: 'Bring your Telegram channel into the plan.',
+		intro:
+			'Share updates with your channel or group without leaving your workflow. Prepare the message here, then send it through your connected chat.',
+		angle: 'Your channel, on the calendar.',
+		example:
+			'The new collection is here. See the details and find your favourite in the shop from Friday.',
+		visual: 'calendar',
+		sections: [
+			{
+				title: 'Connect the chat you run.',
+				text: 'Add the dopost bot as an administrator of your channel or group, then post a one-time command inside that chat. Refresh your accounts to confirm the chat appears.'
+			},
+			{
+				title: 'Write the message once.',
+				text: `Prepare text up to ${PLATFORM_LIMITS.telegram.charLimit.toLocaleString('en-US')} characters, or add media with a caption up to ${TELEGRAM_CAPTION_LIMIT.toLocaleString('en-US')} characters. Check the preview before scheduling.`
+			},
+			{
+				title: 'Keep channel history in view.',
+				text: 'dopost observes channel posts from installation onward and records reaction counts. Earlier messages are never backfilled.'
+			}
+		],
+		ideas: [
+			'A product update with a photo of what changed',
+			'An event reminder with the date and time',
+			'A short note pointing members to something new'
+		],
+		question: 'Which chats can I connect?',
+		answer:
+			'Channels and groups where the bot is an administrator with permission to post. Post the command inside that chat. A command sent anywhere else does nothing.'
+	},
+	devnull: {
+		title: 'Commit to dev/null from your content plan.',
+		intro:
+			'Turn a short update, a lesson, or a link into a dev/null commit. Write it here, sign it with your key, and choose when it lands.',
+		angle: 'Ship the note, not the terminal.',
+		example:
+			'Shipped a smaller onboarding flow today. One screen fewer, and the first post takes half the time.',
+		visual: 'calendar',
+		sections: [
+			{
+				title: 'Keep the terminal out of the routine.',
+				text: 'Connect your dev/null username and a dedicated SSH key once. dopost signs each commit the same way the official commit script does, so you can schedule from the composer instead.'
+			},
+			{
+				title: 'Write for the commit, not the feed.',
+				text: `Prepare ${PLATFORM_LIMITS.devnull.charLimit.toLocaleString('en-US')} characters and attach up to three images. The first link unfurls on its own, and replies publish through the normal reply flow.`
+			},
+			{
+				title: 'Plan around approval.',
+				text: 'New dev/null accounts need approval before commits go public. Schedule a test commit first, then keep the rest of the week on the same calendar as your other channels.'
+			}
+		],
+		ideas: [
+			'A release note with the link to try it',
+			'A short lesson from building this week',
+			'An image of the change you just shipped'
+		],
+		question: 'Does dopost store my SSH private key?',
+		answer:
+			'Yes, encrypted. dopost uses the key only to sign commit payloads, exactly like the official dev/null commit script. Use a dedicated key without a passphrase and keep its public half on your GitHub account.'
 	}
 } satisfies Record<string, ChannelStory>;
 

@@ -3,6 +3,8 @@ import { SectionNav } from "@/components/section-nav";
 import { DocsLayout } from "fumadocs-ui/layouts/docs";
 import { source } from "@/lib/source";
 import { BrandMark } from "@/components/brand-mark";
+import { SidebarKeyboard } from "@/components/sidebar-keyboard";
+import { Github } from "lucide-react";
 
 export default function Layout({ children }: { children: React.ReactNode }) {
   const tree = source.getPageTree();
@@ -27,7 +29,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           title: (
             <span className="docs-brand">
               <BrandMark size={24} />
-              OpenPost<span className="docs-brand-label">Docs</span>
+              dopost<span className="docs-brand-label">Docs</span>
             </span>
           ),
         }}
@@ -36,8 +38,18 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           defaultOpenLevel: 0,
           footer: <AnalyticsChoices key="analytics-choices" />,
         }}
-        githubUrl="https://github.com/getopenpost/openpost"
+        links={[
+          {
+            type: "icon",
+            url: "https://github.com/dhtoan/dopost",
+            text: "GitHub",
+            label: "GitHub",
+            icon: <Github aria-hidden="true" />,
+            external: true,
+          },
+        ]}
       >
+        <SidebarKeyboard />
         {children}
       </DocsLayout>
     </>

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { appBranding } from '$lib/app-branding.svelte';
 	import { readQueryErrorMessage } from '$lib/query/error-message';
 	import { resolve } from '$app/paths';
 	import { ProtectedIcon } from '$lib/themes/icons';
@@ -38,7 +39,7 @@
 </script>
 
 <svelte:head>
-	<title>{m.auth_forgot_title()}</title>
+	<title>{appBranding.title(m.auth_forgot_title())}</title>
 </svelte:head>
 
 {#if submitted}
@@ -117,7 +118,10 @@
 				class="w-full gap-2"
 				disabled={loading || configurationLoading || !authConfiguration?.password_reset_enabled}
 			>
-				{#if loading}<ProtectedIcon icon="loading" class="size-4 animate-spin" />{/if}
+				{#if loading}<ProtectedIcon
+						icon="loading"
+						class="size-4 animate-spin motion-reduce:animate-none"
+					/>{/if}
 				{loading ? m.auth_forgot_loading() : m.auth_forgot_submit()}
 			</Button>
 		</form>

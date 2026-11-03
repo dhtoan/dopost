@@ -2,7 +2,7 @@
 
 This page is for operators and release reviewers deciding whether a provider-format claim is current.
 
-OpenPost keeps provider implementation, setup, evidence, approval, and runtime
+dopost keeps provider implementation, setup, evidence, approval, and runtime
 control as separate facts. An adapter in the binary proves only that code
 exists. It does not make a provider or format ready, connectable, publishable,
 or safe to advertise.
@@ -53,12 +53,12 @@ is the only source for public provider-format certification claims.
 
 <!-- provider-certification:begin -->
 
-No posting option has passed our final live check on OpenPost Hosted yet.
+No posting option has passed our final live check on dopost Hosted yet.
 
-A social app can appear in OpenPost before it is ready for real accounts.
+A social app can appear in dopost before it is ready for real accounts.
 <!-- provider-certification:end -->
 
-Pinterest and Telegram bot mode currently have no public Hosted claim. Discord
+Pinterest, Google Business, and Telegram bot mode currently have no public Hosted claim. Discord
 bot accounts use the normal configured-account readiness path, while incoming
 webhooks remain a separate built-in connection mode.
 
@@ -66,7 +66,7 @@ The release manifest binds that file's exact SHA-256 digest, schema version,
 and claim count. A build, adapter, configured credential, mocked test, or manual
 checklist cannot add a claim.
 
-The provider pages document implemented OpenPost code paths and configuration
+The provider pages document implemented dopost code paths and configuration
 requirements. They are not evidence that a particular Hosted service deployment,
 provider app, account, format, or policy mode is currently live-certified.
 

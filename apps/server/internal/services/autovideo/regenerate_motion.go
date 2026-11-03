@@ -6,18 +6,18 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
-	"github.com/openpost/backend/internal/aunomotion"
+	"github.com/openpost/backend/internal/dopostmotion"
 	"github.com/openpost/backend/internal/services/videoprojects"
 	"github.com/openpost/backend/internal/services/workspaceaccess"
 )
 
-const aunoMotionTrackID = "track-auno-motion"
+const dopostMotionTrackID = "track-auno-motion"
 
 type MotionRegenerationInput struct {
 	WorkspaceID string
 	ProjectID   string
 	DeviceID    string
-	Graph       aunomotion.SceneGraph
+	Graph       dopostmotion.SceneGraph
 	Width       int
 	Height      int
 	FPS         float64
@@ -67,11 +67,11 @@ func RegenerateMotion(ctx context.Context, projects *videoprojects.Service, acto
 		return nil, err
 	}
 	return projects.ApplyMutation(ctx, actor, videoprojects.ApplyMutationInput{
-		WorkspaceID: input.WorkspaceID,
-		ProjectID: input.ProjectID,
-		MutationID: "auno-motion-" + uuid.NewString(),
+		WorkspaceID:  input.WorkspaceID,
+		ProjectID:    input.ProjectID,
+		MutationID:   "dopost-motion-" + uuid.NewString(),
 		BaseRevision: project.HeadRevision,
-		DeviceID: strings.TrimSpace(input.DeviceID),
+		DeviceID:     strings.TrimSpace(input.DeviceID),
 		Operations: []videoprojects.MutationOperation{
 			{Kind: videoprojects.MutationSet, Target: "timeline:items", Path: "/timeline/items", Value: itemValue},
 			{Kind: videoprojects.MutationSet, Target: "timeline:compositions", Path: "/timeline/compositions", Value: compositionValue},
@@ -104,14 +104,16 @@ func readTimelineCollections(document json.RawMessage) (projectTimelineCollectio
 }
 
 func rawID(raw json.RawMessage) (string, error) {
-	var identity struct{ ID string `json:"id"` }
+	var identity struct {
+		ID string `json:"id"`
+	}
 	if err := json.Unmarshal(raw, &identity); err != nil {
 		return "", err
 	}
 	return identity.ID, nil
 }
 
-func mergeMotionItems(existing []json.RawMessage, overlays []aunomotion.NativeOverlay) ([]json.RawMessage, error) {
+func mergeMotionItems(existing []json.RawMessage, overlays []dopostmotion.NativeOverlay) ([]json.RawMessage, error) {
 	preserved := make([]json.RawMessage, 0, len(existing)+len(overlays))
 	overrides := map[string]json.RawMessage{}
 	for _, raw := range existing {
@@ -149,7 +151,7 @@ func mergeMotionItems(existing []json.RawMessage, overlays []aunomotion.NativeOv
 	return preserved, nil
 }
 
-func mergeMotionCompositions(existing []json.RawMessage, overlays []aunomotion.NativeOverlay) ([]json.RawMessage, error) {
+func mergeMotionCompositions(existing []json.RawMessage, overlays []dopostmotion.NativeOverlay) ([]json.RawMessage, error) {
 	preserved := make([]json.RawMessage, 0, len(existing)+len(overlays))
 	for _, raw := range existing {
 		id, err := rawID(raw)
@@ -178,7 +180,7 @@ func ensureMotionTrack(existing []json.RawMessage, needed bool) ([]json.RawMessa
 		if err != nil {
 			return nil, ErrInvalidInput
 		}
-		if id != aunoMotionTrackID {
+		if id != dopostMotionTrackID {
 			tracks = append(tracks, raw)
 		}
 	}
@@ -186,7 +188,7 @@ func ensureMotionTrack(existing []json.RawMessage, needed bool) ([]json.RawMessa
 		return tracks, nil
 	}
 	motionTrack, err := json.Marshal(map[string]any{
-		"id": aunoMotionTrackID, "name": "Auno Motion", "kind": "video", "height": 72,
+		"id": dopostMotionTrackID, "name": "dopost Motion", "kind": "video", "height": 72,
 		"locked": false, "visible": true, "muted": false, "solo": false, "order": 1,
 	})
 	if err != nil {

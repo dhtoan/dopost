@@ -19,6 +19,8 @@ import (
 
 var safeStateValue = regexp.MustCompile(`^[a-zA-Z0-9_.:-]{0,128}$`)
 
+const reconciliationExpiredCode = "provider_reconciliation_expired"
+
 type Service struct {
 	db  *bun.DB
 	now func() time.Time
@@ -49,7 +51,11 @@ func (c *Control) BindPublishRequest(req *platform.PublishRequest) {
 	req.SetWriteFence(c.Begin, c.Checkpoint)
 }
 
-func (c *Control) Begin(result platform.PublishResult) error {
+func (c *Control) Begin(result platform.PublishResult) error { return c.BeginGuarded(result, nil) }
+
+// BeginGuarded commits owner authorization and write admission under one fence.
+// The guard must not perform provider I/O; the transaction ends before sending.
+func (c *Control) BeginGuarded(result platform.PublishResult, guard func(context.Context, bun.Tx) error) error {
 	if c == nil || c.service == nil || c.attempt == nil {
 		return errors.New("provider write control is unavailable")
 	}
@@ -74,6 +80,14 @@ func (c *Control) Begin(result platform.PublishResult) error {
 	durableCtx, cancel := durableContext(c.ctx)
 	defer cancel()
 	err := c.service.db.RunInTx(durableCtx, &sql.TxOptions{}, func(txCtx context.Context, tx bun.Tx) error {
+		if guard != nil {
+			if err := guard(txCtx, tx); err != nil {
+				return err
+			}
+		}
+		if err := RequireCurrentJobExecution(txCtx, tx, c.attempt.JobID); err != nil {
+			return err
+		}
 		updated, updateErr := query.Conn(tx).Exec(txCtx)
 		if updateErr != nil {
 			return fmt.Errorf("enter provider write fence: %w", updateErr)
@@ -147,6 +161,9 @@ func (s *Service) executeAttempt(
 	reconcile ReconcileFunc,
 	resume ResumeFunc,
 ) (platform.PublishResult, error) {
+	if s.reconciliationExpired(attempt) {
+		return s.expireReconciliation(ctx, attempt)
+	}
 	switch attempt.Status {
 	case StatusAccepted:
 		return resultFromAttempt(attempt), nil
@@ -179,6 +196,43 @@ func (s *Service) executeAttempt(
 	default:
 		return platform.PublishResult{}, fmt.Errorf("invalid provider write attempt status %q", attempt.Status)
 	}
+}
+
+func (s *Service) reconciliationExpired(attempt *models.ProviderWriteAttempt) bool {
+	if attempt.Status != StatusSending && attempt.Status != StatusAmbiguous {
+		return false
+	}
+	if attempt.SafeErrorCode == reconciliationExpiredCode {
+		return true
+	}
+	if attempt.ProviderState == "scheduled" || attempt.ProviderState == DeliveryProviderScheduled {
+		return false
+	}
+	limit := 24 * time.Hour
+	if attempt.Provider == "tiktok" && attempt.ProviderState == "inbox_delivered" {
+		limit = 30 * 24 * time.Hour
+	}
+	started := attempt.SendingStartedAt
+	if started.IsZero() {
+		started = attempt.CreatedAt
+	}
+	return !started.IsZero() && !s.now().Before(started.Add(limit))
+}
+
+func (s *Service) expireReconciliation(ctx context.Context, attempt *models.ProviderWriteAttempt) (platform.PublishResult, error) {
+	result := resultFromAttempt(attempt)
+	result.RetrySafety = platform.PublishRetryNever
+	if err := s.persistAmbiguous(ctx, attempt, result, ErrReconciliationExpired); err != nil {
+		return platform.PublishResult{}, err
+	}
+	current, err := s.loadAttempt(context.WithoutCancel(ctx), attempt.ID)
+	if err != nil {
+		return platform.PublishResult{}, err
+	}
+	if current.Status == StatusAccepted {
+		return resultFromAttempt(current), nil
+	}
+	return platform.PublishResult{}, &OutcomeError{Kind: StatusAmbiguous, ProviderState: current.ProviderState, Err: ErrReconciliationExpired}
 }
 
 func (s *Service) resumeAmbiguous(
@@ -267,6 +321,7 @@ func (s *Service) resumeDefiniteFailure(
 	return s.sendPrepared(ctx, next, send)
 }
 
+//nolint:gocyclo // Every provider outcome remains visible in this durable state-machine boundary.
 func (s *Service) sendPrepared(ctx context.Context, attempt *models.ProviderWriteAttempt, send SendFunc) (platform.PublishResult, error) {
 	control := &Control{service: s, attempt: attempt, ctx: ctx}
 	result, sendErr := send(ctx, control)
@@ -289,9 +344,26 @@ func (s *Service) sendPrepared(ctx context.Context, attempt *models.ProviderWrit
 	if current.Status != StatusSending {
 		return platform.PublishResult{}, fmt.Errorf("provider write attempt changed to %q during send", current.Status)
 	}
+	adapterClaimedAccepted := sendErr == nil && result.SubmissionState == platform.PublishSubmissionAccepted
 	result = mergeResult(resultFromAttempt(current), result)
 	if sendErr == nil && result.SubmissionState == "" {
 		result.SubmissionState = platform.PublishSubmissionAccepted
+	}
+	if adapterClaimedAccepted && result.ExternalID == "" && result.ProviderReference == "" {
+		// A provider acceptance without a native id or a reference to
+		// reconcile with proves nothing, and there is nothing to
+		// reconcile it with later. Holding it pending would strand the
+		// write in an un-reconcilable loop, so fail it as ambiguous with
+		// never-retry safety: the delivery resolves to manual resolution
+		// and retry selection excludes it.
+		result.RetrySafety = platform.PublishRetryNever
+		ambiguousErr := errors.New("provider accepted the write without a post id or reconciliation reference")
+		if err := s.persistAmbiguous(ctx, current, result, ambiguousErr); err != nil {
+			return platform.PublishResult{}, errors.Join(ambiguousErr, err)
+		}
+		return platform.PublishResult{}, &OutcomeError{
+			Kind: StatusAmbiguous, Retryable: false, Err: errors.Join(ErrOutcomeAmbiguous, ambiguousErr),
+		}
 	}
 	if result.SubmissionState == platform.PublishSubmissionAccepted && sendErr == nil {
 		if err := s.persistResult(ctx, current, result, sendErr, false); err != nil {
@@ -371,6 +443,10 @@ func (s *Service) persistResult(
 	reconciled bool,
 ) error {
 	result = normalizeResult(result)
+	if result.SubmissionState != platform.PublishSubmissionAccepted && s.reconciliationExpired(attempt) {
+		_, err := s.expireReconciliation(ctx, attempt)
+		return err
+	}
 	now := s.now()
 	status := StatusSending
 	completedAt := any(nil)
@@ -386,7 +462,7 @@ func (s *Service) persistResult(
 	durableCtx, cancel := durableContext(ctx)
 	defer cancel()
 	err := s.db.RunInTx(durableCtx, &sql.TxOptions{}, func(txCtx context.Context, tx bun.Tx) error {
-		updated, updateErr := tx.NewUpdate().Model((*models.ProviderWriteAttempt)(nil)).
+		query := tx.NewUpdate().Model((*models.ProviderWriteAttempt)(nil)).
 			Set("status = ?", status).
 			Set("submission_state = ?", result.SubmissionState).
 			Set("provider_state = ?", result.ProviderState).
@@ -400,13 +476,23 @@ func (s *Service) persistResult(
 			Set("reconcile_after = ?", reconcileAt).
 			Set("completed_at = ?", completedAt).
 			Set("updated_at = ?", now).
-			Where("id = ? AND status IN (?, ?)", attempt.ID, StatusSending, StatusAmbiguous).
-			Exec(txCtx)
+			Where("id = ? AND status IN (?, ?)", attempt.ID, StatusSending, StatusAmbiguous)
+		if result.SubmissionState != platform.PublishSubmissionAccepted {
+			query = query.Where("safe_error_code != ?", reconciliationExpiredCode)
+		}
+		updated, updateErr := query.Exec(txCtx)
 		if updateErr != nil {
 			return updateErr
 		}
 		rows, _ := updated.RowsAffected()
 		if rows != 1 {
+			var current models.ProviderWriteAttempt
+			if err := tx.NewSelect().Model(&current).Where("id = ?", attempt.ID).Scan(txCtx); err != nil {
+				return err
+			}
+			if current.SafeErrorCode == reconciliationExpiredCode {
+				return &OutcomeError{Kind: StatusAmbiguous, ProviderState: current.ProviderState, Err: ErrReconciliationExpired}
+			}
 			return errors.New("attempt is no longer active")
 		}
 		return s.syncDeliveryTx(txCtx, tx, attempt.ID, reconciled)
@@ -467,9 +553,10 @@ func (s *Service) persistAmbiguous(ctx context.Context, attempt *models.Provider
 			Set("safe_error_class = ?", errorClass).
 			Set("safe_error_code = ?", errorCode).
 			Set("error_http_status = ?", httpStatus).
+			Set("reconcile_after = NULL").
 			Set("completed_at = ?", now).
 			Set("updated_at = ?", now).
-			Where("id = ? AND status = ?", attempt.ID, StatusSending).
+			Where("id = ? AND status IN (?, ?)", attempt.ID, StatusSending, StatusAmbiguous).
 			Exec(txCtx)
 		if err != nil {
 			return err
@@ -633,7 +720,7 @@ func deliveryState(attempt models.ProviderWriteAttempt) string {
 	case StatusDefiniteFailure:
 		return DeliveryRejected
 	case StatusAmbiguous:
-		if attempt.ProviderReference == "" && attempt.RetrySafety == string(platform.PublishRetryNever) {
+		if attempt.RetrySafety == string(platform.PublishRetryNever) && (attempt.ProviderReference == "" || attempt.SafeErrorCode == reconciliationExpiredCode) {
 			return DeliveryManualResolution
 		}
 		return DeliveryAmbiguous
@@ -641,6 +728,9 @@ func deliveryState(attempt models.ProviderWriteAttempt) string {
 		if attempt.SubmissionState == string(platform.PublishSubmissionPending) {
 			if providerScheduled {
 				return DeliveryProviderScheduled
+			}
+			if providerState == "inbox_delivered" {
+				return DeliveryAwaitingUser
 			}
 			return DeliveryProcessing
 		}
@@ -678,30 +768,21 @@ func (s *Service) MarkStaleJobAttempts(ctx context.Context, cutoff time.Time) (i
 	var affected int64
 	err := s.db.RunInTx(ctx, &sql.TxOptions{}, func(txCtx context.Context, tx bun.Tx) error {
 		var attemptIDs []string
-		if err := tx.NewSelect().Model((*models.ProviderWriteAttempt)(nil)).Column("id").
-			Where("status = ?", StatusSending).
-			Where("job_id IN (SELECT id FROM jobs WHERE status = ? AND locked_at IS NOT NULL AND locked_at <= ?)", "processing", cutoff.UTC()).
-			Scan(txCtx, &attemptIDs); err != nil {
-			return err
-		}
-		if len(attemptIDs) == 0 {
-			return nil
-		}
 		now := s.now()
-		result, err := tx.NewUpdate().Model((*models.ProviderWriteAttempt)(nil)).
+		if err := tx.NewUpdate().Model((*models.ProviderWriteAttempt)(nil)).
 			Set("status = ?", StatusAmbiguous).
 			Set("submission_state = CASE WHEN submission_state = ? THEN submission_state ELSE ? END", platform.PublishSubmissionPending, platform.PublishSubmissionUnknown).
 			Set("retry_safety = CASE WHEN submission_state = ? THEN ? ELSE retry_safety END", platform.PublishSubmissionPending, platform.PublishRetryReconcileOnly).
 			Set("safe_error_class = ?", "worker_interrupted").
 			Set("completed_at = ?", now).
 			Set("updated_at = ?", now).
-			Where("id IN (?)", bun.List(attemptIDs)).
 			Where("status = ?", StatusSending).
-			Exec(txCtx)
-		if err != nil {
+			Where("job_id IN (SELECT id FROM jobs WHERE status = ? AND locked_at IS NOT NULL AND locked_at <= ?)", "processing", cutoff.UTC()).
+			Returning("id").
+			Scan(txCtx, &attemptIDs); err != nil {
 			return err
 		}
-		affected, _ = result.RowsAffected()
+		affected = int64(len(attemptIDs))
 		for _, attemptID := range attemptIDs {
 			if err := s.syncDeliveryTx(txCtx, tx, attemptID, false); err != nil {
 				return err
@@ -764,6 +845,15 @@ func normalizeResult(result platform.PublishResult) platform.PublishResult {
 	if !validRetrySafety(result.RetrySafety) {
 		result.RetrySafety = ""
 	}
+	if result.SubmissionState == platform.PublishSubmissionAccepted &&
+		result.ExternalID == "" && result.ProviderReference == "" {
+		// A provider acceptance without a native id or a reference to
+		// reconcile with proves nothing. It must not become live: hold it
+		// pending with reconcile-only safety so it reconciles instead of
+		// retrying, and never reports published.
+		result.SubmissionState = platform.PublishSubmissionPending
+		result.RetrySafety = platform.PublishRetryReconcileOnly
+	}
 	return result
 }
 
@@ -810,7 +900,7 @@ func pendingError(result platform.PublishResult) error {
 	if delay <= 0 {
 		delay = time.Minute
 	}
-	return &OutcomeError{Kind: string(platform.PublishSubmissionPending), RetryAfter: delay, Err: ErrOutcomePending}
+	return &OutcomeError{Kind: string(platform.PublishSubmissionPending), ProviderState: result.ProviderState, RetryAfter: delay, Err: ErrOutcomePending}
 }
 
 func definitelyRejected(err error) bool {
@@ -824,6 +914,9 @@ func definitelyRejected(err error) bool {
 func safeError(err error) (string, string, int) {
 	if err == nil {
 		return "", "", 0
+	}
+	if errors.Is(err, ErrReconciliationExpired) {
+		return "reconciliation_expired", reconciliationExpiredCode, 0
 	}
 	var providerErr *platform.HTTPError
 	if errors.As(err, &providerErr) {
@@ -850,9 +943,27 @@ func safeError(err error) (string, string, int) {
 func storedAttemptError(attempt *models.ProviderWriteAttempt) error {
 	err := errors.New("provider write definitely failed")
 	if attempt.ErrorHTTPStatus > 0 {
-		err = &platform.HTTPError{StatusCode: attempt.ErrorHTTPStatus, Code: attempt.SafeErrorCode}
+		code, subcode := splitStoredProviderErrorCode(attempt.SafeErrorCode)
+		err = &platform.HTTPError{StatusCode: attempt.ErrorHTTPStatus, Code: code, Subcode: subcode}
 	}
 	return &OutcomeError{Kind: attempt.Status, Err: err}
+}
+
+// safeError stores a provider subcode in the existing code column using this
+// delimiter. Restore it for replayed errors so downstream classifiers see the
+// same bounded HTTPError fields they saw before persistence. Ambiguous or
+// malformed legacy values remain an opaque Code.
+func splitStoredProviderErrorCode(value string) (string, string) {
+	const delimiter = ":subcode:"
+	if len(value) > 96 || strings.Count(value, delimiter) != 1 {
+		return value, ""
+	}
+	index := strings.LastIndex(value, delimiter)
+	code, subcode := value[:index], value[index+len(delimiter):]
+	if !safeStateValue.MatchString(code) || code == "" || !safeStateValue.MatchString(subcode) || subcode == "" {
+		return value, ""
+	}
+	return code, subcode
 }
 
 func idempotentRetryAvailable(attempt *models.ProviderWriteAttempt, now time.Time) bool {

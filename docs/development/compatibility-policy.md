@@ -2,7 +2,7 @@
 
 This page is for contributors deprecating or removing public API and stored-data contracts.
 
-OpenPost does not remove a public API or stored-data contract because repository search reports no caller. API-token clients, older CLI versions, MCP bridges, and automation tools can use a route without appearing in the current source tree.
+dopost does not remove a public API or stored-data contract because repository search reports no caller. API-token clients, older CLI versions, MCP bridges, and automation tools can use a route without appearing in the current source tree.
 
 [`config/compatibility-surfaces.json`](https://github.com/getopenpost/openpost/blob/main/config/compatibility-surfaces.json) is the machine-checked retirement registry. It records the owner, exact introduction commit and release, current decision, replacement, migration path, notice state, normalized route evidence, consumer review, and earliest removal facts for each candidate.
 
@@ -19,7 +19,7 @@ A route or schema member can become deprecated only when all of these are true:
 
 Removal requires at least 90 days and two later stable releases after the announcement. The review must cover `web`, `cli`, `mcp`, `mcp-media`, `n8n`, and other `api` callers. Every class needs recorded no-use or not-applicable evidence, and no known use can remain. A failed or incomplete review keeps the route.
 
-The request log's `route` and `consumer` fields provide low-cardinality evidence. The consumer value comes from a caller-controlled user agent, so it is a useful review hint, not proof of identity. See [Logs](https://docs.openpo.st/self-hosting/maintenance) for the exact logging boundary.
+The request log's `route` and `consumer` fields provide low-cardinality evidence. The consumer value comes from a caller-controlled user agent, so it is a useful review hint, not proof of identity. See [Logs](https://openpo.st/docs/self-hosting/maintenance) for the exact logging boundary.
 
 ## Current decisions
 

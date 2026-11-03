@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onDestroy, onMount } from 'svelte';
 	import EditorColorWheel from '$lib/components/editor-color-wheel.svelte';
 	import { Slider } from '$lib/components/ui/slider';
 	import { ThemeIcon, ProtectedIcon } from '$lib/themes/icons';
@@ -22,13 +22,14 @@
 	import type { ColorPickerKind } from '$lib/video-editor/effects/color-preview-store.svelte';
 	import { timelineStore } from '$lib/video-editor/timeline/stores/timeline-store.svelte';
 	import { autoKeyframeStore } from '$lib/video-editor/timeline/stores/auto-keyframe-store.svelte';
+	import { resolveEditableColorTargetIds } from '$lib/video-editor/effects/color-targets';
 	import {
 		removeKeyframe,
 		setAnimatedGpuEffectParamsOnItems,
 		setKeyframe
 	} from '$lib/video-editor/timeline/actions/keyframes';
 	import ColorEffectHeader from './color-effect-header.svelte';
-	import ScrubbableNumberInput from '$lib/components/editor-scrubbable-number-input.svelte';
+	import { ScrubField } from '$lib/components/editor-density';
 	import {
 		EDITOR_COLOR_PRIMARY_BOTTOM_PARAMETERS,
 		EDITOR_COLOR_PRIMARY_TOP_PARAMETERS,
@@ -54,7 +55,6 @@
 	const BALANCE_SLIDER_PARAMS = ['temperature', 'tint', 'saturation'] as const;
 	const MAX_DOCK_WHEEL_SIZE = 200;
 	const MIN_DOCK_WHEEL_SIZE = 48;
-	const DOCK_WHEEL_GRID_GAP_PX = 28;
 	const DOCK_WHEEL_EXTRAS_PX = 76;
 	const defaults = getGpuEffectDefaultParams(EFFECT_ID);
 	const definition = getGpuEffect(EFFECT_ID)!;
@@ -98,7 +98,8 @@
 		onedit,
 		onautobalance,
 		onpick,
-		forceAutoKey = false
+		forceAutoKey = false,
+		compact = false
 	}: {
 		itemId: string | null;
 		itemIds?: string[];
@@ -106,14 +107,27 @@
 		onautobalance?: () => void;
 		onpick?: (kind: ColorPickerKind) => void;
 		forceAutoKey?: boolean;
+		compact?: boolean;
 	} = $props();
 
 	let showPrimaries = $state(false);
 	let showBalance = $state(false);
+	const primariesChanged = $derived(
+		PRIMARY_SLIDER_PARAMS.filter(
+			(name) => !Object.is(parameterValue(name), Number(defaults[name] ?? 0))
+		).length
+	);
+	const balanceChanged = $derived(
+		BALANCE_SLIDER_PARAMS.filter(
+			(name) => !Object.is(parameterValue(name), Number(defaults[name] ?? 0))
+		).length
+	);
 	let wheelDrafts = $state<Record<string, { hue: number; amount: number }>>({});
 	let parameterDrafts = $state<Record<string, number>>({});
 	let wheelGrid: HTMLDivElement | null = $state(null);
 	let wheelSize = $state(80);
+	let draftSourceItemId: string | null = null;
+	let draftTargetItemIds: string[] = [];
 
 	onMount(() => {
 		if (!wheelGrid) return;
@@ -127,10 +141,13 @@
 				(Number.parseFloat(styles.paddingTop) || 0) +
 				(Number.parseFloat(styles.paddingBottom) || 0);
 			const availableWidth = wheelGrid.clientWidth - paddingX;
-			const slotWidth =
-				(availableWidth - DOCK_WHEEL_GRID_GAP_PX * (wheelDescriptors.length - 1)) /
-				wheelDescriptors.length;
-			const slotHeight = wheelGrid.clientHeight - paddingY - DOCK_WHEEL_EXTRAS_PX;
+			const columns = availableWidth >= 640 ? wheelDescriptors.length : 2;
+			const rows = Math.ceil(wheelDescriptors.length / columns);
+			const columnGap = Number.parseFloat(styles.columnGap) || 0;
+			const rowGap = Number.parseFloat(styles.rowGap) || 0;
+			const slotWidth = (availableWidth - columnGap * (columns - 1)) / columns;
+			const slotHeight =
+				(wheelGrid.clientHeight - paddingY - rowGap * (rows - 1)) / rows - DOCK_WHEEL_EXTRAS_PX;
 			wheelSize = Math.max(
 				MIN_DOCK_WHEEL_SIZE,
 				Math.min(MAX_DOCK_WHEEL_SIZE, Math.floor(Math.min(slotWidth, slotHeight)))
@@ -141,6 +158,22 @@
 		const observer = new globalThis.ResizeObserver(updateSize);
 		observer.observe(wheelGrid);
 		return () => observer.disconnect();
+	});
+
+	onDestroy(() => {
+		const previewTargetItemId = draftTargetItemIds[0];
+		if (previewTargetItemId) colorPreviewStore.clearEffectDraft(previewTargetItemId);
+	});
+
+	$effect(() => {
+		const nextItemId = itemId;
+		if (!draftSourceItemId || draftSourceItemId === nextItemId) return;
+		const previewTargetItemId = draftTargetItemIds[0];
+		if (previewTargetItemId) colorPreviewStore.clearEffectDraft(previewTargetItemId);
+		draftSourceItemId = null;
+		draftTargetItemIds = [];
+		wheelDrafts = {};
+		parameterDrafts = {};
 	});
 
 	const item = $derived(itemId ? timelineStore.itemById.get(itemId) : undefined);
@@ -158,11 +191,10 @@
 			params: defaults
 		}
 	);
-	const controlsEnabled = $derived(wheelEffect?.enabled !== false);
-	const targetItemIds = $derived.by(() => {
-		const requested = itemId && itemIds.includes(itemId) ? itemIds : itemId ? [itemId] : [];
-		return [...new Set(requested)].filter((id) => timelineStore.itemById.get(id)?.type !== 'audio');
-	});
+	const targetItemIds = $derived(
+		resolveEditableColorTargetIds(itemId, itemIds, timelineStore.itemById, timelineStore.tracks)
+	);
+	const controlsEnabled = $derived(targetItemIds.length > 0 && wheelEffect?.enabled !== false);
 	const targetWheelEffects = $derived(
 		targetItemIds.map((id) =>
 			resolveAnimatedEffectsAt(timelineStore.itemById.get(id)!, timelineStore.currentFrame)?.find(
@@ -215,7 +247,13 @@
 
 	function preview(updates: Record<string, number>): void {
 		if (!itemId || !controlsEnabled) return;
-		const effectIds = targetItemIds.flatMap((id) => {
+		if (!draftSourceItemId) {
+			draftSourceItemId = itemId;
+			draftTargetItemIds = [...targetItemIds];
+		}
+		const previewTargetItemId = draftTargetItemIds[0];
+		if (!previewTargetItemId) return;
+		const effectIds = draftTargetItemIds.flatMap((id) => {
 			const effect = timelineStore.itemById
 				.get(id)
 				?.effects?.find(
@@ -223,15 +261,26 @@
 				);
 			return effect?.type === 'gpu' ? [effect.id] : [];
 		});
-		colorPreviewStore.setEffectDraft(itemId, displayEffect, updates, effectIds, targetItemIds);
+		colorPreviewStore.setEffectDraft(
+			previewTargetItemId,
+			displayEffect,
+			updates,
+			effectIds,
+			draftTargetItemIds
+		);
 	}
 
 	function commit(updates: Record<string, number>): void {
-		if (!itemId || !controlsEnabled) return;
-		colorPreviewStore.clearEffectDraft(itemId);
+		if (!itemId) return;
+		const commitTargetItemIds = draftSourceItemId ? draftTargetItemIds : targetItemIds;
+		const previewTargetItemId = draftTargetItemIds[0];
+		if (previewTargetItemId) colorPreviewStore.clearEffectDraft(previewTargetItemId);
+		draftSourceItemId = null;
+		draftTargetItemIds = [];
+		if (wheelEffect?.enabled === false || commitTargetItemIds.length === 0) return;
 		if (
 			setAnimatedGpuEffectParamsOnItems(
-				targetItemIds,
+				commitTargetItemIds,
 				EFFECT_ID,
 				timelineStore.currentFrame,
 				updates,
@@ -263,7 +312,10 @@
 
 	function cancelParameter(name: string): void {
 		delete parameterDrafts[name];
-		if (itemId) colorPreviewStore.clearEffectDraft(itemId);
+		const previewTargetItemId = draftTargetItemIds[0];
+		if (previewTargetItemId) colorPreviewStore.clearEffectDraft(previewTargetItemId);
+		draftSourceItemId = null;
+		draftTargetItemIds = [];
 	}
 
 	function parameterDisplay(name: string) {
@@ -446,7 +498,10 @@
 	function cancelChannel(descriptor: (typeof wheelDescriptors)[number]): void {
 		delete parameterDrafts[descriptor.level];
 		delete wheelDrafts[descriptor.hue];
-		if (itemId) colorPreviewStore.clearEffectDraft(itemId);
+		const previewTargetItemId = draftTargetItemIds[0];
+		if (previewTargetItemId) colorPreviewStore.clearEffectDraft(previewTargetItemId);
+		draftSourceItemId = null;
+		draftTargetItemIds = [];
 	}
 
 	function ringFill(descriptor: (typeof wheelDescriptors)[number]): number {
@@ -461,7 +516,10 @@
 	}
 </script>
 
-<section class="flex h-full min-h-0 flex-col" aria-label={gpuEffectLabel(definition)}>
+<section
+	class="flex h-full min-h-0 flex-col overflow-y-auto"
+	aria-label={gpuEffectLabel(definition)}
+>
 	{#snippet sliderRow(name: string)}
 		{@const param = schema(name)}
 		{@const keyframe = sliderKeyframe(name)}
@@ -487,9 +545,20 @@
 					onValueCancel={() => cancelParameter(name)}
 					onKeydown={(event) => event.stopPropagation()}
 				/>
-				<output class="w-12 shrink-0 text-right text-[var(--video-editor-muted)] tabular-nums">
-					{parameterValue(name).toFixed(sliderDecimals(name))}
-				</output>
+				<ScrubField
+					disabled={!controlsEnabled}
+					ariaLabel={`${gpuEffectLabel(definition)}: ${gpuParamLabel(param)}`}
+					value={parameterValue(name)}
+					min={Number(param.min)}
+					max={Number(param.max)}
+					step={Number(param.step)}
+					precision={sliderDecimals(name)}
+					valueWidth="3rem"
+					class="h-[var(--editor-22,22px)] shrink-0 rounded border border-[var(--video-editor-border)] bg-[var(--video-editor-control)] px-1 text-right text-[10px] text-[var(--video-editor-muted)] tabular-nums outline-none"
+					onValueChange={(next) => updateParameter(name, next)}
+					onValueCommit={(next) => commitParameter(name, next)}
+					onValueCancel={() => cancelParameter(name)}
+				/>
 				{#if keyframe}
 					<button
 						type="button"
@@ -561,10 +630,11 @@
 		label={gpuEffectLabel(definition)}
 		badge="PRIMARIES"
 		{onedit}
+		{compact}
 	/>
 
 	<div
-		class="grid shrink-0 grid-cols-[auto_repeat(5,minmax(0,1fr))] items-center gap-x-1 border-b border-[var(--video-editor-border)] px-2 py-1.5 2xl:gap-x-3 2xl:px-4"
+		class="order-3 grid shrink-0 grid-cols-[auto_repeat(5,minmax(0,1fr))] items-center gap-x-1 border-b border-[var(--video-editor-border)] px-2 py-1.5 2xl:gap-x-3 2xl:px-4"
 	>
 		<div class="flex items-center gap-0.5 pr-1">
 			<button
@@ -629,19 +699,20 @@
 				<div class="parameter-control">
 					<span class="parameter-label" title={gpuParamLabel(param)}>{gpuParamLabel(param)}</span>
 					<span class="flex min-w-0 flex-col items-center">
-						<ScrubbableNumberInput
+						<ScrubField
 							disabled={!controlsEnabled}
 							ariaLabel={gpuParamLabel(param)}
 							value={displayParameter(name)}
 							min={range.min}
 							max={range.max}
 							step={display.step}
-							decimals={display.decimals}
+							precision={display.decimals}
+							valueWidth="100%"
 							class="parameter-chip"
 							placeholder={m.image_editor_mixed_value()}
-							onlive={(next) => updateParameter(name, parameterFromDisplay(name, next))}
-							oncommit={(next) => commitParameter(name, parameterFromDisplay(name, next))}
-							oncancel={() => cancelParameter(name)}
+							onValueChange={(next) => updateParameter(name, parameterFromDisplay(name, next))}
+							onValueCommit={(next) => commitParameter(name, parameterFromDisplay(name, next))}
+							onValueCancel={() => cancelParameter(name)}
 						/>
 						<span
 							class="parameter-accent {parameterAccentByName.get(name) ?? 'tonal'}"
@@ -667,7 +738,7 @@
 
 	<div
 		bind:this={wheelGrid}
-		class="grid min-h-0 flex-1 grid-cols-4 items-center gap-1.5 overflow-hidden px-3 py-2 2xl:gap-7 2xl:px-6 2xl:py-3"
+		class="order-2 grid min-h-[330px] flex-1 shrink-0 grid-cols-2 items-center gap-1.5 overflow-hidden px-3 py-2 sm:min-h-[216px] sm:grid-cols-4 2xl:gap-7 2xl:px-6 2xl:py-3"
 	>
 		{#each wheelDescriptors as descriptor (descriptor.hue)}
 			{@const value = wheelValue(descriptor)}
@@ -710,7 +781,10 @@
 						}}
 						oncancel={() => {
 							delete wheelDrafts[descriptor.hue];
-							if (itemId) colorPreviewStore.clearEffectDraft(itemId);
+							const previewTargetItemId = draftTargetItemIds[0];
+							if (previewTargetItemId) colorPreviewStore.clearEffectDraft(previewTargetItemId);
+							draftSourceItemId = null;
+							draftTargetItemIds = [];
 						}}
 					/>
 				</div>
@@ -722,40 +796,42 @@
 					>
 						{#if descriptor.masterChip}
 							<span class="flex min-w-0 flex-col items-center">
-								<ScrubbableNumberInput
+								<ScrubField
 									disabled={!controlsEnabled}
 									ariaLabel={`${label(descriptor.level)} master`}
 									value={displayLevel(descriptor)}
 									min={levelRange.min}
 									max={levelRange.max}
 									step={descriptor.display.step}
-									decimals={descriptor.display.decimals}
+									precision={descriptor.display.decimals}
+									valueWidth="100%"
 									class="wheel-chip"
 									placeholder={m.image_editor_mixed_value()}
-									onlive={(next) =>
+									onValueChange={(next) =>
 										updateParameter(descriptor.level, levelFromDisplay(descriptor, next))}
-									oncommit={(next) =>
+									onValueCommit={(next) =>
 										commitParameter(descriptor.level, levelFromDisplay(descriptor, next))}
-									oncancel={() => cancelParameter(descriptor.level)}
+									onValueCancel={() => cancelParameter(descriptor.level)}
 								/>
 								<span class="mt-0.5 h-0.5 w-5 rounded-full bg-zinc-200"></span>
 							</span>
 						{/if}
 						{#each channelIndices as channelIndex (channelIndex)}
 							<span class="flex min-w-0 flex-col items-center">
-								<ScrubbableNumberInput
+								<ScrubField
 									disabled={!controlsEnabled}
 									ariaLabel={`${label(descriptor.level)} ${channelLabels[channelIndex]}`}
 									value={wheelIsMixed(descriptor) ? null : channels[channelIndex]}
 									min={levelRange.min - descriptor.display.scale}
 									max={levelRange.max + descriptor.display.scale}
 									step={descriptor.display.step}
-									decimals={descriptor.display.decimals}
+									precision={descriptor.display.decimals}
+									valueWidth="100%"
 									class="wheel-chip"
 									placeholder={m.image_editor_mixed_value()}
-									onlive={(next) => updateChannel(descriptor, channelIndex, next, 'live')}
-									oncommit={(next) => updateChannel(descriptor, channelIndex, next, 'commit')}
-									oncancel={() => cancelChannel(descriptor)}
+									onValueChange={(next) => updateChannel(descriptor, channelIndex, next, 'live')}
+									onValueCommit={(next) => updateChannel(descriptor, channelIndex, next, 'commit')}
+									onValueCancel={() => cancelChannel(descriptor)}
 								/>
 								<span class="mt-0.5 h-0.5 w-5 rounded-full {channelAccents[channelIndex]}"></span>
 							</span>
@@ -785,7 +861,7 @@
 	</div>
 
 	<div
-		class="grid shrink-0 grid-cols-6 items-center gap-x-1 border-t border-[var(--video-editor-border)] px-2 py-1.5 2xl:gap-x-3 2xl:px-4"
+		class="order-3 grid shrink-0 grid-cols-6 items-center gap-x-1 border-t border-[var(--video-editor-border)] px-2 py-1.5 2xl:gap-x-3 2xl:px-4"
 	>
 		{#each bottomParameters as name (name)}
 			{@const param = schema(name)}
@@ -795,19 +871,20 @@
 				<div class="parameter-control">
 					<span class="parameter-label" title={gpuParamLabel(param)}>{gpuParamLabel(param)}</span>
 					<span class="flex min-w-0 flex-col items-center">
-						<ScrubbableNumberInput
+						<ScrubField
 							disabled={!controlsEnabled}
 							ariaLabel={gpuParamLabel(param)}
 							value={displayParameter(name)}
 							min={range.min}
 							max={range.max}
 							step={display.step}
-							decimals={display.decimals}
+							precision={display.decimals}
+							valueWidth="100%"
 							class="parameter-chip"
 							placeholder={m.image_editor_mixed_value()}
-							onlive={(next) => updateParameter(name, parameterFromDisplay(name, next))}
-							oncommit={(next) => commitParameter(name, parameterFromDisplay(name, next))}
-							oncancel={() => cancelParameter(name)}
+							onValueChange={(next) => updateParameter(name, parameterFromDisplay(name, next))}
+							onValueCommit={(next) => commitParameter(name, parameterFromDisplay(name, next))}
+							onValueCancel={() => cancelParameter(name)}
 						/>
 						<span
 							class="parameter-accent {parameterAccentByName.get(name) ?? 'tonal'}"
@@ -831,15 +908,20 @@
 		{/each}
 	</div>
 
-	<div class="shrink-0 border-t border-[var(--video-editor-border)]">
+	<div class="order-4 shrink-0 border-t border-[var(--video-editor-border)]">
 		<button
 			type="button"
-			class="flex h-7 w-full items-center justify-between px-2 text-[10px] font-semibold tracking-wide text-[var(--video-editor-muted)] uppercase hover:text-[var(--video-editor-text)] focus-visible:outline-2 focus-visible:outline-[var(--video-editor-focus)]"
+			class="flex h-[var(--editor-22,22px)] w-full items-center justify-between px-2 text-[10px] font-semibold tracking-wide text-[var(--video-editor-muted)] uppercase hover:text-[var(--video-editor-text)] focus-visible:outline-2 focus-visible:outline-[var(--video-editor-focus)]"
 			aria-expanded={showPrimaries}
 			onclick={() => (showPrimaries = !showPrimaries)}
 		>
 			{m.video_editor_color_primaries()}
-			<span aria-hidden="true">{showPrimaries ? '−' : '+'}</span>
+			<span class="flex items-center gap-1.5">
+				{#if primariesChanged > 0}
+					<span class="font-normal normal-case tabular-nums">· {primariesChanged}</span>
+				{/if}
+				<span aria-hidden="true">{showPrimaries ? '−' : '+'}</span>
+			</span>
 		</button>
 		{#if showPrimaries}
 			<div class="flex flex-col gap-1 px-2 pb-2">
@@ -850,12 +932,17 @@
 		{/if}
 		<button
 			type="button"
-			class="flex h-7 w-full items-center justify-between border-t border-[var(--video-editor-border)] px-2 text-[10px] font-semibold tracking-wide text-[var(--video-editor-muted)] uppercase hover:text-[var(--video-editor-text)] focus-visible:outline-2 focus-visible:outline-[var(--video-editor-focus)]"
+			class="flex h-[var(--editor-22,22px)] w-full items-center justify-between border-t border-[var(--video-editor-border)] px-2 text-[10px] font-semibold tracking-wide text-[var(--video-editor-muted)] uppercase hover:text-[var(--video-editor-text)] focus-visible:outline-2 focus-visible:outline-[var(--video-editor-focus)]"
 			aria-expanded={showBalance}
 			onclick={() => (showBalance = !showBalance)}
 		>
 			{m.video_editor_color_balance_heading()}
-			<span aria-hidden="true">{showBalance ? '−' : '+'}</span>
+			<span class="flex items-center gap-1.5">
+				{#if balanceChanged > 0}
+					<span class="font-normal normal-case tabular-nums">· {balanceChanged}</span>
+				{/if}
+				<span aria-hidden="true">{showBalance ? '−' : '+'}</span>
+			</span>
 		</button>
 		{#if showBalance}
 			<div class="flex flex-col gap-1 px-2 pb-2">

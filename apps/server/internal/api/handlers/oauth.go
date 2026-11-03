@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"html"
 	"log"
 	"net/http"
 	"net/url"
@@ -20,24 +19,30 @@ import (
 
 	"github.com/openpost/backend/internal/api/middleware"
 	"github.com/openpost/backend/internal/connectors"
+	"github.com/openpost/backend/internal/jobregistry"
 	"github.com/openpost/backend/internal/models"
 	"github.com/openpost/backend/internal/platform"
 	account_saver "github.com/openpost/backend/internal/services/account_saver"
 	"github.com/openpost/backend/internal/services/accountavatar"
 	"github.com/openpost/backend/internal/services/accountfeatures"
 	"github.com/openpost/backend/internal/services/crypto"
+	"github.com/openpost/backend/internal/services/dataretention"
 	"github.com/openpost/backend/internal/services/entitlements"
 	"github.com/openpost/backend/internal/services/mastodonapps"
 	"github.com/openpost/backend/internal/services/mediastore"
 	"github.com/openpost/backend/internal/services/oauthstate"
+	"github.com/openpost/backend/internal/services/organizationguard"
 	"github.com/openpost/backend/internal/services/providerreadiness"
 	"github.com/openpost/backend/internal/services/tokenmanager"
+	"github.com/openpost/backend/internal/services/youtubeprofile"
 	"github.com/openpost/backend/internal/telemetry"
 	"github.com/uptrace/bun"
 )
 
 const mastodonProvider = "mastodon"
 const pixelfedProvider = "pixelfed"
+const oauthFailureReasonFacebookNoPages = "facebook_no_pages"
+const oauthFailureReasonInstagramNoPageLinkedAccount = "instagram_no_page_linked_account"
 
 // isCompatOAuthProvider reports providers that connect through the dynamic
 // Fediverse instance OAuth flow (per-instance app registration plus
@@ -95,19 +100,14 @@ type OAuthHandler struct {
 	connectorRegistry            *connectors.Registry
 	connectorStore               *connectors.Store
 	tokenSource                  AccessTokenSource
-	accountAvatars               accountAvatarCache
+	accountAvatars               accountavatar.Cache
 	blueskyPDS                   func(context.Context, string) (string, string, error)
-	blueskyAdapter               func(string) *platform.BlueskyAdapter
+	blueskyAdapter               func(string) blueskyLoginProvider
 	// frontendURL is the absolute base URL the SPA is served from
 	// (e.g. "https://openpost.example.com"). OAuth callback redirects go
 	// here so they work behind reverse proxies and subpath mounts.
 	frontendURL string
 	telemetry   telemetry.Recorder
-}
-
-type accountAvatarCache interface {
-	CacheLinkedIn(context.Context, string, string) (string, error)
-	Delete(context.Context, string) error
 }
 
 func mastodonInstanceURL(adapter platform.Adapter) string {
@@ -143,16 +143,22 @@ func NewOAuthHandler(
 		oauthStates:                  oauthstate.NewStore(db),
 		frontendURL:                  strings.TrimRight(frontendURL, "/"),
 		blueskyPDS:                   platform.ResolveBlueskyPDS,
-		blueskyAdapter:               platform.NewResolvedBlueskyAdapter,
+		blueskyAdapter:               func(pds string) blueskyLoginProvider { return platform.NewResolvedBlueskyAdapter(pds) },
 	}
+}
+
+type blueskyLoginProvider interface {
+	platform.Adapter
+	PDSURL() string
+	CreateSession(context.Context, string, string) (string, string, string, string, int, error)
 }
 
 // blueskyLoginAdapter targets the PDS named by the handle's DID document. It
 // falls back to the configured PDS only when resolution succeeded and named
 // none; a resolution failure fails the login rather than signing in against a
 // server that may not hold the repository.
-func (h *OAuthHandler) blueskyLoginAdapter(ctx context.Context, adapter platform.Adapter, handle string) (*platform.BlueskyAdapter, string, error) {
-	configured, ok := adapter.(*platform.BlueskyAdapter)
+func (h *OAuthHandler) blueskyLoginAdapter(ctx context.Context, adapter platform.Adapter, handle string) (blueskyLoginProvider, string, error) {
+	configured, ok := adapter.(blueskyLoginProvider)
 	if !ok {
 		return nil, "", huma.Error500InternalServerError("bluesky adapter type mismatch")
 	}
@@ -170,7 +176,7 @@ func (h *OAuthHandler) blueskyLoginAdapter(ctx context.Context, adapter platform
 	}
 	adapterFactory := h.blueskyAdapter
 	if adapterFactory == nil {
-		adapterFactory = platform.NewResolvedBlueskyAdapter
+		adapterFactory = func(pds string) blueskyLoginProvider { return platform.NewResolvedBlueskyAdapter(pds) }
 	}
 	return adapterFactory(pdsURL), resolvedDID, nil
 }
@@ -178,7 +184,7 @@ func (h *OAuthHandler) blueskyLoginAdapter(ctx context.Context, adapter platform
 // setBlueskyPDSResolver keeps DID resolution off the network in tests.
 func (h *OAuthHandler) setBlueskyPDSResolver(resolve func(context.Context, string) (string, string, error)) {
 	h.blueskyPDS = resolve
-	h.blueskyAdapter = platform.NewBlueskyAdapter
+	h.blueskyAdapter = func(pds string) blueskyLoginProvider { return platform.NewBlueskyAdapter(pds) }
 }
 
 // provider guards reads that can race dynamic PDS registration.
@@ -283,7 +289,7 @@ type ProviderInfo struct {
 	Configured                bool                                  `json:"configured" doc:"Whether this provider can currently be connected"`
 	Status                    string                                `json:"status,omitempty" doc:"Provider launch status: available, needs_configuration, or planned"`
 	Description               string                                `json:"description,omitempty" doc:"Short connection or launch note for this provider"`
-	Capabilities              []string                              `json:"capabilities,omitempty" doc:"High-level OpenPost capabilities available or planned for this provider"`
+	Capabilities              []string                              `json:"capabilities,omitempty" doc:"High-level dopost capabilities available or planned for this provider"`
 	Name                      string                                `json:"name,omitempty" doc:"Provider app or server display name"`
 	InstanceURL               string                                `json:"instance_url,omitempty" doc:"Federated server URL, when applicable"`
 	Readiness                 providerreadiness.Decision            `json:"readiness"`
@@ -302,11 +308,12 @@ type ListMastodonServersOutput struct {
 }
 
 type GetAuthURLInput struct {
-	Platform    string `path:"platform" doc:"Social platform (x, mastodon, bluesky, linkedin, threads, instagram, facebook, tiktok, youtube, pinterest)"`
-	WorkspaceID string `query:"workspace_id" required:"true" doc:"Workspace ID to link account to"`
-	ServerName  string `query:"server_name" doc:"Mastodon server name from config (required for mastodon)"`
-	InstanceURL string `query:"instance_url" doc:"Mastodon instance URL to dynamically register"`
-	Intent      string `query:"intent" enum:"production,certification_test" default:"production" doc:"Typed execution intent; certification_test requires an unscoped instance administrator"`
+	ConnectionMode string `query:"connection_mode" enum:"oauth,instagram_login" doc:"Instagram login method. Omitted or oauth uses Facebook Login; instagram_login signs in directly with Instagram."`
+	Platform       string `path:"platform" doc:"Social platform (x, mastodon, bluesky, linkedin, threads, instagram, facebook, tiktok, youtube, pinterest)"`
+	WorkspaceID    string `query:"workspace_id" required:"true" doc:"Workspace ID to link account to"`
+	ServerName     string `query:"server_name" doc:"Mastodon server name from config (required for mastodon)"`
+	InstanceURL    string `query:"instance_url" doc:"Mastodon instance URL to dynamically register"`
+	Intent         string `query:"intent" enum:"production,certification_test" default:"production" doc:"Typed execution intent; certification_test requires an unscoped instance administrator"`
 }
 
 type GetAuthURLOutput struct {
@@ -343,8 +350,8 @@ type ExchangeCodeOutput struct {
 
 type AccountConnectionResponse struct {
 	WorkspaceID       string   `json:"workspace_id" doc:"Workspace receiving the connected destination"`
-	AccountID         string   `json:"account_id" doc:"OpenPost destination account ID"`
-	AccountIDs        []string `json:"account_ids" doc:"All connected OpenPost account IDs"`
+	AccountID         string   `json:"account_id" doc:"dopost destination account ID"`
+	AccountIDs        []string `json:"account_ids" doc:"All connected dopost account IDs"`
 	OpenFreshComposer bool     `json:"open_fresh_composer" doc:"Whether this is the Workspace's first connected destination"`
 }
 
@@ -355,6 +362,7 @@ type ListAccountsInput struct {
 type AccountResponse struct {
 	ID                     string     `json:"id" doc:"Account ID"`
 	ProviderInstallationID string     `json:"provider_installation_id,omitempty" doc:"Operator connector installation used by this account"`
+	Alias                  string     `json:"alias,omitempty" doc:"Internal account label. Does not change the provider identity."`
 	Slug                   string     `json:"slug" doc:"User-editable account slug for CLI selectors"`
 	Platform               string     `json:"platform" doc:"Platform name"`
 	AccountID              string     `json:"account_id" doc:"Platform-specific account ID"`
@@ -408,15 +416,16 @@ type CompleteAccountSelectionOutput struct {
 type AccountSelectionCompletionResponse struct {
 	AccountResponse
 	WorkspaceID       string   `json:"workspace_id" doc:"Workspace receiving the connected destinations"`
-	AccountIDs        []string `json:"account_ids" doc:"OpenPost destination account IDs created by this selection"`
+	AccountIDs        []string `json:"account_ids" doc:"dopost destination account IDs created by this selection"`
 	OpenFreshComposer bool     `json:"open_fresh_composer" doc:"Whether these are the Workspace's first connected destinations"`
 }
 
 type UpdateAccountInput struct {
 	AccountID string `path:"account_id"`
 	Body      struct {
-		Slug            string `json:"slug" doc:"New account slug. Use lowercase letters, numbers, and hyphens."`
-		MessagesEnabled *bool  `json:"messages_enabled,omitempty" deprecated:"true" doc:"Deprecated shim. Use POST /account-features to change messaging preference."`
+		Alias           *string `json:"alias,omitempty" maxLength:"100" doc:"Internal account label. An empty value clears it; omission preserves it."`
+		Slug            string  `json:"slug" doc:"New account slug. Use lowercase letters, numbers, and hyphens."`
+		MessagesEnabled *bool   `json:"messages_enabled,omitempty" deprecated:"true" doc:"Deprecated shim. Use POST /account-features to change messaging preference."`
 	}
 }
 
@@ -425,7 +434,7 @@ type UpdateAccountOutput struct {
 }
 
 type RefreshAccountMetadataInput struct {
-	AccountID string `path:"account_id" doc:"OpenPost account ID"`
+	AccountID string `path:"account_id" doc:"dopost account ID"`
 }
 
 type RefreshAccountMetadataOutput struct {
@@ -442,7 +451,58 @@ const (
 
 var coreProviderCapabilities = []string{"Text posts", "Media posts", "Scheduling", "Platform variants", "MCP workflows"}
 
+// Curated connection-picker order: mainstream networks first, niche providers last.
 var providerCatalog = []ProviderInfo{
+	{
+		Platform:        "instagram",
+		DisplayName:     "Instagram",
+		AuthMode:        "oauth",
+		ConnectionModes: []string{platform.ConnectionModeInstagramLogin, platform.ConnectionModeOAuth},
+		Description:     "Connect a Business or Creator account directly with Instagram or through a linked Facebook Page.",
+		Capabilities:    []string{"Images", "Reels", "Scheduling", "Platform variants", "MCP workflows"},
+	},
+	{
+		Platform:     "facebook",
+		DisplayName:  "Facebook",
+		AuthMode:     "oauth",
+		Description:  "Meta OAuth connection for Facebook Pages publishing.",
+		Capabilities: []string{"Page posts", "Media posts", "Scheduling", "Platform variants", "MCP workflows"},
+	},
+	{
+		Platform:     "youtube",
+		DisplayName:  "YouTube",
+		AuthMode:     "oauth",
+		Description:  "Google OAuth connection for YouTube video and Shorts uploads.",
+		Capabilities: []string{"Shorts", "Video uploads", "Scheduling", "Platform variants", "MCP workflows"},
+	},
+	{
+		Platform:     "tiktok",
+		DisplayName:  "TikTok",
+		AuthMode:     "oauth",
+		Description:  "OAuth app connection for TikTok videos and photo posts.",
+		Capabilities: []string{"Short videos", "Photo posts", "Scheduling", "Platform variants", "MCP workflows"},
+	},
+	{
+		Platform:     "linkedin",
+		DisplayName:  "LinkedIn",
+		AuthMode:     "oauth",
+		Description:  "OAuth app connection for LinkedIn profile and organization publishing.",
+		Capabilities: coreProviderCapabilities,
+	},
+	{
+		Platform:     "x",
+		DisplayName:  "X (Twitter)",
+		AuthMode:     "oauth",
+		Description:  "OAuth app connection for X publishing and threads.",
+		Capabilities: coreProviderCapabilities,
+	},
+	{
+		Platform:     "threads",
+		DisplayName:  "Threads",
+		AuthMode:     "oauth",
+		Description:  "Meta OAuth connection with public media URL requirements.",
+		Capabilities: coreProviderCapabilities,
+	},
 	{
 		Platform:        "bluesky",
 		DisplayName:     "Bluesky",
@@ -450,14 +510,6 @@ var providerCatalog = []ProviderInfo{
 		ConnectionModes: []string{"app_password"},
 		Description:     "Handle and app-password connection with no server app setup.",
 		Capabilities:    coreProviderCapabilities,
-	},
-	{
-		Platform:        "discord",
-		DisplayName:     "Discord",
-		AuthMode:        "webhook",
-		ConnectionModes: []string{"webhook", "bot"},
-		Description:     "Post to a channel with a bot, or connect a webhook for a fixed destination.",
-		Capabilities:    []string{"Text posts", "Media attachments", "Scheduling", "Message deletion", "MCP workflows"},
 	},
 	{
 		Platform:        "pinterest",
@@ -475,11 +527,19 @@ var providerCatalog = []ProviderInfo{
 		Description:     "Connect a bot to post in Telegram channels and groups.",
 	},
 	{
-		Platform:     "x",
-		DisplayName:  "X (Twitter)",
+		Platform:        "discord",
+		DisplayName:     "Discord",
+		AuthMode:        "webhook",
+		ConnectionModes: []string{"webhook", "bot"},
+		Description:     "Post to a channel with a bot, or connect a webhook for a fixed destination.",
+		Capabilities:    []string{"Text posts", "Media attachments", "Scheduling", "Message deletion", "MCP workflows"},
+	},
+	{
+		Platform:     "googlebusiness",
+		DisplayName:  "Google Business",
 		AuthMode:     "oauth",
-		Description:  "OAuth app connection for X publishing and threads.",
-		Capabilities: coreProviderCapabilities,
+		Description:  "Google OAuth connection for Business Profile local posts; location selection and publishing require Google API access and current live certification.",
+		Capabilities: []string{"Location selection", "Local posts", "Scheduling", "Platform variants", "MCP workflows"},
 	},
 	{
 		Platform:     mastodonProvider,
@@ -520,46 +580,12 @@ var providerCatalog = []ProviderInfo{
 		Capabilities:    []string{"Community posts", "Comments", "Scheduling", "Platform variants", "MCP workflows"},
 	},
 	{
-		Platform:     "linkedin",
-		DisplayName:  "LinkedIn",
-		AuthMode:     "oauth",
-		Description:  "OAuth app connection for LinkedIn profile and organization publishing.",
-		Capabilities: coreProviderCapabilities,
-	},
-	{
-		Platform:     "threads",
-		DisplayName:  "Threads",
-		AuthMode:     "oauth",
-		Description:  "Meta OAuth connection with public media URL requirements.",
-		Capabilities: coreProviderCapabilities,
-	},
-	{
-		Platform:     "instagram",
-		DisplayName:  "Instagram",
-		AuthMode:     "oauth",
-		Description:  "Meta OAuth connection for Instagram Business and Creator publishing.",
-		Capabilities: []string{"Images", "Reels", "Scheduling", "Platform variants", "MCP workflows"},
-	},
-	{
-		Platform:     "facebook",
-		DisplayName:  "Facebook",
-		AuthMode:     "oauth",
-		Description:  "Meta OAuth connection for Facebook Pages publishing.",
-		Capabilities: []string{"Page posts", "Media posts", "Scheduling", "Platform variants", "MCP workflows"},
-	},
-	{
-		Platform:     "youtube",
-		DisplayName:  "YouTube",
-		AuthMode:     "oauth",
-		Description:  "Google OAuth connection for YouTube video and Shorts uploads.",
-		Capabilities: []string{"Shorts", "Video uploads", "Scheduling", "Platform variants", "MCP workflows"},
-	},
-	{
-		Platform:     "tiktok",
-		DisplayName:  "TikTok",
-		AuthMode:     "oauth",
-		Description:  "OAuth app connection for TikTok videos and photo posts.",
-		Capabilities: []string{"Short videos", "Photo posts", "Scheduling", "Platform variants", "MCP workflows"},
+		Platform:        "devnull",
+		DisplayName:     "dev/null",
+		AuthMode:        "ssh_signature",
+		ConnectionModes: []string{"ssh_signature"},
+		Description:     "Username and SSH key connection; commits are signed with the key on your GitHub account.",
+		Capabilities:    []string{"Text posts", "Image posts", "Replies", "Scheduling", "MCP workflows"},
 	},
 }
 
@@ -577,6 +603,9 @@ func (h *OAuthHandler) getProvider(platform, serverName string) (platform.Adapte
 	}
 
 	key := platform
+	if platform == "instagram" && serverName == "instagram_login" {
+		key = "instagram:instagram_login"
+	}
 	if platform == "discord" {
 		key = "discord:bot"
 	}
@@ -585,10 +614,6 @@ func (h *OAuthHandler) getProvider(platform, serverName string) (platform.Adapte
 		return nil, fmt.Errorf("unsupported platform: %s", platform)
 	}
 	return adapter, nil
-}
-
-func (h *OAuthHandler) getMastodonProvider(ctx context.Context, serverName, instanceURL string) (platform.Adapter, string, error) {
-	return h.getCompatProvider(ctx, mastodonProvider, serverName, instanceURL)
 }
 
 func (h *OAuthHandler) getCompatProvider(ctx context.Context, provider, serverName, instanceURL string) (platform.Adapter, string, error) {
@@ -675,7 +700,7 @@ func firstNonEmpty(values ...string) string {
 }
 
 func selectedAccountInstanceURL(provider string, values ...string) string {
-	if provider == "discord" {
+	if provider == "discord" || provider == "instagram" {
 		return ""
 	}
 	return firstNonEmpty(values...)
@@ -781,6 +806,22 @@ func applyProviderAvailabilityReadiness(
 				infos[index].ConfiguredConnectionModes = append(infos[index].ConfiguredConnectionModes, platform.ConnectionModeBot)
 			}
 		}
+		if infos[index].Platform == "instagram" {
+			direct := readiness.DecideConnection(ctx, "instagram", platform.ConnectionModeInstagramLogin, providerreadiness.ExecutionIntentProduction)
+			infos[index].ConnectionReadiness = map[string]providerreadiness.Decision{
+				platform.ConnectionModeOAuth: decision, platform.ConnectionModeInstagramLogin: direct,
+			}
+			infos[index].ConfiguredConnectionModes = nil
+			if decision.Connectable {
+				infos[index].ConfiguredConnectionModes = append(infos[index].ConfiguredConnectionModes, platform.ConnectionModeOAuth)
+			}
+			if direct.Connectable {
+				infos[index].ConfiguredConnectionModes = append(infos[index].ConfiguredConnectionModes, platform.ConnectionModeInstagramLogin)
+				if !decision.Connectable {
+					decision = direct
+				}
+			}
+		}
 		infos[index].Readiness = decision
 		infos[index].Configured = decision.Connectable
 		infos[index].Status = string(decision.State)
@@ -811,6 +852,15 @@ func providerInfoWithStatus(providers map[string]platform.Adapter, item Provider
 		return item
 	}
 	item.Configured = providers[item.Platform] != nil
+	if item.Platform == "instagram" {
+		if item.Configured {
+			item.ConfiguredConnectionModes = append(item.ConfiguredConnectionModes, platform.ConnectionModeOAuth)
+		}
+		if providers["instagram:"+platform.ConnectionModeInstagramLogin] != nil {
+			item.Configured = true
+			item.ConfiguredConnectionModes = append(item.ConfiguredConnectionModes, platform.ConnectionModeInstagramLogin)
+		}
+	}
 	if item.Platform == "discord" {
 		if providers["discord:"+platform.ConnectionModeWebhook] != nil || providers["discord"] != nil {
 			item.ConfiguredConnectionModes = append(item.ConfiguredConnectionModes, platform.ConnectionModeWebhook)
@@ -947,7 +997,7 @@ type ListPixelfedServersOutput struct {
 }
 
 func (h *OAuthHandler) ensureCanStartAccountConnection(ctx context.Context, workspaceID, userID string) error {
-	if err := h.checkWorkspaceEditAccess(ctx, workspaceID, userID); err != nil {
+	if err := h.checkWorkspaceConnectAccess(ctx, workspaceID, userID); err != nil {
 		return err
 	}
 	if err := h.accountSaver.CheckSocialAccountQuota(ctx, middleware.GetUserID(ctx), workspaceID); err != nil {
@@ -1040,6 +1090,9 @@ func (h *OAuthHandler) GetAuthURL(api huma.API) {
 		if input.Platform == "bluesky" {
 			return nil, huma.Error400BadRequest("bluesky uses app passwords, not OAuth redirect")
 		}
+		if input.Platform == "devnull" {
+			return nil, huma.Error400BadRequest("dev/null uses SSH keys, not OAuth redirect")
+		}
 		if input.WorkspaceID == "" {
 			return nil, huma.Error400BadRequest(errWorkspaceIDRequired)
 		}
@@ -1068,6 +1121,12 @@ func (h *OAuthHandler) authURLProvider(
 	ctx context.Context,
 	input *GetAuthURLInput,
 ) (platform.Adapter, string, error) {
+	if input.ConnectionMode != "" && input.ConnectionMode != platform.ConnectionModeOAuth && input.Platform != "instagram" {
+		return nil, "", huma.Error400BadRequest("connection_mode is only supported for Instagram")
+	}
+	if input.Platform == "instagram" {
+		return h.instagramAuthURLProvider(input)
+	}
 	if isCompatOAuthProvider(input.Platform) {
 		if input.ServerName == "" && input.InstanceURL == "" {
 			return nil, "", huma.Error400BadRequest(fmt.Sprintf("server_name or instance_url required for %s", input.Platform))
@@ -1086,6 +1145,21 @@ func (h *OAuthHandler) authURLProvider(
 		return adapter, platform.ConnectionModeBot, nil
 	}
 	return adapter, "", nil
+}
+
+func (h *OAuthHandler) instagramAuthURLProvider(input *GetAuthURLInput) (platform.Adapter, string, error) {
+	if input.ConnectionMode != "" && input.ConnectionMode != platform.ConnectionModeOAuth && input.ConnectionMode != platform.ConnectionModeInstagramLogin {
+		return nil, "", huma.Error400BadRequest("unsupported Instagram connection mode")
+	}
+	mode := input.ConnectionMode
+	if mode == "" {
+		mode = platform.ConnectionModeOAuth
+	}
+	adapter, err := h.getProvider(input.Platform, mode)
+	if err != nil {
+		return nil, "", huma.Error400BadRequest(err.Error())
+	}
+	return adapter, mode, nil
 }
 
 func (h *OAuthHandler) generateProviderAuthURL(
@@ -1128,7 +1202,7 @@ func generateXAuthURL(
 	authURL, err := xAdapter.GenerateAuthURLWithIntent(userID, input.WorkspaceID, string(intent))
 	if err != nil {
 		log.Printf("[X OAuth] auth url generation failed: %v", err)
-		return nil, huma.Error400BadRequest(fmt.Sprintf("x auth url generation failed: %s", err.Error()))
+		return nil, huma.Error400BadRequest("X authorization could not be started")
 	}
 	resp := &GetAuthURLOutput{}
 	resp.Body.URL = authURL
@@ -1143,146 +1217,193 @@ func (h *OAuthHandler) Callback(api huma.API) {
 		Path:        "/accounts/{platform}/callback",
 		Summary:     "Handle OAuth callback from provider",
 		Tags:        []string{tagAccounts},
+		Middlewares: huma.Middlewares{middleware.OptionalAuthMiddleware(api, h.auth)},
 		Errors:      []int{400},
 		Hidden:      true,
 	}, func(ctx context.Context, input *OAuthCallbackInput) (*huma.StreamResponse, error) {
-		if input.Platform == "x" && input.Denied != "" {
-			input.OAuthToken = input.Denied
-			workspaceID := h.callbackErrorWorkspace(ctx, input)
-			return h.redirectWithError("access_denied", workspaceID)
+		if resp, err := h.oauthCallbackDenialResponse(ctx, input); err != nil || resp != nil {
+			return resp, err
 		}
-		if input.Error != "" {
-			msg := input.Error
-			if input.ErrorDescription != "" {
-				msg = fmt.Sprintf("%s: %s", input.Error, input.ErrorDescription)
-			}
-			log.Printf("[OAuth Callback Error] %s", msg)
-			workspaceID := h.callbackErrorWorkspace(ctx, input)
-			return h.redirectWithError(input.Error, workspaceID)
+		session, resp, err := h.resolveOAuthCallbackSession(ctx, input)
+		if err != nil || resp != nil {
+			return resp, err
 		}
-
-		if input.Code == "" && input.OAuthToken == "" {
-			return h.redirectWithError("missing authorization code")
+		if resp, err := h.resolveOAuthCallbackAdapter(ctx, input, session); err != nil || resp != nil {
+			return resp, err
 		}
-
-		workspaceID := ""
-		userID := ""
-		executionIntent := ""
-		instanceRef := ""
-		var adapter platform.Adapter
-
-		extra := make(map[string]string)
-		if input.Platform == "x" {
-			var err error
-			adapter, err = h.getProvider(input.Platform, input.ServerName)
-			if err != nil {
-				return h.redirectWithError(err.Error())
-			}
-			extra["oauth_token"] = input.OAuthToken
-			extra["oauth_verifier"] = input.Verifier
-		}
-
-		if input.Platform == "x" {
-			xAdapter, ok := adapter.(*platform.XAdapter)
-			if !ok {
-				return h.redirectWithError("x adapter type mismatch")
-			}
-			requestMeta, ok := xAdapter.GetRequestMetaForRequestToken(input.OAuthToken)
-			if !ok {
-				return h.redirectWithError("invalid or expired oauth request token")
-			}
-			workspaceID = requestMeta.WorkspaceID
-			userID = requestMeta.UserID
-			executionIntent = requestMeta.ExecutionIntent
-		} else {
-			statePayload, err := h.oauthStates.Consume(ctx, input.State)
-			if err != nil {
-				return h.redirectWithError("invalid or expired state")
-			}
-			if statePayload.Platform != input.Platform {
-				return h.redirectWithError("oauth state platform mismatch")
-			}
-			userID = statePayload.UserID
-			workspaceID = statePayload.WorkspaceID
-			executionIntent = statePayload.ExecutionIntent
-			switch input.Platform {
-			case mastodonProvider, pixelfedProvider:
-				input.ServerName = statePayload.ServerName
-				instanceRef = statePayload.ServerName
-			case "discord":
-				instanceRef = platform.ConnectionModeBot
-			}
-		}
-
-		if err := h.checkWorkspaceEditAccess(ctx, workspaceID, userID); err != nil {
-			log.Printf("[Callback] Workspace access check failed: %v", err)
-			return h.redirectWithError("workspace access denied", workspaceID)
-		}
-		if err := h.requireProviderConnectionCompletion(
-			ctx, input.Platform, instanceRef, executionIntent, userID,
-		); err != nil {
-			return h.redirectWithError(err.Error(), workspaceID)
-		}
-
-		if input.Platform != "x" {
-			var err error
-			if isCompatOAuthProvider(input.Platform) {
-				adapter, _, err = h.getCompatProvider(ctx, input.Platform, input.ServerName, "")
-				if err != nil {
-					return h.redirectWithError(err.Error(), workspaceID)
-				}
-				instanceRef = mastodonInstanceURL(adapter)
-			} else {
-				adapter, err = h.getProvider(input.Platform, input.ServerName)
-				if err != nil {
-					return h.redirectWithError(err.Error(), workspaceID)
-				}
-			}
-		}
-		if err := h.requireProviderConnectionCompletion(
-			ctx, input.Platform, instanceRef, executionIntent, userID,
-		); err != nil {
-			return h.redirectWithError(err.Error(), workspaceID)
-		}
-
-		tokenResp, err := adapter.ExchangeCode(ctx, input.Code, extra)
-		if err != nil {
-			return h.redirectWithError(fmt.Sprintf("token exchange failed: %s", err.Error()), workspaceID)
-		}
-
-		if err := h.requireProviderConnectionCompletion(
-			ctx, input.Platform, instanceRef, executionIntent, userID,
-		); err != nil {
-			return h.redirectWithError(err.Error(), workspaceID)
-		}
-
-		if selector, ok := adapter.(platform.AccountSelectionAdapter); ok {
-			if profile, profileErr := adapter.GetProfile(ctx, tokenResp.AccessToken); profileErr == nil && profile != nil && profile.ID != "" {
-				if tokenResp.Extra == nil {
-					tokenResp.Extra = map[string]string{}
-				}
-				tokenResp.Extra["_grant_subject"] = profile.ID
-			}
-			return h.saveAccountSelectionAndRedirect(
-				ctx, userID, input.Platform, workspaceID, instanceRef,
-				executionIntent, tokenResp, selector,
-			)
-		}
-
-		profile, err := adapter.GetProfile(ctx, tokenResp.AccessToken)
-		if err != nil {
-			if isCompatOAuthProvider(input.Platform) {
-				profile = &platform.UserProfile{ID: input.Platform + "-user", Username: ""}
-			} else {
-				return h.redirectWithError(fmt.Sprintf("failed to get profile: %s", err.Error()), workspaceID)
-			}
-		}
-
-		return h.saveAccountAndRedirect(
-			ctx, userID, input.Platform, workspaceID, instanceRef, executionIntent,
-			profile, tokenResp, adapter,
-		)
+		return h.finishOAuthCallback(ctx, input, session)
 	})
+}
+
+func (h *OAuthHandler) finishOAuthCallback(ctx context.Context, input *OAuthCallbackInput, session *oauthCallbackSession) (*huma.StreamResponse, error) {
+	if err := h.requireProviderConnectionCompletion(
+		ctx, input.Platform, session.instanceRef, session.executionIntent, session.userID,
+	); err != nil {
+		return h.redirectWithOAuthFailure(input.Platform, "connection_unavailable", err, session.workspaceID)
+	}
+
+	tokenResp, err := session.adapter.ExchangeCode(ctx, input.Code, session.extra)
+	if err != nil {
+		return h.redirectWithOAuthFailure(input.Platform, "token_exchange_failed", err, session.workspaceID)
+	}
+
+	if err := h.requireProviderConnectionCompletion(
+		ctx, input.Platform, session.instanceRef, session.executionIntent, session.userID,
+	); err != nil {
+		return h.redirectWithOAuthFailure(input.Platform, "connection_unavailable", err, session.workspaceID)
+	}
+
+	if selector, ok := session.adapter.(platform.AccountSelectionAdapter); ok && (input.Platform != "instagram" || session.instanceRef != platform.ConnectionModeInstagramLogin) {
+		profile, profileErr := session.adapter.GetProfile(ctx, tokenResp.AccessToken)
+		if profileErr != nil {
+			logAccountConnectionError(input.Platform, "selection_profile_fetch_failed", profileErr)
+		} else if profile != nil && profile.ID != "" {
+			if tokenResp.Extra == nil {
+				tokenResp.Extra = map[string]string{}
+			}
+			tokenResp.Extra["_grant_subject"] = profile.ID
+		}
+		return h.saveAccountSelectionAndRedirect(
+			ctx, session.userID, input.Platform, session.workspaceID, session.instanceRef,
+			session.executionIntent, tokenResp, selector,
+		)
+	}
+
+	profile, err := session.adapter.GetProfile(ctx, tokenResp.AccessToken)
+	if err != nil {
+		return h.redirectWithOAuthFailure(input.Platform, "profile_fetch_failed", err, session.workspaceID)
+	}
+
+	return h.saveAccountAndRedirect(
+		ctx, session.userID, input.Platform, session.workspaceID, session.instanceRef, session.executionIntent,
+		profile, tokenResp, session.adapter,
+	)
+}
+
+func (h *OAuthHandler) oauthCallbackDenialResponse(ctx context.Context, input *OAuthCallbackInput) (*huma.StreamResponse, error) {
+	if input.Platform == "x" && input.Denied != "" {
+		input.OAuthToken = input.Denied
+		workspaceID := h.callbackErrorWorkspace(ctx, input)
+		return h.redirectWithOAuthFeedback("cancelled", "", workspaceID)
+	}
+	if input.Error != "" {
+		workspaceID := h.callbackErrorWorkspace(ctx, input)
+		if strings.EqualFold(input.Error, "access_denied") || strings.EqualFold(input.Error, "cancelled") {
+			return h.redirectWithOAuthFeedback("cancelled", "", workspaceID)
+		}
+		return h.redirectWithOAuthFailure(input.Platform, "authorization_failed", nil, workspaceID)
+	}
+
+	if input.Code == "" && input.OAuthToken == "" {
+		return h.redirectWithOAuthFailure(input.Platform, "missing_code", nil)
+	}
+	return nil, nil
+}
+
+type oauthCallbackSession struct {
+	workspaceID     string
+	userID          string
+	executionIntent string
+	instanceRef     string
+	adapter         platform.Adapter
+	extra           map[string]string
+}
+
+func (h *OAuthHandler) resolveOAuthCallbackSession(ctx context.Context, input *OAuthCallbackInput) (*oauthCallbackSession, *huma.StreamResponse, error) {
+	workspaceID := ""
+	userID := ""
+	executionIntent := ""
+	instanceRef := ""
+	var adapter platform.Adapter
+
+	extra := make(map[string]string)
+	if input.Platform == "x" {
+		var err error
+		adapter, err = h.getProvider(input.Platform, input.ServerName)
+		if err != nil {
+			resp, err := h.redirectWithOAuthFailure(input.Platform, "provider_unavailable", err)
+			return nil, resp, err
+		}
+		extra["oauth_token"] = input.OAuthToken
+		extra["oauth_verifier"] = input.Verifier
+	}
+
+	if input.Platform == "x" {
+		xAdapter, ok := adapter.(*platform.XAdapter)
+		if !ok {
+			resp, err := h.redirectWithOAuthFailure(input.Platform, "provider_unavailable", nil)
+			return nil, resp, err
+		}
+		requestMeta, ok := xAdapter.GetRequestMetaForRequestToken(input.OAuthToken)
+		if !ok {
+			resp, err := h.redirectWithOAuthFailure(input.Platform, "invalid_state", nil)
+			return nil, resp, err
+		}
+		workspaceID = requestMeta.WorkspaceID
+		userID = requestMeta.UserID
+		executionIntent = requestMeta.ExecutionIntent
+	} else {
+		statePayload, err := h.oauthStates.Consume(ctx, input.State)
+		if err != nil {
+			resp, err := h.redirectWithOAuthFailure(input.Platform, "invalid_state", nil)
+			return nil, resp, err
+		}
+		if statePayload.Platform != input.Platform {
+			resp, err := h.redirectWithOAuthFailure(input.Platform, "invalid_state", nil)
+			return nil, resp, err
+		}
+		userID = statePayload.UserID
+		workspaceID = statePayload.WorkspaceID
+		executionIntent = statePayload.ExecutionIntent
+		switch input.Platform {
+		case mastodonProvider, pixelfedProvider:
+			input.ServerName = statePayload.ServerName
+			instanceRef = statePayload.ServerName
+		case "discord":
+			instanceRef = platform.ConnectionModeBot
+		case "instagram":
+			input.ServerName = statePayload.ServerName
+			instanceRef = statePayload.ServerName
+		}
+	}
+
+	if middleware.GetUserID(ctx) == "" || middleware.GetUserID(ctx) != userID {
+		resp, err := h.redirectWithOAuthFailure(input.Platform, "session_mismatch", nil, workspaceID)
+		return nil, resp, err
+	}
+	if err := h.checkWorkspaceConnectAccess(ctx, workspaceID, userID); err != nil {
+		resp, err := h.redirectWithOAuthFailure(input.Platform, "workspace_access_denied", err, workspaceID)
+		return nil, resp, err
+	}
+	if err := h.requireProviderConnectionCompletion(
+		ctx, input.Platform, instanceRef, executionIntent, userID,
+	); err != nil {
+		resp, err := h.redirectWithOAuthFailure(input.Platform, "connection_unavailable", err, workspaceID)
+		return nil, resp, err
+	}
+
+	return &oauthCallbackSession{workspaceID: workspaceID, userID: userID, executionIntent: executionIntent, instanceRef: instanceRef, adapter: adapter, extra: extra}, nil, nil
+}
+
+func (h *OAuthHandler) resolveOAuthCallbackAdapter(ctx context.Context, input *OAuthCallbackInput, session *oauthCallbackSession) (*huma.StreamResponse, error) {
+	if input.Platform != "x" {
+		var err error
+		if isCompatOAuthProvider(input.Platform) {
+			session.adapter, _, err = h.getCompatProvider(ctx, input.Platform, input.ServerName, "")
+			if err != nil {
+				resp, err := h.redirectWithOAuthFailure(input.Platform, "provider_unavailable", err, session.workspaceID)
+				return resp, err
+			}
+			session.instanceRef = mastodonInstanceURL(session.adapter)
+		} else {
+			session.adapter, err = h.getProvider(input.Platform, input.ServerName)
+			if err != nil {
+				resp, err := h.redirectWithOAuthFailure(input.Platform, "provider_unavailable", err, session.workspaceID)
+				return resp, err
+			}
+		}
+	}
+	return nil, nil
 }
 
 func (h *OAuthHandler) callbackErrorWorkspace(ctx context.Context, input *OAuthCallbackInput) string {
@@ -1308,25 +1429,6 @@ func (h *OAuthHandler) callbackErrorWorkspace(ctx context.Context, input *OAuthC
 	return payload.WorkspaceID
 }
 
-func (h *OAuthHandler) redirectWithError(msg string, workspaceIDs ...string) (*huma.StreamResponse, error) {
-	msg = strings.TrimSpace(html.UnescapeString(msg))
-	status := "failed"
-	if strings.EqualFold(msg, "access_denied") || strings.EqualFold(msg, "cancelled") {
-		status = "cancelled"
-	}
-	query := url.Values{"tab": {"accounts"}, "oauth_status": {status}}
-	if len(workspaceIDs) > 0 && strings.TrimSpace(workspaceIDs[0]) != "" {
-		query.Set("workspace_id", workspaceIDs[0])
-	}
-	location := h.frontendURL + "/settings?" + query.Encode()
-	return &huma.StreamResponse{
-		Body: func(ctx huma.Context) {
-			ctx.SetHeader("Location", location)
-			ctx.SetStatus(http.StatusTemporaryRedirect)
-		},
-	}, nil
-}
-
 func (h *OAuthHandler) redirectWithAccountSelection(platformName, connectionID string) (*huma.StreamResponse, error) {
 	location := h.frontendURL + "/accounts/callback?status=selection_required&platform=" + url.QueryEscape(platformName) + "&connection_id=" + url.QueryEscape(connectionID)
 	return &huma.StreamResponse{
@@ -1343,29 +1445,32 @@ func (h *OAuthHandler) saveAccountSelectionAndRedirect(
 	tokenResp *platform.TokenResult,
 	selector platform.AccountSelectionAdapter,
 ) (*huma.StreamResponse, error) {
-	if err := h.checkWorkspaceEditAccess(ctx, workspaceID, userID); err != nil {
-		log.Printf("[Callback] Workspace access check failed: %v", err)
-		return h.redirectWithError("workspace access denied", workspaceID)
+	if err := h.checkWorkspaceConnectAccess(ctx, workspaceID, userID); err != nil {
+		return h.redirectWithOAuthFailure(platformName, "workspace_access_denied", err, workspaceID)
 	}
 	if err := h.requireProviderConnectionCompletion(
 		ctx, platformName, instanceURL, executionIntent, userID,
 	); err != nil {
-		return h.redirectWithError(err.Error(), workspaceID)
+		return h.redirectWithOAuthFailure(platformName, "connection_unavailable", err, workspaceID)
 	}
 
 	options, err := selector.ListAccountSelections(ctx, tokenResp)
 	if err != nil {
-		log.Printf("[Callback] Failed to list selectable accounts: platform=%s error=%v", platformName, err)
-		return h.redirectWithError(fmt.Sprintf("failed to list selectable accounts: %s", err.Error()), workspaceID)
+		if errors.Is(err, platform.ErrNoFacebookPages) {
+			return h.redirectWithOAuthFailure(platformName, oauthFailureReasonFacebookNoPages, err, workspaceID)
+		}
+		if errors.Is(err, platform.ErrNoInstagramProfessionalAccount) {
+			return h.redirectWithOAuthFailure(platformName, oauthFailureReasonInstagramNoPageLinkedAccount, err, workspaceID)
+		}
+		return h.redirectWithOAuthFailure(platformName, "account_selection_failed", err, workspaceID)
 	}
 	if len(options) == 0 {
-		log.Printf("[Callback] No selectable accounts found: platform=%s", platformName)
-		return h.redirectWithError("no selectable accounts found for this provider", workspaceID)
+		return h.redirectWithOAuthFailure(platformName, "account_selection_failed", nil, workspaceID)
 	}
 	if err := h.requireProviderConnectionCompletion(
 		ctx, platformName, instanceURL, executionIntent, userID,
 	); err != nil {
-		return h.redirectWithError(err.Error(), workspaceID)
+		return h.redirectWithOAuthFailure(platformName, "connection_unavailable", err, workspaceID)
 	}
 
 	pending, err := h.createPendingAccountSelection(
@@ -1373,8 +1478,7 @@ func (h *OAuthHandler) saveAccountSelectionAndRedirect(
 		executionIntent, tokenResp, options,
 	)
 	if err != nil {
-		log.Printf("[Callback] Failed to save pending account selection: %v", err)
-		return h.redirectWithError("failed to save pending account selection", workspaceID)
+		return h.redirectWithOAuthFailure(platformName, "account_save_failed", err, workspaceID)
 	}
 
 	log.Printf("[Callback] Pending account selection created: ID=%s platform=%s", pending.ID, platformName)
@@ -1463,15 +1567,21 @@ func (h *OAuthHandler) saveAccountAndRedirect(
 	if platformName == "threads" && tokenResp.Extra != nil {
 		if uid, ok := tokenResp.Extra["user_id"]; ok && uid != "" {
 			if profile.ID != "" && uid != profile.ID {
-				return h.redirectWithError("provider account identity mismatch", workspaceID)
+				return h.redirectWithOAuthFailure(platformName, "identity_mismatch", nil, workspaceID)
 			}
 			accountID = uid
 		}
 	}
+	grantSubject := accountID
+	if platformName == "instagram" && instanceURL == platform.ConnectionModeInstagramLogin {
+		// The code exchange identifies the app-scoped authorization subject;
+		// /me.user_id identifies the professional destination used by Graph.
+		grantSubject = firstNonEmpty(firstNonEmptyTokenValue(tokenResp, "user_id"), accountID)
+	}
 	if err := h.requireProviderConnectionCompletion(
 		ctx, platformName, instanceURL, executionIntent, userID,
 	); err != nil {
-		return h.redirectWithError(err.Error(), workspaceID)
+		return h.redirectWithOAuthFailure(platformName, "connection_unavailable", err, workspaceID)
 	}
 
 	account, err := h.accountSaver.SaveAccountFromInput(ctx, account_saver.SaveAccountInput{
@@ -1482,14 +1592,13 @@ func (h *OAuthHandler) saveAccountAndRedirect(
 		AccountID:        accountID,
 		AccountUsername:  profile.Username,
 		AccountAvatarURL: profile.AvatarURL,
-		InstanceURL:      instanceURL,
+		InstanceURL:      selectedAccountInstanceURL(platformName, instanceURL),
 		Token:            tokenResp,
 		CapabilityState:  h.fediverseCapabilityState(ctx, platformName, instanceURL, profile),
-		Grant:            authorizationGrantInput(adapter, accountID),
+		Grant:            authorizationGrantInput(adapter, grantSubject),
 	})
 	if err != nil {
-		log.Printf("[Callback] Failed to save account: %v", err)
-		return h.redirectWithError(accountConnectionErrorMessage(err), workspaceID)
+		return h.redirectWithOAuthFailure(platformName, "account_save_failed", err, workspaceID)
 	}
 	firstConnection := account.ClaimedFirst
 	h.captureDestinationConnected(ctx, userID, workspaceID, platformName, 1, firstConnection)
@@ -1546,7 +1655,7 @@ func accountConnectionErrorMessage(err error) string {
 	case strings.Contains(msg, "social_accounts limit exceeded"), strings.Contains(msg, "social account limit exceeded"):
 		return "Social account limit reached for this workspace. Upgrade your plan or disconnect an account, then try again."
 	case msg != "":
-		return msg
+		return "Failed to save account"
 	default:
 		return "Failed to save account"
 	}
@@ -1602,7 +1711,8 @@ func (h *OAuthHandler) exchangeCompatCode(ctx context.Context, provider string, 
 
 	tokenResp, err := adapter.ExchangeCode(ctx, input.Body.Code, nil)
 	if err != nil {
-		return nil, huma.Error500InternalServerError(fmt.Sprintf("%s exchange failed: %s", provider, err.Error()))
+		logAccountConnectionError(provider, "token_exchange_failed", err)
+		return nil, huma.Error500InternalServerError("Provider token exchange failed")
 	}
 	if err := h.requireProviderConnectionCompletion(
 		ctx, provider, instanceURL, string(intent), userID,
@@ -1612,7 +1722,8 @@ func (h *OAuthHandler) exchangeCompatCode(ctx context.Context, provider string, 
 
 	profile, err := adapter.GetProfile(ctx, tokenResp.AccessToken)
 	if err != nil {
-		profile = &platform.UserProfile{ID: provider + "-user", Username: ""}
+		logAccountConnectionError(provider, "compat_profile_fetch_failed", err)
+		return nil, huma.Error500InternalServerError("Provider profile lookup failed")
 	}
 
 	if err := h.requireProviderConnectionCompletion(
@@ -1758,6 +1869,94 @@ func (h *OAuthHandler) BlueskyLogin(api huma.API) {
 		resp := h.normalizedAccountConnectionResponse(input.Body.WorkspaceID, []*models.SocialAccount{account}, account.ClaimedFirst)
 		return &BlueskyLoginOutput{Body: resp}, nil
 	})
+}
+
+type DevNullLoginInput struct {
+	Body struct {
+		WorkspaceID string `json:"workspace_id" doc:"Workspace ID"`
+		Username    string `json:"username" doc:"dev/null username (your GitHub username)"`
+		PrivateKey  string `json:"private_key" doc:"OpenSSH private key whose public half is on your GitHub account (stored encrypted, used only to sign commits)"`
+		Intent      string `json:"intent,omitempty" enum:"production,certification_test" doc:"Typed execution intent; certification_test requires an unscoped instance administrator"`
+	}
+}
+
+type DevNullLoginOutput struct {
+	Body AccountConnectionResponse
+}
+
+// DevNullLogin connects a dev/null account with an SSH private key. The key
+// is verified against dev-null.sh and then stored encrypted; every publish
+// signs its commit payload with it, exactly like the official commit script.
+func (h *OAuthHandler) DevNullLogin(api huma.API) {
+	huma.Register(api, huma.Operation{
+		OperationID: "devnull-login",
+		Method:      http.MethodPost,
+		Path:        "/accounts/devnull/login",
+		Summary:     "Connect a dev/null account using an SSH private key",
+		Tags:        []string{tagAccounts},
+		Middlewares: huma.Middlewares{middleware.AuthMiddleware(api, h.auth)},
+		Errors:      []int{400, 403, 502},
+	}, func(ctx context.Context, input *DevNullLoginInput) (*DevNullLoginOutput, error) {
+		userID := middleware.GetUserID(ctx)
+		intent, err := h.connectionIntent(ctx, input.Body.Intent)
+		if err != nil {
+			return nil, err
+		}
+		if err := h.ensureCanStartAccountConnection(ctx, input.Body.WorkspaceID, userID); err != nil {
+			return nil, err
+		}
+		if err := h.requireProviderConnection(ctx, "devnull", "", intent); err != nil {
+			return nil, err
+		}
+
+		adapter, ok := h.provider("devnull")
+		if !ok {
+			return nil, huma.Error400BadRequest("devnull not configured")
+		}
+		loginAdapter, ok := adapter.(interface {
+			Login(context.Context, string, string) (*platform.TokenResult, *platform.UserProfile, error)
+		})
+		if !ok {
+			return nil, huma.Error500InternalServerError("devnull login failed")
+		}
+		tokenResp, profile, err := loginAdapter.Login(ctx, strings.TrimSpace(input.Body.Username), input.Body.PrivateKey)
+		if err != nil {
+			log.Printf("[DevNullLogin] Login failed: %v", err)
+			return nil, huma.Error400BadRequest(devNullLoginErrorMessage(err))
+		}
+		if err := h.requireProviderConnectionCompletion(ctx, "devnull", "", string(intent), userID); err != nil {
+			return nil, err
+		}
+
+		account, err := h.accountSaver.SaveAccountFromInput(ctx, account_saver.SaveAccountInput{
+			Actor:            workspaceActor(ctx, userID),
+			UserID:           userID,
+			PlatformName:     "devnull",
+			WorkspaceID:      input.Body.WorkspaceID,
+			AccountID:        profile.ID,
+			AccountUsername:  firstNonEmpty(profile.Username, input.Body.Username),
+			AccountAvatarURL: profile.AvatarURL,
+			InstanceURL:      platform.DevNullDefaultBaseURL,
+			Token:            tokenResp,
+			CapabilityState:  profile.CapabilityState,
+			Grant:            authorizationGrantInput(adapter, profile.ID),
+		})
+		if err != nil {
+			log.Printf("[DevNullLogin] Failed to save account: %v", err)
+			return nil, huma.Error403Forbidden(accountConnectionErrorMessage(err))
+		}
+		resp := h.normalizedAccountConnectionResponse(input.Body.WorkspaceID, []*models.SocialAccount{account}, account.ClaimedFirst)
+		return &DevNullLoginOutput{Body: resp}, nil
+	})
+}
+
+func devNullLoginErrorMessage(err error) string {
+	message := strings.TrimSpace(err.Error())
+	if message == "" {
+		return "dev/null login failed"
+	}
+	// Adapter errors are already curated and secret-free.
+	return message
 }
 
 type FediverseLoginInput struct {
@@ -2043,6 +2242,7 @@ func (h *OAuthHandler) DiscordWebhookLogin(api huma.API) {
 			Grant:            authorizationGrantInput(adapter, profile.ID),
 		})
 		if err != nil {
+			logAccountConnectionError("discord", "account_save_failed", err)
 			return nil, huma.Error403Forbidden(accountConnectionErrorMessage(err))
 		}
 		resp := h.normalizedAccountConnectionResponse(input.Body.WorkspaceID, []*models.SocialAccount{account}, account.ClaimedFirst)
@@ -2090,147 +2290,175 @@ func (h *OAuthHandler) CompleteAccountSelection(api huma.API) {
 		Tags:        []string{tagAccounts},
 		Middlewares: huma.Middlewares{middleware.AuthMiddleware(api, h.auth)},
 		Errors:      []int{400, 403, 404},
-	}, func(ctx context.Context, input *CompleteAccountSelectionInput) (*CompleteAccountSelectionOutput, error) {
-		selectionIDs := append([]string(nil), input.Body.SelectionIDs...)
-		if selectionID := strings.TrimSpace(input.Body.SelectionID); selectionID != "" {
-			selectionIDs = append(selectionIDs, selectionID)
-		}
-		seenSelections := map[string]struct{}{}
-		normalizedSelections := make([]string, 0, len(selectionIDs))
-		for _, selectionID := range selectionIDs {
-			selectionID = strings.TrimSpace(selectionID)
-			if selectionID == "" {
-				continue
-			}
-			if _, exists := seenSelections[selectionID]; exists {
-				continue
-			}
-			seenSelections[selectionID] = struct{}{}
-			normalizedSelections = append(normalizedSelections, selectionID)
-		}
-		if len(normalizedSelections) == 0 {
-			return nil, huma.Error400BadRequest("selection_ids must include at least one account")
-		}
+	}, h.completeAccountSelection)
+}
 
-		userID := middleware.GetUserID(ctx)
-		pending, err := h.loadPendingAccountSelection(ctx, input.ConnectionID, userID)
-		if err != nil {
-			return nil, err
+func (h *OAuthHandler) completeAccountSelection(ctx context.Context, input *CompleteAccountSelectionInput) (*CompleteAccountSelectionOutput, error) {
+	normalizedSelections, err := normalizeAccountSelectionIDs(input)
+	if err != nil {
+		return nil, err
+	}
+
+	userID := middleware.GetUserID(ctx)
+	pending, err := h.loadPendingAccountSelection(ctx, input.ConnectionID, userID)
+	if err != nil {
+		return nil, err
+	}
+	if err := h.reservePendingAccountSelection(ctx, pending.ID); err != nil {
+		return nil, err
+	}
+	selectionCompleted := false
+	defer func() {
+		if selectionCompleted {
+			return
 		}
-		if err := h.reservePendingAccountSelection(ctx, pending.ID); err != nil {
-			return nil, err
+		if _, releaseErr := h.db.NewDelete().Model((*models.OAuthAccountSelectionReservation)(nil)).
+			Where("selection_id = ?", pending.ID).Exec(context.WithoutCancel(ctx)); releaseErr != nil {
+			log.Printf("[OAuth Selection] Failed to release selection reservation: %v", releaseErr)
 		}
-		selectionCompleted := false
-		defer func() {
-			if selectionCompleted {
-				return
-			}
-			if _, releaseErr := h.db.NewDelete().Model((*models.OAuthAccountSelectionReservation)(nil)).
-				Where("selection_id = ?", pending.ID).Exec(context.WithoutCancel(ctx)); releaseErr != nil {
-				log.Printf("[OAuth Selection] Failed to release selection reservation: %v", releaseErr)
-			}
-		}()
+	}()
+	if err := h.requireProviderConnectionCompletion(
+		ctx, pending.Platform, pending.InstanceURL, pending.ExecutionIntent, userID,
+	); err != nil {
+		return nil, err
+	}
+
+	saveInputs, err := h.collectAccountSaveInputs(ctx, pending, userID, normalizedSelections)
+	if err != nil {
+		return nil, err
+	}
+
+	out, err := h.persistAccountSelection(ctx, userID, pending, saveInputs)
+	if err != nil {
+		return nil, err
+	}
+	selectionCompleted = true
+	return out, nil
+}
+
+func normalizeAccountSelectionIDs(input *CompleteAccountSelectionInput) ([]string, error) {
+	selectionIDs := append([]string(nil), input.Body.SelectionIDs...)
+	if selectionID := strings.TrimSpace(input.Body.SelectionID); selectionID != "" {
+		selectionIDs = append(selectionIDs, selectionID)
+	}
+	seenSelections := map[string]struct{}{}
+	normalizedSelections := make([]string, 0, len(selectionIDs))
+	for _, selectionID := range selectionIDs {
+		selectionID = strings.TrimSpace(selectionID)
+		if selectionID == "" {
+			continue
+		}
+		if _, exists := seenSelections[selectionID]; exists {
+			continue
+		}
+		seenSelections[selectionID] = struct{}{}
+		normalizedSelections = append(normalizedSelections, selectionID)
+	}
+	if len(normalizedSelections) == 0 {
+		return nil, huma.Error400BadRequest("selection_ids must include at least one account")
+	}
+	return normalizedSelections, nil
+}
+
+func (h *OAuthHandler) collectAccountSaveInputs(ctx context.Context, pending *models.OAuthAccountSelection, userID string, normalizedSelections []string) ([]account_saver.SaveAccountInput, error) {
+	adapter, err := h.getProvider(pending.Platform, "")
+	if err != nil {
+		return nil, huma.Error400BadRequest(err.Error())
+	}
+	if pending.InstanceURL != "" {
+		if rebuilt, ok := platform.NewInstanceAdapter(pending.Platform, pending.InstanceURL); ok {
+			adapter = rebuilt
+		}
+	}
+	selector, ok := adapter.(platform.AccountSelectionAdapter)
+	if !ok {
+		return nil, huma.Error400BadRequest(fmt.Sprintf("%s does not support account selection", pending.Platform))
+	}
+
+	tokenResp, err := h.tokenResultFromPendingSelection(pending)
+	if err != nil {
+		return nil, huma.Error500InternalServerError("failed to decrypt pending account selection")
+	}
+
+	if pending.Platform != "linkedin" && len(normalizedSelections) > 1 {
+		return nil, huma.Error400BadRequest("this provider supports one account per connection")
+	}
+	saveInputs := make([]account_saver.SaveAccountInput, 0, len(normalizedSelections))
+	for _, selectionID := range normalizedSelections {
 		if err := h.requireProviderConnectionCompletion(
 			ctx, pending.Platform, pending.InstanceURL, pending.ExecutionIntent, userID,
 		); err != nil {
 			return nil, err
 		}
-
-		adapter, err := h.getProvider(pending.Platform, "")
+		selected, err := selector.SelectAccount(ctx, tokenResp, selectionID)
 		if err != nil {
 			return nil, huma.Error400BadRequest(err.Error())
 		}
-		if pending.InstanceURL != "" {
-			if rebuilt, ok := platform.NewInstanceAdapter(pending.Platform, pending.InstanceURL); ok {
-				adapter = rebuilt
-			}
+		if selected == nil {
+			return nil, huma.Error400BadRequest("selected account was not found")
 		}
-		selector, ok := adapter.(platform.AccountSelectionAdapter)
-		if !ok {
-			return nil, huma.Error400BadRequest(fmt.Sprintf("%s does not support account selection", pending.Platform))
+		if selected.Token == nil {
+			selected.Token = tokenResp
 		}
+		saveInputs = append(saveInputs, account_saver.SaveAccountInput{
+			Actor:                 workspaceActor(ctx, userID),
+			UserID:                userID,
+			PlatformName:          pending.Platform,
+			WorkspaceID:           pending.WorkspaceID,
+			AccountID:             selected.AccountID,
+			AccountUsername:       selected.AccountUsername,
+			AccountAvatarURL:      selected.AccountAvatarURL,
+			ProfileFetchedAt:      time.Now().UTC(),
+			InstanceURL:           selectedAccountInstanceURL(pending.Platform, selected.InstanceURL, pending.InstanceURL),
+			Token:                 selected.Token,
+			CapabilityState:       selected.CapabilityState,
+			Grant:                 authorizationGrantInput(adapter, firstNonEmptyTokenValue(tokenResp, "_grant_subject", "user_id", "open_id", "sub")),
+			FirstConnectionOrigin: pending.ID,
+		})
+	}
+	return saveInputs, nil
+}
 
-		tokenResp, err := h.tokenResultFromPendingSelection(pending)
-		if err != nil {
-			return nil, huma.Error500InternalServerError("failed to decrypt pending account selection")
-		}
-
-		if pending.Platform != "linkedin" && len(normalizedSelections) > 1 {
-			return nil, huma.Error400BadRequest("this provider supports one account per connection")
-		}
-		saveInputs := make([]account_saver.SaveAccountInput, 0, len(normalizedSelections))
-		for _, selectionID := range normalizedSelections {
-			if err := h.requireProviderConnectionCompletion(
-				ctx, pending.Platform, pending.InstanceURL, pending.ExecutionIntent, userID,
-			); err != nil {
-				return nil, err
-			}
-			selected, err := selector.SelectAccount(ctx, tokenResp, selectionID)
-			if err != nil {
-				return nil, huma.Error400BadRequest(err.Error())
-			}
-			if selected == nil {
-				return nil, huma.Error400BadRequest("selected account was not found")
-			}
-			if selected.Token == nil {
-				selected.Token = tokenResp
-			}
-			saveInputs = append(saveInputs, account_saver.SaveAccountInput{
-				Actor:                 workspaceActor(ctx, userID),
-				UserID:                userID,
-				PlatformName:          pending.Platform,
-				WorkspaceID:           pending.WorkspaceID,
-				AccountID:             selected.AccountID,
-				AccountUsername:       selected.AccountUsername,
-				AccountAvatarURL:      selected.AccountAvatarURL,
-				InstanceURL:           selectedAccountInstanceURL(pending.Platform, selected.InstanceURL, pending.InstanceURL),
-				Token:                 selected.Token,
-				CapabilityState:       selected.CapabilityState,
-				Grant:                 authorizationGrantInput(adapter, firstNonEmptyTokenValue(tokenResp, "_grant_subject", "user_id", "open_id", "sub")),
-				FirstConnectionOrigin: pending.ID,
-			})
-		}
-
-		saver := h.accountSaver
-		if saver == nil {
-			saver = account_saver.NewAccountSaver(h.db, h.crypto)
-		}
-		if err := h.requireProviderConnectionCompletion(
-			ctx, pending.Platform, pending.InstanceURL, pending.ExecutionIntent, userID,
-		); err != nil {
-			return nil, err
-		}
-		accounts, err := saver.SaveAccountsFromInputs(ctx, saveInputs)
-		if err != nil {
-			log.Printf("[OAuth Selection] Failed to save selected accounts: %v", err)
-			return nil, huma.Error403Forbidden(accountConnectionErrorMessage(err))
-		}
-		accountIDs := make([]string, len(accounts))
-		for index, account := range accounts {
-			accountIDs[index] = account.ID
-		}
-		firstConnection := accounts[0].ClaimedFirst
-		h.captureDestinationConnected(ctx, userID, pending.WorkspaceID, pending.Platform, len(accounts), firstConnection)
-		if err := h.db.RunInTx(ctx, &sql.TxOptions{}, func(txCtx context.Context, tx bun.Tx) error {
-			if _, err := tx.NewUpdate().Model((*models.OAuthAccountSelection)(nil)).
-				Set("consumed_at = ?", time.Now().UTC()).Where("id = ?", pending.ID).Exec(txCtx); err != nil {
-				return err
-			}
-			_, err := tx.NewDelete().Model((*models.OAuthAccountSelectionReservation)(nil)).
-				Where("selection_id = ?", pending.ID).Exec(txCtx)
+func (h *OAuthHandler) persistAccountSelection(ctx context.Context, userID string, pending *models.OAuthAccountSelection, saveInputs []account_saver.SaveAccountInput) (*CompleteAccountSelectionOutput, error) {
+	saver := h.accountSaver
+	if saver == nil {
+		saver = account_saver.NewAccountSaver(h.db, h.crypto)
+		saver.SetAvatarCache(h.accountAvatars)
+	}
+	if err := h.requireProviderConnectionCompletion(
+		ctx, pending.Platform, pending.InstanceURL, pending.ExecutionIntent, userID,
+	); err != nil {
+		return nil, err
+	}
+	accounts, err := saver.SaveAccountsFromInputs(ctx, saveInputs)
+	if err != nil {
+		log.Printf("[OAuth Selection] Failed to save selected accounts: %v", err)
+		return nil, huma.Error403Forbidden(accountConnectionErrorMessage(err))
+	}
+	accountIDs := make([]string, len(accounts))
+	for index, account := range accounts {
+		accountIDs[index] = account.ID
+	}
+	firstConnection := accounts[0].ClaimedFirst
+	h.captureDestinationConnected(ctx, userID, pending.WorkspaceID, pending.Platform, len(accounts), firstConnection)
+	if err := h.db.RunInTx(ctx, &sql.TxOptions{}, func(txCtx context.Context, tx bun.Tx) error {
+		if _, err := tx.NewUpdate().Model((*models.OAuthAccountSelection)(nil)).
+			Set("consumed_at = ?", time.Now().UTC()).Where("id = ?", pending.ID).Exec(txCtx); err != nil {
 			return err
-		}); err != nil {
-			return nil, huma.Error500InternalServerError("failed to complete account selection")
 		}
-		selectionCompleted = true
-
-		return &CompleteAccountSelectionOutput{Body: AccountSelectionCompletionResponse{
-			AccountResponse:   accountResponse(*accounts[0], h.disableLinkedInThreadReplies),
-			WorkspaceID:       pending.WorkspaceID,
-			AccountIDs:        accountIDs,
-			OpenFreshComposer: firstConnection,
-		}}, nil
-	})
+		_, err := tx.NewDelete().Model((*models.OAuthAccountSelectionReservation)(nil)).
+			Where("selection_id = ?", pending.ID).Exec(txCtx)
+		return err
+	}); err != nil {
+		logAccountConnectionError(pending.Platform, "account_selection_completion_failed", err)
+		return nil, huma.Error500InternalServerError("failed to complete account selection")
+	}
+	return &CompleteAccountSelectionOutput{Body: AccountSelectionCompletionResponse{
+		AccountResponse:   accountResponse(*accounts[0], h.disableLinkedInThreadReplies),
+		WorkspaceID:       pending.WorkspaceID,
+		AccountIDs:        accountIDs,
+		OpenFreshComposer: firstConnection,
+	}}, nil
 }
 
 func (h *OAuthHandler) captureDestinationConnected(
@@ -2289,7 +2517,7 @@ func (h *OAuthHandler) loadPendingAccountSelection(ctx context.Context, connecti
 		}
 		return nil, huma.Error500InternalServerError("failed to fetch account selection")
 	}
-	if err := h.checkWorkspaceEditAccess(ctx, pending.WorkspaceID, userID); err != nil {
+	if err := h.checkWorkspaceConnectAccess(ctx, pending.WorkspaceID, userID); err != nil {
 		return nil, err
 	}
 	return &pending, nil
@@ -2382,6 +2610,21 @@ func (h *OAuthHandler) checkWorkspaceEditAccess(ctx context.Context, workspaceID
 	}
 	if !allowed {
 		return huma.Error403Forbidden("workspace editor role required")
+	}
+	return nil
+}
+
+// checkWorkspaceConnectAccess gates starting and completing an account
+// connection. A client may do this without being able to author content, which
+// is the whole point of the role. Disconnecting an account stays at the edit
+// level: it is destructive, and it is not what the role exists for.
+func (h *OAuthHandler) checkWorkspaceConnectAccess(ctx context.Context, workspaceID, userID string) error {
+	allowed, err := workspaceConnectAllowed(ctx, h.db, workspaceID, userID)
+	if err != nil {
+		return huma.Error500InternalServerError("failed to check workspace access")
+	}
+	if !allowed {
+		return huma.Error403Forbidden("workspace role cannot connect accounts")
 	}
 	return nil
 }
@@ -2538,7 +2781,7 @@ func (h *OAuthHandler) UpdateAccount(api huma.API) {
 		if err := h.ensureSlugAvailable(ctx, account.WorkspaceID, account.ID, slug); err != nil {
 			return nil, err
 		}
-		if err := h.updateAccountSlug(ctx, account.ID, slug); err != nil {
+		if err := h.updateAccountIdentity(ctx, account.ID, slug, input.Body.Alias); err != nil {
 			return nil, err
 		}
 		updated, err := h.fetchUpdatedAccount(ctx, account.ID)
@@ -2597,6 +2840,9 @@ func (h *OAuthHandler) RefreshAccountMetadata(api huma.API) {
 }
 
 func (h *OAuthHandler) refreshAccountProfile(ctx context.Context, account models.SocialAccount, adapter platform.Adapter, accessToken string) (models.SocialAccount, error) {
+	if account.Platform == "youtube" {
+		return h.refreshYouTubeAccountProfile(ctx, account, adapter, accessToken)
+	}
 	profile, err := refreshProviderAccountMetadata(ctx, adapter, accessToken, account)
 	if err != nil {
 		if errors.Is(err, platform.ErrAccountMetadataRefreshUnsupported) {
@@ -2611,10 +2857,10 @@ func (h *OAuthHandler) refreshAccountProfile(ctx context.Context, account models
 		return models.SocialAccount{}, huma.Error409Conflict("the provider returned a different account identity; reconnect this account instead")
 	}
 	cachedAvatarURL := ""
-	if account.Platform == "linkedin" && h.accountAvatars != nil && strings.TrimSpace(profile.AvatarURL) != "" {
-		cachedAvatarURL, err = h.accountAvatars.CacheLinkedIn(ctx, account.ID, profile.AvatarURL)
+	if h.accountAvatars != nil && strings.TrimSpace(profile.AvatarURL) != "" {
+		cachedAvatarURL, err = h.accountAvatars.CacheAvatar(ctx, account.ID, profile.AvatarURL)
 		if err != nil {
-			log.Printf("failed to cache LinkedIn avatar for account %s: %v", account.ID, err)
+			log.Printf("failed to cache %s avatar for account %s", account.Platform, account.ID)
 			return models.SocialAccount{}, huma.Error502BadGateway("the provider profile photo could not be saved")
 		}
 		cachedProfile := *profile
@@ -2634,12 +2880,35 @@ func (h *OAuthHandler) refreshAccountProfile(ctx context.Context, account models
 	return h.fetchUpdatedAccount(ctx, account.ID)
 }
 
+func (h *OAuthHandler) refreshYouTubeAccountProfile(ctx context.Context, account models.SocialAccount, adapter platform.Adapter, accessToken string) (models.SocialAccount, error) {
+	service := youtubeprofile.NewService(h.db, h.tokenSource, h.accountAvatars)
+	if err := service.Refresh(ctx, account, adapter, accessToken); err != nil {
+		if errors.Is(err, youtubeprofile.ErrIdentityChanged) {
+			return models.SocialAccount{}, huma.Error409Conflict("the provider returned a different account identity; reconnect this account instead")
+		}
+		if errors.Is(err, youtubeprofile.ErrAccountChanged) {
+			return models.SocialAccount{}, huma.Error409Conflict("the account changed while its profile was refreshing; try again")
+		}
+		if errors.Is(err, platform.ErrAccountMetadataRefreshUnsupported) {
+			return models.SocialAccount{}, huma.Error501NotImplemented("profile refresh is unavailable for this account type")
+		}
+		return models.SocialAccount{}, huma.Error502BadGateway("the provider profile could not be refreshed")
+	}
+	return h.fetchUpdatedAccount(ctx, account.ID)
+}
+
 func (h *OAuthHandler) SetAccountAvatarStorage(storage mediastore.BlobStorage) {
 	if storage == nil {
 		h.accountAvatars = nil
+		if h.accountSaver != nil {
+			h.accountSaver.SetAvatarCache(nil)
+		}
 		return
 	}
 	h.accountAvatars = accountavatar.New(storage)
+	if h.accountSaver != nil {
+		h.accountSaver.SetAvatarCache(h.accountAvatars)
+	}
 }
 
 func (h *OAuthHandler) updateAccountProfileMetadata(ctx context.Context, account models.SocialAccount, profile *platform.UserProfile) error {
@@ -2649,26 +2918,32 @@ func (h *OAuthHandler) updateAccountProfileMetadata(ctx context.Context, account
 		return nil
 	}
 
-	query := h.db.NewUpdate().Model((*models.SocialAccount)(nil)).
-		Where("id = ? AND workspace_id = ? AND account_id = ? AND is_active = ?", account.ID, account.WorkspaceID, account.AccountID, true)
-	if username != "" {
-		query = query.Set("account_username = ?", username)
-	}
-	if avatarURL != "" {
-		query = query.Set("account_avatar_url = ?", avatarURL)
-	}
-	result, err := query.Exec(ctx)
-	if err != nil {
-		return huma.Error500InternalServerError("failed to update account metadata")
-	}
-	updated, err := result.RowsAffected()
-	if err != nil {
-		return huma.Error500InternalServerError("failed to verify account metadata update")
-	}
-	if updated != 1 {
-		return huma.Error409Conflict("the account changed while its profile was refreshing; try again")
-	}
-	return nil
+	// Share the connection transaction's fence. Fetching the provider profile and
+	// photo stays outside the lock, then the revision predicates reject stale work.
+	return organizationguard.WithWorkspace(ctx, h.db, account.WorkspaceID, func(ctx context.Context, db bun.IDB) error {
+		query := db.NewUpdate().Model((*models.SocialAccount)(nil)).
+			Where("id = ? AND workspace_id = ? AND account_id = ? AND is_active = ?", account.ID, account.WorkspaceID, account.AccountID, true).
+			Where("account_avatar_url = ?", account.AccountAvatarURL).
+			Where("account_username = ? AND oauth_grant_id = ?", account.AccountUsername, account.OAuthGrantID)
+		if username != "" {
+			query = query.Set("account_username = ?", username)
+		}
+		if avatarURL != "" {
+			query = query.Set("account_avatar_url = ?", avatarURL)
+		}
+		result, err := query.Exec(ctx)
+		if err != nil {
+			return huma.Error500InternalServerError("failed to update account metadata")
+		}
+		updated, err := result.RowsAffected()
+		if err != nil {
+			return huma.Error500InternalServerError("failed to verify account metadata update")
+		}
+		if updated != 1 {
+			return huma.Error409Conflict("the account changed while its profile was refreshing; try again")
+		}
+		return nil
+	})
 }
 
 func refreshProviderAccountMetadata(ctx context.Context, adapter platform.Adapter, accessToken string, account models.SocialAccount) (*platform.UserProfile, error) {
@@ -2728,6 +3003,9 @@ func (h *OAuthHandler) handleFeatureMessagingUpdate(ctx context.Context, account
 func (h *OAuthHandler) handleLegacyMessagingUpdate(ctx context.Context, account models.SocialAccount, enabled bool) error {
 	capabilityState := map[string]string{}
 	_ = json.Unmarshal([]byte(account.CapabilityState), &capabilityState)
+	if capabilityState == nil {
+		capabilityState = map[string]string{}
+	}
 	if enabled && !accountMessagingSupported(account.Platform) {
 		return huma.Error400BadRequest("messages are not supported for this provider")
 	}
@@ -2751,8 +3029,12 @@ func (h *OAuthHandler) ensureSlugAvailable(ctx context.Context, workspaceID, acc
 	return nil
 }
 
-func (h *OAuthHandler) updateAccountSlug(ctx context.Context, accountID, slug string) error {
-	if _, err := h.db.NewUpdate().Model((*models.SocialAccount)(nil)).Set("slug = ?", slug).Where("id = ?", accountID).Exec(ctx); err != nil {
+func (h *OAuthHandler) updateAccountIdentity(ctx context.Context, accountID, slug string, alias *string) error {
+	query := h.db.NewUpdate().Model((*models.SocialAccount)(nil)).Set("slug = ?", slug).Where("id = ?", accountID)
+	if alias != nil {
+		query.Set("alias = ?", strings.TrimSpace(*alias))
+	}
+	if _, err := query.Exec(ctx); err != nil {
 		return huma.Error500InternalServerError("failed to update account")
 	}
 	return nil
@@ -2811,29 +3093,17 @@ func (h *OAuthHandler) DisconnectAccount(api huma.API) {
 		}
 
 		err = h.db.RunInTx(ctx, &sql.TxOptions{}, func(txCtx context.Context, tx bun.Tx) error {
-			lockResult, err := tx.NewUpdate().Model((*models.OAuthGrant)(nil)).
-				Set("updated_at = updated_at").
-				Where("id = ? AND workspace_id = ? AND revoked_at IS NULL", account.OAuthGrantID, account.WorkspaceID).
-				Exec(txCtx)
-			if err != nil {
-				return err
+			if account.Platform == "youtube" {
+				if err := organizationguard.LockWorkspace(txCtx, tx, account.WorkspaceID); err != nil {
+					return err
+				}
 			}
-			locked, err := lockResult.RowsAffected()
-			if err != nil {
+			if err := lockActiveAccountGrant(txCtx, tx, account); err != nil {
 				return err
-			}
-			if locked != 1 {
-				return sql.ErrNoRows
 			}
 
-			activeDestinations, err := tx.NewSelect().Model((*models.SocialAccount)(nil)).
-				Where("oauth_grant_id = ? AND workspace_id = ? AND is_active = ?", account.OAuthGrantID, account.WorkspaceID, true).
-				Count(txCtx)
-			if err != nil {
+			if err := requireOtherActiveGrantDestination(txCtx, tx, account); err != nil {
 				return err
-			}
-			if activeDestinations <= 1 {
-				return errLastGrantDestination
 			}
 
 			result, err := tx.NewUpdate().Model((*models.SocialAccount)(nil)).
@@ -2850,6 +3120,9 @@ func (h *OAuthHandler) DisconnectAccount(api huma.API) {
 			if updated != 1 {
 				return sql.ErrNoRows
 			}
+			if account.Platform == "youtube" {
+				return dataretention.RetireYouTubeAccount(txCtx, tx, time.Now().UTC(), account.WorkspaceID, account.ID)
+			}
 			return nil
 		})
 		if errors.Is(err, errLastGrantDestination) {
@@ -2864,6 +3137,37 @@ func (h *OAuthHandler) DisconnectAccount(api huma.API) {
 
 		return nil, nil
 	})
+}
+
+func requireOtherActiveGrantDestination(ctx context.Context, db bun.IDB, account models.SocialAccount) error {
+	activeDestinations, err := db.NewSelect().Model((*models.SocialAccount)(nil)).
+		Where("oauth_grant_id = ? AND workspace_id = ? AND is_active = ?", account.OAuthGrantID, account.WorkspaceID, true).
+		Count(ctx)
+	if err != nil {
+		return err
+	}
+	if activeDestinations <= 1 {
+		return errLastGrantDestination
+	}
+	return nil
+}
+
+func lockActiveAccountGrant(ctx context.Context, db bun.IDB, account models.SocialAccount) error {
+	lockResult, err := db.NewUpdate().Model((*models.OAuthGrant)(nil)).
+		Set("updated_at = updated_at").
+		Where("id = ? AND workspace_id = ? AND revoked_at IS NULL", account.OAuthGrantID, account.WorkspaceID).
+		Exec(ctx)
+	if err != nil {
+		return err
+	}
+	locked, err := lockResult.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if locked != 1 {
+		return sql.ErrNoRows
+	}
+	return nil
 }
 
 func (h *OAuthHandler) RevokeAccountGrant(api huma.API) {
@@ -2887,68 +3191,120 @@ func (h *OAuthHandler) RevokeAccountGrant(api huma.API) {
 		}
 		now := time.Now().UTC()
 		if err := h.db.RunInTx(ctx, &sql.TxOptions{}, func(txCtx context.Context, tx bun.Tx) error {
-			if account.OAuthGrantID == "" {
-				_, err := tx.NewUpdate().Model((*models.SocialAccount)(nil)).
-					Set("is_active = ?", false).
-					Set("access_token_encrypted = ?", []byte{}).
-					Set("refresh_token_encrypted = ?", []byte{}).
-					Set("token_expires_at = NULL").
-					Set("error_message = ?", "Provider authorization revoked").
-					Where("id = ?", account.ID).
-					Exec(txCtx)
-				return err
-			}
-
-			result, err := tx.NewUpdate().Model((*models.OAuthGrant)(nil)).
-				Set("access_token_encrypted = ?", []byte{}).
-				Set("refresh_token_encrypted = ?", []byte{}).
-				Set("access_token_expires_at = NULL").
-				Set("refresh_token_expires_at = NULL").
-				Set("token_version = token_version + 1").
-				Set("refresh_lease_owner = ''").
-				Set("refresh_lease_expires_at = NULL").
-				Set("revoked_by_id = ?", userID).
-				Set("revocation_reason = ?", "user_revoked").
-				Set("revoked_at = ?", now).
-				Set("validation_status = ?", "revoked").
-				Set("updated_at = ?", now).
-				Where("id = ? AND workspace_id = ? AND revoked_at IS NULL", account.OAuthGrantID, account.WorkspaceID).
-				Exec(txCtx)
-			if err != nil {
-				return err
-			}
-			rows, err := result.RowsAffected()
-			if err != nil {
-				return err
-			}
-			if rows == 0 {
-				var exists int
-				if err := tx.NewSelect().Model((*models.OAuthGrant)(nil)).
-					ColumnExpr("COUNT(*)").
-					Where("id = ? AND workspace_id = ?", account.OAuthGrantID, account.WorkspaceID).
-					Scan(txCtx, &exists); err != nil {
-					return err
-				}
-				if exists == 0 {
-					return sql.ErrNoRows
-				}
-			}
-			if _, err := tx.NewUpdate().Model((*models.SocialAccount)(nil)).
-				Set("is_active = ?", false).
-				Set("error_message = ?", "Provider authorization revoked").
-				Where("oauth_grant_id = ? AND workspace_id = ?", account.OAuthGrantID, account.WorkspaceID).
-				Exec(txCtx); err != nil {
-				return err
-			}
-			return tokenmanager.CancelGrantRefreshJobs(txCtx, tx, account.OAuthGrantID)
+			return persistAccountGrantRevocation(txCtx, tx, account, userID, now)
 		}); err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				return nil, huma.Error404NotFound("provider grant not found")
 			}
 			return nil, huma.Error500InternalServerError("failed to revoke provider grant")
 		}
+		h.cleanupRevokedYouTubeData(ctx, account, now)
 		return nil, nil
 	})
+}
+
+// Commit local revocation before attempting cleanup. The revoked grant itself
+// remains discoverable by the independent hourly retention sweep.
+func persistAccountGrantRevocation(ctx context.Context, db bun.IDB, account models.SocialAccount, userID string, now time.Time) error {
+	if account.Platform == "youtube" {
+		if err := organizationguard.LockWorkspace(ctx, db, account.WorkspaceID); err != nil {
+			return err
+		}
+	}
+	var err error
+	if account.OAuthGrantID == "" {
+		err = revokeLegacyAccountGrant(ctx, db, account)
+	} else {
+		err = revokeSharedAccountGrant(ctx, db, account, userID, now)
+	}
+	return err
+}
+
+func enqueueYouTubeRevocationCleanup(ctx context.Context, db bun.IDB, account models.SocialAccount, now time.Time) error {
+	job, err := jobregistry.NewJob(jobregistry.TypeYouTubeProfileSweep, "{}", now)
+	if err != nil {
+		return err
+	}
+	identity := account.OAuthGrantID
+	if identity == "" {
+		identity = account.ID
+	}
+	job.ScopeID = "youtube-profile"
+	job.DedupeKey = "revoked:" + identity
+	_, err = db.NewInsert().Model(job).On("CONFLICT DO NOTHING").Exec(ctx)
+	return err
+}
+
+func (h *OAuthHandler) cleanupRevokedYouTubeData(ctx context.Context, account models.SocialAccount, now time.Time) {
+	if account.Platform != "youtube" {
+		return
+	}
+	if err := enqueueYouTubeRevocationCleanup(ctx, h.db, account, now); err != nil {
+		log.Printf("YouTube cleanup receipt deferred to periodic sweep account=%s", account.ID)
+	}
+	if err := dataretention.ClearRevokedYouTubeMetadata(ctx, h.db, now, account.WorkspaceID); err != nil {
+		log.Printf("YouTube data cleanup deferred to durable retry account=%s", account.ID)
+	}
+}
+
+func revokeLegacyAccountGrant(ctx context.Context, db bun.IDB, account models.SocialAccount) error {
+	_, err := db.NewUpdate().Model((*models.SocialAccount)(nil)).
+		Set("is_active = ?", false).
+		Set("access_token_encrypted = ?", []byte{}).
+		Set("refresh_token_encrypted = ?", []byte{}).
+		Set("token_expires_at = NULL").
+		Set("error_message = ?", "Provider authorization revoked").
+		Where("id = ?", account.ID).
+		Exec(ctx)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func revokeSharedAccountGrant(ctx context.Context, db bun.IDB, account models.SocialAccount, userID string, now time.Time) error {
+	result, err := db.NewUpdate().Model((*models.OAuthGrant)(nil)).
+		Set("access_token_encrypted = ?", []byte{}).
+		Set("refresh_token_encrypted = ?", []byte{}).
+		Set("access_token_expires_at = NULL").
+		Set("refresh_token_expires_at = NULL").
+		Set("token_version = token_version + 1").
+		Set("refresh_lease_owner = ''").
+		Set("refresh_lease_expires_at = NULL").
+		Set("revoked_by_id = ?", userID).
+		Set("revocation_reason = ?", "user_revoked").
+		Set("revoked_at = ?", now).
+		Set("validation_status = ?", "revoked").
+		Set("updated_at = ?", now).
+		Where("id = ? AND workspace_id = ? AND revoked_at IS NULL", account.OAuthGrantID, account.WorkspaceID).
+		Exec(ctx)
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		var exists int
+		if err := db.NewSelect().Model((*models.OAuthGrant)(nil)).
+			ColumnExpr("COUNT(*)").
+			Where("id = ? AND workspace_id = ?", account.OAuthGrantID, account.WorkspaceID).
+			Scan(ctx, &exists); err != nil {
+			return err
+		}
+		if exists == 0 {
+			return sql.ErrNoRows
+		}
+	}
+	if _, err := db.NewUpdate().Model((*models.SocialAccount)(nil)).
+		Set("is_active = ?", false).
+		Set("error_message = ?", "Provider authorization revoked").
+		Where("oauth_grant_id = ? AND workspace_id = ?", account.OAuthGrantID, account.WorkspaceID).
+		Exec(ctx); err != nil {
+		return err
+	}
+	return tokenmanager.CancelGrantRefreshJobs(ctx, db, account.OAuthGrantID)
 }
 
 func (h *OAuthHandler) revokeProviderAuthorization(ctx context.Context, account models.SocialAccount) error {
@@ -3040,6 +3396,7 @@ func accountResponse(acc models.SocialAccount, disableLinkedInThreadReplies bool
 	return AccountResponse{
 		ID:                     acc.ID,
 		Slug:                   acc.Slug,
+		Alias:                  acc.Alias,
 		Platform:               acc.Platform,
 		AccountID:              acc.AccountID,
 		AccountUsername:        acc.AccountUsername,

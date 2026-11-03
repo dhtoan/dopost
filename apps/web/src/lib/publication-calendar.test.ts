@@ -1,60 +1,165 @@
+// @vitest-environment node
+
 import { describe, expect, it } from 'vitest';
-import { publicationCalendarOccurrence, type CalendarPublication } from './publication-calendar';
+import {
+	publicationActivityOccurrence,
+	publicationCalendarDayKey,
+	publicationCalendarOccurrence
+} from './publication-calendar';
 
-function publication(overrides: Partial<CalendarPublication>): CalendarPublication {
-	return {
-		status: 'draft',
-		updated_at: '2026-07-26T12:00:00Z',
-		created_at: '2026-07-25T12:00:00Z',
-		...overrides
-	};
-}
-
-describe('publication calendar occurrence', () => {
-	it('uses the proposed time for scheduled publications', () => {
-		expect(
-			publicationCalendarOccurrence(
-				publication({ status: 'scheduled', scheduled_at: '2026-08-01T09:00:00Z' })
-			)
-		).toBe('2026-08-01T09:00:00Z');
+describe('publication occurrence selection', () => {
+	it('shows the authored schedule for a scheduled post with a jittered dispatch time', () => {
+		const publication = {
+			status: 'scheduled',
+			scheduled_at: '2026-10-18T10:00:00Z',
+			actual_run_at: '2026-10-18T10:07:00Z',
+			updated_at: '2026-10-18T09:00:00Z',
+			created_at: '2026-10-18T08:00:00Z'
+		};
+		expect(publicationCalendarOccurrence(publication)).toBe('2026-10-18T10:00:00Z');
+		expect(publicationActivityOccurrence(publication)).toBe('2026-10-18T10:00:00Z');
 	});
 
-	it('keeps a publishing publication on its scheduled day', () => {
-		expect(
-			publicationCalendarOccurrence(
-				publication({ status: 'publishing', scheduled_at: '2026-08-01T09:00:00Z' })
-			)
-		).toBe('2026-08-01T09:00:00Z');
+	it('shows the authored schedule for a publishing post', () => {
+		const publication = {
+			status: 'publishing',
+			scheduled_at: '2026-10-18T10:00:00Z',
+			actual_run_at: '2026-10-18T10:07:00Z',
+			created_at: '2026-10-18T08:00:00Z'
+		};
+		expect(publicationCalendarOccurrence(publication)).toBe('2026-10-18T10:00:00Z');
+		expect(publicationActivityOccurrence(publication)).toBe('2026-10-18T10:00:00Z');
 	});
 
-	it('uses the actual run time for published publications', () => {
+	it('shows the queued time, not the previous run, for a retried post without an authored schedule', () => {
+		const retried = {
+			status: 'scheduled',
+			actual_run_at: '2026-07-20T08:00:00Z',
+			updated_at: '2026-10-18T08:53:08Z',
+			created_at: '2026-07-20T07:00:00Z'
+		};
+		expect(publicationCalendarOccurrence(retried)).toBeNull();
+		expect(publicationActivityOccurrence(retried)).toBe('2026-10-18T08:53:08Z');
+	});
+
+	describe.each([
+		{
+			status: 'draft',
+			publication: {
+				status: 'draft',
+				scheduled_at: '2026-10-18T10:00:00Z',
+				created_at: '2026-10-18T08:00:00Z'
+			},
+			occurrence: null,
+			activity: '2026-10-18T10:00:00Z'
+		},
+		{
+			status: 'ready without a schedule',
+			publication: { status: 'ready', created_at: '2026-10-18T08:00:00Z' },
+			occurrence: null,
+			activity: '2026-10-18T08:00:00Z'
+		},
+		{
+			status: 'ready with a schedule',
+			publication: {
+				status: 'ready',
+				scheduled_at: '2026-10-18T10:00:00Z',
+				created_at: '2026-10-18T08:00:00Z'
+			},
+			occurrence: null,
+			activity: '2026-10-18T10:00:00Z'
+		},
+		{
+			status: 'scheduled',
+			publication: {
+				status: 'scheduled',
+				scheduled_at: '2026-10-18T10:00:00Z',
+				created_at: '2026-10-18T08:00:00Z'
+			},
+			occurrence: '2026-10-18T10:00:00Z',
+			activity: '2026-10-18T10:00:00Z'
+		},
+		{
+			status: 'publishing',
+			publication: {
+				status: 'publishing',
+				scheduled_at: '2026-10-18T10:00:00Z',
+				created_at: '2026-10-18T08:00:00Z'
+			},
+			occurrence: '2026-10-18T10:00:00Z',
+			activity: '2026-10-18T10:00:00Z'
+		},
+		{
+			status: 'published',
+			publication: {
+				status: 'published',
+				scheduled_at: '2026-10-18T10:00:00Z',
+				actual_run_at: '2026-10-18T10:07:00Z',
+				created_at: '2026-10-18T08:00:00Z'
+			},
+			occurrence: '2026-10-18T10:07:00Z',
+			activity: '2026-10-18T10:07:00Z'
+		},
+		{
+			status: 'failed with a schedule',
+			publication: {
+				status: 'failed',
+				scheduled_at: '2026-10-18T10:00:00Z',
+				created_at: '2026-10-18T08:00:00Z'
+			},
+			occurrence: null,
+			activity: '2026-10-18T10:00:00Z'
+		}
+	])('status $status', ({ publication, occurrence, activity }) => {
+		it('maps the calendar occurrence', () => {
+			expect(publicationCalendarOccurrence(publication)).toBe(occurrence);
+		});
+
+		it('maps the activity occurrence', () => {
+			expect(publicationActivityOccurrence(publication)).toBe(activity);
+		});
+	});
+});
+
+describe('publicationCalendarDayKey', () => {
+	it('places a scheduled post on its authored day', () => {
 		expect(
-			publicationCalendarOccurrence(
-				publication({
+			publicationCalendarDayKey(
+				{
+					status: 'scheduled',
+					scheduled_at: '2026-10-18T10:00:00Z',
+					actual_run_at: '2026-10-18T10:07:00Z',
+					created_at: '2026-10-18T08:00:00Z'
+				},
+				'UTC'
+			)
+		).toBe('2026-10-18');
+	});
+
+	it('places a published post on its recorded run day', () => {
+		expect(
+			publicationCalendarDayKey(
+				{
 					status: 'published',
-					actual_run_at: '2026-07-27T09:05:00Z',
-					scheduled_at: '2026-07-27T09:00:00Z'
-				})
+					scheduled_at: '2026-10-18T10:00:00Z',
+					actual_run_at: '2026-10-19T00:07:00Z',
+					created_at: '2026-10-18T08:00:00Z'
+				},
+				'UTC'
 			)
-		).toBe('2026-07-27T09:05:00Z');
+		).toBe('2026-10-19');
 	});
 
-	it('falls back through historical publication timestamps', () => {
+	it('returns no day for statuses without an occurrence', () => {
 		expect(
-			publicationCalendarOccurrence(
-				publication({
-					status: 'published',
-					scheduled_at: '2026-07-24T09:00:00Z'
-				})
+			publicationCalendarDayKey(
+				{
+					status: 'ready',
+					scheduled_at: '2026-10-18T10:00:00Z',
+					created_at: '2026-10-18T08:00:00Z'
+				},
+				'UTC'
 			)
-		).toBe('2026-07-24T09:00:00Z');
-		expect(publicationCalendarOccurrence(publication({ status: 'published' }))).toBe(
-			'2026-07-26T12:00:00Z'
-		);
-	});
-
-	it('keeps drafts and failed publications out of the calendar', () => {
-		expect(publicationCalendarOccurrence(publication({ status: 'draft' }))).toBeNull();
-		expect(publicationCalendarOccurrence(publication({ status: 'failed' }))).toBeNull();
+		).toBe('');
 	});
 });

@@ -25,8 +25,9 @@ const (
 )
 
 var (
-	ErrAccessDenied = errors.New("workspace access denied")
-	ErrNotFound     = errors.New("messaging resource not found")
+	ErrOperationConflict = errors.New("client operation ID was already used for another message")
+	ErrAccessDenied      = errors.New("workspace access denied")
+	ErrNotFound          = errors.New("messaging resource not found")
 )
 
 type Actor = workspaceaccess.ActorFacts
@@ -44,14 +45,17 @@ type FeatureGate interface {
 }
 
 type Service struct {
-	db            *bun.DB
-	tokens        TokenSource
-	notifications *notifications.Service
-	states        stateRepository
-	providersMu   sync.RWMutex
-	providers     map[string]Provider
-	now           func() time.Time
-	featureGate   FeatureGate
+	messagingTokens       SupplementalMessagingTokens
+	messagingNotConnected error
+	db                    *bun.DB
+	tokens                TokenSource
+	notifications         *notifications.Service
+	states                stateRepository
+	providersMu           sync.RWMutex
+	providers             map[string]Provider
+	receiptDrainer        func(context.Context) error
+	now                   func() time.Time
+	featureGate           FeatureGate
 }
 
 func NewService(db *bun.DB, tokens TokenSource, notificationService *notifications.Service) *Service {
@@ -115,7 +119,16 @@ func (s *Service) HandleJob(ctx context.Context, jobType, payload string) error 
 		if err := json.Unmarshal([]byte(payload), &input); err != nil {
 			return fmt.Errorf("decode messaging job: %w", err)
 		}
+		if jobType == JobTypeMessagesSync && strings.HasPrefix(input.ID, "provider-receipts:") {
+			if s.receiptDrainer == nil {
+				return errors.New("inbox receipt processor is unavailable")
+			}
+			return s.receiptDrainer(ctx)
+		}
 		if jobType == JobTypeMessagesSync {
+			if input.ConversationID != "" {
+				return s.syncHistory(ctx, input.ID, input.ConversationID)
+			}
 			return s.syncMessages(ctx, input.ID)
 		}
 		return s.sendMessage(ctx, input.ID)
@@ -125,10 +138,16 @@ func (s *Service) HandleJob(ctx context.Context, jobType, payload string) error 
 }
 
 type subjectJob struct {
-	ID string `json:"id"`
+	ID             string `json:"id"`
+	ConversationID string `json:"conversation_id,omitempty"`
 }
 
 func (s *Service) handleSweep(ctx context.Context) error {
+	if s.receiptDrainer != nil {
+		if err := s.receiptDrainer(ctx); err != nil {
+			return err
+		}
+	}
 	var workspaces []string
 	if err := s.db.NewSelect().Model((*models.SocialAccount)(nil)).
 		ColumnExpr("DISTINCT workspace_id").Where("is_active = ?", true).Scan(ctx, &workspaces); err != nil {
@@ -147,6 +166,19 @@ func (s *Service) RefreshWorkspace(ctx context.Context, actor Actor, workspaceID
 		return 0, err
 	}
 	return s.refreshWorkspace(ctx, workspaceID, force)
+}
+
+// ActiveRefreshJobIDs returns the durable collection receipts a manual refresh
+// can wait on. Admission coalesces callers onto the same account/post job.
+func (s *Service) ActiveRefreshJobIDs(ctx context.Context, actor Actor, workspaceID string) ([]string, error) {
+	if err := s.authorize(ctx, workspaceID, actor, workspaceaccess.LevelEdit); err != nil {
+		return nil, err
+	}
+	ids := []string{}
+	err := s.db.NewSelect().Model((*models.Job)(nil)).Column("id").
+		Where("scope_id=? AND type=? AND status IN ('pending','processing')", workspaceID, JobTypeMessagesSync).
+		Order("created_at", "id").Scan(ctx, &ids)
+	return ids, err
 }
 
 func (s *Service) refreshWorkspace(ctx context.Context, workspaceID string, force bool) (int, error) {
@@ -170,14 +202,6 @@ func (s *Service) refreshWorkspace(ctx context.Context, workspaceID string, forc
 			continue
 		}
 		support := provider.MessagingSupport()
-		if support.RequiresOptIn && !accountMessagesEnabled(account) {
-			_ = s.states.record(ctx, syncStateUpdate{
-				account: account, status: syncStateDisabled,
-				failure:     syncStateFailure{code: "opt_in_required", message: "Enable inbox sync for this account to collect messages."},
-				attemptedAt: now,
-			})
-			continue
-		}
 		if missing := platform.MissingAnalyticsScopes(account.GrantedScopes, support.RequiredScopes); len(missing) > 0 {
 			_ = s.states.record(ctx, syncStateUpdate{
 				account: account, status: syncStatePermissionRequired,
@@ -212,15 +236,34 @@ func (s *Service) enqueue(ctx context.Context, workspaceID, jobType, payload str
 		return false, err
 	}
 	rows, err := result.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	if workspaceID != "" {
+		_, err = s.db.NewUpdate().Model((*models.Job)(nil)).Set("scope_id=?", workspaceID).
+			Where("type=? AND payload=? AND scope_id='' AND status IN ('pending','processing')", jobType, payload).Exec(ctx)
+	}
 	return rows == 1, err
-}
-
-func accountMessagesEnabled(account models.SocialAccount) bool {
-	state := map[string]string{}
-	return json.Unmarshal([]byte(account.CapabilityState), &state) == nil && state["messages_enabled"] == "true"
 }
 
 func providerKey(account models.SocialAccount) string {
 	key := strings.ToLower(strings.TrimSpace(account.Platform))
-	return platform.AccountProviderKey(key, account.InstanceURL, "")
+	return platform.AccountProviderKey(key, account.InstanceURL, account.CapabilityState)
+}
+
+func (s *Service) SetReceiptDrainer(drain func(context.Context) error) { s.receiptDrainer = drain }
+func (s *Service) ScheduleReceiptDrain(ctx context.Context) error {
+	payload, _ := json.Marshal(subjectJob{ID: "provider-receipts:pending"})
+	_, err := s.enqueue(ctx, "", JobTypeMessagesSync, string(payload), s.now())
+	return err
+}
+
+func (s *Service) isMessagingEnabledWithDB(ctx context.Context, db bun.IDB, accountID string) bool {
+	if scoped, ok := s.featureGate.(interface {
+		IsEffectiveEnabledWithDB(context.Context, bun.IDB, string, string) (bool, error)
+	}); ok {
+		enabled, err := scoped.IsEffectiveEnabledWithDB(ctx, db, accountID, "messaging")
+		return err == nil && enabled
+	}
+	return s.isMessagingEnabled(ctx, accountID)
 }

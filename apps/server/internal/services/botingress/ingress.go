@@ -22,7 +22,19 @@ const (
 )
 
 type SignatureVerifier interface {
+	// Verify authenticates an inbound webhook call. Implementations that
+	// bind the raw request body (typically an HMAC over the bytes) should
+	// also implement BodyVerifier so intake can report body authentication
+	// honestly. Verifiers that only check a header must not implement it:
+	// unknown verifiers are reported as not body-authenticated.
 	Verify(headers http.Header, body []byte) error
+}
+
+// BodyVerifier is implemented by SignatureVerifiers that authenticate the
+// raw request body, not just a header.
+type BodyVerifier interface {
+	SignatureVerifier
+	AuthenticatesBody() bool
 }
 
 // SecretHeaderVerifier supports providers whose webhook authentication is an
@@ -77,6 +89,12 @@ type AcceptRequest struct {
 type AcceptResult struct {
 	EventID   string `json:"event_id"`
 	Duplicate bool   `json:"duplicate"`
+	// BodyAuthenticated reports whether the verification performed for the
+	// current request covered the raw request body. A shared-secret header
+	// proves the sender holds the secret but says nothing about body
+	// integrity. For duplicates it describes the current request, not the
+	// original acceptance, so it must not promote trust in a stored event.
+	BodyAuthenticated bool `json:"body_authenticated"`
 }
 
 func (s *Service) Accept(ctx context.Context, request AcceptRequest) (AcceptResult, error) {
@@ -86,6 +104,7 @@ func (s *Service) Accept(ctx context.Context, request AcceptRequest) (AcceptResu
 	}
 	result, err := s.persistEvent(ctx, event, claims, now)
 	if err == nil {
+		result.BodyAuthenticated = verifierAuthenticatesBody(request.Verifier)
 		return result, nil
 	}
 	var safe *SafeError
@@ -93,6 +112,24 @@ func (s *Service) Accept(ctx context.Context, request AcceptRequest) (AcceptResu
 		return AcceptResult{}, safe
 	}
 	return AcceptResult{}, ErrIngressUnavailable
+}
+
+// verifierAuthenticatesBody reports whether verification covers the raw
+// request body. It is fail-closed: only verifiers that explicitly opt in
+// through BodyVerifier report true.
+func verifierAuthenticatesBody(verifier SignatureVerifier) bool {
+	if verifier == nil {
+		return false
+	}
+	if bodyVerifier, ok := verifier.(BodyVerifier); ok {
+		return bodyVerifier.AuthenticatesBody()
+	}
+	switch verifier.(type) {
+	case SecretHeaderVerifier, *SecretHeaderVerifier:
+		return false
+	default:
+		return false
+	}
 }
 
 func (s *Service) prepareEvent(request AcceptRequest) (*models.BotIngressEvent, credentialClaims, time.Time, error) {
@@ -343,7 +380,7 @@ func safeProcessorError(err error) *SafeError {
 	if errors.As(err, &coded) {
 		code := strings.TrimSpace(coded.SafeCode())
 		if validSafeCode(code) && code != "" {
-			return &SafeError{code: ErrorCode(code), httpStatus: http.StatusInternalServerError}
+			return &SafeError{code: ErrorCode(code)}
 		}
 	}
 	return ErrProcessingFailed

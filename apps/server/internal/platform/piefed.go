@@ -196,11 +196,14 @@ func (p *PieFedAdapter) SearchPublishingOptions(ctx context.Context, accessToken
 	if limit <= 0 || limit > 25 {
 		limit = 10
 	}
+	// The community list has no search filter and drops unknown parameters,
+	// so the query goes through the search endpoint.
 	response, err := communityJSONGet[struct {
 		Communities []piefedCommunityView `json:"communities"`
-	}](ctx, p.instanceURL, "/api/alpha/community/list", url.Values{
-		"search": {query},
-		"limit":  {strconv.Itoa(limit)},
+	}](ctx, p.instanceURL, "/api/alpha/search", url.Values{
+		"q":     {query},
+		"type_": {"Communities"},
+		"limit": {strconv.Itoa(limit)},
 	}, accessToken, "piefed community search")
 	if err != nil {
 		return PublishingOptionsPage{}, err
@@ -322,7 +325,7 @@ func (p *PieFedAdapter) UploadMedia(ctx context.Context, accessToken, _ string, 
 	if exts, err := mime.ExtensionsByType(mimeType); err == nil && len(exts) > 0 {
 		ext = exts[0]
 	}
-	part, err := writer.CreateFormFile("image", "upload"+ext)
+	part, err := writer.CreateFormFile("file", "upload"+ext)
 	if err != nil {
 		return "", fmt.Errorf("building piefed image upload: %w", err)
 	}
@@ -357,6 +360,7 @@ type piefedComment struct {
 	Published string  `json:"published"`
 	Updated   *string `json:"updated"`
 	Deleted   bool    `json:"deleted"`
+	Removed   bool    `json:"removed"`
 	ActorID   string  `json:"ap_id"`
 	Path      *string `json:"path"`
 }
@@ -364,6 +368,28 @@ type piefedComment struct {
 type piefedCommentView struct {
 	Comment piefedComment `json:"comment"`
 	Creator piefedPerson  `json:"creator"`
+	// MyVote is the connected account's own vote on the reply: 1 for an
+	// upvote, -1 for a downvote, 0 for none. A pointer keeps a response
+	// that omits the field distinguishable from an explicit no-vote.
+	MyVote *int64 `json:"my_vote"`
+}
+
+// piefedReplyView is a comment in the post replies tree. Replies to it are
+// nested under it, not listed alongside it.
+type piefedReplyView struct {
+	piefedCommentView
+	Replies []piefedReplyView `json:"replies"`
+}
+
+// flattenPieFedReplies lists every comment in the tree, each before its
+// replies.
+func flattenPieFedReplies(tree []piefedReplyView) []piefedCommentView {
+	views := make([]piefedCommentView, 0, len(tree))
+	for _, reply := range tree {
+		views = append(views, reply.piefedCommentView)
+		views = append(views, flattenPieFedReplies(reply.Replies)...)
+	}
+	return views
 }
 
 func (p *PieFedAdapter) EngagementSupport() EngagementSupport {
@@ -376,17 +402,18 @@ func (p *PieFedAdapter) ListComments(ctx context.Context, accessToken, accountID
 		return nil, fmt.Errorf("piefed comment listing requires a post id")
 	}
 	response, err := communityJSONGet[struct {
-		Comments []piefedCommentView `json:"comments"`
+		Comments []piefedReplyView `json:"comments"`
 	}](ctx, p.instanceURL, "/api/alpha/post/replies", url.Values{
 		"post_id": {strconv.FormatInt(postID, 10)},
 	}, accessToken, "piefed comment listing")
 	if err != nil {
 		return nil, err
 	}
-	comments := make([]Comment, 0, len(response.Comments))
-	for _, view := range response.Comments {
+	views := flattenPieFedReplies(response.Comments)
+	comments := make([]Comment, 0, len(views))
+	for _, view := range views {
 		comment := view.Comment
-		if comment.Deleted {
+		if comment.Removed || comment.Deleted {
 			continue
 		}
 		parentID := ""
@@ -394,6 +421,15 @@ func (p *PieFedAdapter) ListComments(ctx context.Context, accessToken, accountID
 			if parent := lemmyParentCommentID(*comment.Path); parent != "" {
 				parentID = communityCommentRef(providerPieFed, postID, parent)
 			}
+		}
+		// The reply's upvote count includes its author's own upvote, so only
+		// my_vote says whether the connected account liked it. An omitted
+		// my_vote leaves the vote state unknown so stored state is kept.
+		liked := view.MyVote != nil && *view.MyVote > 0
+		canLike, canUnlike := !liked, liked
+		likeStateKnown := view.MyVote != nil
+		if !likeStateKnown {
+			canLike, canUnlike = true, true
 		}
 		comments = append(comments, Comment{
 			ID:       communityCommentRef(providerPieFed, postID, strconv.FormatInt(comment.ID, 10)),
@@ -406,7 +442,8 @@ func (p *PieFedAdapter) ListComments(ctx context.Context, accessToken, accountID
 			IsOurs:    strings.TrimSpace(accountID) == strconv.FormatInt(view.Creator.ID, 10),
 			CanReply:  true,
 			CanDelete: strings.TrimSpace(accountID) == strconv.FormatInt(view.Creator.ID, 10),
-			CanLike:   true, CanUnlike: true,
+			CanLike:   canLike, CanUnlike: canUnlike,
+			Liked: liked, LikeStateKnown: likeStateKnown,
 		})
 	}
 	return comments, nil
@@ -432,6 +469,7 @@ func (p *PieFedAdapter) DeleteComment(ctx context.Context, accessToken, _ string
 	}
 	_, err = communityJSONPost[struct{}](ctx, p.instanceURL, "/api/alpha/comment/delete", map[string]any{
 		"comment_id": targetID,
+		"deleted":    true,
 	}, accessToken, "piefed reply deletion")
 	return err
 }
@@ -493,7 +531,7 @@ func (p *PieFedAdapter) FetchContentAnalytics(ctx context.Context, accessToken s
 					Upvotes  *int64 `json:"upvotes"`
 				} `json:"counts"`
 			} `json:"post_view"`
-		}](ctx, p.instanceURL, "/api/alpha/post", url.Values{"post_id": {strconv.FormatInt(postID, 10)}}, accessToken, "piefed content analytics")
+		}](ctx, p.instanceURL, "/api/alpha/post", url.Values{"id": {strconv.FormatInt(postID, 10)}}, accessToken, "piefed content analytics")
 		if err != nil {
 			return nil, err
 		}
@@ -504,62 +542,6 @@ func (p *PieFedAdapter) FetchContentAnalytics(ctx context.Context, accessToken s
 	}
 	subtractOwnReplies(total, input.OwnReplyCount)
 	return total, nil
-}
-
-func (p *PieFedAdapter) AccountContentDiscoverySupport(input AnalyticsAccountContext) AccountContentDiscoverySupport {
-	if strings.TrimSpace(input.AccountID) == "" {
-		return AccountContentDiscoverySupport{UnavailableReason: "PieFed account content discovery requires a stable account identity."}
-	}
-	return AccountContentDiscoverySupport{Supported: true, MaxPageSize: 20}
-}
-
-func (p *PieFedAdapter) DiscoverAccountContent(ctx context.Context, accessToken string, input AccountContentDiscoveryRequest) (AccountContentPage, error) {
-	personID, err := strconv.ParseInt(strings.TrimSpace(input.AccountID), 10, 64)
-	if err != nil || personID <= 0 {
-		return AccountContentPage{}, NewAccountContentDiscoveryError(AccountContentDiscoveryUnsupported, "invalid_account", 0)
-	}
-	params := url.Values{
-		"creator_id": {strconv.FormatInt(personID, 10)},
-		"limit":      {"20"},
-	}
-	if cursor := strings.TrimSpace(input.Cursor); cursor != "" {
-		params.Set("page", cursor)
-	}
-	response, err := communityJSONGet[struct {
-		Posts []struct {
-			Post piefedPost `json:"post"`
-		} `json:"posts"`
-		NextPage *string `json:"next_page"`
-	}](ctx, p.instanceURL, "/api/alpha/post/list", params, accessToken, "piefed account content")
-	if err != nil {
-		return AccountContentPage{}, socialAccountContentDiscoveryError(err)
-	}
-	page := AccountContentPage{Coverage: AccountContentCoverage{
-		Status:      AccountContentDiscoveryPartial,
-		Description: "Only posts visible through the authenticated PieFed instance are included.",
-	}}
-	for _, view := range response.Posts {
-		post := view.Post
-		item, ok := normalizeCommunityAccountContent(
-			providerPieFed, p.instanceURL, post.ID, piefedAccountContentProfile(post), post.Title,
-			post.Body, post.ActorID, post.Published, input.PublishedAfter,
-		)
-		if !ok {
-			continue
-		}
-		appendCommunityAccountContent(&page, item)
-	}
-	if response.NextPage != nil && strings.TrimSpace(*response.NextPage) != "" {
-		page.NextCursor = strings.TrimSpace(*response.NextPage)
-	}
-	return page, nil
-}
-
-func piefedAccountContentProfile(post piefedPost) string {
-	if post.URL != nil && strings.TrimSpace(*post.URL) != "" {
-		return "link_share"
-	}
-	return "short_text"
 }
 
 func validateCommunityMedia(provider string, media []MediaItem) []MediaValidationIssue {

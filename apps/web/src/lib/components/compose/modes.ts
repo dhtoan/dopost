@@ -1,7 +1,22 @@
+import type { MentionMetadata } from '@openpost/platform-text/mentions';
+import type { components } from '@openpost/api-contract';
+import { linkDraftSchema, type LinkDraft } from './links';
+import { sharedPollSchema, type SharedPoll } from './polls';
 import { getPlatformKey } from '$lib/utils';
 import { m } from '$lib/paraglide/messages';
 
 export const COMPOSER_MODE_KEYS = ['post', 'thread'] as const;
+
+const VIDEO_METADATA_PLATFORMS = new Set(['youtube', 'peertube']);
+
+const MEDIA_TEXT_LINK_PLATFORMS = new Set([
+	'x',
+	'threads',
+	'mastodon',
+	'linkedin',
+	'facebook',
+	'instagram'
+]);
 
 export type ComposerModeKey = (typeof COMPOSER_MODE_KEYS)[number];
 
@@ -64,6 +79,9 @@ export interface PublicationMediaInput {
 }
 
 export interface PublicationSegmentInput {
+	mentions?: MentionMetadata;
+	poll?: SharedPoll;
+	link?: LinkDraft;
 	id: string;
 	content: string;
 	title?: string;
@@ -108,6 +126,7 @@ export interface ComposerPublicationPayload {
 	};
 	media: Array<{ media_id: string; role: string }>;
 	segments: Array<{
+		settings?: { poll?: SharedPoll; link?: LinkDraft; mentions?: MentionMetadata };
 		id: string;
 		body: string;
 		title: string;
@@ -133,6 +152,13 @@ export interface ComposerPublicationPayload {
 		media: Array<{ media_id: string; role: string }>;
 		segments: Array<{
 			publication_segment_id: string;
+			source_overrides?: Array<{
+				publication_segment_id: string;
+				body_override?: string;
+				mentions?: MentionMetadata;
+				media_inherited: boolean;
+				media?: PublicationMediaPayload[];
+			}>;
 			body: string;
 			title: string;
 			description: string;
@@ -142,7 +168,7 @@ export interface ComposerPublicationPayload {
 			description_override?: string;
 			url_override?: string;
 			media_inherited: boolean;
-			settings: ComposerSettings;
+			settings: NonNullable<components['schemas']['RenditionSegmentInput']['settings']>;
 			media: Array<{
 				media_id: string;
 				role: string;
@@ -182,6 +208,17 @@ export function buildPublicationPayload(
 			description: segment.description ?? '',
 			media: mediaPayload(segment.media)
 		};
+		if (segment.mentions) payloadSegment.settings = { mentions: segment.mentions };
+		if (segment.poll)
+			payloadSegment.settings = {
+				...payloadSegment.settings,
+				poll: sharedPollSchema.parse(segment.poll)
+			};
+		if (segment.link)
+			payloadSegment.settings = {
+				...payloadSegment.settings,
+				link: linkDraftSchema.parse(segment.link)
+			};
 		const segmentURL = segment.url?.trim();
 		if (segmentURL) payloadSegment.url = segmentURL;
 		return payloadSegment;
@@ -207,10 +244,22 @@ export function buildPublicationPayload(
 		renditions: input.accounts.map((account) => {
 			const platform = getPlatformKey(account.platform);
 			const resolved = input.resolvedByAccount?.[account.id];
+			const outputProfile =
+				input.requestedOutputProfiles?.[account.id] ??
+				resolved?.outputProfile ??
+				fallbackOutputProfile(platform, input.mode, canonicalSegments);
+			const profile = resolved?.profile ?? contentProfile;
 			const settings = cloneComposerSettings(input.settingsByAccount?.[account.id]);
 			const destinationTitle = parseComposerSettingString(settings.title).trim();
 			const destinationDescription = parseComposerSettingString(settings.description).trim();
-			if (input.fields.linkUrl?.trim()) {
+			if (
+				!firstSegment?.link &&
+				MEDIA_TEXT_LINK_PLATFORMS.has(platform) &&
+				profile !== 'link_share'
+			) {
+				delete settings.url;
+				delete settings.link_url;
+			} else if (!firstSegment?.link && input.fields.linkUrl?.trim()) {
 				if (platform === 'bluesky') {
 					settings.link_url ??= input.fields.linkUrl.trim();
 				} else {
@@ -220,11 +269,6 @@ export function buildPublicationPayload(
 			if (platform === 'youtube' && input.thumbnailMediaId) {
 				settings.thumbnail_media_id ??= input.thumbnailMediaId;
 			}
-			const outputProfile =
-				input.requestedOutputProfiles?.[account.id] ??
-				resolved?.outputProfile ??
-				fallbackOutputProfile(platform, input.mode, canonicalSegments);
-			const profile = resolved?.profile ?? contentProfile;
 			const followUpSegments: PublicationPayloadRenditionSegment[] = [];
 			const destinationSegments =
 				resolved?.segmentStrategy === 'join' && canonicalSegments.length > 1
@@ -233,10 +277,12 @@ export function buildPublicationPayload(
 			const renditionSegments = destinationSegments.map((segment) => {
 				const overrides = input.segmentOverridesByAccount?.[account.id]?.[segment.id];
 				const body =
-					overrides && Object.hasOwn(overrides, 'body')
-						? (overrides.body ?? '')
-						: firstNonEmpty(segment.content, input.fields.postText, sourceText);
+					overrides && Object.hasOwn(overrides, 'body') ? (overrides.body ?? '') : segment.content;
 				const segmentSettings = cloneComposerSettings(segment.settingsByAccount?.[account.id]);
+				if (!segment.link && MEDIA_TEXT_LINK_PLATFORMS.has(platform) && profile !== 'link_share') {
+					delete segmentSettings.url;
+					delete segmentSettings.link_url;
+				}
 				const firstComment = parseComposerSettingString(segmentSettings.first_comment).trim();
 				delete segmentSettings.first_comment;
 				if (firstComment) {
@@ -246,20 +292,22 @@ export function buildPublicationPayload(
 						title: '',
 						description: '',
 						media_inherited: false,
-						settings: emptyComposerSettings(),
+						settings: canonicalSegments.some((source) => source.mentions)
+							? { mentions: { version: 1, spans: [] } }
+							: emptyComposerSettings(),
 						media: []
 					});
 				}
 				const segmentTitle =
 					overrides && Object.hasOwn(overrides, 'title')
 						? (overrides.title ?? '')
-						: platform === 'youtube'
+						: VIDEO_METADATA_PLATFORMS.has(platform)
 							? firstNonEmpty(destinationTitle, segment.title, title)
 							: firstNonEmpty(segment.title, title);
 				const segmentDescription =
 					overrides && Object.hasOwn(overrides, 'description')
 						? (overrides.description ?? '')
-						: platform === 'youtube'
+						: VIDEO_METADATA_PLATFORMS.has(platform)
 							? firstNonEmpty(
 									destinationDescription,
 									segment.description,
@@ -282,6 +330,12 @@ export function buildPublicationPayload(
 					settings: segmentSettings,
 					media: destinationMedia
 				};
+				if (resolved?.segmentStrategy === 'join' && canonicalSegments.length > 1) {
+					renditionSegment.source_overrides = canonicalSegments.map((source) => ({
+						publication_segment_id: source.id,
+						media_inherited: true
+					}));
+				}
 				const trimmedSegmentURL = segmentURL.trim();
 				if (trimmedSegmentURL) renditionSegment.url = trimmedSegmentURL;
 				if (overrides && Object.hasOwn(overrides, 'body')) {
@@ -309,7 +363,10 @@ export function buildPublicationPayload(
 				title: first?.title ?? title,
 				description: first?.description ?? '',
 				settings,
-				media: (first?.media ?? []).map(({ media_id, role }) => ({ media_id, role })),
+				media: (first?.media ?? []).map(({ media_id, role }) => ({
+					media_id,
+					role
+				})),
 				segments: renditionSegments
 			};
 			const scheduleOverride = input.scheduleOverridesByAccount?.[account.id];
@@ -350,11 +407,14 @@ function publicationSegments(input: PublicationComposerInput): PublicationSegmen
 	return [
 		{
 			id: source?.id || 'segment-1',
-			content: firstNonEmpty(input.fields.postText, source?.content),
+			content: input.fields.postText ?? source?.content ?? '',
 			title: firstNonEmpty(source?.title),
 			description: firstNonEmpty(source?.description),
 			url: firstNonEmpty(input.fields.linkUrl, source?.url),
 			media: input.media.length > 0 ? input.media : (source?.media ?? []),
+			poll: source?.poll,
+			mentions: source?.mentions,
+			link: source?.link,
 			settingsByAccount: source?.settingsByAccount
 		}
 	];
@@ -388,6 +448,7 @@ function fallbackOutputProfile(
 	if (platform === 'tiktok' && media.every((item) => item.mimeType.startsWith('image/'))) {
 		return 'tiktok.photo';
 	}
+	if (platform === 'devnull') return 'devnull.post';
 	if (media.length > 1) return `${platform}.carousel`;
 	if (platform === 'instagram') return 'instagram.feed';
 	if (platform === 'facebook' && media.length === 1) return 'facebook.photo';
@@ -408,7 +469,7 @@ function mediaPayload(
 			const settings = cloneComposerSettings(
 				accountId ? item.settingsByAccount?.[accountId] : item.settings
 			);
-			const accountAltText = parseComposerSettingString(settings.alt_text).trim();
+			const accountAltText = parseComposerSettingOptionalString(settings.alt_text)?.trim();
 			const thumbnailTimestamp = parseComposerSettingNumber(settings.thumbnail_timestamp_ms);
 			delete settings.alt_text;
 			delete settings.thumbnail_timestamp_ms;
@@ -416,7 +477,7 @@ function mediaPayload(
 				media_id: item.id,
 				role: item.role || 'attachment'
 			};
-			const altText = accountAltText || item.altText;
+			const altText = accountAltText ?? item.altText;
 			if (altText) payload.alt_text = altText;
 			if (thumbnailTimestamp > 0) payload.thumbnail_timestamp_ms = thumbnailTimestamp;
 			if (Object.keys(settings).length > 0) payload.settings = settings;
@@ -434,6 +495,12 @@ function cloneComposerSettings(settings?: ComposerSettings): ComposerSettings {
 
 function parseComposerSettingString(value: ComposerSettingValue | undefined): string {
 	return typeof value === 'string' ? value : '';
+}
+
+export function parseComposerSettingOptionalString(
+	value: ComposerSettingValue | undefined
+): string | undefined {
+	return typeof value === 'string' ? value : undefined;
 }
 
 function parseComposerSettingNumber(value: ComposerSettingValue | undefined): number {

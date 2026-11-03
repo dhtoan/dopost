@@ -18,11 +18,8 @@ export function collectAdjustmentLayers(
 ): AdjustmentLayerScope[] {
 	const resolvedTracks = effectiveMediaTracks(tracks);
 	const orderByTrack = new Map(resolvedTracks.map((track) => [track.id, track.order]));
-	const anySolo = resolvedTracks.some((track) => track.solo);
 	const visibleTracks = new Set(
-		resolvedTracks
-			.filter((track) => (anySolo ? track.solo : track.visible !== false))
-			.map((track) => track.id)
+		resolvedTracks.filter((track) => track.visible !== false).map((track) => track.id)
 	);
 	return items.flatMap((item) =>
 		item.type === 'adjustment' &&
@@ -53,10 +50,14 @@ export function effectsForItemAtFrame(
 		)
 		.toSorted((left, right) => left.trackOrder - right.trackOrder)
 		.flatMap(({ layer }) => {
-			const effects = (layer.effects ?? []).filter((effect) => effect.enabled);
+			const effects = (resolveAnimatedEffectsAt(layer, frame) ?? []).filter(
+				(effect) => effect.enabled
+			);
 			return excludedColorGradeItemIds.has(layer.id) ? withoutColorGradeEffects(effects) : effects;
 		});
-	const itemEffects = (item.effects ?? []).filter((effect) => effect.enabled);
+	const itemEffects = (resolveAnimatedEffectsAt(item, frame) ?? []).filter(
+		(effect) => effect.enabled
+	);
 	return [
 		...adjustmentEffects,
 		...(excludedColorGradeItemIds.has(item.id)

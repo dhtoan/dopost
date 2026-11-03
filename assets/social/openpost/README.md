@@ -1,6 +1,6 @@
-# OpenPost social kit
+# dopost social kit
 
-This folder contains ready-to-use OpenPost assets built from the canonical logo, Geist type, warm canvas, carbon ink, Workshop Orange, and the publishing activity grid.
+This folder contains ready-to-use dopost assets built from the canonical logo, Geist type, warm canvas, carbon ink, Workshop Orange, and the publishing activity grid.
 
 ## Start here
 
@@ -13,7 +13,7 @@ This folder contains ready-to-use OpenPost assets built from the canonical logo,
 - Full overview: `preview/contact-sheet.png` or `preview/index.html`
 - Ready-to-post copy: `captions.md`
 
-The recommended `converge-slogan-dark-imagegen` headers pair a tactile, image-generated Converge environment with the exact vector OpenPost lockup and the line “Turn what you’re building into content. Publish it everywhere.” Separate X and LinkedIn compositions keep the copy clear at each platform's crop. The original no-slogan `converge-dark-imagegen` pair remains available. The ten-pair `converge-series` explores signal fields, a night publishing district, a physical control board, routing rails, an editorial worktable, a quiet orbit, folded paper, a signal wall, an in-the-wild tram, and a gallery monument. Their background artwork was generated separately, then finished with the exact vector OpenPost lockup. The `paper` banners combine an AI-generated tactile background with deterministic OpenPost typography and the real vector logo. The `workshop` alternatives are fully deterministic and available in light and dark versions.
+The recommended `converge-slogan-dark-imagegen` headers pair a tactile, image-generated Converge environment with the exact vector dopost lockup and the line “Turn what you’re building into content. Publish it everywhere.” Separate X and LinkedIn compositions keep the copy clear at each platform's crop. The original no-slogan `converge-dark-imagegen` pair remains available. The ten-pair `converge-series` explores signal fields, a night publishing district, a physical control board, routing rails, an editorial worktable, a quiet orbit, folded paper, a signal wall, an in-the-wild tram, and a gallery monument. Their background artwork was generated separately, then finished with the exact vector dopost lockup. The `paper` banners combine an AI-generated tactile background with deterministic dopost typography and the real vector logo. The `workshop` alternatives are fully deterministic and available in light and dark versions.
 
 ## Included formats
 

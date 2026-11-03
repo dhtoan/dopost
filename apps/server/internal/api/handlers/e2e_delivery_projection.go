@@ -22,7 +22,7 @@ import (
 // E2EDeliveryProjectionHandler is registered only when the dedicated app E2E
 // flag is enabled. It lets browser tests persist normalized provider outcomes
 // through an authenticated, Workspace-scoped boundary without intercepting
-// OpenPost reads or writes in the browser.
+// dopost reads or writes in the browser.
 type E2EDeliveryProjectionHandler struct {
 	db   *bun.DB
 	auth middleware.Authenticator

@@ -1,5 +1,6 @@
 /** Pure edit plans for live timeline pointer and keyboard gestures. */
 
+import { sliceClipFades } from '../media/clip-fades';
 import type { TimelineItem, TimelineTrack, TimelineTransition } from '../project/types';
 import {
 	calculateTrimSourceUpdate,
@@ -25,7 +26,8 @@ import { scaleItemVectorKeyframes } from './vector-keyframes';
 import {
 	getLinkedItems,
 	getSynchronizedLinkedCounterpartPair,
-	getSynchronizedLinkedItems
+	getSynchronizedLinkedItems,
+	getSynchronizedLinkedSelection
 } from './utils/linked-items';
 import {
 	clampMoveDeltaToTrackGaps,
@@ -114,7 +116,7 @@ export interface CanvasNudgeUpdate {
  * only it moves. Timeline-only kinds (audio/adjustment/controller) never match
  * — callers keep the frame-nudge path for those. INTENTIONAL DIVERGENCE from
  * FreeCut, which skips audio only: adjustment/controller stacks have no canvas
- * position in OpenPost, so nudging them would silently do nothing.
+ * position in dopost, so nudging them would silently do nothing.
  */
 export function planCanvasNudge(
 	items: readonly TimelineItem[],
@@ -146,13 +148,6 @@ export function isRateStretchableType(item: TimelineItem): boolean {
 	}
 	return item.type === 'image' && (item.label?.toLowerCase().endsWith('.gif') ?? false);
 }
-
-/**
- * Looping-media stretch cap, ported from FreeCut (MIT) `LOOPING_MEDIA_MAX_DURATION`
- * (10 minutes at 30fps). Guards future GIF-duration extension; the looping path
- * below keeps duration fixed and only changes speed.
- */
-export const LOOPING_RATE_STRETCH_MAX_DURATION_FRAMES = 30 * 60 * 10;
 
 /**
  * Speed-from-pixels for looping media, ported from FreeCut (MIT)
@@ -189,15 +184,9 @@ export function planLinkedMoveGesture(
 	destination?: { trackId: string; tracks: readonly TimelineTrack[] }
 ): TimelineMove[] {
 	const items = withAnchor(item, allItems);
-	const participantById = new Map<string, TimelineItem>();
 	const anchors = selectedItemIds.includes(item.id) ? selectedItemIds : [item.id];
-	for (const anchorId of anchors) {
-		for (const participant of getSynchronizedLinkedItems(items, anchorId)) {
-			participantById.set(participant.id, participant);
-		}
-	}
-	participantById.set(item.id, item);
-	const participants = [...participantById.values()];
+	const participants = getSynchronizedLinkedSelection(items, anchors);
+	const participantIds = new Set(participants.map((participant) => participant.id));
 	let delta = proposedFrom - item.from;
 	if (destination) {
 		const original = participants.map((participant) => ({
@@ -215,8 +204,7 @@ export function planLinkedMoveGesture(
 		const offset = targetIndex - sourceIndex;
 		const moves: TimelineMove[] = [];
 		for (const participant of participants) delta = Math.max(delta, -participant.from);
-		if (offset === 0)
-			delta = clampMoveDeltaToTrackGaps(items, new Set(participantById.keys()), delta);
+		if (offset === 0) delta = clampMoveDeltaToTrackGaps(items, participantIds, delta);
 		for (const participant of participants) {
 			const source = destination.tracks.find((track) => track.id === participant.trackId);
 			if (!source || source.locked) return original;
@@ -227,18 +215,25 @@ export function planLinkedMoveGesture(
 				? tracks[index + offset]
 				: destination.tracks.find((track) => track.id === participant.trackId);
 			if (!target || target.locked || target.isGroup) return original;
-			moves.push({ id: participant.id, from: participant.from + delta, trackId: target.id });
+			moves.push({
+				id: participant.id,
+				from: participant.from + delta,
+				trackId: target.id
+			});
 		}
 		if (
 			updatesIntroduceExclusiveTrackOverlap(
 				items,
-				moves.map(({ id, from, trackId }) => ({ id, patch: { from, trackId } }))
+				moves.map(({ id, from, trackId }) => ({
+					id,
+					patch: { from, trackId }
+				}))
 			)
 		)
 			return original;
 		return moves;
 	}
-	delta = clampMoveDeltaToTrackGaps(items, new Set(participantById.keys()), delta);
+	delta = clampMoveDeltaToTrackGaps(items, participantIds, delta);
 	return participants.map((participant) => ({
 		id: participant.id,
 		from: participant.from + delta
@@ -272,6 +267,15 @@ function trimPatchForAmount(
 		amount,
 		durationInFrames,
 		timelineFps
+	);
+	Object.assign(
+		patch,
+		sliceClipFades(
+			item,
+			handle === 'start' ? amount : 0,
+			handle === 'start' ? item.durationInFrames : durationInFrames,
+			timelineFps
+		)
 	);
 	if (sourceUpdate) Object.assign(patch, sourceUpdate);
 	return patch;

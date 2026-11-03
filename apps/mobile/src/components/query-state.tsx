@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { StyleSheet, View } from "react-native";
 
 import { BodyText, Button, Card, Screen } from "./ui";
 import { Brand } from "./brand";
+import { NativeText } from "./native-text";
 import { COLD_LOAD_DELAY_MS } from "../lib/query-presentation";
 import { useNativeTheme } from "@/theme";
 
@@ -37,7 +38,7 @@ export function LaunchPlaceholder({ pending, offline }: { pending: boolean; offl
   return (
     <Screen>
       <View style={styles.launchContent}>
-        <Brand compact style={styles.brand} />
+        <Brand compact workspace style={styles.brand} />
         <DelayedQueryPlaceholder pending={pending} shape="launch" offline={offline} />
       </View>
     </Screen>
@@ -78,12 +79,15 @@ export function InitialQueryError({
   retry: () => void;
   secondaryAction?: { label: string; onPress: () => void };
 }) {
-  const colors = useNativeTheme().manifest.colors;
+  const { colors, typography } = useNativeTheme().manifest;
   return (
     <Card style={styles.error}>
-      <Text accessibilityRole="header" style={[styles.errorTitle, { color: colors.onSurface }]}>
+      <NativeText
+        accessibilityRole="header"
+        style={[typography.titleMedium, { color: colors.onSurface }]}
+      >
         {title}
-      </Text>
+      </NativeText>
       <BodyText accessibilityRole="alert">{message}</BodyText>
       <Button title="Try again" intent="ordinary" onPress={retry} />
       {secondaryAction ? (
@@ -128,11 +132,10 @@ function QueryPlaceholder({ shape, offline }: { shape: QueryPlaceholderShape; of
         </View>
         <View
           style={[
-            styles.placeholderCard,
+            styles.placeholderSection,
             {
-              backgroundColor: colors.surfaceContainer,
-              borderColor: colors.outlineVariant,
-              borderRadius: radii.medium,
+              backgroundColor: "transparent",
+              borderBottomColor: colors.outlineVariant,
             },
           ]}
         >
@@ -168,11 +171,10 @@ function QueryPlaceholder({ shape, offline }: { shape: QueryPlaceholderShape; of
         <View
           key={index}
           style={[
-            styles.placeholderCard,
+            styles.placeholderSection,
             {
-              backgroundColor: colors.surfaceContainer,
-              borderColor: colors.outlineVariant,
-              borderRadius: radii.medium,
+              backgroundColor: "transparent",
+              borderBottomColor: colors.outlineVariant,
             },
             shape === "editor" && index === 0 && styles.editorCard,
           ]}
@@ -224,10 +226,10 @@ const styles = StyleSheet.create({
     height: 28,
     marginBottom: 4,
   },
-  placeholderCard: {
+  placeholderSection: {
     minHeight: 76,
-    borderWidth: StyleSheet.hairlineWidth,
-    padding: 16,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    paddingVertical: 16,
     gap: 10,
   },
   calendarWeekdays: {
@@ -277,9 +279,5 @@ const styles = StyleSheet.create({
   },
   error: {
     gap: 12,
-  },
-  errorTitle: {
-    fontSize: 17,
-    fontWeight: "600",
   },
 });

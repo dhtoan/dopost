@@ -229,7 +229,7 @@ func (s *Store) FailConnection(ctx context.Context, sessionID, kind string) erro
 	return nil
 }
 
-// SaveConnectionAccounts commits the connector result, OpenPost accounts, and
+// SaveConnectionAccounts commits the connector result, dopost accounts, and
 // opaque execution bindings as one database transaction. Connector credentials
 // never enter the social account or OAuth grant tables.
 func (s *Store) SaveConnectionAccounts(

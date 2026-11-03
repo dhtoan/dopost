@@ -8,6 +8,7 @@ import {
   openPostQueryKeys,
   promptQueryKeys,
   schedulingQueryKeys,
+  videoProjectQueryKeys,
   voiceProfileQueryKeys,
 } from "./index";
 
@@ -77,22 +78,14 @@ describe("workspace key partitioning", () => {
         a: promptQueryKeys.lists("workspace-a"),
         b: promptQueryKeys.lists("workspace-b"),
       },
+      {
+        name: "video projects",
+        a: videoProjectQueryKeys.list("workspace-a", false),
+        b: videoProjectQueryKeys.list("workspace-b", false),
+      },
     ];
     for (const family of families) {
       expect(family.a, `${family.name} leaks across workspaces`).not.toEqual(family.b);
     }
-  });
-
-  it("treats an empty activity cursor as no cursor", () => {
-    expect(
-      openPostQueryKeys.publications.activity("workspace-1", "scheduled", {
-        limit: 40,
-      }),
-    ).toEqual(
-      openPostQueryKeys.publications.activity("workspace-1", "scheduled", {
-        limit: 40,
-        cursor: "",
-      }),
-    );
   });
 });

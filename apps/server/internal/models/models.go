@@ -62,6 +62,10 @@ const (
 const (
 	WorkspaceRoleAdmin  = "admin"
 	WorkspaceRoleEditor = "editor"
+	// WorkspaceRoleClient may connect accounts and decide approvals, but may
+	// not author or change content. It is the role for the person who owns the
+	// accounts and the reputation without working in the product.
+	WorkspaceRoleClient = "client"
 	WorkspaceRoleViewer = "viewer"
 
 	WorkspaceMemberStatusActive   = "active"
@@ -191,6 +195,28 @@ type Workspace struct {
 	SlotEndHour               int       `bun:",default:23" json:"slot_end_hour"`         // 0-23
 	SlotIntervalMinutes       int       `bun:",default:15" json:"slot_interval_minutes"` // 1-180
 	CreatedAt                 time.Time `bun:",nullzero,notnull,default:current_timestamp" json:"created_at"`
+}
+
+type SavedMention struct {
+	bun.BaseModel `bun:"table:saved_mentions"`
+	ID            string    `bun:",pk"`
+	WorkspaceID   string    `bun:"workspace_id,notnull"`
+	Name          string    `bun:"name,notnull"`
+	NameKey       string    `bun:"name_key,notnull"`
+	ProfileJSON   string    `bun:"profile_json,notnull"`
+	UpdatedAt     time.Time `bun:"updated_at,notnull,default:current_timestamp"`
+}
+
+type ProviderUserResolution struct {
+	bun.BaseModel  `bun:"table:provider_user_resolutions"`
+	ID             string    `bun:",pk"`
+	WorkspaceID    string    `bun:"workspace_id,notnull"`
+	Provider       string    `bun:"provider,notnull"`
+	Handle         string    `bun:"handle,notnull"`
+	ProviderUserID string    `bun:"provider_user_id,notnull"`
+	ResolvedAt     time.Time `bun:"resolved_at,notnull"`
+	CreatedAt      time.Time `bun:"created_at,notnull,default:current_timestamp"`
+	UpdatedAt      time.Time `bun:"updated_at,notnull,default:current_timestamp"`
 }
 
 type User struct {
@@ -649,6 +675,25 @@ type MCPOAuthCode struct {
 	CreatedAt           time.Time `bun:",nullzero,notnull,default:current_timestamp" json:"created_at"`
 }
 
+type MCPMediaUploadTicket struct {
+	bun.BaseModel `bun:"table:mcp_media_upload_tickets"`
+
+	ID          string    `bun:",pk" json:"id"`
+	TicketHash  string    `bun:"ticket_hash,unique,notnull" json:"-"`
+	WorkspaceID string    `bun:"workspace_id,notnull" json:"workspace_id"`
+	UserID      string    `bun:"user_id,notnull" json:"user_id"`
+	SessionID   string    `bun:"session_id,nullzero" json:"session_id,omitempty"`
+	TokenID     string    `bun:"token_id,nullzero" json:"token_id,omitempty"`
+	ClientID    string    `bun:"client_id,nullzero" json:"client_id,omitempty"`
+	Filename    string    `bun:"filename,notnull" json:"filename"`
+	MimeType    string    `bun:"mime_type,nullzero" json:"mime_type,omitempty"`
+	Size        int64     `bun:"size,notnull" json:"size"`
+	AltText     string    `bun:"alt_text,nullzero" json:"alt_text,omitempty"`
+	ExpiresAt   time.Time `bun:"expires_at,notnull" json:"expires_at"`
+	ConsumedAt  time.Time `bun:"consumed_at,nullzero" json:"consumed_at,omitempty"`
+	CreatedAt   time.Time `bun:"created_at,nullzero,notnull,default:current_timestamp" json:"created_at"`
+}
+
 type CLIAuthSession struct {
 	bun.BaseModel `bun:"table:cli_auth_sessions"`
 
@@ -707,7 +752,7 @@ type WorkspaceInvitation struct {
 }
 
 // WorkspaceInvitationDeliveryEvent is redacted callback evidence. It records
-// only provider event identity and OpenPost delivery references, never an
+// only provider event identity and dopost delivery references, never an
 // address, invitation secret, provider payload, or response body.
 type WorkspaceInvitationDeliveryEvent struct {
 	bun.BaseModel `bun:"table:workspace_invitation_delivery_events"`
@@ -882,11 +927,12 @@ type BillingSubscription struct {
 type BillingWebhookEvent struct {
 	bun.BaseModel `bun:"table:billing_webhook_events"`
 
-	EventID     string    `bun:",pk" json:"event_id"`
-	Provider    string    `bun:",notnull,default:'paddle'" json:"provider"`
-	EventType   string    `bun:",notnull" json:"event_type"`
-	OccurredAt  time.Time `bun:",nullzero" json:"occurred_at"`
-	ProcessedAt time.Time `bun:",nullzero,notnull,default:current_timestamp" json:"processed_at"`
+	EventID                   string    `bun:",pk" json:"event_id"`
+	Provider                  string    `bun:",notnull,default:'paddle'" json:"provider"`
+	EventType                 string    `bun:",notnull" json:"event_type"`
+	OccurredAt                time.Time `bun:",nullzero" json:"occurred_at"`
+	ProcessedAt               time.Time `bun:",nullzero,notnull,default:current_timestamp" json:"processed_at"`
+	DiscordNotificationSentAt time.Time `bun:"discord_notification_sent_at,nullzero" json:"-"`
 }
 
 type BillingCheckoutAttempt struct {
@@ -1148,15 +1194,17 @@ type OAuthGrant struct {
 type SocialAccount struct {
 	bun.BaseModel `bun:"table:social_accounts"`
 
-	ID               string `bun:",pk" json:"id"`
-	WorkspaceID      string `bun:",notnull" json:"workspace_id"`
-	Slug             string `bun:",notnull" json:"slug"`
-	Platform         string `bun:",notnull" json:"platform"` // 'x', 'threads', 'linkedin', 'mastodon', 'bluesky', 'instagram', 'facebook', 'youtube', 'tiktok'
-	AccountID        string `bun:",notnull" json:"account_id"`
-	AccountUsername  string `json:"account_username"`
-	AccountAvatarURL string `json:"account_avatar_url"`
-	InstanceURL      string `json:"instance_url"` // Used for Mastodon domains and Bluesky PDS
-	OAuthGrantID     string `bun:"oauth_grant_id,notnull,default:''" json:"oauth_grant_id,omitempty"`
+	ID               string    `bun:",pk" json:"id"`
+	WorkspaceID      string    `bun:",notnull" json:"workspace_id"`
+	Slug             string    `bun:",notnull" json:"slug"`
+	Alias            string    `bun:",notnull,default:''" json:"alias,omitempty"`
+	Platform         string    `bun:",notnull" json:"platform"` // 'x', 'threads', 'linkedin', 'mastodon', 'bluesky', 'instagram', 'facebook', 'youtube', 'tiktok'
+	AccountID        string    `bun:",notnull" json:"account_id"`
+	AccountUsername  string    `json:"account_username"`
+	AccountAvatarURL string    `json:"account_avatar_url"`
+	ProfileFetchedAt time.Time `bun:"profile_fetched_at,nullzero" json:"-"`
+	InstanceURL      string    `json:"instance_url"` // Used for Mastodon domains and Bluesky PDS
+	OAuthGrantID     string    `bun:"oauth_grant_id,notnull,default:''" json:"oauth_grant_id,omitempty"`
 
 	// Deprecated credential mirrors remain only for rolling migration and old
 	// test fixtures. Runtime credential reads and writes use OAuthGrant.
@@ -1170,6 +1218,10 @@ type SocialAccount struct {
 	PreflightSuccessAt  time.Time `bun:"preflight_success_at,nullzero" json:"-"`
 	PreflightWarnedAt   time.Time `bun:"preflight_warned_at,nullzero" json:"-"`
 	PreflightFailure    string    `bun:"preflight_failure,notnull,default:''" json:"-"`
+	// CredentialFailureGeneration counts healthy-to-failing credential
+	// transitions. Producers claim it atomically so one credential break
+	// notifies the reconnect-capable recipients once per generation.
+	CredentialFailureGeneration int64 `bun:"credential_failure_generation,notnull,default:0" json:"-"`
 
 	IsActive        bool      `bun:",default:true" json:"is_active"`
 	ErrorMessage    string    `json:"error_message"`
@@ -1202,7 +1254,7 @@ type ProviderInstallation struct {
 	UpdatedAt             time.Time `bun:",nullzero,notnull,default:current_timestamp" json:"updated_at"`
 }
 
-// ProviderAccountBinding separates an OpenPost account from the installation
+// ProviderAccountBinding separates a dopost account from the installation
 // that executes its provider calls. ConnectionRef is opaque and contains no
 // destination credential material.
 type ProviderAccountBinding struct {
@@ -1218,7 +1270,7 @@ type ProviderAccountBinding struct {
 	UpdatedAt          time.Time `bun:",nullzero,notnull,default:current_timestamp" json:"updated_at"`
 }
 
-// ConnectorConnectionSession lets OpenPost complete or diagnose a connection
+// ConnectorConnectionSession lets dopost complete or diagnose a connection
 // without giving the browser direct access to a connector.
 type ConnectorConnectionSession struct {
 	bun.BaseModel `bun:"table:connector_connection_sessions"`
@@ -1314,21 +1366,26 @@ type OAuthAccountSelectionReservation struct {
 type Publication struct {
 	bun.BaseModel `bun:"table:publications"`
 
-	ID                  string    `bun:",pk" json:"id"`
-	WorkspaceID         string    `bun:",notnull" json:"workspace_id"`
-	CreatedByID         string    `bun:"created_by,notnull" json:"created_by"`
-	Title               string    `bun:",notnull" json:"title"`
-	Intent              string    `bun:"intent,notnull,default:'post'" json:"intent"`
-	CreationPreset      string    `bun:"creation_preset,notnull,default:'post'" json:"creation_preset"`
-	SocialSetID         string    `bun:"social_set_id,notnull,default:''" json:"social_set_id,omitempty"`
-	ContentProfile      string    `bun:"content_profile,notnull,default:'short_text'" json:"content_profile"`
-	SourceText          string    `bun:"source_text,notnull,default:''" json:"source_text"`
-	SourceContent       string    `bun:"source_content,notnull" json:"source_content"` // legacy mirror until old post flows are removed
-	SourceURL           string    `bun:"source_url" json:"source_url"`
-	Goal                string    `json:"goal"`
-	Audience            string    `json:"audience"`
-	Status              string    `bun:",notnull,default:'draft'" json:"status"`
-	Revision            int       `bun:",notnull,default:1" json:"revision"`
+	ID             string `bun:",pk" json:"id"`
+	WorkspaceID    string `bun:",notnull" json:"workspace_id"`
+	CreatedByID    string `bun:"created_by,notnull" json:"created_by"`
+	Title          string `bun:",notnull" json:"title"`
+	Intent         string `bun:"intent,notnull,default:'post'" json:"intent"`
+	CreationPreset string `bun:"creation_preset,notnull,default:'post'" json:"creation_preset"`
+	CreationSource string `bun:"creation_source,notnull,default:'unknown'" json:"creation_source"`
+	SocialSetID    string `bun:"social_set_id,notnull,default:''" json:"social_set_id,omitempty"`
+	ContentProfile string `bun:"content_profile,notnull,default:'short_text'" json:"content_profile"`
+	SourceText     string `bun:"source_text,notnull,default:''" json:"source_text"`
+	SourceContent  string `bun:"source_content,notnull" json:"source_content"` // legacy mirror until old post flows are removed
+	SourceURL      string `bun:"source_url" json:"source_url"`
+	Goal           string `json:"goal"`
+	Audience       string `json:"audience"`
+	Status         string `bun:",notnull,default:'draft'" json:"status"`
+	Revision       int    `bun:",notnull,default:1" json:"revision"`
+	ReviewID       string `bun:"review_id,notnull,default:''" json:"review_id,omitempty"`
+	ReviewEpoch    int    `bun:"review_epoch,notnull,default:0" json:"review_epoch,omitempty"`
+	ReviewState    string `bun:"review_state,notnull,default:''" json:"review_state,omitempty"`
+
 	ScheduledAt         time.Time `bun:"scheduled_at,nullzero" json:"scheduled_at"`
 	ActualRunAt         time.Time `bun:"actual_run_at,nullzero" json:"actual_run_at"`
 	FailureDismissedAt  time.Time `bun:"failure_dismissed_at,nullzero" json:"failure_dismissed_at"`
@@ -1376,7 +1433,7 @@ type RepostPolicy struct {
 	ID                      string    `bun:",pk" json:"id"`
 	WorkspaceID             string    `bun:"workspace_id,notnull" json:"workspace_id"`
 	Name                    string    `bun:",notnull" json:"name"`
-	Enabled                 bool      `bun:",notnull,default:true" json:"enabled"`
+	Enabled                 bool      `bun:",notnull" json:"enabled"`
 	DelaySeconds            int       `bun:"delay_seconds,notnull,default:86400" json:"delay_seconds"`
 	EvaluationWindowSeconds int       `bun:"evaluation_window_seconds,notnull,default:604800" json:"evaluation_window_seconds"`
 	ThresholdMode           string    `bun:"threshold_mode,notnull,default:'all'" json:"threshold_mode"`
@@ -1484,6 +1541,7 @@ type PublicationSegmentMedia struct {
 type Rendition struct {
 	bun.BaseModel `bun:"table:renditions"`
 
+	Position         int       `bun:"position,notnull,default:0" json:"-"`
 	ID               string    `bun:",pk" json:"id"`
 	PublicationID    string    `bun:"publication_id,notnull" json:"publication_id"`
 	SocialAccountID  string    `bun:"social_account_id,notnull" json:"social_account_id"`
@@ -1527,6 +1585,7 @@ type RenditionSegment struct {
 	DescriptionOverride  *string   `bun:"description_override" json:"description_override,omitempty"`
 	URLOverride          *string   `bun:"url_override" json:"url_override,omitempty"`
 	MediaInherited       bool      `bun:"media_inherited,notnull,default:true" json:"media_inherited"`
+	SourceOverridesJSON  string    `bun:"source_overrides_json,notnull,default:'[]'" json:"source_overrides_json"`
 	SettingsJSON         string    `bun:"settings_json,notnull,default:'{}'" json:"settings_json"`
 	Status               string    `bun:"status,notnull,default:'draft'" json:"status"`
 	ExternalID           string    `bun:"external_id,notnull,default:''" json:"external_id"`
@@ -1565,109 +1624,57 @@ type RenditionMedia struct {
 	ThumbnailTimestampMS int    `bun:"thumbnail_timestamp_ms,notnull,default:0" json:"thumbnail_timestamp_ms"`
 }
 
-// AccountContent is the analytics-owned, read-only inventory of content found
-// on a connected provider account. It stores only bounded normalized fields;
-// provider responses and remote media are never retained.
-type AccountContent struct {
-	bun.BaseModel `bun:"table:account_contents"`
+// ImportedPost is the read-only library inventory of native posts authored
+// outside dopost. It is owned by the post-import surface, never by
+// analytics: analytics reads publications and renditions only, so imported
+// rows cannot clutter analytics views. Origin is always "external"; rows are
+// never published, repurposed, or measured.
+type ImportedPost struct {
+	bun.BaseModel `bun:"table:imported_posts"`
 
-	ID                    string    `bun:",pk" json:"id"`
-	WorkspaceID           string    `bun:"workspace_id,notnull" json:"workspace_id"`
-	SocialAccountID       string    `bun:"social_account_id,notnull" json:"social_account_id"`
-	Platform              string    `bun:",notnull" json:"platform"`
-	ProviderContentID     string    `bun:"provider_content_id,notnull" json:"provider_content_id"`
-	ProviderParentID      string    `bun:"provider_parent_id,notnull,default:''" json:"provider_parent_id,omitempty"`
-	ContentProfile        string    `bun:"content_profile,notnull,default:'short_text'" json:"content_profile"`
-	Title                 string    `bun:",notnull,default:''" json:"title,omitempty"`
-	Text                  string    `bun:",notnull,default:''" json:"text"`
-	ExternalURL           string    `bun:"external_url,notnull,default:''" json:"external_url,omitempty"`
-	PublishedAt           time.Time `bun:"published_at,notnull" json:"published_at"`
-	Origin                string    `bun:",notnull" json:"origin"`
-	OriginConfidence      string    `bun:"origin_confidence,notnull,default:'unknown'" json:"origin_confidence"`
-	RenditionID           string    `bun:"rendition_id,nullzero" json:"rendition_id,omitempty"`
-	FirstDiscoveredAt     time.Time `bun:"first_discovered_at,notnull" json:"first_discovered_at"`
-	LastSeenAt            time.Time `bun:"last_seen_at,notnull" json:"last_seen_at"`
-	ProviderUnavailableAt time.Time `bun:"provider_unavailable_at,nullzero" json:"provider_unavailable_at,omitempty"`
-	CreatedAt             time.Time `bun:",nullzero,notnull,default:current_timestamp" json:"created_at"`
-	UpdatedAt             time.Time `bun:",nullzero,notnull,default:current_timestamp" json:"updated_at"`
+	ID               string    `bun:",pk" json:"id"`
+	WorkspaceID      string    `bun:"workspace_id,notnull" json:"workspace_id"`
+	SocialAccountID  string    `bun:"social_account_id,notnull,unique:imported_post_identity" json:"social_account_id"`
+	Platform         string    `bun:",notnull" json:"platform"`
+	ProviderPostID   string    `bun:"provider_post_id,notnull,unique:imported_post_identity" json:"provider_post_id"`
+	ProviderParentID string    `bun:"provider_parent_id,notnull,default:''" json:"provider_parent_id,omitempty"`
+	Title            string    `bun:",notnull,default:''" json:"title,omitempty"`
+	Text             string    `bun:",notnull,default:''" json:"text"`
+	ExternalURL      string    `bun:"external_url,notnull,default:''" json:"external_url,omitempty"`
+	PublishedAt      time.Time `bun:"published_at,notnull" json:"published_at"`
+	Origin           string    `bun:",notnull,default:'external'" json:"origin"`
+	FirstSeenAt      time.Time `bun:"first_seen_at,notnull" json:"first_seen_at"`
+	LastSeenAt       time.Time `bun:"last_seen_at,notnull" json:"last_seen_at"`
+	CreatedAt        time.Time `bun:",nullzero,notnull,default:current_timestamp" json:"created_at"`
+	UpdatedAt        time.Time `bun:",nullzero,notnull,default:current_timestamp" json:"updated_at"`
 }
 
-// AnalyticsAccountContentSnapshot is an immutable measurement for one item in
-// the account content inventory.
-type AnalyticsAccountContentSnapshot struct {
-	bun.BaseModel `bun:"table:analytics_account_content_snapshots"`
+// PostImportState is the mutable per-account checkpoint for bounded,
+// resumable native-post imports. A row exists only after explicit opt-in;
+// enabling sets the watermark to now so activation never backfills history.
+type PostImportState struct {
+	bun.BaseModel `bun:"table:post_import_states"`
 
-	ID                 string    `bun:",pk" json:"id"`
-	WorkspaceID        string    `bun:"workspace_id,notnull" json:"workspace_id"`
-	AccountContentID   string    `bun:"account_content_id,notnull" json:"account_content_id"`
-	SocialAccountID    string    `bun:"social_account_id,notnull" json:"social_account_id"`
-	Platform           string    `bun:",notnull" json:"platform"`
-	MetricsJSON        string    `bun:"metrics_json,notnull,default:'{}'" json:"metrics_json"`
-	MetricMetadataJSON string    `bun:"metric_metadata_json,notnull,default:'{}'" json:"metric_metadata_json"`
-	CaptureKey         string    `bun:"capture_key,notnull,default:''" json:"-"`
-	CapturedAt         time.Time `bun:"captured_at,notnull" json:"captured_at"`
-}
-
-// AccountContentDiscoveryState is the mutable, per-account checkpoint for
-// bounded discovery. Cursor is opaque; errors are safe normalized summaries.
-type AccountContentDiscoveryState struct {
-	bun.BaseModel `bun:"table:account_content_discovery_states"`
-
-	ID                     string    `bun:",pk" json:"id"`
-	WorkspaceID            string    `bun:"workspace_id,notnull" json:"workspace_id"`
-	SocialAccountID        string    `bun:"social_account_id,notnull,unique" json:"social_account_id"`
-	Platform               string    `bun:",notnull" json:"platform"`
-	Status                 string    `bun:",notnull,default:'partial'" json:"status"`
-	CoverageStatus         string    `bun:"coverage_status,notnull,default:'partial'" json:"coverage_status"`
-	CoverageDescription    string    `bun:"coverage_description,notnull,default:''" json:"coverage_description,omitempty"`
-	Cursor                 string    `bun:",notnull,default:''" json:"-"`
-	BackfillWatermark      time.Time `bun:"backfill_watermark,nullzero" json:"backfill_watermark,omitempty"`
-	CyclePublishedAfter    time.Time `bun:"cycle_published_after,nullzero" json:"-"`
-	CycleStartedAt         time.Time `bun:"cycle_started_at,nullzero" json:"-"`
-	InitialCompletedAt     time.Time `bun:"initial_completed_at,nullzero" json:"initial_completed_at,omitempty"`
-	InitialItemsDiscovered int       `bun:"initial_items_discovered,notnull,default:0" json:"initial_items_discovered"`
-	ReadBudgetWindowStart  time.Time `bun:"read_budget_window_start,nullzero" json:"-"`
-	ReadBudgetUsed         int       `bun:"read_budget_used,notnull,default:0" json:"-"`
-	LastAttemptedAt        time.Time `bun:"last_attempted_at,nullzero" json:"last_attempted_at,omitempty"`
-	LastSuccessAt          time.Time `bun:"last_success_at,nullzero" json:"last_success_at,omitempty"`
-	FailureCode            string    `bun:"failure_code,notnull,default:''" json:"failure_code,omitempty"`
-	FailureMessage         string    `bun:"failure_message,notnull,default:''" json:"failure_message,omitempty"`
-	NextEligibleAt         time.Time `bun:"next_eligible_at,nullzero" json:"next_eligible_at,omitempty"`
-	CreatedAt              time.Time `bun:",nullzero,notnull,default:current_timestamp" json:"created_at"`
-	UpdatedAt              time.Time `bun:",nullzero,notnull,default:current_timestamp" json:"updated_at"`
-}
-
-// AccountContentDiscoveryLease is one durable provider-wide semaphore slot.
-// Expiry recovers slots after worker termination; owner IDs are job execution
-// identifiers and carry no provider credentials or payload data.
-type AccountContentDiscoveryLease struct {
-	bun.BaseModel `bun:"table:account_content_discovery_leases"`
-
-	Provider       string    `bun:",pk" json:"provider"`
-	Slot           int       `bun:",pk" json:"slot"`
-	OwnerJobID     string    `bun:"owner_job_id,notnull" json:"owner_job_id"`
-	LeaseExpiresAt time.Time `bun:"lease_expires_at,notnull" json:"lease_expires_at"`
-	UpdatedAt      time.Time `bun:"updated_at,notnull" json:"updated_at"`
-}
-
-// AccountContentObservation is a bounded provider-neutral analytics event.
-// It can precede inventory discovery, so AccountContentID is optional. The row
-// contains normalized measurements only and never the originating webhook.
-type AccountContentObservation struct {
-	bun.BaseModel `bun:"table:account_content_observations"`
-
-	ID                    string    `bun:",pk" json:"id"`
-	WorkspaceID           string    `bun:"workspace_id,notnull" json:"workspace_id"`
-	SocialAccountID       string    `bun:"social_account_id,notnull" json:"social_account_id"`
-	AccountContentID      string    `bun:"account_content_id,nullzero" json:"account_content_id,omitempty"`
-	Platform              string    `bun:",notnull" json:"platform"`
-	ProviderObservationID string    `bun:"provider_observation_id,notnull" json:"provider_observation_id"`
-	ProviderContentID     string    `bun:"provider_content_id,notnull" json:"provider_content_id"`
-	ObservationType       string    `bun:"observation_type,notnull" json:"observation_type"`
-	MetricsJSON           string    `bun:"metrics_json,notnull,default:'{}'" json:"metrics_json"`
-	MetricMetadataJSON    string    `bun:"metric_metadata_json,notnull,default:'{}'" json:"metric_metadata_json"`
-	ObservedAt            time.Time `bun:"observed_at,notnull" json:"observed_at"`
-	CreatedAt             time.Time `bun:",nullzero,notnull,default:current_timestamp" json:"created_at"`
+	ID                string    `bun:",pk" json:"id"`
+	WorkspaceID       string    `bun:"workspace_id,notnull" json:"workspace_id"`
+	SocialAccountID   string    `bun:"social_account_id,notnull,unique" json:"social_account_id"`
+	Platform          string    `bun:",notnull" json:"platform"`
+	Enabled           bool      `bun:",notnull,default:true" json:"enabled"`
+	Status            string    `bun:",notnull,default:'partial'" json:"status"`
+	Cursor            string    `bun:",notnull,default:''" json:"-"`
+	ImportWatermark   time.Time `bun:"import_watermark,nullzero" json:"import_watermark,omitempty"`
+	CycleStartedAt    time.Time `bun:"cycle_started_at,nullzero" json:"-"`
+	InitialFinishedAt time.Time `bun:"initial_finished_at,nullzero" json:"initial_finished_at,omitempty"`
+	InitialItemsSeen  int       `bun:"initial_items_seen,notnull,default:0" json:"initial_items_seen"`
+	ReadBudgetStart   time.Time `bun:"read_budget_start,nullzero" json:"-"`
+	ReadBudgetUsed    int       `bun:"read_budget_used,notnull,default:0" json:"-"`
+	LastAttemptedAt   time.Time `bun:"last_attempted_at,nullzero" json:"last_attempted_at,omitempty"`
+	LastSuccessAt     time.Time `bun:"last_success_at,nullzero" json:"last_success_at,omitempty"`
+	FailureCode       string    `bun:"failure_code,notnull,default:''" json:"failure_code,omitempty"`
+	FailureMessage    string    `bun:"failure_message,notnull,default:''" json:"failure_message,omitempty"`
+	NextEligibleAt    time.Time `bun:"next_eligible_at,nullzero" json:"next_eligible_at,omitempty"`
+	CreatedAt         time.Time `bun:",nullzero,notnull,default:current_timestamp" json:"created_at"`
+	UpdatedAt         time.Time `bun:",nullzero,notnull,default:current_timestamp" json:"updated_at"`
 }
 
 // AnalyticsAccountSnapshot is an immutable provider measurement. MetricsJSON
@@ -1742,14 +1749,27 @@ type EngagementAttachment struct {
 // EngagementItem is a normalized reply or comment collected from a provider.
 // Provider payloads are deliberately not retained.
 type EngagementItem struct {
-	bun.BaseModel `bun:"table:engagement_items"`
+	AutomationState     string    `bun:"-" json:"automation_state,omitempty"`
+	AutomationRunID     string    `bun:"-" json:"automation_run_id,omitempty"`
+	AutomationStoppedAt time.Time `bun:"automation_stopped_at,nullzero" json:"automation_stopped_at,omitempty,omitzero"`
+	RepliedAt           time.Time `bun:"replied_at,nullzero" json:"replied_at,omitempty,omitzero"`
+	bun.BaseModel       `bun:"table:engagement_items"`
 
 	ID                   string                 `bun:",pk" json:"id"`
 	WorkspaceID          string                 `bun:"workspace_id,notnull" json:"workspace_id"`
-	RenditionID          string                 `bun:"rendition_id,notnull" json:"rendition_id"`
+	RenditionID          string                 `bun:"rendition_id,nullzero" json:"rendition_id,omitempty"`
+	Kind                 string                 `bun:"kind,notnull,default:'comment'" json:"kind,omitempty"`
+	SubjectJSON          string                 `bun:"subject_json,notnull,default:'{}'" json:"-"`
+	Subject              *EngagementSubject     `bun:"-" json:"subject,omitempty"`
+	ReviewReplyCheckAt   time.Time              `bun:"review_reply_check_at,nullzero" json:"-"`
+	ReviewReplyWrittenAt time.Time              `bun:"review_reply_written_at,nullzero" json:"-"`
+	CanDeleteReply       bool                   `bun:"-" json:"can_delete_reply,omitempty"`
+	ReplyJobID           string                 `bun:"-" json:"reply_job_id,omitempty"`
+	ReplyOperationState  string                 `bun:"-" json:"reply_operation_state,omitempty"`
 	SocialAccountID      string                 `bun:"social_account_id,notnull" json:"social_account_id"`
 	Platform             string                 `bun:",notnull" json:"platform"`
 	RemoteID             string                 `bun:"remote_id,notnull" json:"remote_id"`
+	NativeRemoteID       string                 `bun:"native_remote_id,notnull,default:''" json:"-"`
 	ParentRemoteID       string                 `bun:"parent_remote_id,notnull,default:''" json:"parent_remote_id"`
 	ConversationRemoteID string                 `bun:"conversation_remote_id,notnull,default:''" json:"conversation_remote_id"`
 	AuthorRemoteID       string                 `bun:"author_remote_id,notnull,default:''" json:"author_remote_id"`
@@ -1811,24 +1831,29 @@ type Conversation struct {
 type DirectMessage struct {
 	bun.BaseModel `bun:"table:direct_messages"`
 
-	ID              string    `bun:",pk" json:"id"`
-	WorkspaceID     string    `bun:"workspace_id,notnull" json:"workspace_id"`
-	ConversationID  string    `bun:"conversation_id,notnull" json:"conversation_id"`
-	RemoteMessageID string    `bun:"remote_message_id,notnull,default:''" json:"remote_message_id"`
-	Direction       string    `bun:",notnull" json:"direction"`
-	AuthorRemoteID  string    `bun:"author_remote_id,notnull,default:''" json:"author_remote_id"`
-	Body            string    `bun:",notnull,default:''" json:"body"`
-	AttachmentsJSON string    `bun:"attachments_json,notnull,default:'[]'" json:"attachments_json"`
-	SendStatus      string    `bun:"send_status,notnull,default:'received'" json:"send_status"`
-	ErrorMessage    string    `bun:"error_message,notnull,default:''" json:"error_message"`
-	RemoteCreatedAt time.Time `bun:"remote_created_at,nullzero" json:"remote_created_at"`
-	CreatedAt       time.Time `bun:",nullzero,notnull,default:current_timestamp" json:"created_at"`
-	UpdatedAt       time.Time `bun:",nullzero,notnull,default:current_timestamp" json:"updated_at"`
+	ID                string    `bun:",pk" json:"id"`
+	WorkspaceID       string    `bun:"workspace_id,notnull" json:"workspace_id"`
+	ConversationID    string    `bun:"conversation_id,notnull" json:"conversation_id"`
+	RemoteMessageID   string    `bun:"remote_message_id,notnull,default:''" json:"remote_message_id"`
+	ReplyToRemoteID   string    `bun:"reply_to_remote_id,notnull,default:''" json:"-"`
+	ClientOperationID string    `bun:"client_operation_id,notnull,default:''" json:"client_operation_id,omitempty"`
+	DeletedAt         time.Time `bun:"deleted_at,nullzero" json:"deleted_at,omitempty,omitzero"`
+	ProviderReadAt    time.Time `bun:"provider_read_at,nullzero" json:"provider_read_at,omitempty,omitzero"`
+	Direction         string    `bun:",notnull" json:"direction"`
+	AuthorRemoteID    string    `bun:"author_remote_id,notnull,default:''" json:"author_remote_id"`
+	Body              string    `bun:",notnull,default:''" json:"body"`
+	AttachmentsJSON   string    `bun:"attachments_json,notnull,default:'[]'" json:"attachments_json"`
+	SendStatus        string    `bun:"send_status,notnull,default:'received'" json:"send_status"`
+	ErrorMessage      string    `bun:"error_message,notnull,default:''" json:"error_message"`
+	RemoteCreatedAt   time.Time `bun:"remote_created_at,nullzero" json:"remote_created_at"`
+	CreatedAt         time.Time `bun:",nullzero,notnull,default:current_timestamp" json:"created_at"`
+	UpdatedAt         time.Time `bun:",nullzero,notnull,default:current_timestamp" json:"updated_at"`
 }
 
 // EngagementSyncState is the latest safe cursor and collection state for one rendition.
 type EngagementSyncState struct {
 	bun.BaseModel `bun:"table:engagement_sync_states"`
+	Feed          string `bun:"-" json:"feed,omitempty"`
 
 	ID               string    `bun:",pk" json:"id"`
 	WorkspaceID      string    `bun:"workspace_id,notnull" json:"workspace_id"`
@@ -1897,7 +1922,7 @@ type UserNotification struct {
 	Href        string               `bun:",notnull,default:''" json:"href"`
 	PayloadJSON string               `bun:"payload_json,notnull,default:'{}'" json:"payload_json"`
 	DedupKey    string               `bun:"dedup_key,notnull,default:''" json:"-"`
-	ReadAt      time.Time            `bun:"read_at,nullzero" json:"read_at"`
+	ReadAt      time.Time            `bun:"read_at,nullzero" json:"read_at,omitempty,omitzero"`
 	CreatedAt   time.Time            `bun:",nullzero,notnull,default:current_timestamp" json:"created_at"`
 	Actions     []NotificationAction `bun:"-" json:"actions,omitempty"`
 }
@@ -1995,7 +2020,7 @@ type PublicationLifecycleEvent struct {
 }
 
 // PublicationAuthorization is an append-only proof of the exact publication
-// revision and destination payload that an actor allowed OpenPost to send. The
+// revision and destination payload that an actor allowed dopost to send. The
 // three hashes deliberately replace content, media metadata, and provider
 // settings; plaintext payloads and credentials must never be stored here.
 type PublicationAuthorization struct {
@@ -2249,6 +2274,7 @@ type DesignDocument struct {
 	ExportFormat        string    `bun:"export_format,notnull,default:'png'" json:"export_format"`
 	ExportQuality       float64   `bun:"export_quality,notnull,default:0.92" json:"export_quality"`
 	ExportMatteColor    string    `bun:"export_matte_color,notnull,default:'#ffffff'" json:"export_matte_color"`
+	SourceMediaID       string    `bun:"source_media_id,nullzero" json:"-"`
 	CoverPreviewMediaID string    `bun:"cover_preview_media_id,nullzero" json:"cover_preview_media_id,omitempty"`
 	IsFavorite          bool      `bun:"is_favorite,notnull,default:false" json:"is_favorite"`
 	CreatedAt           time.Time `bun:",nullzero,notnull,default:current_timestamp" json:"created_at"`
@@ -2617,18 +2643,19 @@ type TelegramPublishReceipt struct {
 type Job struct {
 	bun.BaseModel `bun:"table:jobs"`
 
-	ID          string    `bun:",pk" json:"id"`
-	Type        string    `bun:",notnull" json:"type"` // 'publish_post', 'refresh_token', 'media_cleanup', 'storage_delete'
-	ScopeID     string    `bun:"scope_id,notnull,default:''" json:"scope_id,omitempty"`
-	DedupeKey   string    `bun:"dedupe_key,notnull,default:''" json:"dedupe_key,omitempty"`
-	Payload     string    `bun:",notnull" json:"payload"`
-	Status      string    `bun:",default:'pending'" json:"status"` // 'pending', 'processing', 'completed', 'failed'
-	RunAt       time.Time `bun:",notnull" json:"run_at"`
-	Attempts    int       `bun:",default:0" json:"attempts"`
-	MaxAttempts int       `bun:",default:3" json:"max_attempts"`
-	LastError   string    `json:"last_error"`
-	LockedAt    time.Time `bun:"locked_at,nullzero" json:"locked_at"`
-	LockedBy    string    `json:"locked_by"`
+	ID              string    `bun:",pk" json:"id"`
+	Type            string    `bun:",notnull" json:"type"` // 'publish_post', 'refresh_token', 'media_cleanup', 'storage_delete'
+	ScopeID         string    `bun:"scope_id,notnull,default:''" json:"scope_id,omitempty"`
+	DedupeKey       string    `bun:"dedupe_key,notnull,default:''" json:"dedupe_key,omitempty"`
+	Payload         string    `bun:",notnull" json:"payload"`
+	Status          string    `bun:",default:'pending'" json:"status"` // 'pending', 'processing', 'completed', 'failed'
+	RunAt           time.Time `bun:",notnull" json:"run_at"`
+	Attempts        int       `bun:",default:0" json:"attempts"`
+	MaxAttempts     int       `bun:",default:3" json:"max_attempts"`
+	LastError       string    `json:"last_error"`
+	LockedAt        time.Time `bun:"locked_at,nullzero" json:"locked_at"`
+	LockedBy        string    `json:"locked_by"`
+	LeaseGeneration int64     `bun:"lease_generation,notnull,default:0" json:"-"`
 }
 
 type PostVariant struct {

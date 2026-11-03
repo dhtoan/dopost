@@ -39,6 +39,8 @@ func TestRESTPublicationAuthorizationCapturesBrowserAPIAndCLIActors(t *testing.T
 			principal: &middleware.Principal{UserID: "user-1", SessionID: "session-1"}},
 		{name: "api", token: "api-token", expectedOrigin: publicationauth.OriginAPI,
 			principal: &middleware.Principal{UserID: "user-1", TokenID: "token-api", ClientID: "integration-1", ClientName: "Automation", Scope: apitokens.ScopeCLI}},
+		{name: "sdk", token: "sdk-token", userAgent: "openpost-sdk/0.1.0", expectedOrigin: publicationauth.OriginSDK,
+			principal: &middleware.Principal{UserID: "user-1", TokenID: "token-sdk", ClientID: "integration-1", ClientName: "SDK app", Scope: apitokens.ScopeCLI}},
 		{name: "cli", token: "cli-token", userAgent: "openpost-cli/3.5.0", expectedOrigin: publicationauth.OriginCLI,
 			principal: &middleware.Principal{UserID: "user-1", TokenID: "token-cli", ClientID: openPostCLIClientID, ClientName: "Laptop", Scope: apitokens.ScopeCLI}},
 	}
@@ -85,7 +87,7 @@ func TestMCPPublicationAuthorizationRetainsTokenAndClientIdentity(t *testing.T) 
 	}
 	raw, err := json.Marshal(map[string]any{
 		"name":      mcpToolSchedulePub,
-		"arguments": map[string]any{"publication_id": "publication-1", "expected_revision": 1},
+		"arguments": map[string]any{"post_id": "publication-1", "expected_revision": 1},
 	})
 	require.NoError(t, err)
 	handler := &MCPHandler{db: db}
@@ -101,6 +103,28 @@ func TestMCPPublicationAuthorizationRetainsTokenAndClientIdentity(t *testing.T) 
 	require.Equal(t, principal.TokenID, receipt.ActorTokenID)
 	require.Equal(t, principal.ClientID, receipt.ActorClientID)
 	require.Equal(t, principal.ClientName, receipt.ActorClientName)
+}
+
+func TestPublicationCreationSourceUsesLowCardinalityActorOrigin(t *testing.T) {
+	tests := []struct {
+		origin string
+		want   string
+	}{
+		{publicationauth.OriginBrowser, publicationCreationSourceWeb},
+		{publicationauth.OriginAPI, publicationCreationSourceAPI},
+		{publicationauth.OriginSDK, publicationCreationSourceSDK},
+		{publicationauth.OriginMCP, publicationCreationSourceMCP},
+		{publicationauth.OriginCLI, publicationCreationSourceCLI},
+		{publicationauth.OriginWorker, publicationCreationSourceAutopost},
+		{publicationauth.OriginLegacy, publicationCreationSourceUnknown},
+	}
+	for _, test := range tests {
+		t.Run(test.origin, func(t *testing.T) {
+			actor := publicationauth.Actor{Origin: test.origin, UserID: "user-1", SessionID: "session-1", TokenID: "token-1"}
+			ctx := publicationauth.WithActor(t.Context(), actor)
+			require.Equal(t, test.want, publicationCreationSource(ctx, "user-1"))
+		})
+	}
 }
 
 func TestAccountExportRedactsPublicationAuthorizationSecretsAndFingerprints(t *testing.T) {

@@ -2,7 +2,7 @@
 	import { resolve } from '$app/paths';
 	import Check from '@lucide/svelte/icons/check';
 	import { planCatalog, purchaseTerms } from '@openpost/plan-catalog';
-	import { Button } from '$lib/components/ui/button';
+	import { Button } from '@openpost/ui/components/button';
 	import {
 		appUrl,
 		billingSettingsUrl,
@@ -51,7 +51,7 @@
 					value: (p: (typeof plans)[number]) => p.limits.team_members.toLocaleString('en-US')
 				},
 				{
-					label: 'Scheduled publications / month',
+					label: 'Scheduled posts / month',
 					value: (p: (typeof plans)[number]) =>
 						p.limits.scheduled_posts_monthly.toLocaleString('en-US')
 				},
@@ -177,8 +177,8 @@
 					Each workspace has separate limits. One social account is one connected profile or page.
 				</p>
 				<p>
-					A publication counts once, including all threads and destinations. Monthly allowances
-					reset by calendar month in UTC, including on yearly plans.
+					A post counts once, including all threads and destinations. Monthly allowances reset by
+					calendar month in UTC, including on yearly plans.
 				</p>
 				<p>
 					AI writing and alt text have no separate charge. Provider limits, including the monthly X
@@ -191,7 +191,7 @@
 			<summary class="focus-ring">Trial and billing details</summary>
 			<div>
 				<p>
-					{managedPaymentExpectation} OpenPost shows the renewal date and price before you start. Cancel
+					{managedPaymentExpectation} dopost shows the renewal date and price before you start. Cancel
 					or manage your plan in
 					<a class="focus-ring" href={billingSettingsUrl}>Billing settings</a> before renewal.
 				</p>

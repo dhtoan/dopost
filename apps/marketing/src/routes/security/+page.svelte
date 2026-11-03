@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
 	import { LockKeyhole, UserRoundCheck, ShieldCheck, ArrowUpRight } from '@lucide/svelte';
-	import { Button } from '$lib/components/ui/button';
+	import { Button } from '@openpost/ui/components/button';
 	import { formatLegalDate, securityAssurance } from '@openpost/legal-policy';
 	import { githubUrl } from '../_marketing';
 	import HeroAccent from '../_components/HeroAccent.svelte';
@@ -17,7 +17,7 @@
 			title: 'Keep account keys private',
 			icon: LockKeyhole,
 			detail:
-				'OpenPost encrypts the credentials saved for your connected social accounts. Your password is hashed before it is stored.'
+				'dopost encrypts the credentials saved for your connected social accounts. Your password is hashed before it is stored.'
 		},
 		{
 			title: 'Choose who has access',
@@ -32,11 +32,11 @@
 	<div>
 		<h1 class="marketing-title">Your accounts.<br /><HeroAccent>Your control.</HeroAccent></h1>
 		<p class="marketing-copy">
-			Your business depends on the accounts you connect. Here’s how OpenPost protects them, and the
+			Your business depends on the accounts you connect. Here’s how dopost protects them, and the
 			controls you have.
 		</p>
 		<div class="actions">
-			<Button href="https://docs.openpo.st/guides/workspaces" size="lg"
+			<Button href="https://openpo.st/docs/guides/workspaces" size="lg" data-sveltekit-reload
 				>Protect your account <ArrowUpRight data-icon="inline-end" /></Button
 			><a class="focus-ring" href={resolve('/trust')}>See how we handle your data</a>
 		</div>
@@ -68,11 +68,11 @@
 				<summary>{control.control}</summary>
 				<dl>
 					<div>
-						<dt>In OpenPost</dt>
+						<dt>In dopost</dt>
 						<dd>{control.application}</dd>
 					</div>
 					<div>
-						<dt>On OpenPost Cloud</dt>
+						<dt>On dopost Cloud</dt>
 						<dd>{control.managed_service}</dd>
 					</div>
 					<div>

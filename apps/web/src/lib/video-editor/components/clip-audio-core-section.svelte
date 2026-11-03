@@ -1,6 +1,8 @@
 <script lang="ts">
+	import PropertyKeyframeButton from './property-keyframe-button.svelte';
+	import { Disclosure as EditorDisclosure } from '$lib/components/editor-density';
 	import { Slider } from '$lib/components/ui/slider';
-	import { ThemeIcon, ProtectedIcon } from '$lib/themes/icons';
+	import { ThemeIcon } from '$lib/themes/icons';
 	import { m } from '$lib/paraglide/messages';
 	import {
 		clampAudioPitchCents,
@@ -26,14 +28,9 @@
 	import type { TimelineSnapshot } from '$lib/video-editor/timeline/commands/types';
 	import { autoKeyframeStore } from '$lib/video-editor/timeline/stores/auto-keyframe-store.svelte';
 	import { timelineStore } from '$lib/video-editor/timeline/stores/timeline-store.svelte';
-	import { getSynchronizedLinkedItems } from '$lib/video-editor/timeline/utils/linked-items';
-	import ScrubbableNumberInput from '$lib/components/editor-scrubbable-number-input.svelte';
+	import { ScrubField } from '$lib/components/editor-density';
 
-	let {
-		itemId,
-		itemIds = [],
-		onedit
-	}: { itemId: string; itemIds?: string[]; onedit: () => void } = $props();
+	let { audioItems, onedit }: { audioItems: TimelineItem[]; onedit: () => void } = $props();
 
 	type StaticAudioField =
 		| 'audioFadeIn'
@@ -41,23 +38,6 @@
 		| 'audioPitchSemitones'
 		| 'audioPitchCents';
 
-	const audioItems = $derived.by(() => {
-		const selectedIds = itemIds.length > 0 ? itemIds : [itemId];
-		const selected = [...new Set(selectedIds)]
-			.map((id) => timelineStore.itemById.get(id))
-			.filter((item): item is TimelineItem => item !== undefined);
-		const selectedAudio = selected.filter((item) => item.type === 'audio');
-		if (selectedAudio.length > 0) return selectedAudio;
-		const resolved = new Map<string, TimelineItem>();
-		for (const item of selected) {
-			if (item.type !== 'video') continue;
-			const companion = getSynchronizedLinkedItems(timelineStore.items, item.id).find(
-				(candidate) => candidate.type === 'audio'
-			);
-			resolved.set((companion ?? item).id, companion ?? item);
-		}
-		return [...resolved.values()];
-	});
 	const selectedIds = $derived(audioItems.map((item) => item.id));
 	let gesture = $state<{
 		property: KeyframeProperty | StaticAudioField;
@@ -106,9 +86,10 @@
 	}
 
 	function fadeLimit(): number {
+		if (audioItems.length === 0) return 0;
 		return Math.max(
 			0,
-			Math.min(5, ...audioItems.map((item) => item.durationInFrames / timelineStore.fps))
+			Math.min(...audioItems.map((item) => item.durationInFrames / timelineStore.fps))
 		);
 	}
 
@@ -185,22 +166,6 @@
 		gesture = null;
 	}
 
-	function autoKeyEnabled(): boolean {
-		return (
-			audioItems.length > 0 &&
-			audioItems.every((item) => autoKeyframeStore.isEnabled(item.id, 'volume'))
-		);
-	}
-
-	function toggleAutoKey(): void {
-		const enabled = !autoKeyEnabled();
-		for (const item of audioItems) {
-			if (autoKeyframeStore.isEnabled(item.id, 'volume') !== enabled) {
-				autoKeyframeStore.toggle(item.id, 'volume');
-			}
-		}
-	}
-
 	function resetGain(): void {
 		let changed = false;
 		executeAtomic('RESET_CLIP_GAIN', () => {
@@ -238,7 +203,7 @@
 		<span class="text-[10px] font-medium text-[var(--video-editor-muted)]">{label}</span>
 		<div class="flex min-w-0 items-center gap-1">
 			<Slider
-				class="h-7 min-w-8 flex-1 [&_[data-slot=slider-thumb]]:shadow-none"
+				class="h-[var(--editor-22,22px)] min-w-8 flex-1 [&_[data-slot=slider-thumb]]:shadow-none"
 				{min}
 				{max}
 				{step}
@@ -254,19 +219,21 @@
 				onKeydown={(event) => event.stopPropagation()}
 			/>
 			<div class="relative w-[4.8rem] shrink-0">
-				<ScrubbableNumberInput
+				<ScrubField
 					ariaLabel={label}
 					{value}
 					placeholder={m.video_editor_property_mixed()}
 					{min}
 					{max}
 					{step}
-					{decimals}
-					class="h-7 w-full rounded border border-[var(--video-editor-border)] bg-[var(--video-editor-control)] py-1 pr-6 pl-1.5 text-right text-[11px] tabular-nums outline-none"
+					precision={decimals}
+					valueWidth="100%"
+					class="h-[var(--editor-22,22px)] rounded border border-[var(--video-editor-border)] bg-[var(--video-editor-control)] py-1 pr-6 pl-1.5 text-right text-[11px] tabular-nums outline-none"
 					onbegin={() => beginGesture(property)}
-					onlive={(next) => (property === 'volume' ? writeGain(next) : writeStatic(property, next))}
-					oncommit={(next) => commit(property, next)}
-					oncancel={cancelGesture}
+					onValueChange={(next) =>
+						property === 'volume' ? writeGain(next) : writeStatic(property, next)}
+					onValueCommit={(next) => commit(property, next)}
+					onValueCancel={cancelGesture}
 				/>
 				<span
 					class="pointer-events-none absolute top-1/2 right-1.5 -translate-y-1/2 text-[9px] text-[var(--video-editor-muted)]"
@@ -274,23 +241,11 @@
 				>
 			</div>
 			{#if property === 'volume'}
-				<button
-					type="button"
-					class:active={autoKeyEnabled()}
-					class="grid size-6 shrink-0 place-items-center rounded text-[var(--video-editor-muted)] hover:bg-[var(--video-editor-control-hover)] hover:text-[var(--video-editor-muted)] focus-visible:outline-2 focus-visible:outline-[var(--video-editor-focus)] [&.active]:text-[var(--video-editor-primary)]"
-					aria-label={m.video_editor_property_auto_key({ property: label })}
-					aria-pressed={autoKeyEnabled()}
-					onclick={toggleAutoKey}
-				>
-					<ProtectedIcon
-						icon="editor-keyframe"
-						class={`size-2.5 ${autoKeyEnabled() ? 'fill-current' : ''}`}
-					/>
-				</button>
+				<PropertyKeyframeButton items={audioItems} property="volume" {label} {onedit} />
 			{/if}
 			<button
 				type="button"
-				class="grid size-7 shrink-0 place-items-center rounded text-[var(--video-editor-muted)] hover:bg-[var(--video-editor-control-hover)] hover:text-[var(--video-editor-muted)] focus-visible:outline-2 focus-visible:outline-[var(--video-editor-focus)]"
+				class="grid size-[22px] shrink-0 place-items-center rounded text-[var(--video-editor-muted)] hover:bg-[var(--video-editor-control-hover)] hover:text-[var(--video-editor-muted)] focus-visible:outline-2 focus-visible:outline-[var(--video-editor-focus)]"
 				aria-label={m.video_editor_motion_override_reset({ name: label })}
 				onclick={() => (property === 'volume' ? resetGain() : resetStatic(property))}
 			>
@@ -302,11 +257,9 @@
 
 {#if audioItems.length > 0}
 	<div class="flex flex-col gap-2" data-testid="clip-audio-core-section">
-		<section
-			class="overflow-hidden rounded-md border border-[var(--video-editor-border)] bg-[var(--video-editor-panel)]"
-		>
+		<section class="border-t border-[var(--video-editor-border)]">
 			<h3
-				class="flex h-8 items-center gap-2 border-b border-[var(--video-editor-border)] px-2.5 text-[10px] font-semibold tracking-wider text-[var(--video-editor-muted)] uppercase"
+				class="flex h-[25px] items-center gap-2 border-b border-[var(--video-editor-border)] px-2.5 text-xs font-medium text-[var(--video-editor-muted)]"
 			>
 				<ThemeIcon role="audio" class="size-3.5 text-[var(--video-editor-muted)]" />
 				{m.video_editor_property_audio()}
@@ -344,37 +297,31 @@
 				)}
 			</div>
 		</section>
-		<section
-			class="overflow-hidden rounded-md border border-[var(--video-editor-border)] bg-[var(--video-editor-panel)]"
-		>
-			<h3
-				class="flex h-8 items-center gap-2 border-b border-[var(--video-editor-border)] px-2.5 text-[10px] font-semibold tracking-wider text-[var(--video-editor-muted)] uppercase"
-			>
-				<ThemeIcon role="audio" class="size-3.5 text-[var(--video-editor-muted)]" />
-				{m.video_editor_audio_pitch()}
-			</h3>
-			<div class="divide-y divide-[var(--video-editor-border)]">
-				{@render control(
-					'audioPitchSemitones',
-					m.video_editor_audio_semitones(),
-					mixedValue((item) => item.audioPitchSemitones ?? 0),
-					-12,
-					12,
-					1,
-					'st',
-					0
-				)}
-				{@render control(
-					'audioPitchCents',
-					m.video_editor_audio_cents(),
-					mixedValue((item) => item.audioPitchCents ?? 0),
-					-100,
-					100,
-					1,
-					'ct',
-					0
-				)}
-			</div>
+		<section class="border-t border-[var(--video-editor-border)]">
+			<EditorDisclosure label={m.video_editor_audio_pitch()}>
+				<div class="divide-y divide-[var(--video-editor-border)]">
+					{@render control(
+						'audioPitchSemitones',
+						m.video_editor_audio_semitones(),
+						mixedValue((item) => item.audioPitchSemitones ?? 0),
+						-12,
+						12,
+						1,
+						'st',
+						0
+					)}
+					{@render control(
+						'audioPitchCents',
+						m.video_editor_audio_cents(),
+						mixedValue((item) => item.audioPitchCents ?? 0),
+						-100,
+						100,
+						1,
+						'ct',
+						0
+					)}
+				</div>
+			</EditorDisclosure>
 		</section>
 	</div>
 {/if}

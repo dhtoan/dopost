@@ -1,6 +1,9 @@
 <script lang="ts">
+	import { workspaceCtx } from '$lib/stores/workspace.svelte';
 	import { tick } from 'svelte';
-	import { primaryNavigation } from '$lib/app-navigation';
+	import { ideate } from '$lib/post-builder/ideate.svelte';
+	import { primaryNavigation, type PrimaryNavigationItem } from '$lib/app-navigation';
+	import type { ThemeIconRole } from '$lib/themes';
 	import { goto } from '$app/navigation';
 	import { resolveAppPath } from '$lib/app-path';
 	import { ui } from '$lib/stores/ui.svelte';
@@ -10,9 +13,51 @@
 	import WorkspaceMenuItems from './workspace-menu-items.svelte';
 	import AccountPreferencesMenu from './account-preferences-menu.svelte';
 	const destinations = $derived(
-		primaryNavigation.filter((item) => ['home', 'analytics', 'growth', 'editors'].includes(item.id))
+		primaryNavigation.filter((item) =>
+			['analytics', 'ideate', 'studio', 'media', 'workflows', 'accounts', 'settings'].includes(
+				item.id
+			)
+		)
 	);
 	let { onNavigate }: { onNavigate: () => void } = $props();
+
+	function itemIcon(id: PrimaryNavigationItem['id']): ThemeIconRole {
+		switch (id) {
+			case 'analytics':
+				return 'analytics';
+			case 'ideate':
+				return 'sparkles';
+			case 'studio':
+				return 'editors';
+			case 'media':
+				return 'media';
+			case 'workflows':
+				return 'repeat';
+			case 'accounts':
+				return 'organization';
+			default:
+				return 'settings';
+		}
+	}
+
+	function itemLabel(id: PrimaryNavigationItem['id']) {
+		switch (id) {
+			case 'analytics':
+				return m.sidebar_analytics();
+			case 'ideate':
+				return m.nav_ideas();
+			case 'studio':
+				return m.nav_studio();
+			case 'media':
+				return m.sidebar_media();
+			case 'workflows':
+				return m.nav_automations();
+			case 'accounts':
+				return m.sidebar_accounts();
+			default:
+				return m.sidebar_settings();
+		}
+	}
 	let section = $state<'main' | 'workspace' | 'profile'>('main');
 	let backItem = $state<HTMLDivElement | null>(null);
 	let workspaceItem = $state<HTMLDivElement | null>(null);
@@ -47,29 +92,18 @@
 {:else if section === 'profile'}
 	<AccountPreferencesMenu {onNavigate} />
 {:else}
-	{#each destinations as item (item.id)}
+	{#each destinations.filter((item) => item.id !== 'ideate' || workspaceCtx.currentWorkspace?.can_edit) as item (item.id)}
 		<DropdownMenu.Item
 			class="min-h-11 gap-3"
 			onclick={() => {
 				onNavigate();
+				if (item.id === 'ideate') {
+					ideate.show();
+					return;
+				}
 				goto(resolveAppPath(item.href));
 			}}
-			><ThemeIcon
-				role={item.id === 'home'
-					? 'home'
-					: item.id === 'analytics'
-						? 'analytics'
-						: item.id === 'growth'
-							? 'growth'
-							: 'editors'}
-				class="size-4"
-			/>{item.id === 'home'
-				? 'Home'
-				: item.id === 'analytics'
-					? m.sidebar_analytics()
-					: item.id === 'growth'
-						? m.sidebar_grow()
-						: m.editors_title()}</DropdownMenu.Item
+			><ThemeIcon role={itemIcon(item.id)} class="size-4" />{itemLabel(item.id)}</DropdownMenu.Item
 		>
 	{/each}
 	<DropdownMenu.Separator />

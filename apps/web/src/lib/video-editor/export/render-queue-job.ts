@@ -14,7 +14,11 @@ import type {
 } from './render-queue-store';
 
 function cloneTimeline<T>(value: T): T {
-	return structuredClone(value);
+	// Queue snapshots are persisted as JSON. The JSON round trip also unwraps
+	// Svelte's deeply proxied editor state before it reaches the queue.
+	const serialized = JSON.stringify(value);
+	// SAFETY: JSON serialization preserves the queue snapshot's persisted document shape.
+	return JSON.parse(serialized) as T;
 }
 
 export interface RenderQueueRange {
@@ -160,4 +164,31 @@ export function rangesFromFixedDuration(
 		ranges.push({ startFrame, endFrame: Math.min(startFrame + size, rangeEnd) });
 	}
 	return ranges;
+}
+
+export function projectForRenderJob(job: RenderQueueJob): Project {
+	const { snapshot } = job;
+	return {
+		id: snapshot.projectId,
+		name: job.name,
+		description: '',
+		createdAt: job.createdAt,
+		updatedAt: job.createdAt,
+		duration: job.settings.range.endFrame / snapshot.fps,
+		metadata: {
+			width: snapshot.width,
+			height: snapshot.height,
+			fps: snapshot.fps,
+			backgroundColor: snapshot.backgroundColor
+		},
+		timeline: {
+			tracks: snapshot.tracks,
+			items: snapshot.items,
+			transitions: snapshot.transitions,
+			compositions: snapshot.compositions,
+			masterVolumeDb: snapshot.masterVolumeDb ?? 0,
+			masterMuted: snapshot.masterMuted ?? false,
+			busAudioEq: snapshot.busAudioEq
+		}
+	};
 }

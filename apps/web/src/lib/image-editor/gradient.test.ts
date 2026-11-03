@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { gradientColorAt, gradientRatioAtPoint, normalizedGradientStops } from './gradient';
+import {
+	gradientColorAt,
+	gradientRatioAtPoint,
+	normalizedGradientStops,
+	retargetImageEditorGradient
+} from './gradient';
 import type { ImageEditorGradientValue } from './types';
 
 function gradient(type: ImageEditorGradientValue['type']): ImageEditorGradientValue {
@@ -15,7 +20,7 @@ function gradient(type: ImageEditorGradientValue['type']): ImageEditorGradientVa
 	};
 }
 
-describe('OpenPost Image Editor gradients', () => {
+describe('dopost Image Editor gradients', () => {
 	it('normalizes and reverses ordered color stops', () => {
 		expect(
 			normalizedGradientStops(
@@ -41,5 +46,31 @@ describe('OpenPost Image Editor gradients', () => {
 
 	it('interpolates gradient colors with alpha preserved', () => {
 		expect(gradientColorAt(gradient('linear'), { x: 50, y: 0 })).toBe('#808080ff');
+	});
+
+	it.each(['radial', 'angle', 'reflected', 'diamond'] as const)(
+		'centers %s geometry when changing from a linear gradient',
+		(type) => {
+			const result = retargetImageEditorGradient(gradient('linear'), type, 100, 80);
+
+			expect(result.start).toEqual({ x: 50, y: 40 });
+			expect(result.end).toEqual({ x: 100, y: 40 });
+		}
+	);
+
+	it('expands centered geometry back across the page for a linear gradient', () => {
+		const result = retargetImageEditorGradient(
+			{
+				...gradient('reflected'),
+				start: { x: 50, y: 40 },
+				end: { x: 100, y: 40 }
+			},
+			'linear',
+			100,
+			80
+		);
+
+		expect(result.start).toEqual({ x: 0, y: 40 });
+		expect(result.end).toEqual({ x: 100, y: 40 });
 	});
 });

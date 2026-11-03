@@ -171,7 +171,7 @@ func (te *TokenEncryptor) Decrypt(ciphertext []byte) (string, error) {
 	return "", errors.New("legacy ciphertext could not be decrypted with the configured encryption keys")
 }
 
-// DecryptEnvelope decrypts only recognized versioned OpenPost ciphertext. The
+// DecryptEnvelope decrypts only recognized versioned dopost ciphertext. The
 // boolean is false for legacy ciphertext and unrelated bytes, allowing stores
 // with a text marker to distinguish a raw value from an encrypted envelope.
 func (te *TokenEncryptor) DecryptEnvelope(ciphertext []byte) (plaintext string, recognized bool, err error) {

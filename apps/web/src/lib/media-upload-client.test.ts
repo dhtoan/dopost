@@ -25,6 +25,11 @@ describe('media-upload-client', () => {
 			direct_upload_supported: true,
 			internal_bytes: 0,
 			limit_bytes: 0,
+			upload_limits: {
+				brand_font_bytes: 10 * 1024 * 1024,
+				default_bytes: 50 * 1024 * 1024,
+				video_bytes: 16 * 1024 * 1024 * 1024
+			},
 			used_bytes: 0
 		} satisfies MediaStorage);
 		let capturedRequest: RequestInit | undefined;
@@ -82,7 +87,7 @@ describe('media-upload-client', () => {
 		expect(headers.get('x-amz-meta-workspace')).toBe('ws-1');
 	});
 
-	it('sends OpenPost credentials only to instance-hosted upload targets', () => {
+	it('sends dopost credentials only to instance-hosted upload targets', () => {
 		const openPostHeaders = new Headers({
 			Authorization: 'Bearer op_cli_secret',
 			'X-PostHog-Distinct-ID': 'browser-user-1',
@@ -141,10 +146,19 @@ describe('media-upload-client', () => {
 			direct_upload_supported: true,
 			internal_bytes: 0,
 			limit_bytes: 0,
+			upload_limits: {
+				brand_font_bytes: 10 * 1024 * 1024,
+				default_bytes: 50 * 1024 * 1024,
+				video_bytes: 16 * 1024 * 1024 * 1024
+			},
 			used_bytes: 0
 		} satisfies MediaStorage);
 		const controller = new AbortController();
 		const onProgress = vi.fn();
+		const fetchMock = vi.fn(() => {
+			throw new Error('upload network must not be entered');
+		});
+		vi.stubGlobal('fetch', fetchMock);
 		controller.abort();
 
 		await expect(
@@ -156,6 +170,8 @@ describe('media-upload-client', () => {
 			})
 		).rejects.toMatchObject({ name: 'AbortError' });
 		expect(onProgress).not.toHaveBeenCalled();
+		// A pre-aborted signal skips every upload request, not just progress.
+		expect(fetchMock).not.toHaveBeenCalled();
 	});
 
 	it('falls back only when direct upload sessions are unavailable', () => {

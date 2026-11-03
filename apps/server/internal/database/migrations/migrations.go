@@ -38,6 +38,28 @@ func RunMigrations(db *bun.DB) error {
 	return runMigrations(db, migrationFiles)
 }
 
+// LatestVersion returns the highest migration version shipped in this binary.
+func LatestVersion() (int64, error) {
+	entries, err := fs.ReadDir(migrationFiles, ".")
+	if err != nil {
+		return 0, fmt.Errorf("failed to read migration files: %w", err)
+	}
+	var latest int64
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".sql") {
+			continue
+		}
+		version, err := parseVersion(entry.Name())
+		if err != nil {
+			return 0, fmt.Errorf("invalid migration filename %q: %w", entry.Name(), err)
+		}
+		if version > latest {
+			latest = version
+		}
+	}
+	return latest, nil
+}
+
 // RequireCurrent verifies that every migration shipped in this binary has
 // already been applied. Long-lived process roles use this read-only check and
 // leave schema changes to the explicit migrate release phase.
@@ -210,6 +232,11 @@ func hasMigration(migrations []migration, version int64, name string) bool {
 }
 
 func finalizeMigrations(ctx context.Context, db *bun.DB, appliedSet map[int64]bool) error {
+	if appliedSet[172] {
+		if err := backfillEngagementNativeIdentity(ctx, db); err != nil {
+			return fmt.Errorf("engagement native identity backfill failed: %w", err)
+		}
+	}
 	if err := repairAppliedSchema(ctx, db, appliedSet); err != nil {
 		return err
 	}
@@ -443,6 +470,9 @@ func prepareMigration(ctx context.Context, db *bun.DB, migration migration) erro
 	case 129:
 		description = "external application access token ownership"
 		err = ensureExternalApplicationTokenColumn(ctx, db)
+	case 171:
+		description = "account-level engagement subjects"
+		err = prepareAccountEngagement(ctx, db)
 	}
 	if err != nil {
 		return fmt.Errorf("migration %s %s preparation failed: %w", migration.name, description, err)

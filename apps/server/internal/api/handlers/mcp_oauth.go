@@ -55,7 +55,7 @@ type CreateMCPOAuthAuthorizationInput struct {
 		ResponseType        string `json:"response_type" doc:"OAuth response type. Must be code."`
 		ClientID            string `json:"client_id" doc:"OAuth client ID or client metadata URL"`
 		RedirectURI         string `json:"redirect_uri" doc:"OAuth redirect URI"`
-		Scope               string `json:"scope,omitempty" doc:"Space-separated MCP scopes: mcp:read and mcp:full. Requesting both grants mcp:full. Defaults to mcp:full."`
+		Scope               string `json:"scope,omitempty" doc:"Space-separated MCP scopes: mcp:read and mcp:full. Requesting both returns both scopes while enforcing mcp:full. Defaults to mcp:full."`
 		State               string `json:"state,omitempty" doc:"Opaque client state to echo to the redirect URI"`
 		CodeChallenge       string `json:"code_challenge,omitempty" doc:"PKCE S256 code challenge. Required when approved is true."`
 		CodeChallengeMethod string `json:"code_challenge_method,omitempty" doc:"PKCE method. Must be S256 when approved is true."`
@@ -157,17 +157,18 @@ func mcpTokenPolicyError(err error) error {
 func (h *MCPOAuthHandler) authorizationServerMetadata(c echo.Context) error {
 	baseURL := requestBaseURL(c.Request(), h.publicURL)
 	metadata := map[string]any{
-		"issuer":                                baseURL,
-		"authorization_endpoint":                baseURL + "/oauth/authorize",
-		"token_endpoint":                        baseURL + "/oauth/token",
-		"revocation_endpoint":                   baseURL + "/oauth/revoke",
-		"response_types_supported":              []string{"code"},
-		"grant_types_supported":                 []string{"authorization_code", "refresh_token"},
-		"code_challenge_methods_supported":      []string{mcpoauth.CodeChallengeMethodS256},
-		"token_endpoint_auth_methods_supported": []string{"none", "client_secret_post", "client_secret_basic"},
-		"scopes_supported":                      append([]string{mcpScopeRead, mcpScopeFull}, externalapps.SupportedScopes()...),
-		"client_id_metadata_document_supported": true,
-		"resource_indicators_supported":         true,
+		"issuer":                                         baseURL,
+		"authorization_endpoint":                         baseURL + "/oauth/authorize",
+		"token_endpoint":                                 baseURL + "/oauth/token",
+		"revocation_endpoint":                            baseURL + "/oauth/revoke",
+		"response_types_supported":                       []string{"code"},
+		"grant_types_supported":                          []string{"authorization_code", "refresh_token"},
+		"code_challenge_methods_supported":               []string{mcpoauth.CodeChallengeMethodS256},
+		"token_endpoint_auth_methods_supported":          []string{"none", "client_secret_post", "client_secret_basic"},
+		"scopes_supported":                               append([]string{mcpScopeRead, mcpScopeFull}, externalapps.SupportedScopes()...),
+		"client_id_metadata_document_supported":          true,
+		"resource_indicators_supported":                  true,
+		"authorization_response_iss_parameter_supported": true,
 	}
 	if h.externalApps != nil && h.externalApps.DynamicRegistrationEnabled() {
 		metadata["registration_endpoint"] = baseURL + "/oauth/register"
@@ -312,6 +313,11 @@ func (h *MCPOAuthHandler) revoke(c echo.Context) error {
 	if err := c.Request().ParseForm(); err != nil {
 		return h.oauthError(c, http.StatusBadRequest, "invalid_request", "Invalid form body")
 	}
+	if h.service != nil {
+		if err := h.service.Revoke(c.Request().Context(), c.FormValue("token")); err != nil {
+			return h.oauthError(c, http.StatusInternalServerError, "server_error", "Token revocation failed")
+		}
+	}
 	if h.externalApps != nil {
 		if err := h.externalApps.Revoke(c.Request().Context(), c.FormValue("token")); err != nil {
 			return h.oauthError(c, http.StatusInternalServerError, "server_error", "Token revocation failed")
@@ -367,3 +373,5 @@ func mcpOAuthError(err error) (int, string, string) {
 		return http.StatusInternalServerError, "server_error", "OAuth request failed"
 	}
 }
+
+func (h *MCPOAuthHandler) SetRateLimiter(limiter *ratelimit.Limiter) { h.limiter = limiter }

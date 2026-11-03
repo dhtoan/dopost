@@ -2,28 +2,37 @@ package telemetry
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
 	"reflect"
 	"regexp"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	posthog "github.com/posthog/posthog-go"
 )
 
 const (
+	EventAPIMutationCompleted          = "api mutation completed"
 	EventPublicationScheduled          = "publication scheduled"
 	EventPublicationQueued             = "publication queued"
 	EventRenditionPublished            = "rendition published"
 	EventRenditionFailed               = "rendition failed"
 	EventBillingCheckoutCreated        = "billing checkout created"
+	EventPublicationBuildQueued        = "publication build queued"
+	EventPublicationBuildCompleted     = "publication build completed"
+	EventPublicationBuildFailed        = "publication build failed"
+	EventWorkflowRunFinished           = "workflow run finished"
+	EventHostedWaitlistJoined          = "hosted waitlist joined"
 	EventSignupCompleted               = "signup completed"
 	EventPlanConfirmed                 = "plan confirmed"
 	EventWorkspaceCreated              = "workspace created"
 	EventCheckoutCompleted             = "checkout completed"
 	EventDestinationConnected          = "destination connected"
+	EventFirstCompositionStarted       = "first composition started"
 	EventWorkspaceActivated            = "workspace activated"
 	EventGrowthRefreshRequested        = "growth refresh requested"
 	EventGrowthRefreshCompleted        = "growth refresh completed"
@@ -34,16 +43,23 @@ const (
 )
 
 var eventPropertyAllowlists = map[string]map[string]struct{}{
+	EventAPIMutationCompleted:          propertySet("route", "method", "http_status", "response_class"),
 	EventPublicationScheduled:          propertySet("publication_id", "job_id", "intent", "content_profile", "destination_count"),
 	EventPublicationQueued:             propertySet("publication_id", "job_id", "intent", "content_profile", "destination_count"),
 	EventRenditionPublished:            propertySet("publication_id", "rendition_id", "platform", "profile", "output_profile", "intent", "content_profile", "segment_count"),
 	EventRenditionFailed:               propertySet("publication_id", "rendition_id", "platform", "profile", "output_profile", "intent", "content_profile", "error_kind", "error_code", "http_status", "retryable", "retry"),
 	EventBillingCheckoutCreated:        propertySet("checkout_id", "organization_id", "plan_id", "billing_period", "provider"),
+	EventPublicationBuildQueued:        propertySet("build_id", "destination_count", "option_count"),
+	EventPublicationBuildCompleted:     propertySet("build_id", "destination_count"),
+	EventPublicationBuildFailed:        propertySet("build_id", "error_code", "http_status"),
+	EventWorkflowRunFinished:           propertySet("workflow_id", "run_id", "mode", "outcome", "step_count"),
+	EventHostedWaitlistJoined:          propertySet(),
 	EventSignupCompleted:               propertySet(),
 	EventPlanConfirmed:                 propertySet("plan_id", "billing_period"),
 	EventWorkspaceCreated:              propertySet(),
 	EventCheckoutCompleted:             propertySet("plan_id", "billing_period"),
 	EventDestinationConnected:          propertySet("platform", "account_count"),
+	EventFirstCompositionStarted:       propertySet("signal"),
 	EventWorkspaceActivated:            propertySet(),
 	EventGrowthRefreshRequested:        propertySet("platform"),
 	EventGrowthRefreshCompleted:        propertySet("platform", "recommendation_count"),
@@ -53,16 +69,66 @@ var eventPropertyAllowlists = map[string]map[string]struct{}{
 	EventGrowthFollowFailed:            propertySet("platform", "follow_state", "error_class"),
 }
 
-var firstUsePropertyValues = map[string]map[string]struct{}{
+// eventPropertyValues constrains low-cardinality analytics properties to
+// their known value sets. The platform set must stay in parity with the
+// canonical public-provider catalogue (see the parity test); reddit is not
+// a supported provider and must stay rejected.
+var eventPropertyValues = map[string]map[string]struct{}{
+	"response_class":      propertySet("2xx", "3xx", "4xx", "5xx"),
+	"mode":                propertySet("live", "preview", "test"),
+	"outcome":             propertySet("succeeded", "failed"),
+	"signal":              propertySet("text", "media", "content_mode"),
 	"plan_id":             propertySet("founder", "team", "agency"),
 	"billing_period":      propertySet("monthly", "annual"),
 	"provider":            propertySet("paddle"),
 	"mutual_count_bucket": propertySet("0", "1", "2-3", "4-6", "7+"),
 	"rank_bucket":         propertySet("1-3", "4-6", "7-10", "11+"),
 	"platform": propertySet(
-		"bluesky", "facebook", "instagram", "linkedin", "mastodon", "pinterest",
-		"reddit", "threads", "tiktok", "x", "youtube",
+		"bluesky", "devnull", "discord", "facebook", "instagram", "lemmy", "linkedin",
+		"mastodon", "peertube", "piefed", "pinterest", "pixelfed", "telegram",
+		"threads", "tiktok", "x", "youtube",
 	),
+}
+
+// Closed rejection-reason set for validation accounting. Reasons never
+// carry payload content, only the category of the rejection.
+const (
+	validationReasonUnknownEvent      = "unknown_event"
+	validationReasonSensitiveField    = "sensitive_field"
+	validationReasonForbiddenProperty = "forbidden_property"
+	validationReasonSensitiveProperty = "sensitive_property"
+	validationReasonInvalidType       = "invalid_type"
+	validationReasonInvalidValue      = "invalid_value"
+)
+
+type validationError struct {
+	reason  string
+	message string
+}
+
+func (e *validationError) Error() string { return e.message }
+
+// validationRejections counts events refused at the recorder boundary.
+// It is a local process counter for operations visibility, reported via
+// the standard logger, never through the failing recorder itself.
+var validationRejections atomic.Uint64
+
+// RejectedEventCount reports how many events validation has refused in
+// this process.
+func RejectedEventCount() uint64 { return validationRejections.Load() }
+
+func recordValidationRejection(event Event, err error) {
+	reason := validationReasonInvalidValue
+	var validationErr *validationError
+	if errors.As(err, &validationErr) && validationErr.reason != "" {
+		reason = validationErr.reason
+	}
+	name := "unknown"
+	if _, known := eventPropertyAllowlists[event.Name]; known {
+		name = event.Name
+	}
+	validationRejections.Add(1)
+	log.Printf("telemetry event rejected event=%q reason=%s", name, reason)
 }
 
 var postHogAnonymousID = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
@@ -83,14 +149,14 @@ type Config struct {
 }
 
 type BrowserConfig struct {
-	Enabled      bool   `json:"enabled" doc:"Whether browser telemetry is enabled for this OpenPost instance"`
+	Enabled      bool   `json:"enabled" doc:"Whether browser telemetry is enabled for this dopost instance"`
 	ProjectToken string `json:"project_token,omitempty" doc:"Browser-safe PostHog project token"`
 	APIHost      string `json:"api_host,omitempty" doc:"PostHog browser ingestion endpoint or proxy"`
 	UIHost       string `json:"ui_host,omitempty" doc:"PostHog user interface host used for generated links"`
 	Environment  string `json:"environment" doc:"Deployment environment attached to telemetry"`
-	Edition      string `json:"edition" doc:"Configured OpenPost edition"`
-	Version      string `json:"version" doc:"Running OpenPost version"`
-	Revision     string `json:"revision" doc:"Running OpenPost source revision"`
+	Edition      string `json:"edition" doc:"Configured dopost edition"`
+	Version      string `json:"version" doc:"Running dopost version"`
+	Revision     string `json:"revision" doc:"Running dopost source revision"`
 }
 
 type Event struct {
@@ -191,9 +257,11 @@ func (r *noopRecorder) PublicConfig() BrowserConfig    { return publicConfig(r.c
 
 func (r *postHogRecorder) Capture(ctx context.Context, event Event) error {
 	if err := ValidateEvent(event); err != nil {
+		recordValidationRejection(event, err)
 		return err
 	}
 	properties := copyProperties(event.Properties)
+	properties["client"] = RequestClient(ctx)
 	if event.WorkspaceID != "" {
 		properties["workspace_id"] = event.WorkspaceID
 	}
@@ -206,7 +274,13 @@ func (r *postHogRecorder) Capture(ctx context.Context, event Event) error {
 	})
 }
 
-func (r *noopRecorder) Capture(_ context.Context, event Event) error { return ValidateEvent(event) }
+func (r *noopRecorder) Capture(_ context.Context, event Event) error {
+	if err := ValidateEvent(event); err != nil {
+		recordValidationRejection(event, err)
+		return err
+	}
+	return nil
+}
 
 func (r *postHogRecorder) Alias(ctx context.Context, distinctID, alias string) error {
 	if err := validateAlias(distinctID, alias); err != nil {
@@ -244,17 +318,18 @@ func IsAnonymousDistinctID(value string) bool {
 
 func (r *postHogRecorder) CaptureException(ctx context.Context, exception Exception) error {
 	message := newExceptionMessage(exception, r.config, time.Now().UTC())
+	message.Properties["client"] = RequestClient(ctx)
 	return posthog.EnqueueWithContext(ctx, r.client, message)
 }
 
 func newExceptionMessage(exception Exception, config Config, timestamp time.Time) posthog.Exception {
 	title := strings.TrimSpace(exception.Title)
 	if title == "" {
-		title = "OpenPost error"
+		title = "dopost error"
 	}
 	description := strings.TrimSpace(exception.Description)
 	if description == "" {
-		description = "An OpenPost operation failed"
+		description = "A dopost operation failed"
 	}
 	message := posthog.NewDefaultException(
 		timestamp,
@@ -263,7 +338,7 @@ func newExceptionMessage(exception Exception, config Config, timestamp time.Time
 		description,
 	)
 	// posthog-go stores the title, description, stack trace, and debug images
-	// outside Properties. Adding OpenPost context here must not replace those
+	// outside Properties. Adding dopost context here must not replace those
 	// SDK-owned exception fields.
 	properties := copyProperties(exception.Properties)
 	for key, value := range defaultEventProperties(config) {
@@ -296,11 +371,12 @@ func (r *postHogRecorder) WrapHTTP(next http.Handler) http.Handler {
 			return
 		}
 		requestContext := posthog.ExtractRequestContext(request, true)
-		// OpenPost propagates only the browser identity and session. The SDK's
+		// dopost propagates only the browser identity and session. The SDK's
 		// default request metadata includes the concrete path, user agent, and IP;
 		// our privacy contract permits only application-owned route templates.
 		requestContext.Properties = posthog.NewProperties()
-		ctx := posthog.WithFreshRequestContext(request.Context(), requestContext)
+		ctx := context.WithValue(request.Context(), requestClientKey{}, requestClient(request))
+		ctx = posthog.WithFreshRequestContext(ctx, requestContext)
 		next.ServeHTTP(writer, request.WithContext(ctx))
 	})
 }
@@ -343,29 +419,29 @@ func copyProperties(properties map[string]any) map[string]any {
 func ValidateEvent(event Event) error {
 	allowed, known := eventPropertyAllowlists[event.Name]
 	if !known {
-		return fmt.Errorf("unknown telemetry event %q", event.Name)
+		return &validationError{reason: validationReasonUnknownEvent, message: fmt.Sprintf("unknown telemetry event %q", event.Name)}
 	}
 	for field, value := range map[string]string{
 		"distinct_id": event.DistinctID, "workspace_id": event.WorkspaceID, "uuid": event.UUID,
 	} {
 		if containsSensitiveValue(value) {
-			return fmt.Errorf("telemetry event %q field %q contains a sensitive value", event.Name, field)
+			return &validationError{reason: validationReasonSensitiveField, message: fmt.Sprintf("telemetry event %q field %q contains a sensitive value", event.Name, field)}
 		}
 	}
 	for key, value := range event.Properties {
 		if _, ok := allowed[key]; !ok {
-			return fmt.Errorf("telemetry event %q does not allow property %q", event.Name, key)
+			return &validationError{reason: validationReasonForbiddenProperty, message: fmt.Sprintf("telemetry event %q does not allow property %q", event.Name, key)}
 		}
 		if containsSensitiveValue(value) {
-			return fmt.Errorf("telemetry event %q property %q contains a sensitive value", event.Name, key)
+			return &validationError{reason: validationReasonSensitiveProperty, message: fmt.Sprintf("telemetry event %q property %q contains a sensitive value", event.Name, key)}
 		}
-		if allowedValues, constrained := firstUsePropertyValues[key]; constrained {
+		if allowedValues, constrained := eventPropertyValues[key]; constrained {
 			text, ok := value.(string)
 			if !ok {
-				return fmt.Errorf("telemetry event %q property %q has an invalid type", event.Name, key)
+				return &validationError{reason: validationReasonInvalidType, message: fmt.Sprintf("telemetry event %q property %q has an invalid type", event.Name, key)}
 			}
 			if _, ok := allowedValues[text]; !ok {
-				return fmt.Errorf("telemetry event %q property %q has an invalid value", event.Name, key)
+				return &validationError{reason: validationReasonInvalidValue, message: fmt.Sprintf("telemetry event %q property %q has an invalid value", event.Name, key)}
 			}
 		}
 	}

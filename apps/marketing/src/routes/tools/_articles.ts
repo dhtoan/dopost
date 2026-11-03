@@ -1,4 +1,6 @@
+import { browserExtensions, previewTools, type PreviewTool } from '@openpost/social-images';
 import type { MarketingToolSlug } from '../_marketing';
+import { mediaArticles } from './_media-articles';
 
 type ToolArticle = {
 	title: string;
@@ -9,11 +11,74 @@ type ToolArticle = {
 	questions: readonly { question: string; answer: string }[];
 };
 
-export const toolArticles = {
+// SAFETY: Every catalog entry contributes one article under its canonical preview-tool slug.
+// Preview-only entries (marked with `previewOnly` on the catalogue entry) get an
+// explicit no-publishing section derived from that marker, never a hardcoded string.
+function previewOnlySection(tool: PreviewTool): ToolArticle['sections'] {
+	if (!tool.previewOnly) return [];
+	const platformName = tool.name.replace(' post preview', '');
+	return [
+		{
+			title: `Preview only: dopost does not publish to ${platformName}`,
+			paragraphs: [
+				`This tool shows ${platformName}'s native layout so you can check your copy and media. dopost does not publish to ${platformName}; copy the finished text into ${platformName} to share it.`
+			]
+		}
+	];
+}
+
+function previewArticle(tool: PreviewTool): ToolArticle {
+	return {
+		title: tool.name,
+		description: tool.description,
+		privacy:
+			'Text and local files stay in your browser until you continue in dopost. Public image and video URLs load from their hosts.',
+		steps: [
+			'Write your post and choose a format.',
+			'Add your account details and media through Post details.',
+			'Compare the full page and post card at phone, tablet, or desktop widths.'
+		],
+		sections: [
+			{
+				title: `What to check on ${tool.name.replace(' post preview', '')}`,
+				paragraphs: tool.checks
+			},
+			...previewOnlySection(tool),
+			{
+				title: 'Native layout and publishing availability',
+				paragraphs: [
+					'These previews illustrate native network layouts. They do not publish anything, fetch a live account, or certify that a format can be published through dopost. Network apps, account types, and server settings can change the final appearance and limits.'
+				]
+			}
+		],
+		questions: [
+			{
+				question: 'Do I need an account?',
+				answer: 'No. You can edit and preview a post without signing in.'
+			},
+			{
+				question: 'Can I preview the whole page?',
+				answer:
+					'Yes. Choose Full page for the surrounding feed, channel, or watch page. Choose Post card to focus on the content itself.'
+			},
+			{
+				question: 'Will my files upload?',
+				answer:
+					'Previewing does not upload local files. Schedule this post sends your draft to dopost, where selected files upload after sign-in. Closing or refreshing this tool clears its draft.'
+			}
+		]
+	};
+}
+
+const previewArticles = Object.fromEntries(
+	previewTools.map((tool) => [tool.slug, previewArticle(tool)] satisfies [string, ToolArticle])
+);
+
+const authoredArticles = {
 	'multi-platform-character-counter': {
 		title: 'Social media character counter',
 		description: 'Paste your post. See how it fits on each channel.',
-		privacy: 'Your text stays in your browser.',
+		privacy: 'Your text stays in your browser until you choose to continue in dopost.',
 		steps: [
 			'Paste or type your draft in the box.',
 			'Check the count for the channels you use.',
@@ -54,23 +119,24 @@ export const toolArticles = {
 					'The counter checks text length. Your account access, media, and the network’s other posting rules still matter.'
 			},
 			{
-				question: 'Do I need an OpenPost account?',
+				question: 'Do I need a dopost account?',
 				answer: 'No. The counter is free and runs in this page. Nothing you type is uploaded.'
 			}
 		]
 	},
 	'thread-splitter': {
 		title: 'Thread splitter',
-		description: 'Turn a long draft into a thread. Copy it when it reads right.',
-		privacy: 'Your draft stays in your browser.',
+		description:
+			'Split your draft to fit each network. Review the parts, then copy or schedule the thread.',
+		privacy: 'Your draft stays in your browser until you choose to continue in dopost.',
 		steps: [
 			'Paste the full story.',
 			'Choose your channel and whether to number the posts.',
-			'Read the parts in order, then copy the thread.'
+			'Read the parts in order, then copy them or choose Schedule this thread.'
 		],
 		sections: [
 			{
-				title: 'Give a longer idea room to breathe',
+				title: 'Split a draft for each network',
 				paragraphs: [
 					'A launch story, a useful lesson, or a step-by-step explanation can need more than one post. The thread splitter divides a draft into smaller parts for X, Bluesky, Mastodon, Threads, or LinkedIn. It looks for paragraph, sentence, and word breaks so each part remains readable.',
 					'Start with the complete thought. You do not need to count characters while you are writing the first draft. Once the story is there, choose a channel and review how the parts fit together.'
@@ -104,14 +170,14 @@ export const toolArticles = {
 			{
 				question: 'Can I schedule the result?',
 				answer:
-					'Copy the parts into OpenPost’s thread composer, review the supported channels, and choose when to share it.'
+					'Choose Schedule this thread to open these exact parts in dopost. Sign in, review the supported channels, and choose when to publish.'
 			}
 		]
 	},
 	'linkedin-text-formatter': {
 		title: 'LinkedIn text formatter',
 		description: 'Tidy your LinkedIn post before you share it.',
-		privacy: 'Your text stays in your browser.',
+		privacy: 'Your text stays in your browser until you choose to continue in dopost.',
 		steps: [
 			'Paste your LinkedIn draft.',
 			'Choose a paragraph length and tidy the bullet points.',
@@ -196,7 +262,7 @@ export const toolArticles = {
 					'No. It adds campaign tags to the original URL. The finished link still opens the same page.'
 			},
 			{
-				question: 'Does OpenPost track clicks in this tool?',
+				question: 'Does dopost track clicks in this tool?',
 				answer:
 					'No. This tool builds a link locally. Use a compatible analytics service on your website to read the campaign tags.'
 			},
@@ -259,10 +325,10 @@ export const toolArticles = {
 	'fediverse-handle-checker': {
 		title: 'Social handle checker',
 		description: 'Check a Bluesky or Mastodon handle before you share it.',
-		privacy: 'Format checks stay local. Live checks contact the selected server.',
+		privacy: 'Format checks stay local. Live checks contact the account server or Bluesky API.',
 		steps: [
 			'Paste the handle you want to check.',
-			'Choose Bluesky or Mastodon.',
+			'Review the automatically detected handle type.',
 			'Review its format, or run the optional live check.'
 		],
 		sections: [
@@ -276,7 +342,7 @@ export const toolArticles = {
 			{
 				title: 'A format check and a live check answer different questions',
 				paragraphs: [
-					'The local check asks whether the text looks like the kind of handle you selected. It can help catch missing parts and obvious formatting mistakes without contacting another service.',
+					'The local check asks whether the text looks like a Bluesky handle or Mastodon-style address. It can help catch missing parts and obvious formatting mistakes without contacting another service.',
 					'An optional live check asks the relevant public service about the address. That request leaves your browser, and the server may receive your IP address. A network error does not necessarily mean the handle is wrong: servers can be unavailable, private, or unable to accept browser requests.'
 				]
 			},
@@ -309,7 +375,8 @@ export const toolArticles = {
 	'post-preview-generator': {
 		title: 'Social post preview',
 		description: 'See your post before you share it.',
-		privacy: 'Text and local files stay in your browser. Linked media loads from its source.',
+		privacy:
+			'Text and local files stay in your browser until you continue in dopost. Linked media loads from its source.',
 		steps: [
 			'Choose a channel and write your post.',
 			'Add an image, video, or other supported format.',
@@ -359,7 +426,7 @@ export const toolArticles = {
 	'social-media-image-editor': {
 		title: 'Free social media image editor',
 		description: 'Make a post, carousel, or thumbnail. Download it without a watermark.',
-		privacy: 'Local designs stay on your device unless you save them to OpenPost.',
+		privacy: 'Local designs stay on your device unless you save them to dopost.',
 		steps: [
 			'Open the editor and choose a size or template.',
 			'Add your images, words, and brand colors.',
@@ -384,7 +451,7 @@ export const toolArticles = {
 				title: 'Download the right file for the job',
 				paragraphs: [
 					'PNG is useful for crisp text and transparency. JPEG works well for photographs. WebP can keep a web image compact. Choose the format and size that suit the place you plan to use the result, and check that the destination accepts it.',
-					'The editor adds no watermark. Local designs and imported images stay on your device unless you choose to save them to OpenPost. Download a copy of important finished work, because clearing local browser storage can remove local projects.'
+					'The editor adds no watermark. Local designs and imported images stay on your device unless you choose to save them to dopost. Download a copy of important finished work, because clearing local browser storage can remove local projects.'
 				]
 			}
 		],
@@ -453,4 +520,30 @@ export const toolArticles = {
 			}
 		]
 	}
-} satisfies Record<MarketingToolSlug, ToolArticle>;
+} satisfies Partial<Record<MarketingToolSlug, ToolArticle>>;
+
+// SAFETY: The extension catalogue includes exactly one entry for each supported extension slug.
+const extensionArticles = Object.fromEntries<ToolArticle>(
+	browserExtensions.map((extension) => [
+		extension.slug,
+		{
+			title: extension.name,
+			description: extension.description,
+			privacy: extension.privacy,
+			steps: extension.setup,
+			sections: extension.benefits.map((benefit) => ({
+				title: benefit.title,
+				paragraphs: [benefit.text]
+			})),
+			questions: []
+		}
+	])
+) as Record<'youtube-localizer' | 'feed-limiter', ToolArticle>;
+
+export const toolArticles = Object.assign(
+	extensionArticles,
+	{},
+	previewArticles,
+	mediaArticles,
+	authoredArticles
+) satisfies Record<MarketingToolSlug, ToolArticle>;

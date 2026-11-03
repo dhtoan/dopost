@@ -1,13 +1,19 @@
 <script lang="ts">
 	import { onDestroy, onMount } from 'svelte';
 	import { m } from '$lib/paraglide/messages';
+	import { formatBytes as formatByteSize } from '$lib/byte-size';
 	import { Button } from '$lib/components/ui/button';
 	import * as Select from '$lib/components/ui/select';
-	import { Slider } from '$lib/components/ui/slider';
+	import { SliderRow } from '$lib/components/editor-density';
 	import { Textarea } from '$lib/components/ui/textarea';
 	import { ProtectedIcon, ThemeIcon } from '$lib/themes/icons';
 	import LocalModelCacheControl from './local-model-cache-control.svelte';
 	import { timelineStore } from '$lib/video-editor/timeline/stores/timeline-store.svelte';
+	import {
+		clearActiveMediaDrag,
+		mediaDragData,
+		writeMediaDragData
+	} from '$lib/video-editor/media/media-drag';
 	import {
 		ACE_STEP_HIGH_DOWNLOAD_BYTES,
 		ACE_STEP_MAX_DURATION_SECONDS,
@@ -29,6 +35,7 @@
 	import { mediaTaskId, mediaTasks } from '$lib/video-editor/media/media-tasks.svelte';
 	import type { LocalGenerationProgress } from '$lib/video-editor/local-ai/types';
 	import type { AudioQuality } from 'ai-music-js';
+	import type { ProjectAssetImporter } from '$lib/video-editor/media/types';
 
 	type GenerateMusic = (options: GenerateLocalMusicOptions) => Promise<GeneratedMusic>;
 	type CommitAudio = typeof commitGeneratedAudio;
@@ -40,7 +47,8 @@
 		generateMusic = generateLocalMusic,
 		commitAudio = commitGeneratedAudio,
 		inspectStorage = inspectMusicGenerationStorage,
-		supported
+		supported,
+		importProjectAsset
 	}: {
 		projectId: string;
 		oninserted: (itemId: string) => void;
@@ -48,6 +56,7 @@
 		commitAudio?: CommitAudio;
 		inspectStorage?: InspectStorage;
 		supported?: boolean;
+		importProjectAsset?: ProjectAssetImporter;
 	} = $props();
 
 	interface Generation {
@@ -79,6 +88,8 @@
 		}
 	];
 
+	let selectedPreset = $state('0');
+	const selectedPresetLabel = $derived(presets[Number(selectedPreset)]?.label ?? presets[0].label);
 	let prompt = $state(presets[0].prompt);
 	let durationSeconds = $state(10);
 	let audioQuality = $state<AudioQuality>('standard');
@@ -96,13 +107,15 @@
 	);
 
 	function formatBytes(bytes: number): string {
-		if (bytes >= 1_000_000_000) return `${(bytes / 1_000_000_000).toFixed(2)} GB`;
-		return `${Math.round(bytes / 1_000_000)} MB`;
+		// Music model downloads quote decimal (SI) sizes, matching their listings.
+		return formatByteSize(bytes, { base: 'si' }) ?? '—';
 	}
 
 	function selectPreset(value: string): void {
 		const preset = presets[Number(value)];
-		if (preset) prompt = preset.prompt;
+		if (!preset) return;
+		selectedPreset = value;
+		prompt = preset.prompt;
 	}
 
 	function changeQuality(value: string): void {
@@ -207,6 +220,7 @@
 			const options: CommitGeneratedAudioOptions = {
 				projectId,
 				tags: musicGenerationTags(generation.result),
+				importAsset: importProjectAsset,
 				existingMediaId: generation.mediaId,
 				...(insert && { insertAtFrame: timelineStore.currentFrame })
 			};
@@ -223,6 +237,14 @@
 	function remove(generation: Generation): void {
 		URL.revokeObjectURL(generation.url);
 		generations = generations.filter((candidate) => candidate.id !== generation.id);
+	}
+
+	function startPreviewDrag(event: DragEvent, generation: Generation): void {
+		if (!event.dataTransfer || generation.saving || !generation.mediaId) return;
+		writeMediaDragData(
+			event.dataTransfer,
+			mediaDragData('media', generation.mediaId, generation.result.prompt)
+		);
 	}
 
 	onMount(() => {
@@ -243,12 +265,9 @@
 	});
 </script>
 
-<div class="flex h-full min-h-0 flex-col" data-testid="local-music-panel">
+<div class="@container flex h-full min-h-0 flex-col" data-testid="local-music-panel">
 	<div class="border-b border-[var(--video-editor-border)] px-2 py-1.5">
-		<h2 class="text-xs font-semibold text-[var(--video-editor-text)]">
-			{m.video_editor_local_music()}
-		</h2>
-		<p class="mt-0.5 text-[9px] leading-tight text-[var(--video-editor-muted)]">
+		<p class="text-[11px] leading-4 text-[var(--video-editor-muted)]">
 			{m.video_editor_local_music_description()}
 		</p>
 	</div>
@@ -258,13 +277,18 @@
 			<label for="local-music-preset" class="block text-[10px] text-[var(--video-editor-muted)]">
 				{m.video_editor_local_music_starting_point()}
 			</label>
-			<Select.Root type="single" disabled={generating} onValueChange={selectPreset}>
+			<Select.Root
+				type="single"
+				value={selectedPreset}
+				disabled={generating}
+				onValueChange={selectPreset}
+			>
 				<Select.Trigger
 					id="local-music-preset"
 					aria-label={m.video_editor_local_music_starting_point()}
 					class="mt-0.5 h-8 w-full justify-between rounded border border-[var(--video-editor-border)] bg-[var(--video-editor-panel)] px-2 text-[11px] text-[var(--video-editor-text)] shadow-none hover:translate-y-0 hover:bg-[var(--video-editor-panel)] data-placeholder:text-[var(--video-editor-muted)]"
 				>
-					<span class="truncate">{presets[0].label}</span>
+					<span class="truncate">{selectedPresetLabel}</span>
 				</Select.Trigger>
 				<Select.Content
 					class="video-editor-theme bg-[var(--video-editor-panel)] text-[var(--video-editor-text)]"
@@ -290,26 +314,27 @@
 			/>
 		</div>
 
-		<div class="grid grid-cols-[1fr_7.25rem] gap-1.5">
-			<div>
+		<div class="grid grid-cols-1 gap-1.5 @min-[18rem]:grid-cols-[minmax(0,1fr)_minmax(9rem,1fr)]">
+			<div class="min-w-0">
 				<label for="local-music-duration" class="text-[10px] text-[var(--video-editor-muted)]">
 					{m.video_editor_local_music_duration()}
 				</label>
-				<Slider
+				<SliderRow
+					label={m.video_editor_local_music_duration()}
+					showLabel={false}
 					value={durationSeconds}
 					min={ACE_STEP_MIN_DURATION_SECONDS}
 					max={ACE_STEP_MAX_DURATION_SECONDS}
 					step={1}
+					precision={0}
+					suffix="s"
 					disabled={generating}
-					ariaLabel={m.video_editor_local_music_duration()}
 					onValueChange={(v) => (durationSeconds = v)}
+					onValueCommit={(v) => (durationSeconds = v)}
 					class="mt-0.5"
 				/>
-				<span class="block text-center text-[9px] text-[var(--video-editor-muted)]">
-					{durationSeconds}s
-				</span>
 			</div>
-			<div>
+			<div class="min-w-0">
 				<label for="local-music-quality" class="text-[10px] text-[var(--video-editor-muted)]">
 					{m.video_editor_local_music_quality()}
 				</label>
@@ -322,11 +347,13 @@
 					<Select.Trigger
 						id="local-music-quality"
 						aria-label={m.video_editor_local_music_quality()}
-						class="mt-0.5 h-8 w-full justify-between rounded border border-[var(--video-editor-border)] bg-[var(--video-editor-panel)] px-2 text-[11px] text-[var(--video-editor-text)] shadow-none hover:translate-y-0 hover:bg-[var(--video-editor-panel)]"
+						class="mt-0.5 h-8 w-full min-w-0 justify-between overflow-hidden rounded border border-[var(--video-editor-border)] bg-[var(--video-editor-panel)] px-2 text-[11px] text-[var(--video-editor-text)] shadow-none hover:translate-y-0 hover:bg-[var(--video-editor-panel)]"
 					>
-						{audioQuality === 'high'
-							? m.video_editor_local_music_high()
-							: m.video_editor_local_music_standard()}
+						<span class="min-w-0 truncate pr-1 text-left">
+							{audioQuality === 'high'
+								? m.video_editor_local_music_high()
+								: m.video_editor_local_music_standard()}
+						</span>
 					</Select.Trigger>
 					<Select.Content
 						class="video-editor-theme bg-[var(--video-editor-panel)] text-[var(--video-editor-text)]"
@@ -339,7 +366,7 @@
 		</div>
 
 		<div
-			class="rounded border border-[oklch(0.31_0.04_55)] bg-[oklch(0.21_0.025_55)] px-1.5 py-1 text-[9px] leading-snug text-[oklch(0.73_0.035_70)]"
+			class="rounded border border-[oklch(0.31_0.04_55)] bg-[oklch(0.21_0.025_55)] px-2 py-1.5 text-[11px] leading-4 text-[oklch(0.73_0.035_70)]"
 		>
 			{m.video_editor_local_music_download_notice({ size: formatBytes(downloadBytes) })}
 		</div>
@@ -448,7 +475,10 @@
 		{/if}
 		{#each generations as generation (generation.id)}
 			<article
-				class="min-w-0 overflow-hidden rounded border border-[var(--video-editor-border)] bg-[var(--video-editor-panel)] p-1.5"
+				class="min-w-0 cursor-grab overflow-hidden rounded border border-[var(--video-editor-border)] bg-[var(--video-editor-panel)] p-1.5 active:cursor-grabbing"
+				draggable={generation.mediaId !== undefined && !generation.saving}
+				ondragstart={(event) => startPreviewDrag(event, generation)}
+				ondragend={clearActiveMediaDrag}
 			>
 				<div class="mb-1 flex items-start justify-between gap-1">
 					<div class="min-w-0">

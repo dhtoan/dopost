@@ -38,7 +38,7 @@ func (s *Service) ProcessBackchannelLogout(ctx context.Context, providerID, rawL
 	if _, err := s.db.NewInsert().Model(event).Exec(ctx); err != nil {
 		if strings.Contains(strings.ToLower(err.Error()), "unique") {
 			// Provider retries are idempotent. The original verified request
-			// already revoked the matching OpenPost sessions.
+			// already revoked the matching dopost sessions.
 			return 0, nil
 		}
 		return 0, err

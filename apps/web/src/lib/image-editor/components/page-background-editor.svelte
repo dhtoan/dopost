@@ -5,7 +5,12 @@
 	import MediaPreviewImage from '$lib/components/media-preview-image.svelte';
 	import { m } from '$lib/paraglide/messages';
 	import { defaultImageEditorPageGradient, imageEditorPageBackground } from '../document';
-	import { gradientColorAt, normalizedGradientStops } from '../gradient';
+	import {
+		gradientColorAt,
+		normalizedGradientStops,
+		orientImageEditorGradient,
+		retargetImageEditorGradient
+	} from '../gradient';
 	import { normalizeHex } from '../color';
 	import { useImageEditor } from '../editor.svelte';
 	import type {
@@ -75,7 +80,10 @@
 				gradient:
 					background.type === 'gradient' && background.gradient
 						? background.gradient
-						: defaultImageEditorPageGradient(editor.document.width_px, editor.document.height_px)
+						: defaultImageEditorPageGradient(
+								editor.activePageDimensions.width,
+								editor.activePageDimensions.height
+							)
 			});
 			return;
 		}
@@ -101,21 +109,36 @@
 	}
 
 	function setGradientAngle(angle: number): void {
-		if (!editor.document) return;
+		const document = editor.document;
+		if (!document) return;
 		const radians = (angle * Math.PI) / 180;
-		const centerX = editor.document.width_px / 2;
-		const centerY = editor.document.height_px / 2;
-		const radius = Math.hypot(editor.document.width_px, editor.document.height_px) / 2;
 		updateGradient((gradient) => {
-			gradient.start = {
-				x: centerX - Math.cos(radians) * radius,
-				y: centerY - Math.sin(radians) * radius
-			};
-			gradient.end = {
-				x: centerX + Math.cos(radians) * radius,
-				y: centerY + Math.sin(radians) * radius
-			};
+			Object.assign(
+				gradient,
+				orientImageEditorGradient(
+					gradient,
+					editor.activePageDimensions.width,
+					editor.activePageDimensions.height,
+					radians
+				)
+			);
 		}, 'page-background-angle');
+	}
+
+	function setGradientType(type: ImageEditorGradientType): void {
+		const document = editor.document;
+		if (!document) return;
+		updateGradient((gradient) => {
+			Object.assign(
+				gradient,
+				retargetImageEditorGradient(
+					gradient,
+					type,
+					editor.activePageDimensions.width,
+					editor.activePageDimensions.height
+				)
+			);
+		}, 'page-background-gradient-type');
 	}
 
 	function addGradientStop(): void {
@@ -266,11 +289,7 @@
 					value={background.gradient.type}
 					ariaLabel={m.image_editor_gradient_style()}
 					disabled={!editor.canEdit}
-					onValueChange={(value) =>
-						updateGradient(
-							(gradient) => (gradient.type = value as ImageEditorGradientType),
-							'page-background-gradient-type'
-						)}
+					onValueChange={(value) => setGradientType(value as ImageEditorGradientType)}
 					options={[
 						{ value: 'linear', label: m.image_editor_gradient_linear() },
 						{ value: 'radial', label: m.image_editor_gradient_radial() },
@@ -290,6 +309,11 @@
 					{m.image_editor_gradient_reverse()}
 				</Button>
 			</div>
+			{#if background.gradient.type === 'angle'}
+				<p class="text-xs leading-relaxed text-muted-foreground">
+					{m.image_editor_gradient_angle_seam_help()}
+				</p>
+			{/if}
 			<label class="grid gap-1 text-xs">
 				<span>
 					{m.image_editor_gradient_direction({

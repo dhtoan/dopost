@@ -1,26 +1,26 @@
-# TryPost analytics and AI Generate & Review compared with OpenPost
+# TryPost analytics and AI Generate & Review compared with dopost
 
 **Research date:** 2026-08-31
 
 **TryPost revision reviewed:** [`6496588`](https://github.com/trypost-it/trypost/tree/6496588bbc34e0554175255a2912b5839c3b3b9a)
 
-**OpenPost revision reviewed:** local checkout at `169c72d`; cited public source snapshot at [`12ce2e3`](https://github.com/getopenpost/openpost/tree/12ce2e37a2bc7a0639740dfd129b3abbf4ca93f1)
+**dopost revision reviewed:** local checkout at `169c72d`; cited public source snapshot at [`12ce2e3`](https://github.com/getopenpost/openpost/tree/12ce2e37a2bc7a0639740dfd129b3abbf4ca93f1)
 
 ## Executive summary
 
 TryPost has a broad, immediately understandable analytics UI and unusually complete per-provider live fetchers, but its claim of “per-account reach and engagement across every connected platform” is not borne out by the current routing. Its account dashboard supports ten connection identifiers, not every platform; personal LinkedIn, Bluesky, Mastodon, and Discord are omitted, Facebook Groups are not a supported account type, and TikTok has no per-post fetcher. Most TryPost analytics are transient provider reads cached for one hour (account) or five minutes (post), not a durable analytics system. Labels are presentation strings rather than canonical metric keys, errors often collapse to an empty grid, and there is no history from which to compute trustworthy trends or deltas.
 
-OpenPost is materially stronger on analytics correctness and architecture. It separates optional analytics capability from publishing, normalizes provider values into canonical keys while preserving “missing” versus measured zero, persists account and Rendition snapshots plus explicit sync state, uses durable adaptive jobs, exposes permission/rate-limit/not-found/stale states, and aggregates Renditions back to the user-visible Publication. OpenPost also covers account and post analytics for LinkedIn profiles, Bluesky, Mastodon, and TikTok, which TryPost does not. TryPost is ahead for Pinterest and Telegram, has a partial Discord implementation, and exposes richer date-bounded YouTube Analytics metrics than OpenPost’s current lifetime channel/video counters.
+dopost is materially stronger on analytics correctness and architecture. It separates optional analytics capability from publishing, normalizes provider values into canonical keys while preserving “missing” versus measured zero, persists account and Rendition snapshots plus explicit sync state, uses durable adaptive jobs, exposes permission/rate-limit/not-found/stale states, and aggregates Renditions back to the user-visible Publication. dopost also covers account and post analytics for LinkedIn profiles, Bluesky, Mastodon, and TikTok, which TryPost does not. TryPost is ahead for Pinterest and Telegram, has a partial Discord implementation, and exposes richer date-bounded YouTube Analytics metrics than dopost’s current lifetime channel/video counters.
 
-For AI, the products optimize different jobs. TryPost is better at small, visible composer actions: prompt-to-rewrite, literal-substring review suggestions with one-click apply/apply-all, on-brand carousel creation, generated/template imagery, and clear credit metering. OpenPost’s Publication Builder is substantially stronger for high-integrity multi-destination generation: durable queued builds, source and claim ledgers, per-account native Renditions, strict machine-owned schemas, voice snapshots, platform policies, a separate reviewer with bounded repair and a second review, cancellation/retry/idempotency, persisted usage, and explicit commit into a draft Publication. OpenPost’s key product gap is not model sophistication; it is the absence of TryPost-style lightweight inline rewrite/review and integrated image/carousel generation.
+For AI, the products optimize different jobs. TryPost is better at small, visible composer actions: prompt-to-rewrite, literal-substring review suggestions with one-click apply/apply-all, on-brand carousel creation, generated/template imagery, and clear credit metering. dopost’s Publication Builder is substantially stronger for high-integrity multi-destination generation: durable queued builds, source and claim ledgers, per-account native Renditions, strict machine-owned schemas, voice snapshots, platform policies, a separate reviewer with bounded repair and a second review, cancellation/retry/idempotency, persisted usage, and explicit commit into a draft Publication. dopost’s key product gap is not model sophistication; it is the absence of TryPost-style lightweight inline rewrite/review and integrated image/carousel generation.
 
-**Priority:** preserve OpenPost’s durable analytics and Publication/Rendition model; add missing providers and richer provider-native metrics rather than adopting TryPost’s live-cache design. For AI, add an inline action layer on top of the existing provider-neutral boundary and voice/prompt infrastructure, while keeping the Builder’s source-fidelity review as the high-assurance path.
+**Priority:** preserve dopost’s durable analytics and Publication/Rendition model; add missing providers and richer provider-native metrics rather than adopting TryPost’s live-cache design. For AI, add an inline action layer on top of the existing provider-neutral boundary and voice/prompt infrastructure, while keeping the Builder’s source-fidelity review as the high-assurance path.
 
 ## Evidence and limitations
 
 ### Method
 
-This review used the current source trees, tests and official documentation as primary evidence. TryPost marketing copy is treated only as a claim. TryPost file links are pinned to the reviewed commit so later changes do not silently alter the evidence. OpenPost conclusions were checked against local commit `169c72d`; the public links cite the earlier `12ce2e3` source snapshot for reviewability.
+This review used the current source trees, tests and official documentation as primary evidence. TryPost marketing copy is treated only as a claim. TryPost file links are pinned to the reviewed commit so later changes do not silently alter the evidence. dopost conclusions were checked against local commit `169c72d`; the public links cite the earlier `12ce2e3` source snapshot for reviewability.
 
 ### Important limitations
 
@@ -85,7 +85,7 @@ Published post Metrics tab / REST / MCP
 - **Medium — presentation labels are the data contract:** localized labels and fuzzy icon matching make API/MCP analytics unstable for machine consumers.
 - **Medium — live reads amplify provider cost and outages:** the cache helps, but there is no central budget, persisted fallback, stale indicator, or adaptive scheduling.
 
-## 2. OpenPost analytics comparison
+## 2. dopost analytics comparison
 
 ### 2.1 Architecture and data flow
 
@@ -107,7 +107,7 @@ GET /analytics
   -> measured counts, stale/status/next-sync metadata, trends and pagination
 ```
 
-OpenPost’s core contract deliberately treats missing keys as distinct from measured zero, defines canonical keys, and exposes status values (`ok`, `pending`, `unsupported`, `permission_required`, `rate_limited`, `not_found`, `failed`). Required scopes can vary by account identity, which is essential for LinkedIn person versus organization. [`apps/server/internal/platform/analytics.go`](https://github.com/getopenpost/openpost/blob/12ce2e37a2bc7a0639740dfd129b3abbf4ca93f1/backend/internal/platform/analytics.go)
+dopost’s core contract deliberately treats missing keys as distinct from measured zero, defines canonical keys, and exposes status values (`ok`, `pending`, `unsupported`, `permission_required`, `rate_limited`, `not_found`, `failed`). Required scopes can vary by account identity, which is essential for LinkedIn person versus organization. [`apps/server/internal/platform/analytics.go`](https://github.com/getopenpost/openpost/blob/12ce2e37a2bc7a0639740dfd129b3abbf4ca93f1/backend/internal/platform/analytics.go)
 
 Persistence uses account snapshots, Rendition snapshots, and one current sync-state row containing status, safe error, current metrics, last attempt/success, next sync, and unchanged streak. [`apps/server/internal/database/migrations/043_analytics.sql`](https://github.com/getopenpost/openpost/blob/12ce2e37a2bc7a0639740dfd129b3abbf4ca93f1/backend/internal/database/migrations/043_analytics.sql)
 
@@ -118,27 +118,27 @@ The read API supports 7/30/90-day windows, account filtering, engagement/views/n
 ### 2.2 Capability comparison
 
 <!-- prettier-ignore -->
-| Area | TryPost | OpenPost | Better current design |
+| Area | TryPost | dopost | Better current design |
 |---|---|---|---|
-| Persistence | Cache only for most metrics | Immutable snapshots + current sync state | **OpenPost** |
-| Page reads | Provider call on cache miss | Stored state only | **OpenPost** |
-| Refresh | Cache expiry/new date key | Durable sweep, adaptive cadence, explicit refresh queue | **OpenPost** |
-| Metric contract | `{label,value}` | Canonical open-ended metric keys; missing ≠ zero | **OpenPost** |
-| Error truth | Often empty array | Classified support/permission/rate-limit/not-found/failed + stale | **OpenPost** |
-| User content model | `Post` with `PostPlatform` | Publication aggregated from destination Renditions | **OpenPost** |
+| Persistence | Cache only for most metrics | Immutable snapshots + current sync state | **dopost** |
+| Page reads | Provider call on cache miss | Stored state only | **dopost** |
+| Refresh | Cache expiry/new date key | Durable sweep, adaptive cadence, explicit refresh queue | **dopost** |
+| Metric contract | `{label,value}` | Canonical open-ended metric keys; missing ≠ zero | **dopost** |
+| Error truth | Often empty array | Classified support/permission/rate-limit/not-found/failed + stale | **dopost** |
+| User content model | `Post` with `PostPlatform` | Publication aggregated from destination Renditions | **dopost** |
 | Date-bounded provider reports | Broad live date picker; strong YouTube | Reporting windows are over stored captures; some provider values are lifetime counters | **TryPost** for YouTube depth |
-| LinkedIn | Page only; post likes/comments | Person and organization, account-specific scopes; rich member/org post metrics | **OpenPost** |
-| X | Sums timeline up to 500 posts | Account public metrics plus exact stored Rendition IDs | **OpenPost** correctness/cost |
+| LinkedIn | Page only; post likes/comments | Person and organization, account-specific scopes; rich member/org post metrics | **dopost** |
+| X | Sums timeline up to 500 posts | Account public metrics plus exact stored Rendition IDs | **dopost** correctness/cost |
 | Meta | Richer Facebook Page insight set; rich Instagram account period metrics | Simpler account counters, robust content insight fallback one metric at a time | Split |
-| TikTok | Account + synthetic recent 20; no post | Account + exact Rendition video query | **OpenPost** |
-| YouTube | Analytics API watch-time/subscriber changes/shares | Data API lifetime channel and video counters | **TryPost** depth; **OpenPost** persistence |
-| Bluesky/Mastodon | Post only | Account + post | **OpenPost** |
+| TikTok | Account + synthetic recent 20; no post | Account + exact Rendition video query | **dopost** |
+| YouTube | Analytics API watch-time/subscriber changes/shares | Data API lifetime channel and video counters | **TryPost** depth; **dopost** persistence |
+| Bluesky/Mastodon | Post only | Account + post | **dopost** |
 | Pinterest | Account + post | No adapter | **TryPost** |
 | Telegram | Subscriber + webhook reactions | No adapter | **TryPost** |
 | Discord | Partial code; account UI wiring defect; post reactions/replies | No analytics adapter | **TryPost**, after wiring fix |
-| Tests | Provider feature tests exist, but design is cache-centric | Adapter mapping tests plus large service/handler suites for state, cadence, aggregation and errors | **OpenPost** |
+| Tests | Provider feature tests exist, but design is cache-centric | Adapter mapping tests plus large service/handler suites for state, cadence, aggregation and errors | **dopost** |
 
-OpenPost’s provider implementations also subtract replies authored as part of the same thread from reply/comment engagement on X, Threads, Mastodon and Bluesky, preventing the product’s own thread segments from inflating audience response. [`analytics_x.go`](https://github.com/getopenpost/openpost/blob/12ce2e37a2bc7a0639740dfd129b3abbf4ca93f1/backend/internal/platform/analytics_x.go) [`analytics_meta.go`](https://github.com/getopenpost/openpost/blob/12ce2e37a2bc7a0639740dfd129b3abbf4ca93f1/backend/internal/platform/analytics_meta.go) [`analytics_federated.go`](https://github.com/getopenpost/openpost/blob/12ce2e37a2bc7a0639740dfd129b3abbf4ca93f1/backend/internal/platform/analytics_federated.go)
+dopost’s provider implementations also subtract replies authored as part of the same thread from reply/comment engagement on X, Threads, Mastodon and Bluesky, preventing the product’s own thread segments from inflating audience response. [`analytics_x.go`](https://github.com/getopenpost/openpost/blob/12ce2e37a2bc7a0639740dfd129b3abbf4ca93f1/backend/internal/platform/analytics_x.go) [`analytics_meta.go`](https://github.com/getopenpost/openpost/blob/12ce2e37a2bc7a0639740dfd129b3abbf4ca93f1/backend/internal/platform/analytics_meta.go) [`analytics_federated.go`](https://github.com/getopenpost/openpost/blob/12ce2e37a2bc7a0639740dfd129b3abbf4ca93f1/backend/internal/platform/analytics_federated.go)
 
 ## 3. TryPost AI Generate, Review and Create
 
@@ -174,7 +174,7 @@ The product can generate provider images and also compose zero-credit templates 
 - TryPost uses Laravel AI’s provider-neutral agent interface. Text defaults to `AI_TEXT_PROVIDER` (OpenAI by default) and image generation to `AI_IMAGE_PROVIDER` (OpenAI by default); provider entries cover OpenAI, compatible endpoints, Anthropic, Gemini, OpenRouter, xAI and others depending on modality. Models come from environment variables rather than agent-specific constants. [`config/ai.php`](https://github.com/trypost-it/trypost/blob/6496588bbc34e0554175255a2912b5839c3b3b9a/config/ai.php)
 - Official self-host guidance currently shows `AI_TEXT_MODEL=gpt-5.4`. This is configuration guidance, not proof of the cloud model. [TryPost AI features](https://docs.trypost.it/knowledge-base/ai-features)
 - Generate uses workspace name, brand description, detailed voice traits and content language. Review uses name, voice traits and language, but not brand description. The Create generator also resolves a platform copy budget and hard maximum. [`PostContentGenerator.php`](https://github.com/trypost-it/trypost/blob/6496588bbc34e0554175255a2912b5839c3b3b9a/app/Ai/Agents/PostContentGenerator.php)
-- Prompt quality is pragmatic: anti-cliché rules, no em/en dashes, platform length targets, exact carousel arc, and concrete visual search terms. However, current content is interpolated into the system instructions and the user prompt is passed directly; unlike OpenPost, the prompt does not consistently declare user material untrusted or maintain a source/claim ledger. [`generator.blade.php`](https://github.com/trypost-it/trypost/blob/6496588bbc34e0554175255a2912b5839c3b3b9a/resources/views/prompts/post_content/generator.blade.php)
+- Prompt quality is pragmatic: anti-cliché rules, no em/en dashes, platform length targets, exact carousel arc, and concrete visual search terms. However, current content is interpolated into the system instructions and the user prompt is passed directly; unlike dopost, the prompt does not consistently declare user material untrusted or maintain a source/claim ledger. [`generator.blade.php`](https://github.com/trypost-it/trypost/blob/6496588bbc34e0554175255a2912b5839c3b3b9a/resources/views/prompts/post_content/generator.blade.php)
 
 ### 3.3 Credits, persistence, errors, privacy and security
 
@@ -195,11 +195,11 @@ TryPost’s MCP server exposes post CRUD/publish/preview/metrics, assets, platfo
 
 Marketing claims server-side automation with AI generation, but the editor AI jobs reviewed here do not themselves establish an automation node contract. Treat the claim as unverified until the automation executor and node implementation are traced end to end. [`README.md`](https://github.com/trypost-it/trypost/blob/6496588bbc34e0554175255a2912b5839c3b3b9a/README.md)
 
-## 4. OpenPost AI comparison
+## 4. dopost AI comparison
 
-### 4.1 Current OpenPost flow
+### 4.1 Current dopost flow
 
-OpenPost’s visible AI workspace supports two entry modes: **Ideate** when the composer is empty and **Build drafts** when it has source text. It can discover opportunities, select an angle, show durable phases (sources, directing, drafting, reviewing), cancel/retry, preview the result, keep edits, and apply it into the composer. The apply step builds canonical source segments plus per-account variant content and locks requested output profiles. [`composer-ai-action-button.svelte`](https://github.com/getopenpost/openpost/blob/12ce2e37a2bc7a0639740dfd129b3abbf4ca93f1/frontend/src/lib/components/composer-ai-action-button.svelte) [`ai-workspace-dialog.svelte`](https://github.com/getopenpost/openpost/blob/12ce2e37a2bc7a0639740dfd129b3abbf4ca93f1/frontend/src/lib/components/post-builder/ai-workspace-dialog.svelte) [`apply.ts`](https://github.com/getopenpost/openpost/blob/12ce2e37a2bc7a0639740dfd129b3abbf4ca93f1/frontend/src/lib/post-builder/apply.ts)
+dopost’s visible AI workspace supports two entry modes: **Ideate** when the composer is empty and **Build drafts** when it has source text. It can discover opportunities, select an angle, show durable phases (sources, directing, drafting, reviewing), cancel/retry, preview the result, keep edits, and apply it into the composer. The apply step builds canonical source segments plus per-account variant content and locks requested output profiles. [`composer-ai-action-button.svelte`](https://github.com/getopenpost/openpost/blob/12ce2e37a2bc7a0639740dfd129b3abbf4ca93f1/frontend/src/lib/components/composer-ai-action-button.svelte) [`ai-workspace-dialog.svelte`](https://github.com/getopenpost/openpost/blob/12ce2e37a2bc7a0639740dfd129b3abbf4ca93f1/frontend/src/lib/components/post-builder/ai-workspace-dialog.svelte) [`apply.ts`](https://github.com/getopenpost/openpost/blob/12ce2e37a2bc7a0639740dfd129b3abbf4ca93f1/frontend/src/lib/post-builder/apply.ts)
 
 The backend is a durable application, not a synchronous helper:
 
@@ -212,7 +212,7 @@ The backend is a durable application, not a synchronous helper:
 7. If rejected with bounded replacements, apply them and review again; reject the package if still unsafe.
 8. Persist result, model, provider request ID and per-stage usage/cost. Expose get/cancel/retry. Commit only a ready build into a draft Publication for normal composer editing. [`service.go`](https://github.com/getopenpost/openpost/blob/12ce2e37a2bc7a0639740dfd129b3abbf4ca93f1/backend/internal/services/publicationbuilder/service.go) [`application.go`](https://github.com/getopenpost/openpost/blob/12ce2e37a2bc7a0639740dfd129b3abbf4ca93f1/backend/internal/services/publicationbuilder/application.go) [`publication_builds.go`](https://github.com/getopenpost/openpost/blob/12ce2e37a2bc7a0639740dfd129b3abbf4ca93f1/backend/internal/api/handlers/publication_builds.go)
 
-OpenPost uses a small provider-neutral `ai.Generator` boundary with strict machine-owned JSON Schema, bounded multimodal parts, optional bounded web search, reasoning effort, usage and sanitized provider errors. The reviewed adapter is OpenRouter; model selection is shared configuration. [`apps/server/internal/ai/ai.go`](https://github.com/getopenpost/openpost/blob/12ce2e37a2bc7a0639740dfd129b3abbf4ca93f1/backend/internal/ai/ai.go) [`apps/server/internal/ai/openrouter.go`](https://github.com/getopenpost/openpost/blob/12ce2e37a2bc7a0639740dfd129b3abbf4ca93f1/backend/internal/ai/openrouter.go)
+dopost uses a small provider-neutral `ai.Generator` boundary with strict machine-owned JSON Schema, bounded multimodal parts, optional bounded web search, reasoning effort, usage and sanitized provider errors. The reviewed adapter is OpenRouter; model selection is shared configuration. [`apps/server/internal/ai/ai.go`](https://github.com/getopenpost/openpost/blob/12ce2e37a2bc7a0639740dfd129b3abbf4ca93f1/backend/internal/ai/ai.go) [`apps/server/internal/ai/openrouter.go`](https://github.com/getopenpost/openpost/blob/12ce2e37a2bc7a0639740dfd129b3abbf4ca93f1/backend/internal/ai/openrouter.go)
 
 Prompts explicitly mark all user/source/generated content as untrusted data and forbid invented anecdotes, metrics, quotes, events and citations. Claims are typed as `supported`, `user_asserted`, `opinion`, `parody`, or `needs_verification`, with exact source IDs required for supported claims. [`prompts.go`](https://github.com/getopenpost/openpost/blob/12ce2e37a2bc7a0639740dfd129b3abbf4ca93f1/backend/internal/services/publicationbuilder/prompts.go) [`types.go`](https://github.com/getopenpost/openpost/blob/12ce2e37a2bc7a0639740dfd129b3abbf4ca93f1/backend/internal/services/publicationbuilder/types.go)
 
@@ -221,21 +221,21 @@ Instance admins can override versioned base/platform post-generation prompts. Ov
 ### 4.2 AI capability comparison
 
 <!-- prettier-ignore -->
-| Area | TryPost | OpenPost | Judgment |
+| Area | TryPost | dopost | Judgment |
 |---|---|---|---|
 | Inline rewrite | Prompt + current content, preview/apply/retry | No equivalent lightweight rewrite action | **TryPost** |
-| Inline copy review | Literal substring corrections, apply/apply-all | Package review is automatic and build-scoped, not an editable copy-review UI | **TryPost UX**, OpenPost stronger integrity |
-| Multi-platform generation | One selected format/account in Create; shared Post model | Canonical Publication + native per-account Renditions and output profiles | **OpenPost** |
-| Review criteria | Grammar/spelling/clarity; mandatory dash removal | Source fidelity, claims, voice, platform fit, plain language, native differentiation | **OpenPost** |
-| Review remediation | User applies suggestions | Bounded replacements + second model review before approval | **OpenPost** correctness |
-| Brand/voice | Workspace brand name, description, traits, language, colors | Versioned Voice Profile snapshot per destination; identity/guidance/language/avoidances/examples | **OpenPost** auditability; TryPost simpler setup |
-| Source grounding | Current text and prompt context | Typed source ledger, publishability, multimodal source IDs, claim statuses | **OpenPost** |
+| Inline copy review | Literal substring corrections, apply/apply-all | Package review is automatic and build-scoped, not an editable copy-review UI | **TryPost UX**, dopost stronger integrity |
+| Multi-platform generation | One selected format/account in Create; shared Post model | Canonical Publication + native per-account Renditions and output profiles | **dopost** |
+| Review criteria | Grammar/spelling/clarity; mandatory dash removal | Source fidelity, claims, voice, platform fit, plain language, native differentiation | **dopost** |
+| Review remediation | User applies suggestions | Bounded replacements + second model review before approval | **dopost** correctness |
+| Brand/voice | Workspace brand name, description, traits, language, colors | Versioned Voice Profile snapshot per destination; identity/guidance/language/avoidances/examples | **dopost** auditability; TryPost simpler setup |
+| Source grounding | Current text and prompt context | Typed source ledger, publishability, multimodal source IDs, claim statuses | **dopost** |
 | Carousel/images | Exact-role carousels; templates, Unsplash and provider images | Media treatment planning; no equivalent end-to-end image/carousel generation found | **TryPost** |
-| Durability | Generate ephemeral; Review ephemeral; Create queued and persists draft | All builds persisted with phases, lease fencing, idempotency, cancel/retry and explicit commit | **OpenPost** |
-| Schemas | Laravel structured output; streamer awkwardly streams JSON | Strict machine-owned JSON Schema at every stage plus validation | **OpenPost** |
-| Usage | Per-call credit ledger and hard monthly entitlement | Per-build per-stage token/cost trace; no user-facing credit quota found | **TryPost** monetization/control; OpenPost observability |
-| Prompt operations | Blade prompt files in source | Versioned defaults plus encrypted admin overrides; fixed schema contract | **OpenPost** |
-| Security/privacy | Bounded inputs and authorization; provider storage defaults on | Untrusted-data framing, bounded media/search, sanitized provider errors, encrypted overrides | **OpenPost** |
+| Durability | Generate ephemeral; Review ephemeral; Create queued and persists draft | All builds persisted with phases, lease fencing, idempotency, cancel/retry and explicit commit | **dopost** |
+| Schemas | Laravel structured output; streamer awkwardly streams JSON | Strict machine-owned JSON Schema at every stage plus validation | **dopost** |
+| Usage | Per-call credit ledger and hard monthly entitlement | Per-build per-stage token/cost trace; no user-facing credit quota found | **TryPost** monetization/control; dopost observability |
+| Prompt operations | Blade prompt files in source | Versioned defaults plus encrypted admin overrides; fixed schema contract | **dopost** |
+| Security/privacy | Bounded inputs and authorization; provider storage defaults on | Untrusted-data framing, bounded media/search, sanitized provider errors, encrypted overrides | **dopost** |
 | API/automation | Editor AI endpoints are web-oriented; MCP post tools do not call them | Durable REST build endpoints; no Builder MCP tool found | Split; both have an automation seam gap |
 
 ## 5. What each product genuinely does better
@@ -247,9 +247,9 @@ Instance admins can override versioned base/platform post-generation prompts. Ov
 3. **Visual content completion:** carousel structure, multiple generated images, brand visuals and template/Unsplash paths turn a prompt into a publishable draft.
 4. **Provider breadth at the edges:** Pinterest and Telegram analytics are real implementations; Discord post reactions/replies are close to useful after routing cleanup.
 5. **YouTube reporting depth:** watch time, average duration/percentage and subscriber changes are more decision-useful than lifetime counters.
-6. **Commercial guardrails:** explicit monthly credits, action pricing, 402 behavior and a usage page are clearer than OpenPost’s current per-build observability alone.
+6. **Commercial guardrails:** explicit monthly credits, action pricing, 402 behavior and a usage page are clearer than dopost’s current per-build observability alone.
 
-### OpenPost advantages
+### dopost advantages
 
 1. **Analytics truth and durability:** stored snapshots, classified sync state, stale indicators, measured counts, adaptive collection and provider-independent reads.
 2. **Correct content hierarchy:** metrics attach to Renditions and roll up to Publications without erasing destination differences.
@@ -259,7 +259,7 @@ Instance admins can override versioned base/platform post-generation prompts. Ov
 6. **Operational resilience:** durable jobs, admission limits, idempotency, leases, cancellation, retry and persisted safe failures/results.
 7. **Prompt governance:** encrypted overrides with actor/time metadata while keeping the schema contract out of editable prompt text.
 
-## 6. Prioritized recommendations for OpenPost
+## 6. Prioritized recommendations for dopost
 
 ### P0 — correctness, privacy, or data-integrity gates
 
@@ -297,8 +297,8 @@ Instance admins can override versioned base/platform post-generation prompts. Ov
 - Provider endpoint names and scope availability should be verified against each provider’s current official API docs before implementation; TryPost code is useful competitive evidence, not an API specification.
 - TryPost’s Discord controller/UI mismatch may be a transient regression at the reviewed commit.
 - Neither repository review proves cloud runtime model selection, provider data-retention agreements, or approved app scopes.
-- OpenPost’s snapshot cadence is excellent for operational analytics but does not automatically make lifetime counters date-bounded. UI wording must distinguish “current/lifetime value captured in this window” from “activity during this window.”
-- OpenPost’s engagement rollup intentionally combines heterogeneous actions. Keep measured denominators and provider breakdown visible; do not rank a save, click, like and comment as intrinsically equivalent without labeling the formula.
+- dopost’s snapshot cadence is excellent for operational analytics but does not automatically make lifetime counters date-bounded. UI wording must distinguish “current/lifetime value captured in this window” from “activity during this window.”
+- dopost’s engagement rollup intentionally combines heterogeneous actions. Keep measured denominators and provider breakdown visible; do not rank a save, click, like and comment as intrinsically equivalent without labeling the formula.
 
 ## Primary sources
 
@@ -310,9 +310,9 @@ Instance admins can override versioned base/platform post-generation prompts. Ov
 - [TryPost plans and billing](https://docs.trypost.it/knowledge-base/plans-and-billing) — official credit limits/prices.
 - [TryPost MCP introduction](https://docs.trypost.it/ai/introduction) — official authentication and tool-surface description.
 
-### OpenPost kept
+### dopost kept
 
-- OpenPost local source at `169c72d` — implementation authority for the comparison; the exact file links above use the public `12ce2e3` snapshot where the cited behavior is unchanged.
+- dopost local source at `169c72d` — implementation authority for the comparison; the exact file links above use the public `12ce2e3` snapshot where the cited behavior is unchanged.
 - Analytics service, adapters, handlers, migration, frontend and tests under the exact file links cited above.
 - Publication Builder application/service/prompts/types, AI boundary, prompt override service and frontend under the exact file links cited above.
 
@@ -320,4 +320,4 @@ Instance admins can override versioned base/platform post-generation prompts. Ov
 
 - Search snippets, third-party reviews and SEO comparison pages — not primary evidence.
 - TryPost README claims such as “analytics across every connected platform” and “automation AI generation” — retained only as marketing claims where source paths did not prove the full statement.
-- Historical OpenPost roadmap material — superseded by current implementation.
+- Historical dopost roadmap material — superseded by current implementation.

@@ -14,7 +14,7 @@ not maintain a second design manifesto here.
 
 Keep these invariants in mind:
 
-- OpenPost is founder-first, with the managed app as the primary path and
+- dopost is founder-first, with the managed app as the primary path and
   self-hosting as a supported option.
 - The authenticated application is compact and task-focused. Public surfaces
   can be more expressive and spacious, while remaining factual, responsive,

@@ -4,7 +4,29 @@ import type {
 } from '$lib/account-management';
 import { m } from '$lib/paraglide/messages';
 
-export type AccountManagementURLFeedback = { kind: 'oauth_cancelled' } | { kind: 'oauth_failed' };
+export type AccountManagementURLFeedback = {
+	kind:
+		| 'oauth_cancelled'
+		| 'oauth_failed'
+		| 'facebook_no_pages'
+		| 'instagram_no_page_linked_account'
+		| 'token_exchange_failed'
+		| 'profile_fetch_failed'
+		| 'account_selection_failed'
+		| 'account_save_failed';
+	diagnostic?: string;
+};
+
+// Mirrors the server's typed HTTP diagnostic grammar. Callback URLs are
+// user-editable, so never display arbitrary provider text from a query string.
+const oauthDiagnostic =
+	/^HTTP [45]\d{2}(?:; code=[A-Za-z0-9_.:-]{1,96})?(?:; subcode=[A-Za-z0-9_.:-]{1,96})?(?:; trace=[A-Za-z0-9_.:-]{1,96})?$/;
+
+const profileDiagnostics = new Set([
+	'profile=invalid_response',
+	'profile=invalid_user_id',
+	'profile=professional_account_required'
+]);
 
 export interface AccountManagementURLState {
 	feedback: AccountManagementURLFeedback | null;
@@ -15,16 +37,39 @@ export interface AccountManagementURLState {
 export function interpretAccountManagementURL(url: URL): AccountManagementURLState {
 	const params = new URLSearchParams(url.searchParams);
 	const oauthStatus = params.get('oauth_status');
+	const oauthReason = params.get('oauth_reason');
 	const hasLegacyError = params.has('error');
 	const workspaceID = params.get('workspace_id') ?? '';
 	let feedback: AccountManagementURLFeedback | null = null;
 
-	if (oauthStatus === 'cancelled') feedback = { kind: 'oauth_cancelled' };
+	if (oauthStatus === 'failed' && oauthReason === 'facebook_no_pages') {
+		feedback = { kind: 'facebook_no_pages' };
+	} else if (oauthStatus === 'failed' && oauthReason === 'instagram_no_page_linked_account') {
+		feedback = { kind: 'instagram_no_page_linked_account' };
+	} else if (
+		oauthStatus === 'failed' &&
+		(oauthReason === 'token_exchange_failed' ||
+			oauthReason === 'profile_fetch_failed' ||
+			oauthReason === 'account_selection_failed' ||
+			oauthReason === 'account_save_failed')
+	) {
+		feedback = { kind: oauthReason };
+	} else if (oauthStatus === 'cancelled') feedback = { kind: 'oauth_cancelled' };
 	else if (oauthStatus) feedback = { kind: 'oauth_failed' };
 	else if (hasLegacyError) feedback = { kind: 'oauth_failed' };
 
 	if (feedback) {
+		const diagnostic = params.get('oauth_diagnostic');
+		if (
+			oauthStatus === 'failed' &&
+			diagnostic &&
+			(oauthDiagnostic.test(diagnostic) || profileDiagnostics.has(diagnostic))
+		) {
+			feedback.diagnostic = diagnostic;
+		}
 		params.delete('oauth_status');
+		params.delete('oauth_reason');
+		params.delete('oauth_diagnostic');
 		params.delete('workspace_id');
 		params.delete('error');
 	}
@@ -44,7 +89,17 @@ export function presentAccountManagementFeedback(
 	if (value.kind === 'oauth_cancelled') {
 		return { tone: 'info', message: m.accounts_oauth_cancelled() };
 	}
-	return { tone: 'error', message: m.accounts_oauth_failed() };
+	const messages = {
+		oauth_failed: m.accounts_oauth_failed,
+		facebook_no_pages: m.accounts_oauth_facebook_no_pages,
+		instagram_no_page_linked_account: m.accounts_oauth_instagram_no_page_linked_account,
+		token_exchange_failed: m.accounts_oauth_token_exchange_failed,
+		profile_fetch_failed: m.accounts_oauth_profile_fetch_failed,
+		account_selection_failed: m.accounts_oauth_account_selection_failed,
+		account_save_failed: m.accounts_oauth_account_save_failed
+	};
+	const message = messages[value.kind]();
+	return { tone: 'error', message: value.diagnostic ? `${message} ${value.diagnostic}.` : message };
 }
 
 export function rememberAccountManagementContinuation(continuation: AccountManagementContinuation) {

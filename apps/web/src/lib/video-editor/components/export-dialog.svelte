@@ -3,6 +3,7 @@
 	import { onDestroy } from 'svelte';
 	import { canEncodeVideo, type VideoCodec } from 'mediabunny';
 	import { m } from '$lib/paraglide/messages';
+	import { formatBytes as formatByteSize } from '$lib/byte-size';
 	import { Button, type ButtonVariant } from '$lib/components/ui/button';
 	import { Checkbox } from '$lib/components/ui/checkbox';
 	import * as Dialog from '$lib/components/ui/dialog';
@@ -35,7 +36,7 @@
 		rangesFromMarkers,
 		type RenderQueueRange
 	} from '../export/render-queue-job';
-	import { renderQueueStore } from '../export/render-queue-store';
+	import { renderQueueStore, type RenderQueueJob } from '../export/render-queue-store';
 	import {
 		applyExportPreset,
 		EXPORT_PRESETS,
@@ -43,6 +44,7 @@
 		type ExportPresetId
 	} from '../export/export-presets';
 	import RenderQueuePanel from './render-queue-panel.svelte';
+	import ExportChapters from './export-chapters.svelte';
 	import { captureSnapshot } from '../timeline/commands/snapshot.svelte';
 	import { sequenceStore } from '../sequences/sequence-store.svelte';
 	import {
@@ -125,12 +127,14 @@
 	let codecSupport = $state<Partial<Record<VideoCodec, boolean>>>({});
 	let codecFallback = $state<{ from: VideoCodec; to: VideoCodec } | null>(null);
 	let resolution = $state('source');
+	let resolutionProjectId: string | null = null;
 	let useRange = $state(false);
 	let subtitleMode = $state<NonNullable<RenderExportOptions['subtitleMode']>>('burn');
 	let sequenceDestination = $state<'directory' | 'zip'>(
 		getDirectoryPickerAvailable() ? 'directory' : 'zip'
 	);
 	let progress = $state<RenderExportProgress | null>(null);
+	let queueSubmissionError = $state<string | null>(null);
 	let startedAt = $state<number | undefined>();
 	let controller: AbortController | null = null;
 	let codecProbeVersion = 0;
@@ -176,7 +180,12 @@
 	const resolutionOptions = $derived([
 		{
 			value: 'source',
-			label: `${exportProject?.metadata.width} × ${exportProject?.metadata.height}`
+			label: exportProject
+				? m.video_editor_export_sequence_resolution({
+						width: exportProject.metadata.width,
+						height: exportProject.metadata.height
+					})
+				: ''
 		},
 		{ value: '1920x1080', label: '1920 × 1080' },
 		{ value: '1280x720', label: '1280 × 720' },
@@ -317,9 +326,7 @@
 	});
 
 	function formatBytes(bytes: number): string {
-		if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
-		if (bytes < 1024 ** 3) return `${(bytes / 1024 ** 2).toFixed(1)} MB`;
-		return `${(bytes / 1024 ** 3).toFixed(2)} GB`;
+		return formatByteSize(bytes, { base: 'iec' }) ?? '—';
 	}
 
 	function preflightMessage(check: ExportPreflightCheck): string {
@@ -424,8 +431,8 @@
 		}
 	}
 
-	function openExportDialog(): void {
-		if (!project) return;
+	export function openExportDialog(): void {
+		if (!project || open) return;
 		const snapshot = captureSnapshot();
 		exportableSequences = createExportableSequences(
 			$state.snapshot(project),
@@ -433,9 +440,13 @@
 			sequenceStore.activeSequenceId
 		);
 		selectedSequenceId = sequenceStore.activeSequenceId;
-		resolution = 'source';
+		if (resolutionProjectId !== project.id) {
+			resolution = 'source';
+			resolutionProjectId = project.id;
+		}
 		useRange = false;
 		codecFallback = null;
+		queueSubmissionError = null;
 		open = true;
 	}
 
@@ -460,9 +471,20 @@
 		};
 	}
 
+	function submitQueueJobs(buildJobs: () => RenderQueueJob[]): void {
+		queueSubmissionError = null;
+		try {
+			renderQueueStore.enqueue(buildJobs());
+			open = false;
+		} catch (cause) {
+			queueSubmissionError = m.video_editor_queue_add_failed();
+			onerror(cause instanceof Error ? cause : new Error(String(cause)));
+		}
+	}
+
 	function enqueueCurrent(): void {
 		if (!exportProject || !exportTimeline || !preflight.canExport) return;
-		renderQueueStore.enqueue([
+		submitQueueJobs(() => [
 			buildRenderQueueJob({
 				project: exportProject,
 				settings: queueSettings(),
@@ -476,7 +498,6 @@
 				busAudioEq: exportTimeline.busAudioEq
 			})
 		]);
-		open = false;
 	}
 
 	function enqueueSegments(
@@ -514,7 +535,7 @@
 			);
 			return;
 		}
-		renderQueueStore.enqueue(
+		submitQueueJobs(() =>
 			buildSegmentRenderQueueJobs({
 				project: selectedProject,
 				settings,
@@ -531,7 +552,6 @@
 					`${selectedProject.name} - ${m.video_editor_queue_part({ number: index + 1 })}`
 			})
 		);
-		open = false;
 	}
 
 	function enqueueMarkerSegments(): void {
@@ -682,12 +702,15 @@
 	});
 </script>
 
+{#if project}
+	<RenderQueuePanel projectId={project.id} compactTrigger={compactQueueTrigger} />
+{/if}
 <Button
 	size="sm"
 	variant={triggerVariant}
 	class={triggerClass}
 	{disabled}
-	aria-label={m.video_editor_export_render()}
+	aria-label={triggerLabel ?? m.video_editor_export_render()}
 	onclick={openExportDialog}
 >
 	{#if responsiveTrigger}
@@ -702,14 +725,9 @@
 		{m.video_editor_export_render()}
 	{/if}
 </Button>
-{#if project}
-	<RenderQueuePanel projectId={project.id} compactTrigger={compactQueueTrigger} />
-{/if}
-
 <Dialog.Root bind:open>
 	<Dialog.Content
-		class="video-editor-theme !block max-h-[calc(100dvh-2rem)] w-full max-w-[calc(100%-2rem)] overflow-y-auto rounded-xl border border-[var(--video-editor-border)] bg-[var(--video-editor-panel)] p-4 text-[var(--video-editor-text)] shadow-2xl sm:max-w-md"
-		overlayProps={{ class: 'bg-scrim' }}
+		class="video-editor-theme !flex max-h-[calc(100dvh-2rem)] w-full max-w-[calc(100%-2rem)] flex-col gap-0 overflow-hidden rounded-xl border border-[var(--video-editor-border)] bg-[var(--video-editor-panel)] p-0 text-[var(--video-editor-text)] shadow-2xl sm:max-w-md"
 		showCloseButton={!rendering}
 		onInteractOutside={(event) => {
 			if (rendering) event.preventDefault();
@@ -718,267 +736,304 @@
 			if (rendering) event.preventDefault();
 		}}
 	>
-		<Dialog.Title id="export-title" class="text-base font-semibold"
-			>{m.video_editor_export_title()}</Dialog.Title
-		>
-		{#if exportableSequences.length > 1 && selectedSequence}
-			<div
-				class="mt-4 rounded-lg border border-[var(--video-editor-border)] bg-[var(--video-editor-control)] p-3"
+		<header class="shrink-0 border-b border-[var(--video-editor-border)] px-3 py-3 pr-12">
+			<Dialog.Title id="export-title" class="text-base font-semibold"
+				>{isAudioFormat ? m.common_export() : m.video_editor_export_title()}</Dialog.Title
 			>
+		</header>
+		<div
+			class="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 pb-3"
+			data-export-settings-scroll
+		>
+			{#if exportableSequences.length > 1 && selectedSequence}
+				<div
+					class="mt-4 rounded-lg border border-[var(--video-editor-border)] bg-[var(--video-editor-control)] p-3"
+				>
+					<label class="text-xs text-muted-foreground">
+						{m.video_editor_sequences()}
+						<AppSelect
+							class="mt-1 h-8 w-full text-sm"
+							value={selectedSequenceId ?? '__main__'}
+							options={exportableSequences.map((sequence) => ({
+								value: sequence.id ?? '__main__',
+								label: sequence.id === null ? m.video_editor_main_sequence() : sequence.name
+							}))}
+							disabled={rendering}
+							onValueChange={selectSequence}
+						/>
+					</label>
+					<div
+						class="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-[var(--video-editor-muted)] tabular-nums"
+						aria-live="polite"
+					>
+						{#if !isAudioFormat}
+							<span
+								>{m.video_editor_export_resolution()}: {selectedSequence.project.metadata.width} × {selectedSequence
+									.project.metadata.height}</span
+							>
+							<span>{selectedSequence.project.metadata.fps} fps</span>
+						{/if}
+						<span
+							>{m.video_editor_project_duration({
+								duration: formatMediaDuration(
+									selectedSequence.durationInFrames / selectedSequence.project.metadata.fps
+								)
+							})}</span
+						>
+					</div>
+				</div>
+			{/if}
+			{#if videoFormat}
+				<div class="mt-4">
+					<p class="text-xs text-muted-foreground">{m.video_editor_export_preset_label()}</p>
+					<div
+						class="mt-1 flex flex-wrap gap-2"
+						role="group"
+						aria-label={m.video_editor_export_preset_label()}
+					>
+						{#each EXPORT_PRESETS as preset (preset.id)}
+							<Button
+								size="sm"
+								variant={activePreset === preset.id ? 'default' : 'outline'}
+								disabled={rendering}
+								onclick={() => applyPreset(preset.id)}
+								aria-pressed={activePreset === preset.id}
+							>
+								{presetLabel(preset.id)}
+							</Button>
+						{/each}
+					</div>
+				</div>
+			{/if}
+			<div class="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
 				<label class="text-xs text-muted-foreground">
-					{m.video_editor_sequences()}
-					<AppSelect
-						class="mt-1 h-9 w-full text-sm"
-						value={selectedSequenceId ?? '__main__'}
-						options={exportableSequences.map((sequence) => ({
-							value: sequence.id ?? '__main__',
-							label: sequence.id === null ? m.video_editor_main_sequence() : sequence.name
-						}))}
+					{m.video_editor_export_format()}<AppSelect
+						class="mt-1 h-8 w-full text-sm"
+						value={format}
+						options={formatOptions}
 						disabled={rendering}
-						onValueChange={selectSequence}
+						onValueChange={setFormat}
 					/>
 				</label>
+				{#if videoFormat}
+					<label class="text-xs text-muted-foreground"
+						>{m.video_editor_export_codec()}<AppSelect
+							class="mt-1 h-8 w-full text-sm"
+							value={codec}
+							disabled={rendering}
+							options={codecs.map((candidate) => ({
+								value: candidate,
+								label: `${candidate.toUpperCase()}${codecSupport[candidate] === false ? ` ${m.video_editor_export_codec_unavailable()}` : ''}`,
+								disabled: codecSupport[candidate] === false
+							}))}
+							onValueChange={setCodec}
+						/>
+					</label>
+				{/if}
+				{#if !isAudioFormat}
+					<label class="text-xs text-muted-foreground">
+						{#if isSequenceFormat && (format === 'jpeg-sequence' || format === 'webp-sequence')}
+							{m.video_editor_export_jpeg_quality()}
+						{:else}
+							{m.video_editor_export_quality()}
+						{/if}
+						<AppSelect
+							class="mt-1 h-8 w-full text-sm"
+							value={quality}
+							options={qualityOptions}
+							disabled={rendering}
+							onValueChange={setQuality}
+						/>
+					</label>
+					<label class="text-xs text-muted-foreground">
+						{m.video_editor_export_resolution()}<AppSelect
+							class="mt-1 h-8 w-full text-sm"
+							bind:value={resolution}
+							options={resolutionOptions}
+							disabled={rendering}
+						/>
+					</label>
+				{/if}
+				{#if !isSequenceFormat && !isAudioFormat}
+					<label class="text-xs text-muted-foreground">
+						{m.video_editor_export_subtitles()}<AppSelect
+							class="mt-1 h-8 w-full text-sm"
+							value={subtitleMode}
+							options={subtitleOptions}
+							disabled={rendering}
+							onValueChange={setSubtitleMode}
+						/>
+					</label>
+				{/if}
+				{#if isSequenceFormat}
+					<label class="text-xs text-muted-foreground">
+						{m.video_editor_export_sequence_destination()}<AppSelect
+							class="mt-1 h-8 w-full text-sm"
+							value={sequenceDestination}
+							options={sequenceDestinationOptions}
+							disabled={rendering}
+							onValueChange={(v) => {
+								if (v === 'directory' || v === 'zip') sequenceDestination = v;
+							}}
+						/>
+					</label>
+				{/if}
+			</div>
+			{#if isSequenceFormat}
+				<p class="mt-2 text-xs text-[var(--video-editor-muted)]" aria-live="polite">
+					{m.video_editor_export_sequence_alpha_hint()}
+				</p>
+				<p class="mt-1 text-xs text-[var(--video-editor-muted)]">
+					{m.video_editor_export_sequence_file_pattern({ pattern: sequenceFilePattern })}
+				</p>
+				{#if sequenceDestination === 'directory' && !getDirectoryPickerAvailable()}
+					<p class="mt-1 text-xs text-warning-foreground">
+						{m.video_editor_export_sequence_directory_unavailable()}
+					</p>
+				{/if}
+				{#if sequenceDestination === 'zip'}
+					<p class="mt-1 text-xs text-[var(--video-editor-muted)]">
+						{m.video_editor_export_sequence_zip_hint()}
+					</p>
+				{:else}
+					<p class="mt-1 text-xs text-[var(--video-editor-muted)]">
+						{m.video_editor_export_sequence_directory_hint()}
+					</p>
+				{/if}
+			{/if}
+			<label class="mt-3 flex min-h-8 items-center gap-2 text-sm [@media(pointer:coarse)]:min-h-11">
+				<Checkbox
+					bind:checked={useRange}
+					disabled={rendering ||
+						exportTimeline?.inPoint === undefined ||
+						exportTimeline.outPoint === undefined}
+				/>{m.video_editor_export_range()}
+			</label>
+			{#if selectedRange && exportProject}
+				{#key selectedSequenceId}
+					<ExportChapters
+						markers={exportTimeline?.markers ?? []}
+						fps={exportProject.metadata.fps}
+						range={selectedRange}
+					/>
+				{/key}
+			{/if}
+			{#if !rendering}
 				<div
-					class="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-[var(--video-editor-muted)] tabular-nums"
+					class="mt-3 rounded-lg border border-[var(--video-editor-border)] bg-[var(--video-editor-control)] p-3"
 					aria-live="polite"
 				>
-					<span
-						>{m.video_editor_export_resolution()}: {selectedSequence.project.metadata.width} × {selectedSequence
-							.project.metadata.height}</span
-					>
-					<span>{selectedSequence.project.metadata.fps} fps</span>
-					<span
-						>{m.video_editor_project_duration({
-							duration: formatMediaDuration(
-								selectedSequence.durationInFrames / selectedSequence.project.metadata.fps
-							)
-						})}</span
-					>
+					<div class="flex items-start gap-2">
+						{#if preflight.pending}
+							<ProtectedIcon
+								icon="loading"
+								class="mt-0.5 size-4 shrink-0 animate-spin text-[var(--video-editor-muted)] motion-reduce:animate-none"
+							/>
+						{:else if summarizePreflightSeverity(preflight.checks) === 'error'}
+							<ProtectedIcon icon="error" class="mt-0.5 size-4 shrink-0 text-destructive" />
+						{:else if summarizePreflightSeverity(preflight.checks) === 'warning'}
+							<ProtectedIcon
+								icon="warning"
+								class="mt-0.5 size-4 shrink-0 text-warning-foreground"
+							/>
+						{:else}
+							<ProtectedIcon icon="success" class="mt-0.5 size-4 shrink-0 text-success" />
+						{/if}
+						<div class="min-w-0 flex-1">
+							<p class="text-xs font-medium">
+								{preflight.pending
+									? m.video_editor_preflight_checking()
+									: preflight.canExport
+										? m.video_editor_preflight_ready()
+										: m.video_editor_preflight_blocked()}
+							</p>
+							<p class="mt-0.5 text-xs text-[var(--video-editor-muted)] tabular-nums">
+								{m.video_editor_preflight_estimate({
+									duration: preflight.estimatedDurationSeconds.toFixed(1),
+									size: formatBytes(preflight.estimatedFileSizeBytes),
+									path:
+										preflight.predictedRenderPath === 'smart-copy'
+											? m.video_editor_preflight_path_smart_copy()
+											: preflight.predictedRenderPath === 'worker'
+												? m.video_editor_preflight_path_worker()
+												: m.video_editor_preflight_path_main_thread()
+								})}
+							</p>
+						</div>
+					</div>
+					{#if visiblePreflightChecks.length > 0}
+						<ul class="mt-2 space-y-1 border-t border-[var(--video-editor-border)] pt-2">
+							{#each visiblePreflightChecks as check (check.id)}
+								<li
+									class={[
+										'text-xs',
+										check.severity === 'error'
+											? 'text-destructive'
+											: check.severity === 'warning'
+												? 'text-warning-foreground'
+												: 'text-[var(--video-editor-muted)]'
+									]}
+								>
+									{preflightMessage(check)}
+								</li>
+							{/each}
+						</ul>
+					{/if}
 				</div>
-			</div>
-		{/if}
-		{#if videoFormat}
-			<div class="mt-4">
-				<p class="text-xs text-muted-foreground">{m.video_editor_export_preset_label()}</p>
-				<div
-					class="mt-1 flex flex-wrap gap-2"
-					role="group"
-					aria-label={m.video_editor_export_preset_label()}
-				>
-					{#each EXPORT_PRESETS as preset (preset.id)}
-						<Button
-							size="sm"
-							variant={activePreset === preset.id ? 'default' : 'outline'}
-							disabled={rendering}
-							onclick={() => applyPreset(preset.id)}
-							aria-pressed={activePreset === preset.id}
-						>
-							{presetLabel(preset.id)}
-						</Button>
-					{/each}
-				</div>
-			</div>
-		{/if}
-		<div class="mt-4 grid grid-cols-2 gap-3">
-			<label class="text-xs text-muted-foreground">
-				{m.video_editor_export_format()}<AppSelect
-					class="mt-1 h-9 w-full text-sm"
-					value={format}
-					options={formatOptions}
-					disabled={rendering}
-					onValueChange={setFormat}
-				/>
-			</label>
-			{#if videoFormat}
-				<label class="text-xs text-muted-foreground"
-					>{m.video_editor_export_codec()}<AppSelect
-						class="mt-1 h-9 w-full text-sm"
-						value={codec}
-						disabled={rendering}
-						options={codecs.map((candidate) => ({
-							value: candidate,
-							label: `${candidate.toUpperCase()}${codecSupport[candidate] === false ? ` ${m.video_editor_export_codec_unavailable()}` : ''}`,
-							disabled: codecSupport[candidate] === false
-						}))}
-						onValueChange={setCodec}
-					/>
-				</label>
-			{/if}
-			<label class="text-xs text-muted-foreground">
-				{#if isSequenceFormat && (format === 'jpeg-sequence' || format === 'webp-sequence')}
-					{m.video_editor_export_jpeg_quality()}
-				{:else}
-					{m.video_editor_export_quality()}
-				{/if}
-				<AppSelect
-					class="mt-1 h-9 w-full text-sm"
-					value={quality}
-					options={qualityOptions}
-					disabled={rendering}
-					onValueChange={setQuality}
-				/>
-			</label>
-			<label class="text-xs text-muted-foreground">
-				{m.video_editor_export_resolution()}<AppSelect
-					class="mt-1 h-9 w-full text-sm"
-					bind:value={resolution}
-					options={resolutionOptions}
-					disabled={rendering}
-				/>
-			</label>
-			{#if !isSequenceFormat}
-				<label class="text-xs text-muted-foreground">
-					{m.video_editor_export_subtitles()}<AppSelect
-						class="mt-1 h-9 w-full text-sm"
-						value={subtitleMode}
-						options={subtitleOptions}
-						disabled={rendering}
-						onValueChange={setSubtitleMode}
-					/>
-				</label>
-			{/if}
-			{#if isSequenceFormat}
-				<label class="text-xs text-muted-foreground">
-					{m.video_editor_export_sequence_destination()}<AppSelect
-						class="mt-1 h-9 w-full text-sm"
-						value={sequenceDestination}
-						options={sequenceDestinationOptions}
-						disabled={rendering}
-						onValueChange={(v) => {
-							if (v === 'directory' || v === 'zip') sequenceDestination = v;
-						}}
-					/>
-				</label>
 			{/if}
 		</div>
-		{#if isSequenceFormat}
-			<p class="mt-2 text-xs text-[var(--video-editor-muted)]" aria-live="polite">
-				{m.video_editor_export_sequence_alpha_hint()}
-			</p>
-			<p class="mt-1 text-xs text-[var(--video-editor-muted)]">
-				{m.video_editor_export_sequence_file_pattern({ pattern: sequenceFilePattern })}
-			</p>
-			{#if sequenceDestination === 'directory' && !getDirectoryPickerAvailable()}
-				<p class="mt-1 text-xs text-warning-foreground">
-					{m.video_editor_export_sequence_directory_unavailable()}
-				</p>
+		<footer class="shrink-0 border-t border-[var(--video-editor-border)] p-3" data-export-actions>
+			{#if queueSubmissionError}
+				<p class="mb-3 text-xs text-destructive" role="alert">{queueSubmissionError}</p>
 			{/if}
-			{#if sequenceDestination === 'zip'}
-				<p class="mt-1 text-xs text-[var(--video-editor-muted)]">
-					{m.video_editor_export_sequence_zip_hint()}
-				</p>
-			{:else}
-				<p class="mt-1 text-xs text-[var(--video-editor-muted)]">
-					{m.video_editor_export_sequence_directory_hint()}
-				</p>
+			{#if progress}
+				<RenderProgress {progress} {startedAt} class="mb-3" />
 			{/if}
-		{/if}
-		<label class="mt-3 flex min-h-11 items-center gap-2 text-sm">
-			<Checkbox
-				bind:checked={useRange}
-				disabled={rendering ||
-					exportTimeline?.inPoint === undefined ||
-					exportTimeline.outPoint === undefined}
-			/>{m.video_editor_export_range()}
-		</label>
-		<div
-			class="mt-3 rounded-lg border border-[var(--video-editor-border)] bg-[var(--video-editor-control)] p-3"
-			aria-live="polite"
-		>
-			<div class="flex items-start gap-2">
-				{#if preflight.pending}
-					<ProtectedIcon
-						icon="loading"
-						class="mt-0.5 size-4 shrink-0 animate-spin text-[var(--video-editor-muted)] motion-reduce:animate-none"
-					/>
-				{:else if summarizePreflightSeverity(preflight.checks) === 'error'}
-					<ProtectedIcon icon="error" class="mt-0.5 size-4 shrink-0 text-destructive" />
-				{:else if summarizePreflightSeverity(preflight.checks) === 'warning'}
-					<ProtectedIcon icon="warning" class="mt-0.5 size-4 shrink-0 text-warning-foreground" />
+			<div class="flex flex-col-reverse justify-end gap-2 sm:flex-row">
+				{#if rendering}
+					<Button variant="outline" class="w-full sm:w-auto" onclick={cancelOrClose}
+						>{m.video_editor_export_cancel()}</Button
+					>
 				{:else}
-					<ProtectedIcon icon="success" class="mt-0.5 size-4 shrink-0 text-success" />
-				{/if}
-				<div class="min-w-0 flex-1">
-					<p class="text-xs font-medium">
-						{preflight.pending
-							? m.video_editor_preflight_checking()
-							: preflight.canExport
-								? m.video_editor_preflight_ready()
-								: m.video_editor_preflight_blocked()}
-					</p>
-					<p class="mt-0.5 text-xs text-[var(--video-editor-muted)] tabular-nums">
-						{m.video_editor_preflight_estimate({
-							duration: preflight.estimatedDurationSeconds.toFixed(1),
-							size: formatBytes(preflight.estimatedFileSizeBytes),
-							path:
-								preflight.predictedRenderPath === 'smart-copy'
-									? m.video_editor_preflight_path_smart_copy()
-									: preflight.predictedRenderPath === 'worker'
-										? m.video_editor_preflight_path_worker()
-										: m.video_editor_preflight_path_main_thread()
-						})}
-					</p>
-				</div>
-			</div>
-			{#if visiblePreflightChecks.length > 0}
-				<ul class="mt-2 space-y-1 border-t border-[var(--video-editor-border)] pt-2">
-					{#each visiblePreflightChecks as check (check.id)}
-						<li
-							class={[
-								'text-xs',
-								check.severity === 'error'
-									? 'text-destructive'
-									: check.severity === 'warning'
-										? 'text-warning-foreground'
-										: 'text-[var(--video-editor-muted)]'
-							]}
-						>
-							{preflightMessage(check)}
-						</li>
-					{/each}
-				</ul>
-			{/if}
-		</div>
-		{#if progress}
-			<RenderProgress {progress} {startedAt} class="mt-3" />
-		{/if}
-		<div class="mt-4 flex justify-end gap-2">
-			{#if rendering}
-				<Button variant="outline" class="w-full sm:w-auto" onclick={cancelOrClose}
-					>{m.video_editor_export_cancel()}</Button
-				>
-			{:else}
-				<Button variant="ghost" onclick={cancelOrClose}>{m.video_editor_export_cancel()}</Button>
-				<DropdownMenu.Root>
-					<DropdownMenu.Trigger>
-						{#snippet child({ props })}
-							<Button {...props} variant="outline" disabled={!canOpenQueueMenu}>
-								<ThemeIcon role="add" />
-								{m.video_editor_queue_add()}
-								<ThemeIcon role="chevron-down" />
-							</Button>
-						{/snippet}
-					</DropdownMenu.Trigger>
-					<DropdownMenu.Content align="end" class="video-editor-theme min-w-52">
-						<DropdownMenu.Item disabled={!preflight.canExport} onclick={enqueueCurrent}>
-							{m.video_editor_queue_add_current()}
-						</DropdownMenu.Item>
-						<DropdownMenu.Separator />
-						<DropdownMenu.Label>{m.video_editor_queue_segments()}</DropdownMenu.Label>
-						<DropdownMenu.Item onclick={enqueueMarkerSegments}>
-							{m.video_editor_queue_per_marker()}
-						</DropdownMenu.Item>
-						{#each [10, 30, 60] as seconds (seconds)}
-							<DropdownMenu.Item onclick={() => enqueueFixedSegments(seconds)}>
-								{m.video_editor_queue_fixed_seconds({ seconds })}
+					<Button class="w-full sm:w-auto" variant="ghost" onclick={cancelOrClose}
+						>{m.video_editor_export_cancel()}</Button
+					>
+					<DropdownMenu.Root>
+						<DropdownMenu.Trigger>
+							{#snippet child({ props })}
+								<Button
+									{...props}
+									class="w-full sm:w-auto"
+									variant="outline"
+									disabled={!canOpenQueueMenu}
+								>
+									<ThemeIcon role="add" />
+									{m.video_editor_queue_add()}
+									<ThemeIcon role="chevron-down" />
+								</Button>
+							{/snippet}
+						</DropdownMenu.Trigger>
+						<DropdownMenu.Content align="end" class="video-editor-theme min-w-52">
+							<DropdownMenu.Item disabled={!preflight.canExport} onclick={enqueueCurrent}>
+								{m.video_editor_queue_add_current()}
 							</DropdownMenu.Item>
-						{/each}
-					</DropdownMenu.Content>
-				</DropdownMenu.Root>
-				<Button disabled={!preflight.canExport} onclick={start}
-					>{m.video_editor_export_start_now()}</Button
-				>
-			{/if}
-		</div>
+							<DropdownMenu.Separator />
+							<DropdownMenu.Label>{m.video_editor_queue_segments()}</DropdownMenu.Label>
+							<DropdownMenu.Item onclick={enqueueMarkerSegments}>
+								{m.video_editor_queue_per_marker()}
+							</DropdownMenu.Item>
+							{#each [10, 30, 60] as seconds (seconds)}
+								<DropdownMenu.Item onclick={() => enqueueFixedSegments(seconds)}>
+									{m.video_editor_queue_fixed_seconds({ seconds })}
+								</DropdownMenu.Item>
+							{/each}
+						</DropdownMenu.Content>
+					</DropdownMenu.Root>
+					<Button class="w-full sm:w-auto" disabled={!preflight.canExport} onclick={start}
+						>{m.video_editor_export_start_now()}</Button
+					>
+				{/if}
+			</div>
+		</footer>
 	</Dialog.Content>
 </Dialog.Root>

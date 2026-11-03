@@ -1,30 +1,27 @@
-import { readdirSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+
+import { sourceFiles } from "./check-query-shared.mjs";
 
 const sourceRoots = ["apps/web", "apps/marketing"];
 const nativeControlPattern = /<(input|select|textarea)\b/gu;
 const primitiveImplementations = new Set([
-  "apps/web/src/lib/components/ui/input/input.svelte",
-  "apps/web/src/lib/components/ui/textarea/textarea.svelte",
+  "packages/ui/src/lib/components/input/input.svelte",
+  "packages/ui/src/lib/components/textarea/textarea.svelte",
   // The shadcn-svelte calendar keeps a transparent native select behind its
   // styled month and year captions for mobile-picker and form semantics.
-  "apps/web/src/lib/components/ui/calendar/calendar-month-select.svelte",
-  "apps/web/src/lib/components/ui/calendar/calendar-year-select.svelte",
+  "packages/ui/src/lib/components/calendar/calendar-month-select.svelte",
+  "packages/ui/src/lib/components/calendar/calendar-year-select.svelte",
 ]);
 
+const svelteExtensions = new Set([".svelte"]);
+
 function svelteFiles(directory) {
-  const files = [];
-  for (const entry of readdirSync(directory, { withFileTypes: true })) {
-    const path = resolve(directory, entry.name);
-    if (entry.isDirectory()) {
-      if (entry.name === "node_modules" || entry.name.startsWith(".")) continue;
-      files.push(...svelteFiles(path));
-    } else if (entry.isFile() && entry.name.endsWith(".svelte")) {
-      files.push(path);
-    }
-  }
-  return files;
+  return sourceFiles(directory, {
+    extensions: svelteExtensions,
+    skipDirectoryNames: ["node_modules"],
+  });
 }
 
 export function findNativeFormControlViolations(repoRoot) {
@@ -51,9 +48,21 @@ export function findNativeFormControlViolations(repoRoot) {
 function main() {
   const repoRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
   const violations = findNativeFormControlViolations(repoRoot);
-  if (violations.length === 0) {
+  const nativeTextViolations = [];
+  for (const file of sourceFiles(resolve(repoRoot, "apps/mobile/src/app"), {
+    extensions: new Set([".tsx"]),
+    skipDirectoryNames: ["node_modules"],
+  })) {
+    const source = readFileSync(file, "utf8");
+    for (const match of source.matchAll(/import\s*\{([^}]+)\}\s*from\s*["']react-native["']/gu)) {
+      if (match[1].split(",").some((name) => /^Text(?:\s+as\s+\w+)?$/u.test(name.trim()))) {
+        nativeTextViolations.push(relative(repoRoot, file));
+      }
+    }
+  }
+  if (violations.length === 0 && nativeTextViolations.length === 0) {
     process.stdout.write(
-      "ui-consistency: shared form primitives cover every visible Svelte control\n",
+      "ui-consistency: shared form primitives and native text cover page controls\n",
     );
     return;
   }
@@ -63,6 +72,11 @@ function main() {
   );
   for (const violation of violations) {
     process.stderr.write(`- ${violation.file}:${violation.line} native <${violation.control}>\n`);
+  }
+  for (const file of nativeTextViolations) {
+    process.stderr.write(
+      `- ${file} use NativeText for Dynamic Type instead of react-native Text\n`,
+    );
   }
   process.exitCode = 1;
 }

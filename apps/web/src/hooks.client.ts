@@ -1,6 +1,10 @@
 /* oxlint-disable anti-slop/no-unknown-parameters, anti-slop/no-runtime-typeof -- SvelteKit delivers untyped errors to this boundary; the helpers below narrow them before use. */
+import { captureXMessagingCallback } from '$lib/auth/x-messaging';
 import type { HandleClientError } from '@sveltejs/kit';
 import { installMaintainerDiagnosticsCapture } from '$lib/diagnostics-report';
+import { installCryptoRandomUUID } from '$lib/crypto-random-uuid';
+import { configureProfiling } from '$lib/performance/profiling';
+import { getLocale, getTextDirection } from '$lib/paraglide/runtime';
 import {
 	captureClientException,
 	createChunkRecovery,
@@ -43,14 +47,20 @@ function createAppChunkRecovery() {
 
 let chunkRecovery = createAppChunkRecovery();
 let uninstallChunkRecovery: (() => void) | null = null;
+let uninstallErrorCapture: (() => void) | null = null;
 
 export function initializeClientErrors(installErrorCapture: ErrorCaptureInstaller) {
 	uninstallChunkRecovery?.();
+	uninstallErrorCapture?.();
 	// A fresh controller per initialization keeps single-flight state scoped
 	// to its listeners; the persisted attempt budget still carries over.
 	chunkRecovery = createAppChunkRecovery();
 	uninstallChunkRecovery = chunkRecovery.install();
-	installErrorCapture();
+	uninstallErrorCapture = installErrorCapture();
+}
+
+export function markHealthyNavigation() {
+	chunkRecovery.markHealthyNavigation();
 }
 
 /**
@@ -58,8 +68,8 @@ export function initializeClientErrors(installErrorCapture: ErrorCaptureInstalle
  * browser:
  *
  * 1. **Stale deployment** - old Vite chunk hashes are no longer on the server.
- *    Any dynamic `import()` fails with "Failed to fetch dynamically imported
- *    module".
+ *    Any dynamic `import()` fails (Chrome: "Failed to fetch dynamically imported
+ *    module", Firefox: "error loading dynamically imported module").
  * 2. **Dev race (F-007)** - on the first `vite dev` load the browser requests a
  *    generated SvelteKit client node (/_app/immutable/nodes/… or
  *    .svelte-kit/generated/…) before Vite has finished transforming it. Vite
@@ -96,20 +106,29 @@ function diagnosticsFor(error: unknown): ChunkFailureDiagnostics {
 }
 
 async function init() {
+	captureXMessagingCallback();
+	const locale = getLocale();
+	document.documentElement.lang = locale;
+	document.documentElement.dir = getTextDirection(locale);
+	configureProfiling({ enabled: new URLSearchParams(location.search).get('profile') === '1' });
+	installCryptoRandomUUID();
 	initializeClientErrors(installGlobalErrorCapture);
 	// Maintainer diagnostics ride a separate channel to the viewer's own
 	// instance: uncaught failures arrive as normalized codes and locations,
 	// never message text, and only when the instance switch is on and no
 	// browser privacy signal refuses.
 	installMaintainerDiagnosticsCapture();
-	if (import.meta.env.VITE_AUNO_E2E === '1') {
-		const [{ installAunoMotionE2EHooks }, { installAunoDocumentaryE2EHook }] =
+	if (import.meta.env.VITE_DOPOST_E2E === '1') {
+		const [{ installDopostMotionE2EHooks }, { installDopostDocumentaryE2EHook }] =
 			await Promise.all([
-				import('$lib/auno/motion/e2e-hooks'),
-				import('$lib/auno/documentary/e2e-hooks')
+				import('$lib/dopost/motion/e2e-hooks'),
+				import('$lib/dopost/documentary/e2e-hooks')
 			]);
-		installAunoMotionE2EHooks();
-		installAunoDocumentaryE2EHook();
+		installDopostMotionE2EHooks();
+		installDopostDocumentaryE2EHook();
+	}
+	if (import.meta.env.DEV && new URLSearchParams(location.search).get('renderScan') === '1') {
+		void import('$lib/performance/render-scan');
 	}
 }
 

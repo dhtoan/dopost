@@ -11,6 +11,8 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/openpost/backend/internal/api/middleware"
 	"github.com/openpost/backend/internal/models"
+	"github.com/openpost/backend/internal/services/medialifecycle"
+	"github.com/openpost/backend/internal/services/mediastore"
 	"github.com/openpost/backend/internal/services/videoprojects"
 	"github.com/uptrace/bun"
 )
@@ -20,36 +22,52 @@ const videoProjectsPath = "/video-projects"
 type VideoProjectHandler struct {
 	service *videoprojects.Service
 	auth    middleware.Authenticator
+	db      *bun.DB
+	storage mediastore.BlobStorage
 }
 
-func NewVideoProjectHandler(db *bun.DB, authenticator middleware.Authenticator) *VideoProjectHandler {
-	return &VideoProjectHandler{service: videoprojects.NewService(db), auth: authenticator}
+func NewVideoProjectHandler(db *bun.DB, authenticator middleware.Authenticator, storage mediastore.BlobStorage) *VideoProjectHandler {
+	return &VideoProjectHandler{service: videoprojects.NewService(db), auth: authenticator, db: db, storage: storage}
+}
+
+type VideoProjectMetadata struct {
+	ID                 string `json:"id"`
+	WorkspaceID        string `json:"workspace_id"`
+	Name               string `json:"name"`
+	HeadRevision       int64  `json:"head_revision"`
+	SyncStatus         string `json:"sync_status" enum:"pending,uploading,saving,synced,needs_attention"`
+	AttentionReason    string `json:"attention_reason,omitempty"`
+	PreviewObjectKey   string `json:"preview_object_key,omitempty"`
+	CreatedByUserID    string `json:"created_by_user_id"`
+	UpdatedByUserID    string `json:"updated_by_user_id"`
+	TrashedAt          string `json:"trashed_at,omitempty"`
+	RetentionExpiresAt string `json:"retention_expires_at,omitempty"`
+	CreatedAt          string `json:"created_at"`
+	UpdatedAt          string `json:"updated_at"`
 }
 
 type VideoProjectResponse struct {
-	ID                 string         `json:"id"`
-	WorkspaceID        string         `json:"workspace_id"`
-	Name               string         `json:"name"`
-	HeadRevision       int64          `json:"head_revision"`
-	Document           map[string]any `json:"document"`
-	SyncStatus         string         `json:"sync_status" enum:"pending,uploading,saving,synced,needs_attention"`
-	AttentionReason    string         `json:"attention_reason,omitempty"`
-	PreviewObjectKey   string         `json:"preview_object_key,omitempty"`
-	CreatedByUserID    string         `json:"created_by_user_id"`
-	UpdatedByUserID    string         `json:"updated_by_user_id"`
-	TrashedAt          string         `json:"trashed_at,omitempty"`
-	RetentionExpiresAt string         `json:"retention_expires_at,omitempty"`
-	CreatedAt          string         `json:"created_at"`
-	UpdatedAt          string         `json:"updated_at"`
+	VideoProjectMetadata
+	Document videoProjectDocument `json:"document"`
+}
+
+type VideoProjectSummaryResponse struct {
+	VideoProjectMetadata
+	SchemaFamily string `json:"schema_family" doc:"Editor document family; empty for legacy projects without a string family"`
+}
+
+type VideoProjectSummaryListOutput struct {
+	Body []VideoProjectSummaryResponse
 }
 
 type CreateVideoProjectInput struct {
 	Body struct {
-		ID          string         `json:"id,omitempty" maxLength:"160" doc:"Optional client-generated idempotent project ID"`
-		WorkspaceID string         `json:"workspace_id" minLength:"1" doc:"Owning Workspace ID"`
-		Name        string         `json:"name" minLength:"1" maxLength:"160" doc:"Project name"`
-		DeviceID    string         `json:"device_id,omitempty" maxLength:"160" doc:"Stable client device identifier"`
-		Document    map[string]any `json:"document" doc:"Portable authored project document without device view state"`
+		ID              string         `json:"id,omitempty" maxLength:"160" doc:"Optional client-generated idempotent project ID"`
+		WorkspaceID     string         `json:"workspace_id" minLength:"1" doc:"Owning Workspace ID"`
+		Name            string         `json:"name" minLength:"1" maxLength:"160" doc:"Project name"`
+		DeviceID        string         `json:"device_id,omitempty" maxLength:"160" doc:"Stable client device identifier"`
+		SourceProjectID string         `json:"source_project_id,omitempty" maxLength:"160" doc:"Copy asset references from a project in the same Workspace"`
+		Document        map[string]any `json:"document" doc:"Portable authored project document without device view state"`
 	}
 }
 
@@ -91,23 +109,23 @@ type VideoProjectMutationResponse struct {
 }
 
 type VideoProjectConflictResponse struct {
-	ID             string         `json:"id"`
-	Name           string         `json:"name"`
-	BaseRevision   int64          `json:"base_revision"`
-	HeadRevision   int64          `json:"head_revision"`
-	MutationID     string         `json:"mutation_id"`
-	Document       map[string]any `json:"document"`
-	OverlapTargets []string       `json:"overlap_targets"`
-	AuthorUserID   string         `json:"author_user_id"`
-	DeviceID       string         `json:"device_id,omitempty"`
-	CreatedAt      string         `json:"created_at"`
+	ID             string               `json:"id"`
+	Name           string               `json:"name"`
+	BaseRevision   int64                `json:"base_revision"`
+	HeadRevision   int64                `json:"head_revision"`
+	MutationID     string               `json:"mutation_id"`
+	Document       videoProjectDocument `json:"document"`
+	OverlapTargets []string             `json:"overlap_targets"`
+	AuthorUserID   string               `json:"author_user_id"`
+	DeviceID       string               `json:"device_id,omitempty"`
+	CreatedAt      string               `json:"created_at"`
 }
 
 type VideoProjectRevisionResponse struct {
 	Revision             int64                            `json:"revision"`
 	ParentRevision       int64                            `json:"parent_revision"`
 	Kind                 string                           `json:"kind"`
-	Document             map[string]any                   `json:"document"`
+	Document             videoProjectDocument             `json:"document"`
 	TouchedTargets       []string                         `json:"touched_targets"`
 	AuthorUserID         string                           `json:"author_user_id"`
 	DeviceID             string                           `json:"device_id,omitempty"`
@@ -171,6 +189,18 @@ type BeginProjectAssetUploadInput struct {
 	PathAsset string `path:"asset_id" doc:"Project Asset ID"`
 	Body      struct {
 		WorkspaceID string `json:"workspace_id" minLength:"1"`
+	}
+}
+
+type DeleteProjectAssetInput struct {
+	PathID      string `path:"id" doc:"Video project ID"`
+	PathAsset   string `path:"asset_id" doc:"Project Asset ID"`
+	WorkspaceID string `query:"workspace_id" required:"true" doc:"Workspace ID"`
+}
+
+type DeleteProjectAssetOutput struct {
+	Body struct {
+		Deleted bool `json:"deleted" doc:"Whether the Project Asset was removed"`
 	}
 }
 
@@ -257,13 +287,18 @@ func (h *VideoProjectHandler) RegisterRoutes(api huma.API) {
 	huma.Register(api, huma.Operation{
 		OperationID: "create-video-project", Method: http.MethodPost, Path: videoProjectsPath,
 		Summary: "Create a Cloud Video Project", Tags: []string{"Video Projects"},
-		Middlewares: auth, Errors: []int{400, 403},
+		Middlewares: auth, Errors: []int{400, 403, 404, 409},
 	}, h.create)
 	huma.Register(api, huma.Operation{
 		OperationID: "list-video-projects", Method: http.MethodGet, Path: videoProjectsPath,
 		Summary: "List Cloud Video Projects", Tags: []string{"Video Projects"},
 		Middlewares: auth, Errors: []int{403},
 	}, h.list)
+	huma.Register(api, huma.Operation{
+		OperationID: "list-video-project-summaries", Method: http.MethodGet, Path: "/video-project-summaries",
+		Summary: "List Cloud Video Project summaries", Description: "Project metadata for browsing, without the authored editing documents. Load a project by ID when opening it.",
+		Tags: []string{"Video Projects"}, Middlewares: auth, Errors: []int{403},
+	}, h.listSummaries)
 	huma.Register(api, huma.Operation{
 		OperationID: "get-video-project", Method: http.MethodGet, Path: videoProjectsPath + "/{id}",
 		Summary: "Get a Cloud Video Project", Tags: []string{"Video Projects"},
@@ -329,6 +364,11 @@ func (h *VideoProjectHandler) RegisterRoutes(api huma.API) {
 		Summary: "Mark a Project Asset upload as started", Tags: []string{"Video Projects"},
 		Middlewares: auth, Errors: []int{400, 403, 404},
 	}, h.beginAssetUpload)
+	huma.Register(api, huma.Operation{
+		OperationID: "delete-video-project-asset", Method: http.MethodDelete, Path: videoProjectsPath + "/{id}/assets/{asset_id}",
+		Summary: "Delete a Project Asset", Description: "Removes a Project Asset after the editor no longer references it. Shared media remains available to other projects.",
+		Tags: []string{"Video Projects"}, Middlewares: auth, Errors: []int{400, 403, 404, 500},
+	}, h.deleteAsset)
 }
 
 func (h *VideoProjectHandler) create(ctx context.Context, input *CreateVideoProjectInput) (*VideoProjectOutput, error) {
@@ -337,11 +377,12 @@ func (h *VideoProjectHandler) create(ctx context.Context, input *CreateVideoProj
 		return nil, huma.Error400BadRequest("Invalid project document")
 	}
 	project, err := h.service.Create(ctx, workspaceActor(ctx, middleware.GetUserID(ctx)), videoprojects.CreateInput{
-		ID:          input.Body.ID,
-		WorkspaceID: input.Body.WorkspaceID,
-		Name:        input.Body.Name,
-		Document:    document,
-		DeviceID:    input.Body.DeviceID,
+		ID:              input.Body.ID,
+		WorkspaceID:     input.Body.WorkspaceID,
+		Name:            input.Body.Name,
+		Document:        document,
+		DeviceID:        input.Body.DeviceID,
+		SourceProjectID: input.Body.SourceProjectID,
 	})
 	if err != nil {
 		return nil, videoProjectError(err, "create")
@@ -367,6 +408,18 @@ func (h *VideoProjectHandler) list(ctx context.Context, input *ListVideoProjects
 		responses = append(responses, response)
 	}
 	return &VideoProjectListOutput{Body: responses}, nil
+}
+
+func (h *VideoProjectHandler) listSummaries(ctx context.Context, input *ListVideoProjectsInput) (*VideoProjectSummaryListOutput, error) {
+	projects, err := h.service.ListSummaries(ctx, workspaceActor(ctx, middleware.GetUserID(ctx)), input.WorkspaceID, input.IncludeTrash)
+	if err != nil {
+		return nil, videoProjectError(err, "list")
+	}
+	responses := make([]VideoProjectSummaryResponse, 0, len(projects))
+	for i := range projects {
+		responses = append(responses, VideoProjectSummaryResponse{VideoProjectMetadata: videoProjectMetadata(&projects[i].VideoProject), SchemaFamily: projects[i].SchemaFamily})
+	}
+	return &VideoProjectSummaryListOutput{Body: responses}, nil
 }
 
 func (h *VideoProjectHandler) get(ctx context.Context, input *GetVideoProjectInput) (*VideoProjectOutput, error) {
@@ -422,8 +475,8 @@ func (h *VideoProjectHandler) listConflicts(ctx context.Context, input *GetVideo
 	}
 	responses := make([]VideoProjectConflictResponse, 0, len(conflicts))
 	for _, conflict := range conflicts {
-		document := map[string]any{}
-		if err := json.Unmarshal(conflict.Document, &document); err != nil {
+		document := videoProjectDocument{RawMessage: conflict.Document}
+		if !document.valid() {
 			return nil, huma.Error500InternalServerError("Stored project conflict is invalid")
 		}
 		responses = append(responses, VideoProjectConflictResponse{
@@ -458,8 +511,8 @@ func (h *VideoProjectHandler) listRevisions(ctx context.Context, input *GetVideo
 	}
 	responses := make([]VideoProjectRevisionResponse, 0, len(revisions))
 	for _, revision := range revisions {
-		document := map[string]any{}
-		if err := json.Unmarshal(revision.Document, &document); err != nil {
+		document := videoProjectDocument{RawMessage: revision.Document}
+		if !document.valid() {
 			return nil, huma.Error500InternalServerError("Stored project revision is invalid")
 		}
 		response := VideoProjectRevisionResponse{
@@ -589,6 +642,27 @@ func (h *VideoProjectHandler) beginAssetUpload(ctx context.Context, input *Begin
 	return &ProjectAssetOutput{Body: response}, nil
 }
 
+func (h *VideoProjectHandler) deleteAsset(ctx context.Context, input *DeleteProjectAssetInput) (*DeleteProjectAssetOutput, error) {
+	mediaID, err := h.service.DeleteAsset(
+		ctx,
+		workspaceActor(ctx, middleware.GetUserID(ctx)),
+		input.WorkspaceID,
+		input.PathID,
+		input.PathAsset,
+	)
+	if err != nil {
+		return nil, videoProjectError(err, "delete asset from")
+	}
+	if mediaID != "" {
+		if _, err := medialifecycle.NewService(h.db, h.storage).TrashManual(ctx, mediaID, input.WorkspaceID); err != nil {
+			return nil, huma.Error500InternalServerError("failed to move deleted Project Asset media to Trash")
+		}
+	}
+	output := &DeleteProjectAssetOutput{}
+	output.Body.Deleted = true
+	return output, nil
+}
+
 func projectAssetResponse(asset *models.ProjectAsset) (ProjectAssetResponse, error) {
 	preparation := map[string]any{}
 	if asset == nil || json.Unmarshal([]byte(asset.PreparationJSON), &preparation) != nil {
@@ -604,13 +678,20 @@ func projectAssetResponse(asset *models.ProjectAsset) (ProjectAssetResponse, err
 }
 
 func videoProjectResponse(project *models.VideoProject) (VideoProjectResponse, error) {
-	document := map[string]any{}
-	if project == nil || json.Unmarshal([]byte(project.DocumentJSON), &document) != nil {
+	if project == nil {
 		return VideoProjectResponse{}, huma.Error500InternalServerError("Stored project document is invalid")
 	}
-	response := VideoProjectResponse{
+	document := videoProjectDocument{RawMessage: json.RawMessage(project.DocumentJSON)}
+	if !document.valid() {
+		return VideoProjectResponse{}, huma.Error500InternalServerError("Stored project document is invalid")
+	}
+	return VideoProjectResponse{VideoProjectMetadata: videoProjectMetadata(project), Document: document}, nil
+}
+
+func videoProjectMetadata(project *models.VideoProject) VideoProjectMetadata {
+	response := VideoProjectMetadata{
 		ID: project.ID, WorkspaceID: project.WorkspaceID, Name: project.Name,
-		HeadRevision: project.HeadRevision, Document: document, SyncStatus: project.SyncStatus,
+		HeadRevision: project.HeadRevision, SyncStatus: project.SyncStatus,
 		AttentionReason: project.AttentionReason, PreviewObjectKey: project.PreviewObjectKey,
 		CreatedByUserID: project.CreatedByUserID, UpdatedByUserID: project.UpdatedByUserID,
 		CreatedAt: project.CreatedAt.UTC().Format(time.RFC3339Nano), UpdatedAt: project.UpdatedAt.UTC().Format(time.RFC3339Nano),
@@ -621,7 +702,7 @@ func videoProjectResponse(project *models.VideoProject) (VideoProjectResponse, e
 	if !project.RetentionExpiresAt.IsZero() {
 		response.RetentionExpiresAt = project.RetentionExpiresAt.UTC().Format(time.RFC3339Nano)
 	}
-	return response, nil
+	return response
 }
 
 func videoProjectError(err error, action string) error {
@@ -632,6 +713,8 @@ func videoProjectError(err error, action string) error {
 		return huma.Error403Forbidden("Workspace role does not allow this Video Project action")
 	case errors.Is(err, videoprojects.ErrNotFound):
 		return huma.Error404NotFound("Video Project not found")
+	case errors.Is(err, videoprojects.ErrSourceUploadsPending):
+		return huma.Error409Conflict("Finish uploading this project's media before making a copy. Your local edit has been kept.")
 	case errors.Is(err, videoprojects.ErrRevisionChanged):
 		return huma.Error409Conflict("Video Project changed while saving; retry the mutation")
 	default:

@@ -3,7 +3,6 @@ name: openpost
 services:
   openpost:
     image: ghcr.io/getopenpost/openpost:latest
-    platform: linux/amd64
     restart: unless-stopped
     stop_grace_period: 15s
     ports:
@@ -46,23 +45,24 @@ x-casaos:
   index: /
   port_map: "8080"
   scheme: http
-  icon: https://docs.openpo.st/assets/brand/icon.svg
+  icon: https://openpo.st/docs/assets/brand/icon.svg
   title:
-    en_US: OpenPost
+    en_US: dopost
   tagline:
     en_US: Turn your work into channel-ready content
   description:
-    en_US: OpenPost is the all-in-one content team for solo founders. It turns your work into channel-ready posts, publishes them to your social accounts, and brings outcomes back into one workspace.
-  author: OpenPost
-  developer: OpenPost
+    en_US: dopost is the all-in-one content team for solo founders. It turns your work into channel-ready posts, publishes them to your social accounts, and brings outcomes back into one workspace.
+  author: dopost
+  developer: dopost
   category: Productivity
   architectures:
     - amd64
+    - arm64
   version: "4.31.1"
   update_at: "2026-09-13"
   release_notes:
-    en_US: Ready-to-import ZimaOS custom-app recipe for OpenPost.
+    en_US: Ready-to-import ZimaOS custom-app recipe for dopost.
   website: https://openpo.st
-  repo: https://github.com/getopenpost/openpost
+  repo: https://github.com/dhtoan/dopost
   support: https://github.com/getopenpost/openpost/issues
-  docs: https://docs.openpo.st/self-hosting/zimaos
+  docs: https://openpo.st/docs/self-hosting/zimaos

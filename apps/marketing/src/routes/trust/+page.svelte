@@ -2,6 +2,7 @@
 	import { resolve } from '$app/paths';
 	import { managedService } from '@openpost/legal-policy';
 	import { ExternalLink, Mail, ShieldCheck } from '@lucide/svelte';
+	import HeroAccent from '../_components/HeroAccent.svelte';
 
 	type Provider = (typeof managedService.providers)[number];
 	type HumanAccessKey = keyof typeof managedService.human_access;
@@ -62,28 +63,27 @@
 <header class="border-b py-14 sm:py-20">
 	<div class="marketing-shell grid gap-8 lg:grid-cols-[1fr_18rem] lg:items-end">
 		<div class="max-w-4xl">
-			<h1 class="mt-4 max-w-4xl text-4xl font-semibold tracking-tight text-balance sm:text-5xl">
-				Where your data goes.
-			</h1>
-			<p class="mt-5 max-w-3xl text-lg leading-8 text-muted-foreground">
-				See where OpenPost Cloud stores your data, which services help run it, and who can access
-				it.
+			<h1 class="marketing-title">Where your <HeroAccent>data goes.</HeroAccent></h1>
+			<p class="marketing-copy">
+				See where dopost Cloud stores your data, which services help run it, and who can access it.
 			</p>
-			<p class="mt-3 max-w-3xl text-lg leading-8 text-muted-foreground">
+			<p class="marketing-copy">
 				The details below cover app.openpo.st and are reviewed regularly. They describe our
 				practices, not a security certification.
 			</p>
 		</div>
-		<dl class="border-y py-4 text-sm">
-			<div class="flex items-baseline justify-between gap-4 py-2">
-				<dt class="text-muted-foreground">Reviewed</dt>
-				<dd class="font-medium">{formatDate(managedService.reviewed_on)}</dd>
-			</div>
-			<div class="flex items-baseline justify-between gap-4 py-2">
-				<dt class="text-muted-foreground">Review due</dt>
-				<dd class="font-medium">{formatDate(managedService.next_review_on)}</dd>
-			</div>
-		</dl>
+		<aside class="trust-note">
+			<dl class="text-sm">
+				<div class="flex items-baseline justify-between gap-4 py-2">
+					<dt>Reviewed</dt>
+					<dd class="font-medium">{formatDate(managedService.reviewed_on)}</dd>
+				</div>
+				<div class="flex items-baseline justify-between gap-4 py-2">
+					<dt>Review due</dt>
+					<dd class="font-medium">{formatDate(managedService.next_review_on)}</dd>
+				</div>
+			</dl>
+		</aside>
 	</div>
 </header>
 
@@ -159,7 +159,7 @@
 			</h2>
 			<p class="mt-4 text-sm leading-6 text-muted-foreground">
 				“Feature-triggered” means no request is sent until that feature is used. A provider's role
-				describes this OpenPost data path; it does not replace the provider's own terms.
+				describes this dopost data path; it does not replace the provider's own terms.
 			</p>
 		</div>
 
@@ -219,7 +219,7 @@
 				Publishing and sign-in send data only to the service the user selects.
 			</h2>
 			<p class="mt-4 text-sm leading-6 text-muted-foreground">
-				These networks are not general OpenPost subprocessors. Their own terms apply when a user
+				These networks are not general dopost subprocessors. Their own terms apply when a user
 				connects an account, signs in, or sends content.
 			</p>
 		</div>
@@ -255,7 +255,7 @@
 				The access boundary includes its limits.
 			</h2>
 			<p class="mt-4 text-sm leading-6 text-muted-foreground">
-				OpenPost states where a stronger control does not exist instead of implying an approval or
+				dopost states where a stronger control does not exist instead of implying an approval or
 				audit system that has not been implemented.
 			</p>
 		</div>
@@ -300,3 +300,12 @@
 		</div>
 	</div>
 </section>
+
+<style>
+	.trust-note {
+		background: var(--marketing-mint);
+		color: var(--marketing-mint-ink);
+		padding: 1.5rem;
+		border-radius: 1rem;
+	}
+</style>

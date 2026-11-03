@@ -1,5 +1,5 @@
 // Browser runtime and model-store behavior ported from FreeCut (MIT), with
-// abortable worker ownership and OpenPost's shared audio/output contracts.
+// abortable worker ownership and dopost's shared audio/output contracts.
 import {
 	applyPlaybackSpeed,
 	audioDurationSeconds,

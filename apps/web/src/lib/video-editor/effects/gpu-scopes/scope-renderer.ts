@@ -1,4 +1,4 @@
-/** Ported from FreeCut (MIT), adapted to OpenPost's Svelte scope surface. */
+/** Ported from FreeCut (MIT), adapted to dopost's Svelte scope surface. */
 /**
  * GPU scope renderer facade.
  * Manages WebGPU device, source texture upload, and delegates to individual scope classes.
@@ -7,6 +7,7 @@
 import { HistogramScope } from './histogram-scope';
 import { WaveformScope } from './waveform-scope';
 import { VectorscopeScope } from './vectorscope-scope';
+import { createCanvasGpuDevice } from '../../media/canvas-gpu-device';
 
 export type ScopeRendererLostHandler = (message: string) => void;
 
@@ -51,13 +52,12 @@ export class ScopeRenderer {
 	}
 
 	static async create(onLost?: ScopeRendererLostHandler): Promise<ScopeRenderer | null> {
-		if (!globalThis.navigator?.gpu) return null;
+		const device = await createCanvasGpuDevice();
+		if (!device) return null;
 		try {
-			const adapter = await navigator.gpu.requestAdapter();
-			if (!adapter) return null;
-			const device = await adapter.requestDevice();
 			return new ScopeRenderer(device, onLost);
 		} catch {
+			device.destroy();
 			return null;
 		}
 	}

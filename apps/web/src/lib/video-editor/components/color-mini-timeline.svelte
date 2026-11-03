@@ -1,3 +1,7 @@
+<script module lang="ts">
+	import { nextKeyboardFrame } from '$lib/video-editor/timeline/keyboard-frame';
+</script>
+
 <script lang="ts">
 	import { onDestroy, untrack } from 'svelte';
 	import { m } from '$lib/paraglide/messages';
@@ -11,6 +15,7 @@
 	import type { GpuRenderEffect } from '$lib/video-editor/effects/gpu/compositor';
 	import { filmstripCache, type FilmstripFrame } from '$lib/video-editor/media/filmstrip-client';
 	import { mediaPool } from '$lib/video-editor/media/pool.svelte';
+	import { ThumbnailUrlCache } from '$lib/video-editor/media/thumbnail-url-cache';
 	import type { TimelineItem, TimelineTrack } from '$lib/video-editor/project/types';
 	import { editorSession } from '$lib/video-editor/editor.svelte';
 	import {
@@ -45,13 +50,25 @@
 
 	let {
 		selectedItemIds = [],
-		onselectitem = () => undefined
-	}: { selectedItemIds?: string[]; onselectitem?: (itemId: string) => void } = $props();
+		onselectitem = () => undefined,
+		compact = false
+	}: {
+		selectedItemIds?: string[];
+		onselectitem?: (itemId: string) => void;
+		compact?: boolean;
+	} = $props();
 
 	let thumbnailUrls = $state<Record<string, string>>({});
-	let thumbnailGeneration = 0;
-	let loadedThumbnailRevision = -1;
-	const ownedThumbnailUrls = new Map<string, string>();
+	const thumbnails = new ThumbnailUrlCache(
+		async (id) => {
+			const root = getWorkspaceRoot();
+			return root ? readBlob(root, mediaThumbnailPath(id)) : null;
+		},
+		(id, url) => {
+			if (url) thumbnailUrls[id] = url;
+			else delete thumbnailUrls[id];
+		}
+	);
 	let gradedThumbnailUrls = $state<Record<string, string>>({});
 	let gradeGeneration = 0;
 	let gradeTimer: ReturnType<typeof setTimeout> | null = null;
@@ -251,48 +268,17 @@
 
 	function onTimelineKeydown(event: KeyboardEvent): void {
 		if (timelineStore.seekLocked) return;
-		let frame = timelineStore.currentFrame;
-		if (event.key === 'ArrowLeft') frame -= event.shiftKey ? 10 : 1;
-		else if (event.key === 'ArrowRight') frame += event.shiftKey ? 10 : 1;
-		else if (event.key === 'Home') frame = 0;
-		else if (event.key === 'End') frame = maxFrame;
-		else return;
+		const frame = nextKeyboardFrame(
+			timelineStore.currentFrame,
+			event.key,
+			event.shiftKey,
+			timelineStore.fps,
+			maxFrame
+		);
+		if (frame === null) return;
 		event.preventDefault();
 		editorSession.pausePlayback();
 		setCurrentFrame(Math.min(maxFrame, Math.max(0, frame)));
-	}
-
-	async function syncThumbnails(mediaIds: readonly string[], revision: number): Promise<void> {
-		const generation = ++thumbnailGeneration;
-		const activeIds = new Set(mediaIds);
-		if (revision !== loadedThumbnailRevision) {
-			loadedThumbnailRevision = revision;
-			for (const url of ownedThumbnailUrls.values()) URL.revokeObjectURL(url);
-			ownedThumbnailUrls.clear();
-			thumbnailUrls = {};
-		}
-		for (const [id, url] of ownedThumbnailUrls) {
-			if (activeIds.has(id)) continue;
-			URL.revokeObjectURL(url);
-			ownedThumbnailUrls.delete(id);
-		}
-		const root = getWorkspaceRoot();
-		if (root) {
-			await Promise.all(
-				mediaIds.map(async (id) => {
-					if (ownedThumbnailUrls.has(id)) return;
-					try {
-						const thumbnail = await readBlob(root, mediaThumbnailPath(id));
-						if (!thumbnail || generation !== thumbnailGeneration) return;
-						ownedThumbnailUrls.set(id, URL.createObjectURL(thumbnail));
-					} catch {
-						// The compact tile remains useful without a cached image.
-					}
-				})
-			);
-		}
-		if (generation !== thumbnailGeneration) return;
-		thumbnailUrls = Object.fromEntries(ownedThumbnailUrls);
 	}
 
 	function syncClipStartFrames(requests: typeof clipStartRequests): void {
@@ -383,7 +369,7 @@
 		const mediaIds = Array.from(
 			new Set(visualItems.map((item) => item.mediaId).filter((id): id is string => Boolean(id)))
 		);
-		untrack(() => void syncThumbnails(mediaIds, revision));
+		untrack(() => thumbnails.sync(mediaIds, revision));
 	});
 
 	$effect(() => {
@@ -397,12 +383,10 @@
 	});
 
 	onDestroy(() => {
-		thumbnailGeneration += 1;
 		gradeGeneration += 1;
 		if (gradeTimer) clearTimeout(gradeTimer);
 		cancelScrub();
-		for (const url of ownedThumbnailUrls.values()) URL.revokeObjectURL(url);
-		ownedThumbnailUrls.clear();
+		thumbnails.dispose();
 		for (const entry of ownedGradedUrls.values()) URL.revokeObjectURL(entry.url);
 		ownedGradedUrls.clear();
 		for (const unsubscribe of filmstripUnsubscribers.values()) unsubscribe();
@@ -411,21 +395,55 @@
 </script>
 
 <section
-	class="h-[212px] shrink-0 overflow-hidden border-y border-[var(--video-editor-border)] bg-[var(--video-editor-panel)] text-[var(--video-editor-text)]"
+	class="shrink-0 overflow-hidden border-y border-[var(--video-editor-border)] bg-[var(--video-editor-panel)] text-[var(--video-editor-text)] {compact
+		? 'color-mini-timeline--compact h-14'
+		: 'h-[212px]'}"
 	aria-label={m.video_editor_timeline_navigator()}
 	data-color-mini-timeline
+	data-color-mini-timeline-compact={compact || undefined}
 >
+	{#if compact}
+		<div
+			class="compact-clip-switcher h-7 shrink-0 items-center gap-1 overflow-x-auto px-1 py-0.5"
+			data-color-clip-switcher
+		>
+			{#each visualItems as item, index (item.id)}
+				<button
+					type="button"
+					class="flex h-6 min-w-0 shrink-0 items-center gap-1 rounded border px-1.5 text-[10px] transition-colors [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:min-w-11 {selectedIds.has(
+						item.id
+					)
+						? 'border-[var(--video-editor-focus-border)] bg-[var(--video-editor-selection)] text-[var(--video-editor-selection-text)]'
+						: 'border-[var(--video-editor-border)] bg-[var(--video-editor-control)] text-[var(--video-editor-text)] hover:bg-[var(--video-editor-control-hover)]'}"
+					aria-pressed={selectedIds.has(item.id)}
+					aria-label={`${m.video_editor_select_clip()}: ${item.label}, ${formatTimelinePreviewTimecode(item.from, timelineStore.fps)}`}
+					title={item.label}
+					onclick={() => seekAndSelect(item)}
+					data-color-clip-chip={item.id}
+				>
+					<span class="font-mono font-semibold">{String(index + 1).padStart(2, '0')}</span>
+					<span class="max-w-24 truncate">{item.label}</span>
+				</button>
+			{:else}
+				<p class="px-2 text-[10px] text-[var(--video-editor-muted)]">
+					{m.video_editor_no_media()}
+				</p>
+			{/each}
+		</div>
+	{/if}
 	<div
-		class="flex h-[92px] shrink-0 gap-1 overflow-x-auto overflow-y-hidden border-b border-[var(--video-editor-border)] px-1 pt-1 pb-2"
+		class="compact-filmstrip flex shrink-0 gap-1 overflow-x-auto overflow-y-hidden px-1 pt-1 {compact
+			? 'h-14 pb-1'
+			: 'h-[92px] border-b border-[var(--video-editor-border)] pb-2'}"
 	>
 		{#each visualItems as item, index (item.id)}
 			{@const grade = gradeTileByItem[item.id]}
 			{@const gradedUrl = gradedThumbnailUrls[item.id]}
 			<button
 				type="button"
-				class="group grid h-20 w-[118px] shrink-0 grid-rows-[20px_1fr_16px] overflow-hidden rounded-[3px] border bg-[var(--timeline-track)] text-left shadow-sm transition-colors {selectedIds.has(
-					item.id
-				)
+				class="group grid shrink-0 overflow-hidden rounded-[3px] border bg-[var(--timeline-track)] text-left shadow-sm transition-colors {compact
+					? 'h-12 w-[84px] grid-rows-[14px_1fr_12px]'
+					: 'h-20 w-[118px] grid-rows-[20px_1fr_16px]'} {selectedIds.has(item.id)
 					? 'border-[var(--video-editor-focus-border)] ring-1 ring-[var(--video-editor-focus)]'
 					: 'border-[var(--video-editor-border)] hover:border-[var(--video-editor-focus-border)]'}"
 				aria-pressed={selectedIds.has(item.id)}
@@ -506,130 +524,171 @@
 		{/each}
 	</div>
 
-	<div
-		class="relative h-[120px] cursor-ew-resize touch-none overflow-hidden bg-[var(--timeline-track)] outline-none focus-visible:ring-2 focus-visible:ring-[var(--video-editor-focus)] focus-visible:ring-inset"
-		role="group"
-		aria-label={m.video_editor_timeline_navigator()}
-		onpointerdown={startScrub}
-		onpointermove={moveScrub}
-		onpointerup={finishScrub}
-		onpointercancel={cancelScrub}
-		data-color-timeline-scrub
-	>
+	{#if !compact}
 		<div
-			class="relative h-[14px] border-b border-[var(--video-editor-border)] bg-[var(--video-editor-control)]"
+			class="relative h-[120px] cursor-ew-resize touch-none overflow-hidden bg-[var(--timeline-track)] outline-none focus-visible:ring-2 focus-visible:ring-[var(--video-editor-focus)] focus-visible:ring-inset"
+			role="group"
+			aria-label={m.video_editor_timeline_navigator()}
+			onpointerdown={startScrub}
+			onpointermove={moveScrub}
+			onpointerup={finishScrub}
+			onpointercancel={cancelScrub}
+			data-color-timeline-scrub
 		>
 			<div
-				class="absolute inset-y-0 left-0 flex w-11 items-center justify-center border-r border-[var(--video-editor-border)] font-mono text-[9px] text-[var(--video-editor-muted)]"
+				class="relative h-[14px] border-b border-[var(--video-editor-border)] bg-[var(--video-editor-control)]"
 			>
-				I/O
+				<div
+					class="absolute inset-y-0 left-0 flex w-11 items-center justify-center border-r border-[var(--video-editor-border)] font-mono text-[9px] text-[var(--video-editor-muted)]"
+				>
+					I/O
+				</div>
+				<div class="absolute inset-y-0 right-0" style={`left:${LABEL_WIDTH}px`}>
+					{#if timelineStore.inPoint !== null || timelineStore.outPoint !== null}
+						{@const rangeStart = timelineStore.inPoint ?? 0}
+						{@const rangeEnd = timelineStore.outPoint ?? maxFrame}
+						<div
+							class="absolute inset-y-[4px] rounded-sm bg-orange-400/45 ring-1 ring-orange-300/60"
+							style={`left:${frameRatio(rangeStart) * 100}%;width:${Math.max(0.2, (frameRatio(rangeEnd) - frameRatio(rangeStart)) * 100)}%`}
+							data-color-timeline-range
+						></div>
+					{/if}
+				</div>
 			</div>
-			<div class="absolute inset-y-0 right-0" style={`left:${LABEL_WIDTH}px`}>
-				{#if timelineStore.inPoint !== null || timelineStore.outPoint !== null}
-					{@const rangeStart = timelineStore.inPoint ?? 0}
-					{@const rangeEnd = timelineStore.outPoint ?? maxFrame}
-					<div
-						class="absolute inset-y-[4px] rounded-sm bg-orange-400/45 ring-1 ring-orange-300/60"
-						style={`left:${frameRatio(rangeStart) * 100}%;width:${Math.max(0.2, (frameRatio(rangeEnd) - frameRatio(rangeStart)) * 100)}%`}
-						data-color-timeline-range
-					></div>
-				{/if}
-			</div>
-		</div>
 
-		<div class="relative h-5 border-b border-[var(--video-editor-border)]">
-			<div class="absolute inset-y-0 right-0" style={`left:${LABEL_WIDTH}px`}>
-				{#each RULER_RATIOS as ratio}
-					<span
-						class="absolute top-0 h-full border-l border-[var(--video-editor-border)] pt-1 pl-1 font-mono text-[8px] text-[var(--video-editor-muted)] first:text-[var(--video-editor-text)]"
-						style={`left:${ratio * 100}%`}
-					>
-						{formatClock(Math.round(ratio * maxFrame))}
-					</span>
-				{/each}
+			<div class="relative h-5 border-b border-[var(--video-editor-border)]">
+				<div class="absolute inset-y-0 right-0" style={`left:${LABEL_WIDTH}px`}>
+					{#each RULER_RATIOS as ratio}
+						<span
+							class="absolute top-0 h-full border-l border-[var(--video-editor-border)] pt-1 pl-1 font-mono text-[8px] text-[var(--video-editor-muted)] first:text-[var(--video-editor-text)]"
+							style={`left:${ratio * 100}%`}
+						>
+							{formatClock(Math.round(ratio * maxFrame))}
+						</span>
+					{/each}
+				</div>
 			</div>
-		</div>
 
-		<div class="relative h-[86px] overflow-hidden" data-color-timeline-tracks>
-			<div class="relative h-[86px]">
-				{#each visualTracks as track, index (track.id)}
-					<div
-						class="absolute right-0 left-0 border-b border-[var(--video-editor-border)]"
-						style={`top:${index * trackRowHeight}px;height:${trackRowHeight}px`}
+			<div class="relative h-[86px] overflow-hidden" data-color-timeline-tracks>
+				<div class="relative h-[86px]">
+					{#each visualTracks as track, index (track.id)}
+						<div
+							class="absolute right-0 left-0 border-b border-[var(--video-editor-border)]"
+							style={`top:${index * trackRowHeight}px;height:${trackRowHeight}px`}
+						>
+							<span
+								class="absolute inset-y-0 left-0 flex w-8 items-center justify-center truncate border-r border-[var(--video-editor-border)] px-1 text-[9px] font-semibold text-[var(--video-editor-muted)]"
+							>
+								{track.name}
+							</span>
+							<div class="absolute inset-y-0 right-0" style={`left:${LABEL_WIDTH}px`}>
+								{#each itemsForTrack(track) as item (item.id)}
+									<button
+										type="button"
+										class="absolute min-w-4 overflow-hidden rounded-[2px] border text-left transition-colors {selectedIds.has(
+											item.id
+										)
+											? 'z-10 border-orange-500 bg-orange-500/20 shadow-[0_0_0_1px_rgba(249,115,22,0.45)]'
+											: 'border-sky-500/70 bg-sky-500/45 hover:border-sky-300'}"
+										style={`left:${frameRatio(item.from) * 100}%;width:${Math.max(0.6, colorTimelineRatio(item.durationInFrames, maxFrame) * 100)}%;top:${miniClipTop()}px;height:${miniClipHeight()}px`}
+										aria-label={item.label}
+										aria-pressed={selectedIds.has(item.id)}
+										onpointerdown={(event) => event.stopPropagation()}
+										onclick={() => seekAndSelect(item)}
+										data-color-mini-clip={item.id}
+									></button>
+								{/each}
+							</div>
+						</div>
+					{/each}
+				</div>
+			</div>
+
+			<div
+				class="pointer-events-none absolute top-[14px] right-0 bottom-0"
+				style={`left:${LABEL_WIDTH}px`}
+			>
+				{#each timelineStore.markers as marker, index (marker.id)}
+					<button
+						type="button"
+						class="pointer-events-auto absolute top-0 z-20 h-11 w-11 -translate-x-1/2"
+						style={`left:${frameRatio(marker.frame) * 100}%`}
+						aria-label={marker.label || m.video_editor_marker_number({ number: index + 1 })}
+						onpointerdown={(event) => event.stopPropagation()}
+						onclick={() => seekMarker(marker)}
+						data-color-timeline-marker={marker.id}
 					>
 						<span
-							class="absolute inset-y-0 left-0 flex w-8 items-center justify-center truncate border-r border-[var(--video-editor-border)] px-1 text-[9px] font-semibold text-[var(--video-editor-muted)]"
-						>
-							{track.name}
-						</span>
-						<div class="absolute inset-y-0 right-0" style={`left:${LABEL_WIDTH}px`}>
-							{#each itemsForTrack(track) as item (item.id)}
-								<button
-									type="button"
-									class="absolute min-w-4 overflow-hidden rounded-[2px] border text-left transition-colors {selectedIds.has(
-										item.id
-									)
-										? 'z-10 border-orange-500 bg-orange-500/20 shadow-[0_0_0_1px_rgba(249,115,22,0.45)]'
-										: 'border-sky-500/70 bg-sky-500/45 hover:border-sky-300'}"
-									style={`left:${frameRatio(item.from) * 100}%;width:${Math.max(0.6, colorTimelineRatio(item.durationInFrames, maxFrame) * 100)}%;top:${miniClipTop()}px;height:${miniClipHeight()}px`}
-									aria-label={item.label}
-									aria-pressed={selectedIds.has(item.id)}
-									onpointerdown={(event) => event.stopPropagation()}
-									onclick={() => seekAndSelect(item)}
-									data-color-mini-clip={item.id}
-								></button>
-							{/each}
-						</div>
-					</div>
+							class="absolute top-0 left-1/2 size-2.5 -translate-x-1/2 rotate-45 rounded-[1px] border border-black/70"
+							style={`background:${marker.color}`}
+						></span>
+						<span
+							class="absolute top-1.5 bottom-0 left-1/2 w-px -translate-x-1/2 opacity-65"
+							style={`background:${marker.color}`}
+						></span>
+					</button>
 				{/each}
-			</div>
-		</div>
-
-		<div
-			class="pointer-events-none absolute top-[14px] right-0 bottom-0"
-			style={`left:${LABEL_WIDTH}px`}
-		>
-			{#each timelineStore.markers as marker, index (marker.id)}
-				<button
-					type="button"
-					class="pointer-events-auto absolute top-0 z-20 h-11 w-11 -translate-x-1/2"
-					style={`left:${frameRatio(marker.frame) * 100}%`}
-					aria-label={marker.label || m.video_editor_marker_number({ number: index + 1 })}
-					onpointerdown={(event) => event.stopPropagation()}
-					onclick={() => seekMarker(marker)}
-					data-color-timeline-marker={marker.id}
+				<div
+					class="pointer-events-auto absolute top-0 bottom-0 z-30 w-11 -translate-x-1/2 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-orange-300"
+					style={`left:${frameRatio(displayFrame) * 100}%`}
+					role="slider"
+					tabindex="0"
+					aria-label={m.video_editor_playhead()}
+					aria-valuemin="0"
+					aria-valuemax={maxFrame}
+					aria-valuenow={Math.min(maxFrame, Math.max(0, displayFrame))}
+					aria-valuetext={formatTimelinePreviewTimecode(displayFrame, timelineStore.fps)}
+					aria-disabled={timelineStore.seekLocked}
+					onkeydown={onTimelineKeydown}
+					data-color-timeline-playhead
 				>
 					<span
-						class="absolute top-0 left-1/2 size-2.5 -translate-x-1/2 rotate-45 rounded-[1px] border border-black/70"
-						style={`background:${marker.color}`}
+						class="absolute top-0 bottom-0 left-1/2 w-px -translate-x-1/2 bg-orange-300 shadow-[0_0_5px_oklch(0.8_0.13_65_/_0.8)]"
 					></span>
 					<span
-						class="absolute top-1.5 bottom-0 left-1/2 w-px -translate-x-1/2 opacity-65"
-						style={`background:${marker.color}`}
+						class="absolute top-0 left-1/2 size-2.5 -translate-x-1/2 rotate-45 rounded-[2px] border border-black/70 bg-orange-300"
 					></span>
-				</button>
-			{/each}
-			<div
-				class="pointer-events-auto absolute top-0 bottom-0 z-30 w-11 -translate-x-1/2 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-orange-300"
-				style={`left:${frameRatio(displayFrame) * 100}%`}
-				role="slider"
-				tabindex="0"
-				aria-label={m.video_editor_playhead()}
-				aria-valuemin="0"
-				aria-valuemax={maxFrame}
-				aria-valuenow={Math.min(maxFrame, Math.max(0, displayFrame))}
-				aria-valuetext={formatTimelinePreviewTimecode(displayFrame, timelineStore.fps)}
-				aria-disabled={timelineStore.seekLocked}
-				onkeydown={onTimelineKeydown}
-				data-color-timeline-playhead
-			>
-				<span
-					class="absolute top-0 bottom-0 left-1/2 w-px -translate-x-1/2 bg-orange-300 shadow-[0_0_5px_oklch(0.8_0.13_65_/_0.8)]"
-				></span>
-				<span
-					class="absolute top-0 left-1/2 size-2.5 -translate-x-1/2 rotate-45 rounded-[2px] border border-black/70 bg-orange-300"
-				></span>
+				</div>
 			</div>
 		</div>
-	</div>
+	{/if}
 </section>
+
+<style>
+	.compact-clip-switcher {
+		display: none;
+	}
+
+	@media (max-height: 600px) {
+		.color-mini-timeline--compact {
+			height: 1.75rem;
+		}
+
+		.color-mini-timeline--compact .compact-filmstrip {
+			display: none;
+		}
+
+		.color-mini-timeline--compact .compact-clip-switcher {
+			display: flex;
+		}
+	}
+
+	@media (max-height: 600px) and (pointer: coarse) {
+		.color-mini-timeline--compact {
+			height: 2.875rem;
+		}
+
+		.color-mini-timeline--compact .compact-clip-switcher {
+			height: 2.75rem;
+		}
+
+		.color-mini-timeline--compact .compact-clip-switcher {
+			padding-block: 0;
+		}
+
+		.color-mini-timeline--compact .compact-clip-switcher button {
+			height: 2.75rem;
+			min-width: 2.75rem;
+		}
+	}
+</style>

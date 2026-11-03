@@ -3,6 +3,7 @@ package queue
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"io"
 	"testing"
@@ -10,10 +11,14 @@ import (
 
 	"github.com/google/uuid"
 	_ "github.com/mattn/go-sqlite3"
+	"github.com/openpost/backend/internal/database"
 	"github.com/openpost/backend/internal/jobregistry"
 	"github.com/openpost/backend/internal/models"
 	"github.com/openpost/backend/internal/platform"
 	"github.com/openpost/backend/internal/services/crypto"
+	"github.com/openpost/backend/internal/services/engagement"
+	"github.com/openpost/backend/internal/services/providerwrite"
+	"github.com/openpost/backend/internal/services/publicationbuilder"
 	"github.com/openpost/backend/internal/services/publisher"
 	repostservice "github.com/openpost/backend/internal/services/reposts"
 	"github.com/openpost/backend/internal/services/tokenmanager"
@@ -63,7 +68,7 @@ func createTestDB(t *testing.T) *bun.DB {
 	require.NoError(t, err)
 
 	db := bun.NewDB(sqldb, sqlitedialect.New())
-	for _, model := range []interface{}{(*models.Organization)(nil), (*models.Workspace)(nil), (*models.OAuthGrant)(nil), (*models.SocialAccount)(nil), (*models.Job)(nil), (*models.ProviderWriteAttempt)(nil)} {
+	for _, model := range []interface{}{(*models.Organization)(nil), (*models.Workspace)(nil), (*models.OAuthGrant)(nil), (*models.SocialAccount)(nil), (*models.Publication)(nil), (*publicationbuilder.BuildRecord)(nil), (*models.Job)(nil), (*models.ProviderWriteAttempt)(nil)} {
 		_, err = db.NewCreateTable().Model(model).IfNotExists().Exec(context.Background())
 		require.NoError(t, err)
 	}
@@ -120,6 +125,29 @@ func TestWorkerCompletesObsoleteRefreshJobWithoutTerminalTelemetry(t *testing.T)
 	require.Equal(t, jobStatusCompleted, job.Status)
 	require.Empty(t, job.LastError)
 	require.Empty(t, recorder.Exceptions)
+}
+
+func TestWorkerFailsRefreshJobWithoutTokenManager(t *testing.T) {
+	db := createTestDB(t)
+	now := time.Now().UTC()
+	job := models.Job{
+		ID: "refresh-unconfigured", Type: jobregistry.TypeRefreshToken,
+		Payload: `{"account_id":"account-missing"}`, Status: jobStatusPending,
+		RunAt: now.Add(-time.Minute), MaxAttempts: 1,
+	}
+	_, err := db.NewInsert().Model(&job).Exec(t.Context())
+	require.NoError(t, err)
+
+	worker := NewWorker(db, "worker-refresh-unconfigured", time.Hour, nil, nil, stubStorage{})
+	recorder := &telemetry.MemoryRecorder{}
+	worker.SetTelemetry(recorder)
+
+	require.True(t, worker.processNextJobIfAvailable(t.Context()))
+	require.NoError(t, db.NewSelect().Model(&job).WherePK().Scan(t.Context()))
+	require.Equal(t, jobStatusFailed, job.Status)
+	require.Equal(t, "Token refresh failed. dopost will retry when the failure is temporary.", job.LastError)
+	require.Len(t, recorder.Exceptions, 1)
+	require.Equal(t, jobregistry.TypeRefreshToken, recorder.Exceptions[0].Properties["job_type"])
 }
 
 func TestWorkerFailsUnknownJobTypes(t *testing.T) {
@@ -209,6 +237,14 @@ func TestWorkerQuiesceFinishesCurrentJobWithoutClaimingAnother(t *testing.T) {
 	t.Cleanup(cancelWait)
 	require.NoError(t, worker.Wait(waitCtx))
 
+	// Quiesce must let the in-flight job reach its durable terminal state, not
+	// merely return once the executor function returned.
+	var current models.Job
+	require.NoError(t, db.NewSelect().Model(&current).Where("id = ?", "job-current").Scan(t.Context()))
+	require.Equal(t, jobStatusCompleted, current.Status)
+	require.Empty(t, current.LockedBy)
+	require.True(t, current.LockedAt.IsZero())
+
 	var next models.Job
 	require.NoError(t, db.NewSelect().Model(&next).Where("id = ?", "job-next").Scan(t.Context()))
 	require.Equal(t, jobStatusPending, next.Status)
@@ -276,4 +312,229 @@ func TestProviderFailureTelemetryWaitsForTerminalAttempt(t *testing.T) {
 	require.Equal(t, 503, props["http_status"])
 	require.NotContains(t, fmt.Sprint(props), "Hello from Acme")
 	require.NotContains(t, fmt.Sprint(props), "customer prose")
+}
+
+func seedTerminalJobPublication(t *testing.T, db *bun.DB) {
+	t.Helper()
+	now := time.Now().UTC()
+	_, err := db.NewInsert().Model(&models.Publication{
+		ID: "publication-terminal", WorkspaceID: "workspace-10", CreatedByID: "user-1",
+		Title: "Launch", ContentProfile: models.ContentProfileShortText,
+		SourceText: "Launch", SourceContent: "Launch",
+		Status: models.PublicationStatusScheduled, CreatedAt: now, UpdatedAt: now,
+	}).Exec(t.Context())
+	require.NoError(t, err)
+}
+
+func finishTerminalJob(t *testing.T, db *bun.DB, worker *BackgroundWorker, job *models.Job, processErr error) {
+	t.Helper()
+	job.Status = jobStatusProcessing
+	job.LockedBy = worker.workerID
+	job.MaxAttempts = 1
+	_, err := db.NewInsert().Model(job).Exec(t.Context())
+	require.NoError(t, err)
+	worker.finishFailedJob(t.Context(), job, processErr)
+}
+
+func TestTerminalFailureCarriesPublishWorkspaceID(t *testing.T) {
+	db := createTestDB(t)
+	defer db.Close()
+	seedTerminalJobPublication(t, db)
+	worker := NewWorker(db, "workspace-worker", time.Second, nil, nil, stubStorage{})
+	recorder := &telemetry.MemoryRecorder{}
+	worker.SetTelemetry(recorder)
+	// Current rows resolve through scope_id; legacy rows through the payload.
+	finishTerminalJob(t, db, worker, &models.Job{
+		ID: "terminal-scope", Type: jobregistry.TypePublishPublication, ScopeID: "publication-terminal",
+		Payload: `{"publication_id":"publication-terminal"}`, RunAt: time.Now().UTC(),
+	}, errors.New("provider exploded"))
+	finishTerminalJob(t, db, worker, &models.Job{
+		ID: "terminal-payload", Type: jobregistry.TypePublishPost,
+		Payload: `{"publication_id":"publication-terminal"}`, RunAt: time.Now().UTC(),
+	}, errors.New("provider exploded"))
+	// Unknown publications report unknown impact instead of inventing it.
+	finishTerminalJob(t, db, worker, &models.Job{
+		ID: "terminal-unknown", Type: jobregistry.TypePublishPublication, ScopeID: "publication-missing",
+		Payload: `{"publication_id":"publication-missing"}`, RunAt: time.Now().UTC(),
+	}, errors.New("provider exploded"))
+
+	require.Len(t, recorder.Exceptions, 3)
+	require.Equal(t, "workspace-10", recorder.Exceptions[0].WorkspaceID)
+	require.Equal(t, "workspace-10", recorder.Exceptions[1].WorkspaceID)
+	require.Empty(t, recorder.Exceptions[2].WorkspaceID)
+}
+
+func TestTerminalFailureCarriesRefreshAndCleanupWorkspaceIDs(t *testing.T) {
+	db := createTestDB(t)
+	defer db.Close()
+	now := time.Now().UTC()
+	_, err := db.NewInsert().Model(&models.SocialAccount{
+		ID: "account-terminal", WorkspaceID: "workspace-10", Platform: "threads", AccountID: "threads-user",
+		AccessTokenEnc: []byte{}, CreatedAt: now,
+	}).Exec(t.Context())
+	require.NoError(t, err)
+	_, err = db.NewInsert().Model(&models.OAuthGrant{
+		ID: "grant-terminal", WorkspaceID: "workspace-1", Provider: "threads",
+		AccessTokenEnc: []byte("encrypted-access"), TokenVersion: 1,
+		ExecutionMode: "oauth2", AuthorizationEvidence: `{}`, ValidationStatus: "legacy_unverified",
+		CreatedAt: now, UpdatedAt: now,
+	}).Exec(t.Context())
+	require.NoError(t, err)
+	worker := NewWorker(db, "workspace-worker", time.Second, nil, nil, stubStorage{})
+	recorder := &telemetry.MemoryRecorder{}
+	worker.SetTelemetry(recorder)
+	finishTerminalJob(t, db, worker, &models.Job{
+		ID: "terminal-refresh-account", Type: jobregistry.TypeRefreshToken,
+		Payload: `{"account_id":"account-terminal"}`, RunAt: time.Now().UTC(),
+	}, errors.New("refresh exploded"))
+	finishTerminalJob(t, db, worker, &models.Job{
+		ID: "terminal-refresh-grant", Type: jobregistry.TypeRefreshToken,
+		Payload: `{"grant_id":"grant-terminal"}`, RunAt: time.Now().UTC(),
+	}, errors.New("refresh exploded"))
+	// Malformed payloads stay unknown rather than failing the failure path.
+	finishTerminalJob(t, db, worker, &models.Job{
+		ID: "terminal-malformed", Type: jobregistry.TypeRefreshToken,
+		Payload: `not json`, RunAt: time.Now().UTC(),
+	}, errors.New("refresh exploded"))
+
+	// A retryable media_cleanup failure requeues through its recurrence
+	// instead of terminally failing, so it emits no exception. The payload
+	// decoder itself still resolves the known workspace for direct use.
+	require.Equal(t, "workspace-1", mediaCleanupJobWorkspaceID(`{"workspace_id":"workspace-1"}`))
+	require.Empty(t, mediaCleanupJobWorkspaceID(`not json`))
+
+	require.Len(t, recorder.Exceptions, 3)
+	require.Equal(t, "workspace-10", recorder.Exceptions[0].WorkspaceID)
+	require.Equal(t, "workspace-1", recorder.Exceptions[1].WorkspaceID)
+	require.Empty(t, recorder.Exceptions[2].WorkspaceID)
+}
+
+func TestTerminalFailureCarriesPublicationBuildWorkspaceID(t *testing.T) {
+	db := createTestDB(t)
+	defer db.Close()
+	now := time.Now().UTC()
+	_, err := db.NewInsert().Model(&publicationbuilder.BuildRecord{
+		ID: "build-terminal", WorkspaceID: "workspace-10", CreatedByID: "user-1",
+		State: publicationbuilder.BuildStateQueued, Phase: publicationbuilder.BuildPhaseQueued, Revision: 1,
+		IdempotencyKey: "terminal-build", RequestFingerprint: "fingerprint",
+		AuthorityJSON: "{}", RequestJSON: "{}", VoiceSnapshotJSON: "{}",
+		ResultJSON: "{}", UsageJSON: "{}", CreatedAt: now, UpdatedAt: now,
+	}).Exec(t.Context())
+	require.NoError(t, err)
+	worker := NewWorker(db, "workspace-worker", time.Second, nil, nil, stubStorage{})
+	recorder := &telemetry.MemoryRecorder{}
+	worker.SetTelemetry(recorder)
+	// Build jobs resolve through scope_id, with a payload fallback.
+	finishTerminalJob(t, db, worker, &models.Job{
+		ID: "terminal-build-scope", Type: jobregistry.TypePublicationBuild, ScopeID: "build-terminal",
+		Payload: `{"build_id":"build-terminal"}`, RunAt: time.Now().UTC(),
+	}, errors.New("builder exploded hard"))
+	finishTerminalJob(t, db, worker, &models.Job{
+		ID: "terminal-build-payload", Type: jobregistry.TypePublicationBuild,
+		Payload: `{"build_id":"build-terminal"}`, RunAt: time.Now().UTC(),
+	}, errors.New("builder exploded hard"))
+	finishTerminalJob(t, db, worker, &models.Job{
+		ID: "terminal-build-unknown", Type: jobregistry.TypePublicationBuild, ScopeID: "build-missing",
+		Payload: `{"build_id":"build-missing"}`, RunAt: time.Now().UTC(),
+	}, errors.New("builder exploded hard"))
+
+	require.Len(t, recorder.Exceptions, 3)
+	require.Equal(t, "workspace-10", recorder.Exceptions[0].WorkspaceID)
+	require.Equal(t, "workspace-10", recorder.Exceptions[1].WorkspaceID)
+	require.Empty(t, recorder.Exceptions[2].WorkspaceID)
+}
+
+func TestWorkerPendingPublicationDoesNotExhaustRetries(t *testing.T) {
+	db := createTestDB(t)
+	now := time.Now().UTC()
+	job := &models.Job{ID: "inbox-continuation", Type: jobregistry.TypePublishPublication, Payload: `{}`, Status: jobStatusProcessing, RunAt: now, MaxAttempts: 1, LockedAt: now, LockedBy: "worker"}
+	_, err := db.NewInsert().Model(job).Exec(t.Context())
+	require.NoError(t, err)
+	worker := NewWorker(db, "worker", time.Second, nil, nil, stubStorage{})
+	worker.finishFailedJob(t.Context(), job, &publisher.RetryableError{Failure: publisher.Failure{Code: "tiktok_inbox_delivered", Retryable: true, RetryAfter: 15 * time.Minute, Message: "Finish publishing in TikTok"}})
+	require.NoError(t, db.NewSelect().Model(job).WherePK().Scan(t.Context()))
+	require.Equal(t, jobStatusPending, job.Status)
+	require.Zero(t, job.Attempts)
+	require.True(t, job.RunAt.After(now.Add(14*time.Minute)))
+}
+
+type terminalBuildStub struct{}
+
+func (terminalBuildStub) Build(context.Context, publicationbuilder.BuildInput) (publicationbuilder.BuildResult, error) {
+	return publicationbuilder.BuildResult{}, errors.New("unused builder")
+}
+func TestExhaustedBuildJobReportsCommittedDomainFailure(t *testing.T) {
+	db := createTestDB(t)
+	defer db.Close()
+	now := time.Now().UTC()
+	_, err := db.NewInsert().Model(&publicationbuilder.BuildRecord{
+		ID: "build-exhausted", WorkspaceID: "workspace-1", CreatedByID: "user-1", State: publicationbuilder.BuildStateQueued, Phase: publicationbuilder.BuildPhaseQueued,
+		Revision: 1, IdempotencyKey: "exhausted", RequestFingerprint: "fingerprint", AuthorityJSON: "{}", RequestJSON: "{}", VoiceSnapshotJSON: "{}", ResultJSON: "{}", UsageJSON: "{}", CreatedAt: now, UpdatedAt: now,
+	}).Exec(t.Context())
+	require.NoError(t, err)
+	recorder := &telemetry.MemoryRecorder{}
+	builder, err := publicationbuilder.NewApplication(db, terminalBuildStub{}, publicationbuilder.ApplicationConfig{Telemetry: recorder})
+	require.NoError(t, err)
+	worker := NewWorker(db, "worker", time.Second, nil, nil, stubStorage{})
+	worker.SetPublicationBuilderService(builder)
+	job := &models.Job{ID: "exhausted", Type: jobregistry.TypePublicationBuild, Payload: `{"build_id":"build-exhausted"}`, RunAt: now}
+	finishTerminalJob(t, db, worker, job, errors.New("infrastructure failure"))
+	worker.finishFailedJob(t.Context(), job, errors.New("stale worker retry"))
+	var stored publicationbuilder.BuildRecord
+	require.NoError(t, db.NewSelect().Model(&stored).Where("id = ?", "build-exhausted").Scan(t.Context()))
+	require.Equal(t, publicationbuilder.BuildStateFailed, stored.State)
+	require.Len(t, recorder.Events, 1)
+	require.Equal(t, telemetry.EventPublicationBuildFailed, recorder.Events[0].Name)
+	require.Equal(t, "job_failed", recorder.Events[0].Properties["error_code"])
+}
+
+func TestPendingProviderWriteContinuesBeyondOrdinaryAttemptLimit(t *testing.T) {
+	db := createTestDB(t)
+	defer db.Close()
+	worker := NewWorker(db, "review-worker", time.Second, nil, nil, stubStorage{})
+	now := time.Now().UTC()
+	job := &models.Job{ID: "pending-review", Type: jobregistry.TypeEngagementAction, Status: jobStatusProcessing, LockedBy: worker.workerID, LockedAt: now, Attempts: 1, MaxAttempts: 1, RunAt: now}
+	_, err := db.NewInsert().Model(job).Exec(t.Context())
+	require.NoError(t, err)
+	pending := &providerwrite.OutcomeError{Kind: string(platform.PublishSubmissionPending), RetryAfter: time.Minute, Err: providerwrite.ErrOutcomePending}
+	worker.finishFailedJob(t.Context(), job, pending)
+	require.NoError(t, db.NewSelect().Model(job).WherePK().Scan(t.Context()))
+	require.Equal(t, jobStatusPending, job.Status)
+	require.LessOrEqual(t, job.Attempts, 1)
+	require.True(t, job.RunAt.After(now.Add(50*time.Second)))
+}
+
+type reviewRecoveryGate struct{}
+
+func (reviewRecoveryGate) IsEffectiveEnabled(context.Context, string, string) (bool, error) {
+	return true, nil
+}
+func TestReviewReplyCrashRecoveryKeepsItsDurableIntent(t *testing.T) {
+	db, err := database.InitDBWithDriver("sqlite", "file:review-recovery-"+t.Name()+"?mode=memory&cache=shared")
+	require.NoError(t, err)
+	defer db.Close()
+	require.NoError(t, database.CreateSchema(db))
+	for _, row := range []any{
+		&models.User{ID: "u", Email: "review-recovery@example.test"},
+		&models.Organization{ID: "o", Name: "Org", CreatedByID: "u"},
+		&models.Workspace{ID: "w", Name: "Workspace", OrganizationID: "o"},
+		&models.WorkspaceMember{WorkspaceID: "w", UserID: "u", Role: models.WorkspaceRoleAdmin, Status: models.WorkspaceMemberStatusActive},
+		&models.SocialAccount{ID: "a", WorkspaceID: "w", Slug: "reviews", Platform: "googlebusiness", AccountID: "accounts/1/locations/2", AccessTokenEnc: []byte("synthetic"), IsActive: true},
+		&models.EngagementItem{ID: "review", WorkspaceID: "w", SocialAccountID: "a", Platform: "googlebusiness", RemoteID: "accounts/1/locations/2/reviews/3", Kind: "review", CanReply: true, SubjectJSON: `{"kind":"review","remote_id":"accounts/1/locations/2/reviews/3","review":{"anonymous":true}}`, LastSeenAt: time.Now().UTC()},
+	} {
+		_, err = db.NewInsert().Model(row).Exec(t.Context())
+		require.NoError(t, err)
+	}
+	service := engagement.NewService(db, nil, nil)
+	service.SetFeatureGate(reviewRecoveryGate{})
+	id, err := service.QueueEngagementActionReceipt(t.Context(), engagement.Actor{UserID: "u"}, "review", "reply", "Thanks", "crash")
+	require.NoError(t, err)
+	_, err = db.NewUpdate().Model((*models.Job)(nil)).Set("status='processing'").Set("attempts=1").Set("locked_by='old-worker'").Set("locked_at=?", time.Now().UTC().Add(-time.Hour)).Where("id=?", id).Exec(t.Context())
+	require.NoError(t, err)
+	worker := NewWorker(db, "new-worker", time.Second, nil, nil, stubStorage{})
+	worker.requeueStaleProcessingJobs(t.Context())
+	var job models.Job
+	require.NoError(t, db.NewSelect().Model(&job).Where("id=?", id).Scan(t.Context()))
+	require.Equal(t, jobStatusPending, job.Status, "a review intent must resume through its write fence after a worker crash")
+	require.Contains(t, job.Payload, "Thanks")
 }

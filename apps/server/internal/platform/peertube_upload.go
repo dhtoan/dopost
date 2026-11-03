@@ -9,6 +9,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -40,11 +41,17 @@ func peertubeRawRequest(ctx context.Context, method, rawURL string, headers map[
 	}
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return peertubeRawResponse{}, &MediaUploadError{RetryClassification: MediaRetrySafeResume, Err: fmt.Errorf("peertube request failed: %w", err)}
+		return peertubeRawResponse{}, &MediaUploadError{RetryClassification: MediaRetrySafeResume, Err: fmt.Errorf("peertube request failed: %w", sanitizeTransportError(err))}
 	}
 	defer resp.Body.Close()
-	respBody, err := io.ReadAll(resp.Body)
+	// PeerTube upload-protocol responses are small JSON payloads (session
+	// URLs, offsets, completion status). Bound the read with the shared
+	// 16 MB cap.
+	respBody, err := readProviderBody(resp)
 	if err != nil {
+		if isResponseTooLarge(err) {
+			return peertubeRawResponse{}, &MediaUploadError{RetryClassification: MediaRetrySafeResume, Err: err}
+		}
 		return peertubeRawResponse{}, &MediaUploadError{RetryClassification: MediaRetrySafeResume, Err: fmt.Errorf("reading peertube response: %w", err)}
 	}
 	return peertubeRawResponse{status: resp.StatusCode, header: resp.Header, body: respBody}, nil
@@ -70,25 +77,24 @@ func peertubeUploadError(status int, body []byte, label string) error {
 // durable stage is checkpointed before the next remote mutation, so a worker
 // restart reconciles the server session instead of duplicating the video.
 func (p *PeerTubeAdapter) UploadMediaWithMetadata(ctx context.Context, accessToken, accountID string, req UploadMediaRequest) (string, error) {
-	if req.Reader == nil {
+	if req.Reader == nil && req.OpenReaderAt == nil {
 		return "", fmt.Errorf("peertube upload requires a video reader")
 	}
 	if !isVideoMime(req.MimeType) {
 		return "", fmt.Errorf("peertube upload requires a video attachment")
 	}
-	mediaBytes, err := io.ReadAll(req.Reader)
-	if err != nil {
-		return "", fmt.Errorf("reading peertube media: %w", err)
+	cleanup := func() {}
+	if req.OpenReaderAt == nil {
+		var err error
+		cleanup, err = spoolPeerTubeMedia(&req)
+		if err != nil {
+			return "", err
+		}
 	}
-	if len(mediaBytes) == 0 {
-		return "", fmt.Errorf("peertube upload requires a non-empty video")
-	}
+	defer cleanup()
 	total := req.Size
 	if total <= 0 {
-		total = int64(len(mediaBytes))
-	}
-	if total != int64(len(mediaBytes)) {
-		return "", fmt.Errorf("peertube upload size mismatch: expected %d bytes, read %d", total, len(mediaBytes))
+		return "", fmt.Errorf("peertube upload requires a non-empty video")
 	}
 	// The account ID is the connected channel; an explicit setting wins
 	// when one post targets a different channel on the same account.
@@ -106,11 +112,45 @@ func (p *PeerTubeAdapter) UploadMediaWithMetadata(ctx context.Context, accessTok
 	}
 	state := ResumableMediaUploadState{Status: MediaUploadPending, RetryClassification: MediaRetrySafeResume, TotalBytes: total}
 	session := peertubeUploadSession{}
-	uuid, err := p.runPeerTubeUpload(ctx, accessToken, req, metadata, total, mediaBytes, state, session)
+	uuid, err := p.runPeerTubeUpload(ctx, accessToken, req, metadata, total, state, session)
 	if err != nil {
 		return "", err
 	}
 	return uuid, nil
+}
+
+func spoolPeerTubeMedia(req *UploadMediaRequest) (func(), error) {
+	file, err := os.CreateTemp("", "openpost-peertube-*")
+	if err != nil {
+		return nil, fmt.Errorf("creating peertube upload file: %w", err)
+	}
+	cleanup := func() { _ = os.Remove(file.Name()) }
+	read, copyErr := io.Copy(file, req.Reader)
+	closeErr := file.Close()
+	if copyErr != nil || closeErr != nil || (req.Size > 0 && req.Size != read) {
+		cleanup()
+		switch {
+		case copyErr != nil:
+			return nil, fmt.Errorf("reading peertube media: %w", copyErr)
+		case closeErr != nil:
+			return nil, fmt.Errorf("closing peertube upload file: %w", closeErr)
+		default:
+			return nil, fmt.Errorf("peertube upload size mismatch: expected %d bytes, read %d", req.Size, read)
+		}
+	}
+	req.Size = read
+	req.OpenReaderAt = func(offset int64) (io.ReadCloser, error) {
+		reader, err := os.Open(file.Name())
+		if err != nil {
+			return nil, err
+		}
+		if _, err := reader.Seek(offset, io.SeekStart); err != nil {
+			_ = reader.Close()
+			return nil, err
+		}
+		return reader, nil
+	}
+	return cleanup, nil
 }
 
 func peertubeUploadMetadata(req UploadMediaRequest, channelID int64) (map[string]any, error) {
@@ -211,16 +251,12 @@ func (p *PeerTubeAdapter) UploadMediaResumable(
 	state ResumableMediaUploadState,
 	checkpoint MediaUploadCheckpoint,
 ) (string, error) {
-	if req.Reader == nil {
-		return "", fmt.Errorf("peertube upload requires a video reader")
-	}
-	mediaBytes, err := io.ReadAll(req.Reader)
-	if err != nil {
-		return "", fmt.Errorf("reading peertube media: %w", err)
+	if req.OpenReaderAt == nil {
+		return "", fmt.Errorf("peertube resumable upload requires a ranged media reader")
 	}
 	total := req.Size
 	if total <= 0 {
-		total = int64(len(mediaBytes))
+		return "", fmt.Errorf("peertube resumable upload requires a known non-empty video size")
 	}
 	channel := peertubeChannelForRequest(accountID, req.Settings)
 	if channel == "" {
@@ -245,7 +281,7 @@ func (p *PeerTubeAdapter) UploadMediaResumable(
 	if checkpoint == nil {
 		checkpoint = func(ResumableMediaUploadState) error { return nil }
 	}
-	return p.runPeerTubeUploadWithCheckpoint(ctx, accessToken, req, metadata, total, mediaBytes, state, session, checkpoint)
+	return p.runPeerTubeUploadWithCheckpoint(ctx, accessToken, req, metadata, total, state, session, checkpoint)
 }
 
 func decodePeerTubeUploadSession(opaque string) (peertubeUploadSession, error) {
@@ -276,11 +312,10 @@ func (p *PeerTubeAdapter) runPeerTubeUpload(
 	req UploadMediaRequest,
 	metadata map[string]any,
 	total int64,
-	mediaBytes []byte,
 	state ResumableMediaUploadState,
 	session peertubeUploadSession,
 ) (string, error) {
-	return p.runPeerTubeUploadWithCheckpoint(ctx, accessToken, req, metadata, total, mediaBytes, state, session, func(ResumableMediaUploadState) error {
+	return p.runPeerTubeUploadWithCheckpoint(ctx, accessToken, req, metadata, total, state, session, func(ResumableMediaUploadState) error {
 		return nil
 	})
 }
@@ -291,13 +326,15 @@ func (p *PeerTubeAdapter) runPeerTubeUploadWithCheckpoint(
 	req UploadMediaRequest,
 	metadata map[string]any,
 	total int64,
-	mediaBytes []byte,
 	state ResumableMediaUploadState,
 	session peertubeUploadSession,
 	checkpoint MediaUploadCheckpoint,
 ) (string, error) {
 	mimeType := firstNonEmptyString(req.MimeType, videoTypeMP4)
 	if session.UploadURL == "" {
+		if err := checkUploadWrite(ctx, req); err != nil {
+			return "", err
+		}
 		uploadURL, existed, err := p.initPeerTubeUpload(ctx, accessToken, metadata, total, mimeType)
 		if err != nil {
 			return "", err
@@ -320,7 +357,7 @@ func (p *PeerTubeAdapter) runPeerTubeUploadWithCheckpoint(
 			}
 		}
 	}
-	uuid, err := p.sendPeerTubeChunks(ctx, accessToken, session.UploadURL, total, mediaBytes, &state, checkpoint)
+	uuid, err := p.sendPeerTubeChunks(ctx, accessToken, session.UploadURL, total, req, &state, checkpoint)
 	if err != nil {
 		return "", err
 	}
@@ -387,11 +424,12 @@ func (p *PeerTubeAdapter) sendPeerTubeChunks(
 	ctx context.Context,
 	accessToken, uploadURL string,
 	total int64,
-	mediaBytes []byte,
+	req UploadMediaRequest,
 	state *ResumableMediaUploadState,
 	checkpoint MediaUploadCheckpoint,
 ) (string, error) {
 	offset := state.UploadedBytes
+	buffer := make([]byte, peertubeUploadChunkSize)
 	for offset < total {
 		end := offset + peertubeUploadChunkSize
 		if end > total {
@@ -400,7 +438,13 @@ func (p *PeerTubeAdapter) sendPeerTubeChunks(
 		headers := peertubeAuthHeaders(accessToken)
 		headers["Content-Type"] = contentTypeOctet
 		headers["Content-Range"] = fmt.Sprintf("bytes %d-%d/%d", offset, end-1, total)
-		resp, err := peertubeRawRequest(ctx, http.MethodPut, uploadURL, headers, bytes.NewReader(mediaBytes[offset:end]))
+		if err := readPeerTubeChunk(req, offset, buffer[:end-offset]); err != nil {
+			return "", err
+		}
+		if err := checkUploadWrite(ctx, req); err != nil {
+			return "", err
+		}
+		resp, err := peertubeRawRequest(ctx, http.MethodPut, uploadURL, headers, bytes.NewReader(buffer[:end-offset]))
 		if err != nil {
 			return "", err
 		}
@@ -435,6 +479,23 @@ func (p *PeerTubeAdapter) sendPeerTubeChunks(
 		}
 	}
 	return "", &MediaUploadError{RetryClassification: MediaRetryTerminal, Err: fmt.Errorf("peertube upload ended without a video id")}
+}
+
+func readPeerTubeChunk(req UploadMediaRequest, offset int64, buffer []byte) error {
+	reader, err := req.OpenReaderAt(offset)
+	if err != nil {
+		return fmt.Errorf("opening peertube media at byte %d: %w", offset, err)
+	}
+	_, readErr := io.ReadFull(reader, buffer)
+	closeErr := reader.Close()
+	if readErr != nil {
+		return fmt.Errorf("reading peertube media at byte %d: %w", offset, readErr)
+	}
+	if closeErr != nil {
+		return fmt.Errorf("closing peertube media at byte %d: %w", offset, closeErr)
+	}
+
+	return nil
 }
 
 func peertubeUploadResponseUUID(body []byte) (string, error) {
@@ -491,6 +552,9 @@ func (p *PeerTubeAdapter) finalizePeerTubeThumbnail(ctx context.Context, accessT
 		return fmt.Errorf("reading peertube thumbnail: %w", err)
 	}
 	if len(thumbnail) > 0 {
+		if err := checkUploadWrite(ctx, req); err != nil {
+			return err
+		}
 		if err := p.uploadPeerTubeThumbnail(ctx, accessToken, uuid, thumbnail, req); err != nil {
 			return err
 		}
@@ -508,6 +572,9 @@ func (p *PeerTubeAdapter) finalizePeerTubeCaption(ctx context.Context, accessTok
 		return fmt.Errorf("reading peertube captions: %w", err)
 	}
 	if len(caption) > 0 {
+		if err := checkUploadWrite(ctx, req); err != nil {
+			return err
+		}
 		language := firstNonEmptyString(settingString(req.Settings, "caption_language"), "en")
 		if err := p.uploadPeerTubeCaption(ctx, accessToken, uuid, language, caption, req); err != nil {
 			return err

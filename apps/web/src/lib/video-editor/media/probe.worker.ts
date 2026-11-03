@@ -5,7 +5,7 @@
  * dimensions, fps estimate, keyframe timestamps, codecs) plus a JPEG
  * thumbnail blob. Heavy work stays off the main thread.
  *
- * Ported from FreeCut (MIT) media-processor.worker.ts and adapted to OpenPost.
+ * Ported from FreeCut (MIT) media-processor.worker.ts and adapted to dopost.
  */
 
 import { ALL_FORMATS, BlobSource, CanvasSink, EncodedPacketSink, Input } from 'mediabunny';

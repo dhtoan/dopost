@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { replaceState } from '$app/navigation';
+	import { page } from '$app/state';
 	import type { components } from '$lib/api/types';
 	import { client } from '$lib/api/client';
 	import { repostAutomationQueryOptions, schedulingQueryKeys } from '@openpost/query-catalog';
@@ -20,14 +22,17 @@
 	import { Input } from '$lib/components/ui/input';
 	import { Label } from '$lib/components/ui/label';
 	import * as RadioGroup from '$lib/components/ui/radio-group';
+	import Disclosure from '$lib/components/disclosure.svelte';
 	import * as Select from '$lib/components/ui/select';
+	import * as Tooltip from '$lib/components/ui/tooltip';
 	import DestructiveConfirmDialog from '$lib/components/destructive-confirm-dialog.svelte';
 	import type { DestructiveActionOutcome } from '$lib/destructive-action-outcome';
 	import InlineNotice from '$lib/components/inline-notice.svelte';
 	import PageLoading from '$lib/components/page-loading.svelte';
 	import SectionHeader from '$lib/components/section-header.svelte';
 	import SettingsFormFooter from '$lib/components/settings-form-footer.svelte';
-	import SocialAccountIdentity from '$lib/components/social-account-identity.svelte';
+	import AccountPickerList from '$lib/components/account-picker/list.svelte';
+	import AccountPickerRow from '$lib/components/account-picker/row.svelte';
 	import RepostStageEditor from '$lib/components/repost-stage-editor.svelte';
 	import { m } from '$lib/paraglide/messages';
 	import { formatSocialAccountLabel, formatSocialAccountName, getPlatformName } from '$lib/utils';
@@ -43,10 +48,14 @@
 
 	interface Props {
 		workspaceID: string;
+		selectedPolicyID?: string;
+		template?: string;
 	}
 
-	let { workspaceID }: Props = $props();
+	let { workspaceID, selectedPolicyID = '', template = '' }: Props = $props();
 	const unsavedChanges = getOptionalUnsavedChanges();
+	let expandedPolicyID = $state('');
+	let appliedTemplate = false;
 	let settings = $state.raw<RepostSettings | null>(null);
 	let policies = $state<RepostPolicy[]>([]);
 	let loading = $state(true);
@@ -155,6 +164,17 @@
 		settings = data;
 		policies = (data.policies ?? []).map(normalizePolicy);
 		savedSnapshot = policySnapshot(policies);
+		if (!policies.some((policy) => policy.id === expandedPolicyID)) {
+			expandedPolicyID =
+				policies.find((policy) => policy.id === selectedPolicyID)?.id || policies[0]?.id || '';
+		}
+		if (template && !appliedTemplate && data.can_manage) {
+			appliedTemplate = true;
+			addPolicy(template);
+			const url = new URL(page.url);
+			url.searchParams.delete('template');
+			replaceState(url, page.state);
+		}
 	}
 
 	async function saveSettings() {
@@ -170,7 +190,11 @@
 		saveError = '';
 		try {
 			const { data, error, response } = await client.PUT('/repost-automation', {
-				body: { workspace_id: view.workspaceID, policies: nextPolicies }
+				body: {
+					workspace_id: view.workspaceID,
+					policies: nextPolicies,
+					expected_revision: settings.revision
+				}
 			});
 			settleQueryMutationSession(view.session, response);
 			if (error || !data) throw new Error(error?.detail || m.repost_save_failed());
@@ -197,20 +221,39 @@
 		}
 	}
 
-	function addPolicy() {
+	function addPolicy(preset = 'repost') {
 		const firstTarget = targetAccounts.find((account) => !account.grant_required);
+		const id = crypto.randomUUID();
+		const rule = defaultRule();
+		if (preset === 'cycle') rule.stages?.push({ delay_seconds: 259200, unrepost_previous: true });
+		if (preset === 'popular') rule.min_likes = 10;
+		expandedPolicyID = id;
 		policies.push({
-			id: crypto.randomUUID(),
-			name: m.repost_new_rule(),
-			enabled: true,
+			id,
+			name:
+				preset === 'cycle'
+					? m.workflows_repost_cycle()
+					: preset === 'popular'
+						? m.workflows_repost_popular()
+						: m.repost_new_rule(),
+			enabled: false,
 			source_account_ids: [],
 			target_account_ids: firstTarget ? [firstTarget.id] : [],
-			rule: defaultRule()
+			rule
 		});
 	}
 
 	function removePolicy(index: number) {
 		policies.splice(index, 1);
+	}
+
+	function setSourceScope(policy: RepostPolicy, checked: boolean) {
+		if (checked) {
+			policy.source_account_ids = [];
+			return;
+		}
+		const first = sourceAccounts[0];
+		policy.source_account_ids = first ? [first.id] : [];
 	}
 
 	function toggleSource(policy: RepostPolicy, accountID: string) {
@@ -379,19 +422,33 @@
 		themeIconRole="repeat"
 	>
 		{#snippet actions()}
+			<Tooltip.Root>
+				<Tooltip.Trigger>
+					{#snippet child({ props })}
+						<Button
+							{...props}
+							variant="ghost"
+							size="icon-sm"
+							class="min-h-11 min-w-11 text-muted-foreground sm:min-h-9 sm:min-w-9"
+							aria-label={m.repost_native_notice()}
+						>
+							<ThemeIcon role="notification" class="size-4" />
+						</Button>
+					{/snippet}
+				</Tooltip.Trigger>
+				<Tooltip.Content class="max-w-72">
+					<p class="text-sm">{m.repost_native_notice()}</p>
+					<p class="mt-1 text-sm text-muted-foreground">{m.workflows_reposts_preserved()}</p>
+				</Tooltip.Content>
+			</Tooltip.Root>
 			{#if settings?.can_manage}
-				<Button variant="outline" size="sm" onclick={addPolicy} disabled={loading}>
+				<Button variant="outline" size="sm" onclick={() => addPolicy()} disabled={loading}>
 					<ThemeIcon role="add" class="size-4" />
 					{m.repost_add_rule()}
 				</Button>
 			{/if}
 		{/snippet}
 	</SectionHeader>
-
-	<InlineNotice tone="info">
-		<p>{m.repost_native_notice()}</p>
-		<p class="mt-1 text-current/75">{m.repost_analytics_notice()}</p>
-	</InlineNotice>
 
 	{#if loadError && settings}
 		<InlineNotice tone="error" message={loadError}>
@@ -430,10 +487,21 @@
 
 		<div class="space-y-4">
 			{#each policies as policy, index (policy.id)}
-				<section
-					class="rounded-xl border bg-background"
-					aria-labelledby={`repost-rule-${policy.id}`}
+				<Disclosure
+					summary={policy.name}
+					open={expandedPolicyID === policy.id}
+					onToggle={(open) => {
+						if (open) expandedPolicyID = policy.id ?? '';
+						else if (expandedPolicyID === policy.id) expandedPolicyID = '';
+					}}
+					boxed
+					class="rounded-xl bg-background"
 				>
+					{#snippet summaryEnd()}
+						<span class="text-xs font-normal text-muted-foreground"
+							>{policy.enabled ? m.workflows_active() : m.workflows_paused()}</span
+						>
+					{/snippet}
 					<div class="flex flex-col gap-3 border-b p-4 sm:flex-row sm:items-center">
 						<div class="min-w-0 flex-1">
 							<Label for={`repost-rule-${policy.id}`} class="sr-only">{m.repost_rule_name()}</Label>
@@ -446,21 +514,23 @@
 								class="max-w-md font-medium"
 							/>
 						</div>
-						<label class="flex min-h-11 items-center gap-2 text-sm">
-							<Checkbox bind:checked={policy.enabled} disabled={!settings.can_manage} />
-							<span>{m.repost_enabled()}</span>
-						</label>
-						{#if settings.can_manage}
-							<Button
-								variant="ghost"
-								size="icon-sm"
-								class="text-destructive hover:text-destructive"
-								onclick={() => removePolicy(index)}
-								aria-label={m.repost_remove_rule({ name: policy.name })}
-							>
-								<ThemeIcon role="delete" class="size-4" />
-							</Button>
-						{/if}
+						<div class="flex items-center justify-between gap-3 sm:justify-end">
+							<label class="flex min-h-11 items-center gap-2 text-sm">
+								<Checkbox bind:checked={policy.enabled} disabled={!settings.can_manage} />
+								<span>{m.repost_enabled()}</span>
+							</label>
+							{#if settings.can_manage}
+								<Button
+									variant="ghost"
+									size="icon-sm"
+									class="text-destructive hover:text-destructive"
+									onclick={() => removePolicy(index)}
+									aria-label={m.repost_remove_rule({ name: policy.name })}
+								>
+									<ThemeIcon role="delete" class="size-4" />
+								</Button>
+							{/if}
+						</div>
 					</div>
 
 					<div class="space-y-6 p-4 sm:p-5">
@@ -471,61 +541,56 @@
 								<label class="flex min-h-11 items-center gap-3 rounded-md border px-3 py-2 text-sm">
 									<Checkbox
 										checked={(policy.source_account_ids ?? []).length === 0}
-										onCheckedChange={() => (policy.source_account_ids = [])}
+										indeterminate={(() => {
+											const count = (policy.source_account_ids ?? []).length;
+											return count > 0 && count < sourceAccounts.length;
+										})()}
+										onCheckedChange={(checked) => setSourceScope(policy, checked === true)}
 										disabled={!settings.can_manage}
 									/>
 									<span>{m.repost_any_compatible_source()}</span>
 								</label>
-								<div class="grid gap-2 sm:grid-cols-2">
-									{#each sourceAccounts as account (account.id)}
-										<label
-											class="flex min-h-12 items-center gap-3 rounded-md border px-3 py-2 text-sm"
-										>
-											<Checkbox
-												checked={(policy.source_account_ids ?? []).includes(account.id)}
-												onCheckedChange={() => toggleSource(policy, account.id)}
-												disabled={!settings.can_manage}
-											/>
-											<SocialAccountIdentity
-												class="min-w-0 flex-1"
-												name={accountLabel(account)}
-												platform={account.platform}
-												avatarUrl={account.avatar_url}
-											/>
-										</label>
-									{/each}
-								</div>
+								<AccountPickerList
+									accounts={sourceAccounts}
+									searchText={(account) =>
+										`${accountLabel(account)} ${account.username} ${getPlatformName(account.platform)} ${account.workspace_name}`}
+								>
+									{#snippet children(account)}
+										<AccountPickerRow
+											name={accountLabel(account)}
+											platform={account.platform}
+											avatarUrl={account.avatar_url}
+											selected={(policy.source_account_ids ?? []).includes(account.id)}
+											disabled={!settings?.can_manage}
+											onToggle={() => toggleSource(policy, account.id)}
+											class="rounded-md border px-3 py-2"
+										/>
+									{/snippet}
+								</AccountPickerList>
 							</fieldset>
 
 							<fieldset class="space-y-3">
 								<legend class="text-sm font-medium">{m.repost_target_accounts()}</legend>
 								<p class="text-sm text-muted-foreground">{m.repost_target_accounts_body()}</p>
-								<div class="grid gap-2 sm:grid-cols-2">
-									{#each targetAccounts as account (account.id)}
-										<label
-											class="flex min-h-12 items-center gap-3 rounded-md border px-3 py-2 text-sm"
-										>
-											<Checkbox
-												checked={(policy.target_account_ids ?? []).includes(account.id)}
-												onCheckedChange={() => toggleTarget(policy, account.id)}
-												disabled={!settings.can_manage || !targetCompatible(policy, account)}
-											/>
-											<div class="min-w-0 flex-1">
-												<SocialAccountIdentity
-													name={accountLabel(account)}
-													platform={account.platform}
-													avatarUrl={account.avatar_url}
-													detail={targetAccountDetail(policy, account)}
-												/>
-												{#if targetAccountConstraint(policy, account)}
-													<p class="mt-1 pl-10 text-xs leading-5 text-muted-foreground">
-														{targetAccountConstraint(policy, account)}
-													</p>
-												{/if}
-											</div>
-										</label>
-									{/each}
-								</div>
+								<AccountPickerList
+									accounts={targetAccounts}
+									searchText={(account) =>
+										`${accountLabel(account)} ${account.username} ${getPlatformName(account.platform)} ${account.workspace_name}`}
+								>
+									{#snippet children(account)}
+										<AccountPickerRow
+											name={accountLabel(account)}
+											platform={account.platform}
+											avatarUrl={account.avatar_url}
+											detail={targetAccountDetail(policy, account)}
+											constraint={targetAccountConstraint(policy, account)}
+											selected={(policy.target_account_ids ?? []).includes(account.id)}
+											disabled={!settings?.can_manage || !targetCompatible(policy, account)}
+											onToggle={() => toggleTarget(policy, account.id)}
+											class="rounded-md border px-3 py-2"
+										/>
+									{/snippet}
+								</AccountPickerList>
 							</fieldset>
 						</div>
 
@@ -564,99 +629,112 @@
 							</div>
 						</div>
 
-						<fieldset class="space-y-3 border-t pt-5">
-							<legend class="text-sm font-medium">{m.repost_engagement_gates()}</legend>
-							<p class="text-sm text-muted-foreground">{m.repost_engagement_gates_body()}</p>
-							<div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-								{#each [['min_likes', m.repost_min_likes()], ['min_comments', m.repost_min_comments()], ['min_reposts', m.repost_min_reposts()], ['min_views', m.repost_min_views()]] as threshold (threshold[0])}
-									<div class="space-y-2">
-										<Label for={`${threshold[0]}-${policy.id}`}>{threshold[1]}</Label>
-										<Input
-											id={`${threshold[0]}-${policy.id}`}
-											type="number"
-											min="0"
-											step="1"
-											value={String(policy.rule[threshold[0] as keyof RepostRule])}
-											oninput={(event) =>
-												setThreshold(
-													policy.rule,
-													threshold[0] as keyof RepostRule,
-													(event.target as HTMLInputElement).value
-												)}
+						<Disclosure
+							summary={m.repost_engagement_gates()}
+							class="border-t pt-5"
+							open={policy.rule.min_likes > 0 ||
+								policy.rule.min_comments > 0 ||
+								policy.rule.min_reposts > 0 ||
+								policy.rule.min_views > 0 ||
+								policy.rule.require_plateau}
+						>
+							<div class="space-y-3">
+								<p class="text-sm text-muted-foreground">{m.repost_engagement_gates_body()}</p>
+								<div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+									{#each [['min_likes', m.repost_min_likes()], ['min_comments', m.repost_min_comments()], ['min_reposts', m.repost_min_reposts()], ['min_views', m.repost_min_views()]] as threshold (threshold[0])}
+										<div class="space-y-2">
+											<Label for={`${threshold[0]}-${policy.id}`}>{threshold[1]}</Label>
+											<Input
+												id={`${threshold[0]}-${policy.id}`}
+												type="number"
+												min="0"
+												step="1"
+												value={String(policy.rule[threshold[0] as keyof RepostRule])}
+												oninput={(event) =>
+													setThreshold(
+														policy.rule,
+														threshold[0] as keyof RepostRule,
+														(event.target as HTMLInputElement).value
+													)}
+												disabled={!settings.can_manage}
+											/>
+										</div>
+									{/each}
+								</div>
+
+								<RadioGroup.Root
+									class="grid gap-2 sm:grid-cols-2"
+									value={policy.rule.threshold_mode}
+									onValueChange={(value) => (policy.rule.threshold_mode = value as 'all' | 'any')}
+									disabled={!settings.can_manage}
+									aria-label={m.repost_threshold_mode()}
+								>
+									{#each [['all', m.repost_require_all(), m.repost_require_all_body()], ['any', m.repost_require_any(), m.repost_require_any_body()]] as option (option[0])}
+										<label
+											class={[
+												'flex min-h-11 cursor-pointer items-start gap-3 rounded-md border p-3',
+												policy.rule.threshold_mode === option[0] && 'border-primary bg-primary/5'
+											]}
+										>
+											<RadioGroup.Item value={option[0]} class="mt-0.5" />
+											<span>
+												<span class="block text-sm font-medium">{option[1]}</span>
+												<span class="block text-xs leading-5 text-muted-foreground"
+													>{option[2]}</span
+												>
+											</span>
+										</label>
+									{/each}
+								</RadioGroup.Root>
+
+								<div
+									class="flex flex-col gap-3 rounded-md border bg-muted/20 p-3 sm:flex-row sm:items-center sm:justify-between"
+								>
+									<label class="flex min-h-11 items-center gap-3 text-sm">
+										<Checkbox
+											bind:checked={policy.rule.require_plateau}
 											disabled={!settings.can_manage}
 										/>
-									</div>
-								{/each}
-							</div>
-
-							<RadioGroup.Root
-								class="grid gap-2 sm:grid-cols-2"
-								value={policy.rule.threshold_mode}
-								onValueChange={(value) => (policy.rule.threshold_mode = value as 'all' | 'any')}
-								disabled={!settings.can_manage}
-								aria-label={m.repost_threshold_mode()}
-							>
-								{#each [['all', m.repost_require_all(), m.repost_require_all_body()], ['any', m.repost_require_any(), m.repost_require_any_body()]] as option (option[0])}
-									<label
-										class={[
-											'flex min-h-11 cursor-pointer items-start gap-3 rounded-md border p-3',
-											policy.rule.threshold_mode === option[0] && 'border-primary bg-primary/5'
-										]}
-									>
-										<RadioGroup.Item value={option[0]} class="mt-0.5" />
 										<span>
-											<span class="block text-sm font-medium">{option[1]}</span>
-											<span class="block text-xs leading-5 text-muted-foreground">{option[2]}</span>
+											<span class="block font-medium">{m.repost_wait_for_plateau()}</span>
+											<span class="block text-xs text-muted-foreground"
+												>{m.repost_wait_for_plateau_body()}</span
+											>
 										</span>
 									</label>
-								{/each}
-							</RadioGroup.Root>
-
-							<div
-								class="flex flex-col gap-3 rounded-md border bg-muted/20 p-3 sm:flex-row sm:items-center sm:justify-between"
-							>
-								<label class="flex min-h-11 items-center gap-3 text-sm">
-									<Checkbox
-										bind:checked={policy.rule.require_plateau}
-										disabled={!settings.can_manage}
-									/>
-									<span>
-										<span class="block font-medium">{m.repost_wait_for_plateau()}</span>
-										<span class="block text-xs text-muted-foreground"
-											>{m.repost_wait_for_plateau_body()}</span
+									{#if policy.rule.require_plateau}
+										<Select.Root
+											type="single"
+											value={String(policy.rule.plateau_checks)}
+											onValueChange={(value) => (policy.rule.plateau_checks = Number(value))}
+											disabled={!settings.can_manage}
 										>
-									</span>
-								</label>
-								{#if policy.rule.require_plateau}
-									<Select.Root
-										type="single"
-										value={String(policy.rule.plateau_checks)}
-										onValueChange={(value) => (policy.rule.plateau_checks = Number(value))}
-										disabled={!settings.can_manage}
-									>
-										<Select.Trigger class="w-full sm:w-48" aria-label={m.repost_unchanged_checks()}>
-											{m.repost_check_count({ count: policy.rule.plateau_checks })}
-										</Select.Trigger>
-										<Select.Content>
-											{#each [2, 3, 4, 6, 8, 12] as count (count)}
-												<Select.Item value={String(count)}
-													>{m.repost_check_count({ count })}</Select.Item
-												>
-											{/each}
-										</Select.Content>
-									</Select.Root>
-								{/if}
+											<Select.Trigger
+												class="w-full sm:w-48"
+												aria-label={m.repost_unchanged_checks()}
+											>
+												{m.repost_check_count({ count: policy.rule.plateau_checks })}
+											</Select.Trigger>
+											<Select.Content>
+												{#each [2, 3, 4, 6, 8, 12] as count (count)}
+													<Select.Item value={String(count)}
+														>{m.repost_check_count({ count })}</Select.Item
+													>
+												{/each}
+											</Select.Content>
+										</Select.Root>
+									{/if}
+								</div>
 							</div>
-						</fieldset>
+						</Disclosure>
 					</div>
-				</section>
+				</Disclosure>
 			{:else}
 				<div class="rounded-xl border border-dashed px-5 py-12 text-center">
 					<ThemeIcon role="repeat" class="mx-auto size-6 text-muted-foreground" />
 					<h3 class="mt-3 font-medium">{m.repost_empty_heading()}</h3>
-					<p class="mx-auto mt-1 max-w-lg text-sm text-muted-foreground">{m.repost_empty_body()}</p>
 					{#if settings.can_manage}
-						<Button class="mt-4" onclick={addPolicy} disabled={targetAccounts.length === 0}>
+						<Button class="mt-4" onclick={() => addPolicy()} disabled={targetAccounts.length === 0}>
 							<ThemeIcon role="add" class="size-4" />
 							{m.repost_add_first_rule()}
 						</Button>

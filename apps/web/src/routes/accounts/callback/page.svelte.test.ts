@@ -19,7 +19,7 @@ const pendingSelection = {
 	options: [
 		{
 			id: 'page_1',
-			display_name: 'OpenPost Page',
+			display_name: 'dopost Page',
 			username: 'openpost',
 			kind: 'page',
 			description: 'Main brand page',
@@ -65,32 +65,6 @@ describe('account OAuth callback selection flow', () => {
 		});
 	});
 
-	it('does not claim success or redirect while account selection is required', async () => {
-		setCallbackUrl('status=selection_required&platform=facebook&connection_id=conn_123');
-
-		const screen = await renderCallbackPage();
-
-		await expect
-			.element(
-				screen.getByRole('heading', {
-					level: 1,
-					name: 'Choose Facebook account'
-				})
-			)
-			.toBeVisible();
-		await expect.element(screen.getByText('OpenPost Page')).toBeVisible();
-		expect(screen.container.textContent).toMatch(/Facebook\s*·\s*openpost\s*·\s*page/);
-		await expect.element(screen.getByText('followers: 1,240')).toBeVisible();
-		await expect
-			.element(screen.getByText(/This deadline only applies to this selection step/))
-			.toBeVisible();
-		expect(screen.container.textContent).not.toContain('Account connected');
-		expect(mocks.goto).not.toHaveBeenCalled();
-		expect(mocks.get).toHaveBeenCalledWith('/accounts/selections/{connection_id}', {
-			params: { path: { connection_id: 'conn_123' } }
-		});
-	});
-
 	it('posts the chosen selection and only then transitions to success', async () => {
 		const post = deferred<{
 			data: {
@@ -106,6 +80,25 @@ describe('account OAuth callback selection flow', () => {
 
 		const screen = await renderCallbackPage();
 
+		await expect
+			.element(
+				screen.getByRole('heading', {
+					level: 1,
+					name: 'Choose Facebook account'
+				})
+			)
+			.toBeVisible();
+		await expect.element(screen.getByText('dopost Page')).toBeVisible();
+		expect(screen.container.textContent).toMatch(/Facebook\s*·\s*openpost\s*·\s*page/);
+		await expect.element(screen.getByText('followers: 1,240')).toBeVisible();
+		await expect
+			.element(screen.getByText(/This deadline only applies to this selection step/))
+			.toBeVisible();
+		expect(screen.container.textContent).not.toContain('Account connected');
+		expect(mocks.goto).not.toHaveBeenCalled();
+		expect(mocks.get).toHaveBeenCalledWith('/accounts/selections/{connection_id}', {
+			params: { path: { connection_id: 'conn_123' } }
+		});
 		await screen.getByRole('radio', { name: /OpenPost Page/ }).click();
 		await screen.getByRole('button', { name: 'Connect selected account' }).click();
 
@@ -167,7 +160,7 @@ describe('account OAuth callback selection flow', () => {
 					},
 					{
 						id: 'organization:42',
-						display_name: 'OpenPost',
+						display_name: 'dopost',
 						kind: 'Organization Page'
 					}
 				]

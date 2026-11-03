@@ -1,4 +1,20 @@
+import { browserExtensions } from "./extensions.js";
+export { browserExtensions } from "./extensions.js";
+import { counterPlatforms } from "./counter-platforms.js";
+export { counterPlatforms } from "./counter-platforms.js";
+import { previewTools } from "./preview-tools.js";
+export { previewTools } from "./preview-tools.js";
 import { marketingGuides } from "./guides.js";
+import { mediaTools } from "./media-tools.js";
+export {
+  mediaTools,
+  imageConversions,
+  imageFormats,
+  mediaConversionTools,
+  mediaToolThumbnailTone,
+  videoFormats,
+  audioFormats,
+} from "./media-tools.js";
 export { marketingGuides } from "./guides.js";
 import { docsPageCatalog } from "./docs-catalog.js";
 import { docsRouteFromPage } from "./docs-route.js";
@@ -6,13 +22,24 @@ import { docsRouteFromPage } from "./docs-route.js";
 export { docsRouteFromPage } from "./docs-route.js";
 
 export const marketingSiteUrl = "https://openpo.st";
-export const docsSiteUrl = "https://docs.openpo.st";
+export const docsBasePath = "/docs";
+export const docsSiteUrl = `${marketingSiteUrl}${docsBasePath}`;
+
+export function docsPath(pathname = "/") {
+  const normalized = pathname === "/" ? "" : `/${pathname.replace(/^\/+/, "")}`;
+  return `${docsBasePath}${normalized}`;
+}
 
 export function docsSocialImageKey(route) {
-  const normalized =
-    !route || route === "/"
+  const routeWithoutBase = route?.startsWith(`${docsBasePath}/`)
+    ? route.slice(docsBasePath.length)
+    : route === docsBasePath
       ? "/"
-      : `/${route
+      : route;
+  const normalized =
+    !routeWithoutBase || routeWithoutBase === "/"
+      ? "/"
+      : `/${routeWithoutBase
           .split("?")[0]
           .split("#")[0]
           .replace(/^\/+|\/+$/g, "")}`;
@@ -43,66 +70,71 @@ const platformNames = [
   ["tiktok", "TikTok"],
   ["youtube", "YouTube"],
   ["pinterest", "Pinterest"],
+  ["googlebusiness", "Google Business"],
   ["telegram", "Telegram"],
   ["discord", "Discord"],
+  ["devnull", "dev/null"],
 ];
 
 const toolPages = [
+  ...browserExtensions,
+  ...previewTools,
+  ...mediaTools,
   {
     slug: "social-media-video-editor",
     name: "Social media video editor",
-    title: "Free social media video editor - OpenPost Video Editor",
+    title: "Free social media video editor - dopost Video Editor",
     description:
       "Record or import footage, edit for four social formats, and export without a watermark.",
   },
   {
     slug: "social-media-image-editor",
     name: "Social media image editor",
-    title: "Free social media image editor - OpenPost Image Editor",
+    title: "Free social media image editor - dopost Image Editor",
     description: "Create posts, carousel pages, Story slides, and thumbnails in your browser.",
   },
   {
     slug: "multi-platform-character-counter",
     name: "Multi-platform character counter",
-    title: "Free social media character counter - OpenPost",
-    description: `Check one draft against the limits and counting rules for ${platformNames.length} social networks.`,
+    title: "Free social media character counter - dopost",
+    description: `Check one draft against the limits and counting rules for ${counterPlatforms.length} social networks.`,
   },
   {
     slug: "post-preview-generator",
     name: "Post preview generator",
-    title: "Free social post preview generator - OpenPost",
+    title: "Free social post preview generator - dopost",
     description: "Preview text, links, media, and supported formats before you publish.",
   },
   {
     slug: "thread-splitter",
     name: "Thread splitter",
-    title: "Free social media thread splitter - OpenPost",
+    title: "Free thread splitter for X, Bluesky & Threads - dopost",
     description:
-      "Split long drafts into clean parts for X, Bluesky, Mastodon, Threads, or LinkedIn.",
+      "Split a long post into numbered parts within each network's character limit. Review, copy, or continue your thread in dopost.",
   },
   {
     slug: "fediverse-handle-checker",
     name: "Fediverse handle checker",
-    title: "Fediverse and Bluesky handle checker - OpenPost",
+    title: "Fediverse and Bluesky handle checker - dopost",
     description: "Validate a Fediverse or Bluesky handle, then choose whether to run a live check.",
   },
   {
     slug: "linkedin-text-formatter",
     name: "LinkedIn text formatter",
-    title: "Accessible LinkedIn post formatter - OpenPost",
+    title: "Accessible LinkedIn post formatter - dopost",
     description:
       "Clean up spacing, shorten paragraphs, and check length without using fake Unicode styles.",
   },
   {
     slug: "best-time-to-post-calculator",
     name: "Timezone posting planner",
-    title: "Free social posting schedule planner - OpenPost",
+    title: "Free social posting schedule planner - dopost",
     description: "Turn your audience hours and timezone into a weekly posting plan you can reuse.",
   },
   {
     slug: "utm-link-builder",
     name: "UTM link builder",
-    title: "Free UTM link builder - OpenPost",
+    title: "Free UTM link builder - dopost",
     description: "Add campaign tags to a link, then copy a clean URL for your social post.",
   },
 ];
@@ -111,11 +143,24 @@ const staticMarketingEntries = [
   {
     path: "/guides",
     key: "guides",
-    title: "Social media tool guides - OpenPost",
-    socialTitle: "Make more of what you make.",
+    title: "Guides and tool comparisons - dopost",
+    socialTitle: "Make more of your work. Find a better way.",
     description:
       "Practical guides to choosing social tools, writing useful posts, and planning your content.",
-    label: "Publishing guides",
+    label: "Guides & comparisons",
+    kind: "document",
+    agentRepresentation: "static",
+    agentDiscovery: { membership: "primary" },
+    priority: "0.8",
+  },
+  {
+    path: "/comparisons",
+    key: "comparisons",
+    title: "Compare publishing, image and video tools - dopost",
+    socialTitle: "Compare your tools. Choose for the job.",
+    description:
+      "Compare dopost with Buffer, Postiz, Metricool, Hootsuite, Photoshop, DaVinci Resolve and Premiere Pro. Sourced costs, limits, and reasons to choose each tool.",
+    label: "Comparisons",
     kind: "document",
     agentRepresentation: "static",
     agentDiscovery: { membership: "primary" },
@@ -124,10 +169,10 @@ const staticMarketingEntries = [
   ...marketingGuides.map((guide) => ({
     path: `/guides/${guide.slug}`,
     key: `guide-${guide.slug}`,
-    title: `${guide.question} - OpenPost`,
+    title: `${guide.question} - dopost`,
     socialTitle: guide.question,
     description: guide.socialDescription,
-    label: "Social media guide",
+    label: guide.comparison ? "Tool comparison" : "Content guide",
     kind: "document",
     agentRepresentation: "static",
     agentDiscovery: { membership: "primary" },
@@ -136,10 +181,10 @@ const staticMarketingEntries = [
   {
     path: "/",
     key: "home",
-    title: "OpenPost - The all-in-one content team for solo founders",
-    socialTitle: "Turn what you’re building into content. Publish it everywhere.",
+    title: "dopost - The all-in-one content team for solo founders",
+    socialTitle: "Your socials, on steroids.",
     description:
-      "OpenPost helps solo founders create, adapt, schedule, and track content from one workspace.",
+      "Create, edit, and schedule social content in dopost. Turn GitHub releases and RSS feeds into drafts with visual workflows, AI, and review steps.",
     label: "The content team for companies of one",
     kind: "home",
     agentRepresentation: "static",
@@ -149,10 +194,10 @@ const staticMarketingEntries = [
   {
     path: "/pricing",
     key: "pricing",
-    title: "OpenPost pricing",
+    title: "dopost pricing",
     socialTitle: "A content system that grows with your company.",
     description:
-      "Compare OpenPost Hosted service plans with clear limits for workspaces, accounts, posts, media, and seats.",
+      "Compare dopost Hosted service plans with clear limits for workspaces, accounts, posts, media, and seats.",
     label: "Hosted service plans",
     kind: "workflow",
     agentRepresentation: "static",
@@ -162,7 +207,7 @@ const staticMarketingEntries = [
   {
     path: "/platforms",
     key: "platforms",
-    title: "Social platform integrations in OpenPost",
+    title: "Social platform integrations in dopost",
     socialTitle: "Your business. Your channels.",
     description:
       "Find ideas and tools for your next Instagram, LinkedIn, Facebook, TikTok, or YouTube post. Check which channels work with your account.",
@@ -175,10 +220,11 @@ const staticMarketingEntries = [
   {
     path: "/tools",
     key: "tools",
-    title: "Free social media tools - OpenPost",
+    title: "dopost free tools: post previews, threads, image & video editors",
     socialTitle: "Useful social tools. No account required.",
-    description: "Preview, write, prepare, edit, and plan social content in your browser.",
-    label: "OpenPost free tools",
+    description:
+      "Preview social posts, split threads, format LinkedIn text, edit images and videos, or convert files. Use dopost's free browser tools without an account.",
+    label: "dopost free tools",
     kind: "tools-index",
     agentRepresentation: "static",
     agentDiscovery: { membership: "optional" },
@@ -187,7 +233,7 @@ const staticMarketingEntries = [
   {
     path: "/faq",
     key: "faq",
-    title: "OpenPost FAQ",
+    title: "dopost FAQ",
     socialTitle: "A few answers before you start.",
     description:
       "Answers about making content, scheduling posts, your free trial, billing, and account security.",
@@ -200,10 +246,10 @@ const staticMarketingEntries = [
   {
     path: "/security",
     key: "security",
-    title: "Security controls and responsibilities - OpenPost",
+    title: "Security controls and responsibilities - dopost",
     socialTitle: "Your accounts. Your control.",
     description:
-      "See how OpenPost encrypts account keys, limits tool access, and protects sign-in sessions.",
+      "See how dopost encrypts account keys, limits tool access, and protects sign-in sessions.",
     label: "Security",
     kind: "security",
     agentRepresentation: "static",
@@ -213,11 +259,11 @@ const staticMarketingEntries = [
   {
     path: "/trust",
     key: "trust",
-    title: "Your data and privacy - OpenPost",
+    title: "Your data and privacy - dopost",
     socialTitle: "Where your data goes.",
     description:
-      "See where OpenPost Cloud stores your data, which services help run it, and who can access it.",
-    label: "Your data in OpenPost",
+      "See where dopost Cloud stores your data, which services help run it, and who can access it.",
+    label: "Your data in dopost",
     kind: "security",
     agentRepresentation: "static",
     agentDiscovery: { membership: "primary" },
@@ -226,11 +272,11 @@ const staticMarketingEntries = [
   {
     path: "/about",
     key: "about",
-    title: "About OpenPost",
-    socialTitle: "Why OpenPost exists and who runs it.",
+    title: "About dopost",
+    socialTitle: "Why dopost exists and who runs it.",
     description:
-      "Meet the maker behind OpenPost and the idea behind a simpler way to create and schedule content for your business.",
-    label: "About OpenPost",
+      "Meet the maker behind dopost and the idea behind a simpler way to create and schedule content for your business.",
+    label: "About dopost",
     kind: "document",
     agentRepresentation: "static",
     agentDiscovery: { membership: "primary" },
@@ -239,11 +285,11 @@ const staticMarketingEntries = [
   {
     path: "/contact",
     key: "contact",
-    title: "Contact OpenPost",
-    socialTitle: "Contact OpenPost support or the community.",
+    title: "Contact dopost",
+    socialTitle: "Contact dopost support or the community.",
     description:
-      "Find the right OpenPost contact for product, account, billing, privacy, security, community, and contribution questions.",
-    label: "Contact OpenPost",
+      "Find the right dopost contact for product, account, billing, privacy, security, community, and contribution questions.",
+    label: "Contact dopost",
     kind: "document",
     agentRepresentation: "static",
     agentDiscovery: { membership: "primary" },
@@ -252,9 +298,9 @@ const staticMarketingEntries = [
   {
     path: "/changelog",
     key: "changelog",
-    title: "OpenPost changelog",
-    socialTitle: "What changed in OpenPost, in plain language.",
-    description: "See the latest tools, improvements, and fixes in OpenPost.",
+    title: "dopost changelog",
+    socialTitle: "What changed in dopost, in plain language.",
+    description: "See the latest tools, improvements, and fixes in dopost.",
     label: "Changelog",
     kind: "document",
     agentRepresentation: "static",
@@ -264,10 +310,10 @@ const staticMarketingEntries = [
   {
     path: "/privacy",
     key: "privacy",
-    title: "Privacy Policy - OpenPost",
-    socialTitle: "OpenPost privacy policy.",
+    title: "Privacy Policy - dopost",
+    socialTitle: "dopost privacy policy.",
     description:
-      "How OpenPost collects, uses, shares, protects, exports, and deletes hosted-service data.",
+      "How dopost collects, uses, shares, protects, exports, and deletes hosted-service data.",
     label: "Legal",
     kind: "document",
     agentRepresentation: "static",
@@ -277,8 +323,8 @@ const staticMarketingEntries = [
   {
     path: "/terms",
     key: "terms",
-    title: "Terms of Service - OpenPost",
-    socialTitle: "OpenPost terms of service.",
+    title: "Terms of Service - dopost",
+    socialTitle: "dopost terms of service.",
     description:
       "Terms for hosted accounts, plans, connected networks, publishing, and acceptable use.",
     label: "Legal",
@@ -290,8 +336,8 @@ const staticMarketingEntries = [
   {
     path: "/refunds",
     key: "refunds",
-    title: "Refund Policy - OpenPost",
-    socialTitle: "OpenPost refund policy.",
+    title: "Refund Policy - dopost",
+    socialTitle: "dopost refund policy.",
     description:
       "How to cancel, request a refund, report a billing error, and use mandatory consumer rights.",
     label: "Legal",
@@ -305,8 +351,8 @@ const staticMarketingEntries = [
 const platformEntries = platformNames.map(([slug, name]) => ({
   path: `/platforms/${slug}`,
   key: `platform-${slug}`,
-  title: `${name} content and scheduling - OpenPost`,
-  socialTitle: `Make your next ${name} post with OpenPost.`,
+  title: `${name} content and scheduling - dopost`,
+  socialTitle: name,
   description: `Explore ideas, editing tools, and posting options for your business on ${name}.`,
   label: "Channel guide",
   kind: "platform",
@@ -337,7 +383,7 @@ export const marketingRouteManifest = Object.freeze(
       ...entry,
       id: `marketing:${entry.key}`,
       canonical: canonicalMarketingUrl(entry.path),
-      imageAlt: `${entry.socialTitle} OpenPost social preview.`,
+      imageAlt: `${entry.socialTitle} dopost social preview.`,
     };
     return { ...resolved, imageUrl: socialImageUrl(resolved) };
   }),
@@ -370,6 +416,13 @@ export function normalizeMarketingPath(pathname) {
     .replace(/^\/+|\/+$/g, "")}`;
 }
 
+// Only catalogue-owned public paths are safe analytics dimensions. Unknown
+// paths can contain user data and must never be forwarded to analytics.
+export function marketingTelemetryPath(pathname) {
+  const path = normalizeMarketingPath(pathname);
+  return marketingByPath.has(path) ? path : "/unknown";
+}
+
 export function canonicalMarketingUrl(pathname) {
   const path = normalizeMarketingPath(pathname);
   return path === "/" ? marketingSiteUrl : `${marketingSiteUrl}${path}`;
@@ -400,7 +453,7 @@ export function docsImageKey(page) {
 
 export function docsSectionForPage(page) {
   const route = docsRouteFromPage(page);
-  if (route === "/") return "OpenPost docs";
+  if (route === "/") return "dopost docs";
   if (route.startsWith("/usage/") || route.startsWith("/guide/what-is")) {
     return "User guide";
   }
@@ -415,36 +468,35 @@ export function docsSectionForPage(page) {
   if (route.startsWith("/mcp/")) return "MCP guide";
   if (route.startsWith("/development/")) return "Developer docs";
   if (route.startsWith("/reference/")) return "Reference";
-  return "OpenPost docs";
+  return "dopost docs";
 }
 
 export function docsDescriptionForPage(page) {
   const section = docsSectionForPage(page);
   const descriptions = {
-    "OpenPost docs":
-      "Learn how to create, adapt, schedule, publish, and track content with OpenPost.",
+    "dopost docs": "Learn how to create, adapt, schedule, publish, and track content with dopost.",
     "User guide":
-      "Use the OpenPost app to manage drafts, destinations, media, schedules, results, and replies.",
+      "Use the dopost app to manage drafts, destinations, media, schedules, results, and replies.",
     "Provider guide":
       "Check provider setup, supported formats, limits, permissions, and live-test requirements.",
-    Installation: "Install OpenPost with the deployment path that fits your server or device.",
+    Installation: "Install dopost with the deployment path that fits your server or device.",
     Configuration:
-      "Configure OpenPost storage, databases, URLs, providers, updates, and production settings.",
+      "Configure dopost storage, databases, URLs, providers, updates, and production settings.",
     Operations:
-      "Operate OpenPost with clear health checks, logs, backups, upgrades, and recovery steps.",
-    "Self-hosting": "Run OpenPost as one Go service with SQLite and local media by default.",
-    "CLI guide": "Use OpenPost from a terminal, script, scheduled job, or CI workflow.",
-    "MCP guide": "Connect AI tools to OpenPost without sharing social account credentials.",
+      "Operate dopost with clear health checks, logs, backups, upgrades, and recovery steps.",
+    "Self-hosting": "Run dopost as one Go service with SQLite and local media by default.",
+    "CLI guide": "Use dopost from a terminal, script, scheduled job, or CI workflow.",
+    "MCP guide": "Connect AI tools to dopost without sharing social account credentials.",
     "Developer docs":
-      "Understand the OpenPost architecture, API, tests, adapters, jobs, and release workflow.",
-    Reference: "Look up OpenPost API, CLI, configuration, and deployment details.",
+      "Understand the dopost architecture, API, tests, adapters, jobs, and release workflow.",
+    Reference: "Look up dopost API, CLI, configuration, and deployment details.",
   };
   return descriptions[section];
 }
 
 export function resolveDocsSocial({ page, title, description }) {
   const route = docsRouteFromPage(page);
-  const cleanTitle = title?.trim() || "OpenPost documentation";
+  const cleanTitle = title?.trim() || "dopost documentation";
   const cleanDescription = description?.trim() || docsDescriptionForPage(page);
   const key = docsImageKey(page);
 
@@ -452,13 +504,13 @@ export function resolveDocsSocial({ page, title, description }) {
     id: `docs:${key}`,
     path: route,
     key,
-    title: `${cleanTitle} | OpenPost Docs`,
+    title: `${cleanTitle} | dopost Docs`,
     socialTitle: cleanTitle,
     description: cleanDescription,
     label: docsSectionForPage(page),
     kind: "docs",
     canonical: route === "/" ? docsSiteUrl : `${docsSiteUrl}${route}`,
-    imageAlt: `${cleanTitle}. OpenPost documentation social preview.`,
+    imageAlt: `${cleanTitle}. dopost documentation social preview.`,
   };
   return { ...resolved, imageUrl: socialImageUrl(resolved) };
 }
@@ -473,3 +525,16 @@ export const docsSocialEntries = Object.freeze(
     agentCorpus: entry.agentCorpus,
   })),
 );
+
+const documentationRoutes = new Set(docsSocialEntries.map((entry) => entry.route));
+
+export function documentationTelemetryPath(pathname) {
+  const path = normalizeMarketingPath(pathname);
+  const route =
+    path === docsBasePath
+      ? "/"
+      : path.startsWith(`${docsBasePath}/`)
+        ? path.slice(docsBasePath.length)
+        : path;
+  return documentationRoutes.has(route) ? docsPath(route) : `${docsBasePath}/unknown`;
+}

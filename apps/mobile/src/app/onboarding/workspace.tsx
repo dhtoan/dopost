@@ -1,18 +1,20 @@
+import { NativeText as Text } from "@/components/native-text";
 import * as WebBrowser from "expo-web-browser";
 import { router, Stack, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text } from "react-native";
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet } from "react-native";
 
 import {
   BodyText,
   Button,
-  Card,
+  ContentSection,
   ContentTitle,
   PageTitle,
   Screen,
   SectionHeader,
 } from "@/components/ui";
 import { Brand } from "@/components/brand";
+import { WorkspaceAvatar } from "@/components/account-avatar";
 import { DelayedQueryPlaceholder, InitialQueryError, QueryNotice } from "@/components/query-state";
 import { getWorkspaceId } from "@/lib/api/token-store";
 import { destinationState, workspaceEmptyState } from "@/lib/first-use";
@@ -134,7 +136,7 @@ export default function WorkspaceScreen() {
         ) : null}
 
         {hasData && list.length === 0 ? (
-          <Card style={styles.emptyState}>
+          <ContentSection style={styles.emptyState}>
             <ContentTitle>No workspaces found</ContentTitle>
             <BodyText>Create a workspace in the web app, then return here and try again.</BodyText>
             {emptyState ? (
@@ -154,13 +156,13 @@ export default function WorkspaceScreen() {
                 />
               </>
             ) : null}
-          </Card>
+          </ContentSection>
         ) : null}
 
         {list.length > 1 || (switching && list.length > 0) ? (
           <>
             <SectionHeader label="Your workspaces" />
-            <Card style={styles.list}>
+            <ContentSection style={styles.list}>
               {list.map((workspace, index) => (
                 <Pressable
                   key={workspace.id}
@@ -180,8 +182,14 @@ export default function WorkspaceScreen() {
                     pressed && { opacity: 0.5 },
                   ]}
                 >
+                  <WorkspaceAvatar
+                    name={workspace.name}
+                    avatarUrl={workspace.avatar_url}
+                    color={workspace.color}
+                    size={32}
+                  />
                   <Text
-                    style={[typography.bodyLarge, { color: colors.onSurface, flexShrink: 1 }]}
+                    style={[typography.bodyLarge, { color: colors.onSurface, flex: 1 }]}
                     numberOfLines={2}
                   >
                     {workspace.name}
@@ -191,7 +199,7 @@ export default function WorkspaceScreen() {
                   ) : null}
                 </Pressable>
               ))}
-            </Card>
+            </ContentSection>
           </>
         ) : null}
 
@@ -232,6 +240,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+    gap: 12,
     minHeight: 48,
     paddingHorizontal: 12,
   },

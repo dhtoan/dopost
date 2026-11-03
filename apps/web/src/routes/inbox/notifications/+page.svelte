@@ -1,5 +1,7 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { appBranding } from '$lib/app-branding.svelte';
+	import { page } from '$app/state';
+	import { onMount, tick, untrack } from 'svelte';
 	import { ProtectedIcon, ThemeIcon } from '$lib/themes/icons';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
@@ -11,9 +13,8 @@
 	import { m } from '$lib/paraglide/messages';
 	import { getLocaleTag } from '$lib/i18n';
 	import { notificationTopicIcon, notificationTopicLabel } from '$lib/notification-topics';
-	import { presentNotification } from '$lib/notification-presentation';
+	import { presentNotification, isSafeLocalNotificationHref } from '$lib/notification-presentation';
 	import PageContainer from '$lib/components/page-container.svelte';
-	import CommunicationsNavigation from '$lib/components/communications-navigation.svelte';
 	import EmptyState from '$lib/components/empty-state.svelte';
 	import InlineNotice from '$lib/components/inline-notice.svelte';
 	import NotificationMutes from '$lib/components/notification-mutes.svelte';
@@ -21,6 +22,7 @@
 	import DestructiveConfirmDialog from '$lib/components/destructive-confirm-dialog.svelte';
 	import type { DestructiveActionOutcome } from '$lib/destructive-action-outcome';
 	import { Button } from '$lib/components/ui/button';
+	import * as Tabs from '$lib/components/ui/tabs';
 
 	type NotificationAction = NonNullable<Notification['actions']>[number];
 	type ReadFilter = 'all' | 'unread' | 'read';
@@ -37,8 +39,11 @@
 	let deleteDialogOpen = $state(false);
 	let actionPending = $state('');
 	let readPending = $state('');
+	let notificationList = $state<HTMLElement | null>(null);
 	let bulkActionPending = $state<'mark-read' | 'delete' | ''>('');
-	let readFilter = $state<ReadFilter>('all');
+	let readFilter = $derived<ReadFilter>(
+		page.url.searchParams.get('status') === 'all' ? 'all' : 'unread'
+	);
 
 	const workspaceId = $derived(workspaceCtx.currentWorkspace?.id ?? '');
 	const workspaceName = $derived(workspaceCtx.currentWorkspace?.name ?? '');
@@ -57,7 +62,7 @@
 
 	$effect(() => {
 		const requestedWorkspace = workspaceId;
-		if (requestedWorkspace) void notificationInbox.ensureLoaded(requestedWorkspace);
+		if (requestedWorkspace) untrack(() => void notificationInbox.ensureLoaded(requestedWorkspace));
 	});
 
 	async function markAllRead() {
@@ -75,6 +80,12 @@
 	async function markNotificationRead(notification: Notification): Promise<boolean> {
 		const requestedWorkspace = workspaceId;
 		if (!requestedWorkspace || readPending) return false;
+		const focused = notificationList?.ownerDocument.activeElement;
+		const restoreFocus =
+			focused instanceof HTMLElement &&
+			focused.closest('[data-notification-id]')?.getAttribute('data-notification-id') ===
+				notification.id;
+		if (restoreFocus) notificationList?.focus();
 		readPending = notification.id;
 		const result = await notificationInbox.markRead(requestedWorkspace, {
 			ids: [notification.id]
@@ -84,6 +95,26 @@
 			else showToast(m.notifications_mark_read_failed(), 'error');
 		}
 		readPending = '';
+		await tick();
+		if (
+			workspaceId === requestedWorkspace &&
+			restoreFocus &&
+			notificationList &&
+			notificationList.ownerDocument.activeElement === notificationList
+		) {
+			const next = result.ok
+				? (notificationList.querySelector<HTMLElement>(
+						'[data-notification-id] button:not(:disabled)'
+					) ??
+					// The read filter is a tab list now; its active tab replaces the
+					// pressed-state button this fallback used to target.
+					notificationList.querySelector<HTMLElement>(
+						'[data-slot="tabs-trigger"][data-state="active"]'
+					) ??
+					notificationList)
+				: focused;
+			if (next instanceof HTMLElement && next.isConnected) next.focus();
+		}
 		return result.ok;
 	}
 
@@ -103,9 +134,9 @@
 
 	async function openNotification(notification: Notification) {
 		const requestedWorkspace = workspaceId;
-		if (!notification.read_at) await markNotificationRead(notification);
+		if (!notification.read_at && !(await markNotificationRead(notification))) return;
 		if (workspaceId !== requestedWorkspace) return;
-		if (isSafeLocalHref(notification.href)) {
+		if (isSafeLocalNotificationHref(notification.href)) {
 			await goto(resolveAppPath(notification.href));
 		}
 	}
@@ -142,7 +173,7 @@
 				return;
 			}
 			if (workspaceId !== requestedWorkspace) return;
-			if (isSafeLocalHref(action.href)) {
+			if (isSafeLocalNotificationHref(action.href)) {
 				await openNotification({ ...notification, href: action.href ?? '' });
 			}
 		} catch {
@@ -162,10 +193,6 @@
 	function announce(message: string) {
 		toast = '';
 		statusMessage = message;
-	}
-
-	function isSafeLocalHref(href: string | undefined): href is string {
-		return Boolean(href?.startsWith('/') && !href.startsWith('//') && !href.startsWith('/\\'));
 	}
 
 	function groupNotifications(notifications: Notification[]): NotificationGroup[] {
@@ -233,7 +260,7 @@
 </script>
 
 <svelte:head>
-	<title>{m.notifications_heading()} · OpenPost</title>
+	<title>{m.notifications_heading()} · {appBranding.profile.display_name}</title>
 </svelte:head>
 
 {#if toast}
@@ -249,15 +276,11 @@
 
 <PageContainer
 	title={m.notifications_heading()}
-	description={workspaceName ? m.notifications_description({ workspace: workspaceName }) : ''}
 	themeIconRole="notification"
 	loading={initialLoading}
 	loadingLayout="list"
 	loadingItems={6}
 >
-	{#snippet navigation()}
-		<CommunicationsNavigation active="notifications" />
-	{/snippet}
 	{#snippet actions()}
 		<div class="flex flex-wrap gap-2">
 			<Button
@@ -300,7 +323,7 @@
 				variant="muted"
 			/>
 		{:else if inbox.items.length > 0}
-			<section aria-label={m.notifications_heading()}>
+			<section bind:this={notificationList} tabindex="-1" aria-label={m.notifications_heading()}>
 				<div class="mb-4 flex flex-wrap items-end justify-between gap-3">
 					<div class="space-y-1">
 						<p class="text-sm text-muted-foreground">
@@ -321,36 +344,17 @@
 					</Button>
 				</div>
 
-				<div
-					class="mb-5 flex flex-wrap gap-2"
-					role="group"
-					aria-label={m.notifications_filter_label()}
+				<Tabs.Root
+					value={readFilter}
+					onValueChange={(next) => (readFilter = next as ReadFilter)}
+					class="mb-5"
 				>
-					<Button
-						variant={readFilter === 'all' ? 'secondary' : 'ghost'}
-						size="sm"
-						aria-pressed={readFilter === 'all'}
-						onclick={() => (readFilter = 'all')}
-					>
-						{m.common_all()}
-					</Button>
-					<Button
-						variant={readFilter === 'unread' ? 'secondary' : 'ghost'}
-						size="sm"
-						aria-pressed={readFilter === 'unread'}
-						onclick={() => (readFilter = 'unread')}
-					>
-						{m.notifications_filter_unread()}
-					</Button>
-					<Button
-						variant={readFilter === 'read' ? 'secondary' : 'ghost'}
-						size="sm"
-						aria-pressed={readFilter === 'read'}
-						onclick={() => (readFilter = 'read')}
-					>
-						{m.notifications_filter_read()}
-					</Button>
-				</div>
+					<Tabs.List aria-label={m.notifications_filter_label()}>
+						<Tabs.Trigger value="all">{m.common_all()}</Tabs.Trigger>
+						<Tabs.Trigger value="unread">{m.notifications_filter_unread()}</Tabs.Trigger>
+						<Tabs.Trigger value="read">{m.notifications_filter_read()}</Tabs.Trigger>
+					</Tabs.List>
+				</Tabs.Root>
 
 				{#if filteredNotifications.length === 0}
 					<EmptyState
@@ -442,7 +446,7 @@
 															<ThemeIcon role="check" class="size-4" />{m.notifications_mark_read()}
 														</Button>
 													{/if}
-													{#if isSafeLocalHref(notification.href)}
+													{#if isSafeLocalNotificationHref(notification.href)}
 														<Button
 															variant="ghost"
 															size="sm"

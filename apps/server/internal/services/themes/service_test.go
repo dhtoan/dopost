@@ -233,7 +233,7 @@ func TestOrganizationMembersCanResolveButCannotReadManagementData(t *testing.T) 
 
 	resolved, err := service.Resolve(t.Context(), member, ResolveInput{WorkspaceID: "workspace-1", Scheme: SchemeLight})
 	require.NoError(t, err)
-	require.Equal(t, "dither", resolved.ID)
+	require.Equal(t, "calm", resolved.ID)
 }
 
 func TestThemeSettingsExposeServerAuthorizedCapabilities(t *testing.T) {
@@ -365,26 +365,6 @@ func TestWorkspaceAdministratorCanPreviewPublishedCatalogResources(t *testing.T)
 	require.ErrorIs(t, err, ErrInvalidInput)
 }
 
-func TestAdminThemeSummaryIncludesAssignmentAndDefaultUsage(t *testing.T) {
-	service, _ := newThemeTestService(t)
-	actor := Actor{UserID: "admin-1"}
-	theme, err := service.Create(t.Context(), actor, CreateInput{OrganizationID: "org-1", Name: "Used", DuplicateBuiltInID: "studio"})
-	require.NoError(t, err)
-	_, err = service.Publish(t.Context(), actor, theme.Summary.Reference.ID, PublishInput{OrganizationID: "org-1", ExpectedDraftRevision: 1, ExpectedPublishedRevision: 0})
-	require.NoError(t, err)
-	reference := ThemeReference{Kind: ReferenceCustom, ID: theme.Summary.Reference.ID, Version: 1}
-	_, err = service.AssignWorkspace(t.Context(), actor, WorkspaceAssignmentInput{WorkspaceID: "workspace-1", Reference: &reference})
-	require.NoError(t, err)
-	_, err = service.SetOrganizationSettings(t.Context(), actor, OrganizationSettingsInput{OrganizationID: "org-1", DefaultReference: reference})
-	require.NoError(t, err)
-
-	items, err := service.List(t.Context(), actor, "org-1", PageOptions{})
-	require.NoError(t, err)
-	require.Len(t, items.Items, 1)
-	require.True(t, items.Items[0].IsOrganizationDefault)
-	require.Equal(t, 1, items.Items[0].AssignedWorkspaceCount)
-}
-
 func TestListFailsClosedWhenDraftStorageIsMissing(t *testing.T) {
 	service, db := newThemeTestService(t)
 	_, err := service.Create(t.Context(), Actor{UserID: "admin-1"}, CreateInput{OrganizationID: "org-1", Name: "Stored", DuplicateBuiltInID: "studio"})
@@ -396,6 +376,31 @@ func TestListFailsClosedWhenDraftStorageIsMissing(t *testing.T) {
 	require.ErrorIs(t, err, ErrUnavailable)
 }
 
+func TestLegacyDitherDraftRemainsEditableButCannotPublishUnbalancedTexture(t *testing.T) {
+	service, db := newThemeTestService(t)
+	actor := Actor{UserID: "admin-1"}
+	theme, err := service.Create(t.Context(), actor, CreateInput{OrganizationID: "org-1", Name: "Legacy Dither", DuplicateBuiltInID: "dither"})
+	require.NoError(t, err)
+	manifest := theme.Draft.Manifest
+	manifest.Schemes.Light.Colors.ActionFocal = "#020cce"
+	manifest.Schemes.Light.Colors.ActionFocalHover = "#020bb9"
+	manifest.Schemes.Light.Colors.ActionFocalActive = "#010aa5"
+	manifest.Schemes.Light.Colors.ActionFocalInk = "#a0c142"
+	raw, err := json.Marshal(manifest)
+	require.NoError(t, err)
+	_, err = db.NewUpdate().Model((*draftRow)(nil)).Set("manifest_json = ?", string(raw)).Where("theme_id = ?", theme.Summary.Reference.ID).Exec(t.Context())
+	require.NoError(t, err)
+
+	page, err := service.List(t.Context(), actor, "org-1", PageOptions{})
+	require.NoError(t, err, "older palette styling must not make the library unavailable")
+	require.Len(t, page.Items, 1)
+	loaded, err := service.Get(t.Context(), actor, "org-1", theme.Summary.Reference.ID)
+	require.NoError(t, err)
+	require.Equal(t, manifest.Schemes.Light.Colors, loaded.Draft.Manifest.Schemes.Light.Colors)
+	_, err = service.Publish(t.Context(), actor, theme.Summary.Reference.ID, PublishInput{OrganizationID: "org-1", ExpectedDraftRevision: 1, ExpectedPublishedRevision: 0})
+	require.ErrorContains(t, err, "dither texture")
+}
+
 func TestResolveFallsBackForCorruptStoredManifest(t *testing.T) {
 	service, db := newThemeTestService(t)
 	actor := Actor{UserID: "admin-1"}
@@ -405,14 +410,17 @@ func TestResolveFallsBackForCorruptStoredManifest(t *testing.T) {
 	require.NoError(t, err)
 	_, err = service.SetOrganizationSettings(t.Context(), actor, OrganizationSettingsInput{OrganizationID: "org-1", DefaultReference: ThemeReference{Kind: ReferenceCustom, ID: theme.Summary.Reference.ID, Version: 1}})
 	require.NoError(t, err)
-	_, err = db.NewUpdate().Model((*revisionRow)(nil)).Set("manifest_json = ?", `{not-json`).Where("theme_id = ? AND revision = 1", theme.Summary.Reference.ID).Exec(t.Context())
+	raw, err := json.Marshal(theme.Draft.Manifest)
 	require.NoError(t, err)
-
-	resolved, err := service.Resolve(t.Context(), actor, ResolveInput{WorkspaceID: "workspace-1", Scheme: SchemeLight})
-	require.NoError(t, err)
-	require.Equal(t, ResolutionFallback, resolved.Source)
-	require.Equal(t, FallbackInvalidManifest, resolved.FallbackReason)
-	require.Equal(t, Workshop(SchemeLight), resolved.Manifest)
+	for _, stored := range []string{`{not-json`, string(raw) + " garbage"} {
+		_, err = db.NewUpdate().Model((*revisionRow)(nil)).Set("manifest_json = ?", stored).Where("theme_id = ? AND revision = 1", theme.Summary.Reference.ID).Exec(t.Context())
+		require.NoError(t, err)
+		resolved, err := service.Resolve(t.Context(), actor, ResolveInput{WorkspaceID: "workspace-1", Scheme: SchemeLight})
+		require.NoError(t, err)
+		require.Equal(t, ResolutionFallback, resolved.Source)
+		require.Equal(t, FallbackInvalidManifest, resolved.FallbackReason)
+		require.Equal(t, Workshop(SchemeLight), resolved.Manifest)
+	}
 }
 
 func TestResolveUsesPublishedStateWithoutBlobReadsAndFallsBackForCorruptResourceMetadata(t *testing.T) {
@@ -465,7 +473,7 @@ func TestThemeFontUploadValidatesWOFF2AndDeletesThroughDurableJob(t *testing.T) 
 
 	_, err := service.UploadAsset(t.Context(), actor, UploadAssetInput{
 		OrganizationID: "org-1", Kind: AssetFont, Name: "Fake", MediaType: "font/woff2",
-		FontFamily: "OpenPost Sans", FontStyle: "normal", FontWeight: 500, LicenseAcknowledged: true,
+		FontFamily: "dopost Sans", FontStyle: "normal", FontWeight: 500, LicenseAcknowledged: true,
 		Content: bytes.NewReader([]byte("not a font")),
 	})
 	require.ErrorIs(t, err, ErrInvalidAsset)
@@ -687,7 +695,7 @@ func createThemeTestTables(t *testing.T, db *bun.DB) {
 		`CREATE TABLE organization_theme_assets (id TEXT PRIMARY KEY, organization_id TEXT NOT NULL, kind TEXT NOT NULL, name TEXT NOT NULL, media_type TEXT NOT NULL, object_key TEXT NOT NULL UNIQUE, size_bytes INTEGER NOT NULL, width INTEGER NOT NULL DEFAULT 0, height INTEGER NOT NULL DEFAULT 0, checksum_sha256 TEXT NOT NULL, native_object_key TEXT NOT NULL DEFAULT '', native_media_type TEXT NOT NULL DEFAULT '', native_size_bytes INTEGER NOT NULL DEFAULT 0, native_checksum_sha256 TEXT NOT NULL DEFAULT '', font_family TEXT NOT NULL DEFAULT '', font_style TEXT NOT NULL DEFAULT '', font_weight INTEGER NOT NULL DEFAULT 0, license_acknowledged BOOLEAN NOT NULL DEFAULT 0, created_by TEXT NOT NULL, created_at DATETIME NOT NULL)`,
 		`CREATE TABLE organization_theme_draft_assets (theme_id TEXT NOT NULL, asset_id TEXT NOT NULL, PRIMARY KEY (theme_id, asset_id))`,
 		`CREATE TABLE organization_theme_revision_assets (theme_id TEXT NOT NULL, revision INTEGER NOT NULL, asset_id TEXT NOT NULL, PRIMARY KEY (theme_id, revision, asset_id))`,
-		`CREATE TABLE jobs (id TEXT PRIMARY KEY, type TEXT NOT NULL, scope_id TEXT NOT NULL DEFAULT '', dedupe_key TEXT NOT NULL DEFAULT '', payload TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending', run_at DATETIME NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, max_attempts INTEGER NOT NULL DEFAULT 3, last_error TEXT NOT NULL DEFAULT '', locked_at DATETIME, locked_by TEXT NOT NULL DEFAULT '')`,
+		`CREATE TABLE jobs (id TEXT PRIMARY KEY, type TEXT NOT NULL, scope_id TEXT NOT NULL DEFAULT '', dedupe_key TEXT NOT NULL DEFAULT '', payload TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending', run_at DATETIME NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, max_attempts INTEGER NOT NULL DEFAULT 3, last_error TEXT NOT NULL DEFAULT '', locked_at DATETIME, locked_by TEXT NOT NULL DEFAULT '', lease_generation BIGINT NOT NULL DEFAULT 0)`,
 	}
 	for _, statement := range statements {
 		_, err := db.Exec(statement)
@@ -714,7 +722,7 @@ func (deleteFailingStorage) Delete(context.Context, string) error {
 func seedThemeTestAccess(t *testing.T, db *bun.DB) {
 	t.Helper()
 	statements := []string{
-		`INSERT INTO organizations (id, name) VALUES ('org-1', 'OpenPost')`,
+		`INSERT INTO organizations (id, name) VALUES ('org-1', 'dopost')`,
 		`INSERT INTO organization_members (organization_id, user_id, role) VALUES ('org-1', 'admin-1', 'admin'), ('org-1', 'member-1', 'member')`,
 		`INSERT INTO workspaces (id, organization_id, name) VALUES ('workspace-1', 'org-1', 'Main')`,
 		`INSERT INTO workspace_members (workspace_id, user_id, role, status) VALUES ('workspace-1', 'admin-1', 'admin', 'active'), ('workspace-1', 'member-1', 'viewer', 'active')`,

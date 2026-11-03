@@ -1,4 +1,6 @@
 <script lang="ts">
+	import YouTubeBrand from './youtube-brand.svelte';
+	import XMessagingSettings from '$lib/components/x-messaging-settings.svelte';
 	import { onDestroy } from 'svelte';
 	import { createQuery } from '@tanstack/svelte-query';
 	import { auth, type AuthIdentityToken } from '$lib/stores/auth';
@@ -18,10 +20,16 @@
 	import SectionHeader from '$lib/components/section-header.svelte';
 	import SocialAccountIdentity from '$lib/components/social-account-identity.svelte';
 	import InlineNotice from '$lib/components/inline-notice.svelte';
+	import BlueskyConnectDialog from '$lib/components/bluesky-connect-dialog.svelte';
+	import DevNullConnectDialog from '$lib/components/devnull-connect-dialog.svelte';
+	import DiscordConnectDialog from '$lib/components/discord-connect-dialog.svelte';
+	import OAuthConfirmDialog from '$lib/components/oauth-confirm-dialog.svelte';
+	import CompatConnectDialog from '$lib/components/compat-connect-dialog.svelte';
+	import FediverseConnectDialog from '$lib/components/fediverse-connect-dialog.svelte';
 	import TelegramConnectionDialog from '$lib/components/telegram-connection-dialog.svelte';
-	import WorkspaceSetupGuide from '$lib/components/workspace-setup-guide.svelte';
 	import AppToast from '$lib/components/app-toast.svelte';
 	import DestructiveConfirmDialog from '$lib/components/destructive-confirm-dialog.svelte';
+	import Disclosure from '$lib/components/disclosure.svelte';
 	import type { DestructiveActionOutcome } from '$lib/destructive-action-outcome';
 	import { ProtectedIcon, ThemeIcon } from '$lib/themes/icons';
 	import {
@@ -34,8 +42,26 @@
 	import { goto } from '$app/navigation';
 	import { resolveAppPath } from '$lib/app-path';
 	import { continuationHrefForNormalizedConnection } from '$lib/account-management-route';
+	import {
+		accountContextLabel,
+		accountDisplayName,
+		accountKindLabel,
+		accountPlatformName,
+		accountServer,
+		accountSlug,
+		isConnectorProvider,
+		providerCanConnect,
+		providerDescription,
+		providerNeedsAdminSetup,
+		providerReadiness,
+		providerReadinessMessage,
+		providerStatusClass,
+		providerStatusLabel,
+		providerTitle
+	} from './account-presentation';
 	import { m } from '$lib/paraglide/messages';
 	import AccountFeaturePresentation from '$lib/components/account-feature-presentation.svelte';
+	import PostImportSettings from '$lib/components/post-import-settings.svelte';
 	import type { components } from '$lib/api/types';
 	import { getOptionalUnsavedChanges } from '$lib/unsaved-changes.svelte';
 	import {
@@ -71,6 +97,7 @@
 	type ProviderEntry = ProviderInfo;
 	let {
 		workspace,
+		accountId = '',
 		workspaces,
 		links,
 		loading = false,
@@ -91,13 +118,12 @@
 		return Boolean(account.provider_installation_id);
 	}
 
-	function isConnectorProvider(provider: ProviderEntry): boolean {
-		return provider.auth_mode === 'preconfigured' && Boolean(provider.installation_id);
-	}
-
 	let embedded = true;
 	let selectedWorkspaceId = $derived(workspace?.id ?? '');
 	let canEditWorkspace = $derived(workspace?.can_edit ?? false);
+	// Connecting an account is its own capability: a client may do it without
+	// being able to author content.
+	let canConnectWorkspace = $derived(workspace?.can_connect ?? canEditWorkspace);
 	let error = $state('');
 
 	const accountsQuery = createQuery(
@@ -192,6 +218,11 @@
 	let blueskyAppPassword = $state('');
 	let blueskyLoading = $state(false);
 	let blueskyError = $state('');
+	let devnullModalOpen = $state(false);
+	let devnullUsername = $state('');
+	let devnullPrivateKey = $state('');
+	let devnullLoading = $state(false);
+	let devnullError = $state('');
 	let discordModalOpen = $state(false);
 	let telegramModalOpen = $state(false);
 	let discordWebhookUrl = $state('');
@@ -205,6 +236,7 @@
 	let editingWorkspaceID = '';
 	let editRequestSequence = 0;
 	let editAccountSlug = $state('');
+	let editAccountAlias = $state('');
 	let editFeatureSelections = $state<Record<string, boolean>>({});
 	let editFeatures = $state<components['schemas']['FeatureStateResponse'][]>([]);
 	let editFeaturesReady = $state(false);
@@ -216,6 +248,7 @@
 		Boolean(
 			editingAccount &&
 			(editAccountSlug !== accountSlug(editingAccount) ||
+				editAccountAlias !== (editingAccount.alias ?? '') ||
 				JSON.stringify(editFeatureSelections) !== JSON.stringify(editFeaturesInitial))
 		)
 	);
@@ -331,6 +364,16 @@
 		connectionProviderEntries.filter((provider) => !providerNeedsAdminSetup(provider))
 	);
 	let setupRequiredProviders = $derived(connectionProviderEntries.filter(providerNeedsAdminSetup));
+	let providerSearch = $state('');
+	let visibleProviders = $derived.by(() => {
+		const query = providerSearch.trim().toLowerCase();
+		if (!query) return directProviders;
+		return directProviders.filter(
+			(provider) =>
+				providerTitle(provider).toLowerCase().includes(query) ||
+				providerDescription(provider).toLowerCase().includes(query)
+		);
+	});
 	let discordBotConfigured = $derived(
 		providerEntries
 			.find((provider) => provider.platform === 'discord')
@@ -357,7 +400,7 @@
 	function accountRemovalTitle(): string {
 		const action = accountRemovalAction;
 		if (!action) return '';
-		const account = accountContextLabel(action.account);
+		const account = accountContextLabel(action.account, providerEntries);
 		if (isConnectorAccount(action.account)) {
 			return m.accounts_connector_remove_title({ account });
 		}
@@ -373,7 +416,7 @@
 	function accountRemovalDescription(): string {
 		const action = accountRemovalAction;
 		if (!action) return '';
-		const account = accountContextLabel(action.account);
+		const account = accountContextLabel(action.account, providerEntries);
 		const count = grantDestinationCount(action.account);
 		if (isConnectorAccount(action.account)) {
 			return m.accounts_connector_remove_body({ account });
@@ -443,16 +486,16 @@
 			onAccountsChanged();
 			const successMessage = isConnectorAccount(account)
 				? m.accounts_connector_removed_success({
-						account: accountContextLabel(account)
+						account: accountContextLabel(account, providerEntries)
 					})
 				: action.kind === 'disconnect-destination'
 					? m.accounts_destination_disconnected_success({
-							account: accountContextLabel(account)
+							account: accountContextLabel(account, providerEntries)
 						})
 					: count > 1
 						? m.accounts_authorization_removed_success({ count })
 						: m.accounts_connection_removed_success({
-								account: accountContextLabel(account)
+								account: accountContextLabel(account, providerEntries)
 							});
 			return { ok: true, successMessage };
 		} catch (e) {
@@ -492,53 +535,15 @@
 		}
 	}
 
-	function accountDisplayName(account: SocialAccount): string {
-		const displayName = formatSocialAccountName(account.account_username, account.platform);
-		if (displayName) return displayName;
-		if (account.instance_url) return account.instance_url.replace('https://', '');
-		return account.account_id || account.platform;
-	}
-
-	function accountSoftwareName(account: SocialAccount): string {
-		const software = account.fediverse_software?.trim() ?? '';
-		if (!software || software === account.platform) return '';
-		return getPlatformName(software);
-	}
-
-	function accountPlatformName(account: SocialAccount): string {
-		const softwareName = accountSoftwareName(account);
-		if (softwareName) return softwareName;
-		const provider = providerEntries.find(
-			(entry) =>
-				(entry.installation_id && entry.installation_id === account.provider_installation_id) ||
-				(!entry.installation_id && entry.platform === account.platform)
-		);
-		return provider ? providerTitle(provider) : getPlatformName(account.platform);
-	}
-
-	function accountContextLabel(account: SocialAccount): string {
-		return formatAccountPlatformLabel(accountDisplayName(account), accountPlatformName(account));
-	}
-
-	function accountSlug(account: SocialAccount): string {
-		return account.slug || account.account_username || account.account_id || account.platform;
-	}
-
-	const INSTANCE_PLATFORMS = new Set(['mastodon', 'pixelfed', 'peertube', 'lemmy', 'piefed']);
-
-	function accountServer(account: SocialAccount): string {
-		if (!INSTANCE_PLATFORMS.has(account.platform) || !account.instance_url) return '';
-		try {
-			return new URL(account.instance_url).host;
-		} catch {
-			return account.instance_url.replace(/^https?:\/\//, '').replace(/\/$/, '');
-		}
-	}
-
-	function accountKindLabel(account: SocialAccount): string {
-		const label = account.account_kind?.replaceAll('_', ' ').trim() ?? '';
-		return label ? label[0].toUpperCase() + label.slice(1) : '';
-	}
+	let openedDeepLink = '';
+	$effect(() => {
+		const scope = `${selectedWorkspaceId}:${accountId}`;
+		if (!accountId || openedDeepLink === scope || !accountsReady) return;
+		const account = accounts.find((item) => item.id === accountId);
+		if (!account) return;
+		openedDeepLink = scope;
+		void openEditAccount(account);
+	});
 
 	async function openEditAccount(account: SocialAccount) {
 		const workspaceID = selectedWorkspaceId;
@@ -547,6 +552,7 @@
 		editingAccount = account;
 		editingWorkspaceID = workspaceID;
 		editAccountSlug = account.slug ?? '';
+		editAccountAlias = account.alias ?? '';
 		editAccountError = '';
 		accountMetadataRefreshError = '';
 		editFeatures = [];
@@ -677,7 +683,8 @@
 			const { error: err } = await client.PATCH('/accounts/{account_id}', {
 				params: { path: { account_id: account.id } },
 				body: {
-					slug
+					slug,
+					alias: editAccountAlias.trim()
 				}
 			});
 			if (err) throw new Error(err.detail || m.accounts_update_slug_failed());
@@ -765,7 +772,7 @@
 			onAccountsChanged();
 			showToast(
 				m.accounts_profile_refreshed({
-					account: accountContextLabel(refreshed)
+					account: accountContextLabel(refreshed, providerEntries)
 				}),
 				undefined,
 				'neutral'
@@ -1043,6 +1050,18 @@
 		blueskyModalOpen = true;
 	}
 
+	function connectDevNull() {
+		if (!selectedWorkspaceId) {
+			showToast(m.accounts_create_workspace_first());
+			return;
+		}
+		clearToast();
+		devnullUsername = '';
+		devnullPrivateKey = '';
+		devnullError = '';
+		devnullModalOpen = true;
+	}
+
 	async function submitBlueskyLogin() {
 		if (!blueskyHandle.trim() || !blueskyAppPassword.trim()) {
 			blueskyError = m.accounts_bluesky_fields_required();
@@ -1090,6 +1109,57 @@
 			);
 		} finally {
 			if (isCurrentRequest()) blueskyLoading = false;
+		}
+	}
+
+	async function submitDevNullLogin() {
+		if (!devnullUsername.trim() || !devnullPrivateKey.trim()) {
+			devnullError = m.accounts_devnull_fields_required();
+			return;
+		}
+
+		const request = beginConnectionRequest();
+		if (!request) return;
+		const workspaceID = request.workspaceID;
+		const isCurrentRequest = () => isCurrentConnectionRequest(request);
+		devnullLoading = true;
+		devnullError = '';
+
+		try {
+			const { data, error: err } = await client.POST('/accounts/devnull/login', {
+				body: {
+					workspace_id: workspaceID,
+					username: devnullUsername.trim(),
+					private_key: devnullPrivateKey.trim()
+				}
+			});
+			if (err) throw new Error(err.detail || m.accounts_login_failed());
+			await refreshAccountsAfterMutation(workspaceID, request.identity, isCurrentRequest);
+			if (!isCurrentRequest()) return;
+			devnullModalOpen = false;
+			devnullPrivateKey = '';
+			if (data?.open_fresh_composer) {
+				await goto(
+					resolveAppPath(
+						continuationHrefForNormalizedConnection({
+							workspaceID: data.workspace_id,
+							accountIDs: data.account_ids ?? [],
+							openFreshComposer: data.open_fresh_composer
+						})
+					)
+				);
+				return;
+			}
+			onAccountsChanged();
+		} catch (e) {
+			if (!isCurrentRequest()) return;
+			devnullError = e instanceof Error && e.message ? e.message : m.accounts_login_failed();
+			showConnectError(
+				e instanceof Error ? e : new Error(m.accounts_login_failed()),
+				m.accounts_login_failed()
+			);
+		} finally {
+			if (isCurrentRequest()) devnullLoading = false;
 		}
 	}
 
@@ -1157,7 +1227,10 @@
 		}
 	}
 
-	async function connectOAuthProvider(platform: string) {
+	async function connectOAuthProvider(
+		platform: string,
+		connectionMode?: 'oauth' | 'instagram_login'
+	) {
 		const request = beginConnectionRequest();
 		if (!request) {
 			showToast(m.accounts_create_workspace_first());
@@ -1168,7 +1241,8 @@
 				params: {
 					path: { platform },
 					query: {
-						workspace_id: request.workspaceID
+						workspace_id: request.workspaceID,
+						connection_mode: connectionMode
 					}
 				}
 			});
@@ -1205,142 +1279,6 @@
 
 	function providerTestID(provider: ProviderEntry): string {
 		return provider.installation_id || provider.platform;
-	}
-
-	function providerTitle(provider: ProviderEntry): string {
-		return provider.display_name || getPlatformName(provider.platform);
-	}
-
-	function providerDescription(provider: ProviderEntry): string {
-		if (provider.platform === 'mastodon') {
-			return m.accounts_provider_custom_mastodon();
-		}
-		if (provider.platform === 'pixelfed') {
-			return m.accounts_provider_custom_pixelfed();
-		}
-		switch (provider.platform) {
-			case 'x':
-				return m.accounts_provider_x();
-			case 'threads':
-				return m.accounts_provider_threads();
-			case 'bluesky':
-				return m.accounts_provider_bluesky();
-			case 'discord':
-				return m.accounts_provider_discord();
-			case 'linkedin':
-				return m.accounts_provider_linkedin();
-			case 'instagram':
-				return m.accounts_provider_instagram();
-			case 'facebook':
-				return m.accounts_provider_facebook();
-			case 'youtube':
-				return m.accounts_provider_youtube();
-			case 'pixelfed':
-				return m.accounts_provider_pixelfed();
-			case 'peertube':
-				return m.accounts_provider_peertube();
-			case 'lemmy':
-				return m.accounts_provider_lemmy();
-			case 'piefed':
-				return m.accounts_provider_piefed();
-			case 'tiktok':
-				return m.accounts_provider_tiktok();
-			default:
-				return provider.description || m.accounts_provider_default();
-		}
-	}
-
-	function providerReadiness(provider: ProviderEntry): ProviderReadinessPresentation {
-		return presentProviderReadiness(provider.readiness, 'connect');
-	}
-
-	function providerStatusLabel(provider: ProviderEntry): string {
-		if (isConnectorProvider(provider) && providerCanConnect(provider)) {
-			return m.accounts_custom_connector();
-		}
-		if (provider.status === 'planned') return m.accounts_provider_planned();
-		switch (providerReadiness(provider).state) {
-			case 'unsupported':
-				return m.provider_readiness_label_unsupported();
-			case 'disabled':
-				return m.provider_readiness_label_disabled();
-			case 'needs_configuration':
-				return m.provider_readiness_label_needs_configuration();
-			case 'reconnect_required':
-				return m.provider_readiness_label_reconnect_required();
-			case 'degraded':
-				return m.provider_readiness_label_degraded();
-			case 'approval_required':
-				return m.provider_readiness_label_approval_required();
-			case 'trial_only':
-				return m.provider_readiness_label_trial_only();
-			case 'policy_restricted':
-				return m.provider_readiness_label_policy_restricted();
-			case 'certification_required':
-				return m.provider_readiness_label_certification_required();
-			case 'expired_proof':
-				return m.provider_readiness_label_expired_proof();
-			case 'healthy':
-			default:
-				return '';
-		}
-	}
-
-	function providerStatusClass(provider: ProviderEntry): string {
-		if (isConnectorProvider(provider)) {
-			return 'border-border bg-muted text-muted-foreground';
-		}
-		if (provider.status === 'planned') {
-			return 'border-blue-500/20 bg-blue-500/10 text-blue-700 dark:text-blue-300';
-		}
-		switch (providerReadiness(provider).tone) {
-			case 'warning':
-				return 'border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-300';
-			case 'error':
-				return 'border-destructive/20 bg-destructive/10 text-destructive';
-			case 'neutral':
-			default:
-				return 'border-blue-500/20 bg-blue-500/10 text-blue-700 dark:text-blue-300';
-		}
-	}
-
-	function providerReadinessMessage(provider: ProviderEntry): string {
-		const platform = providerTitle(provider);
-		switch (providerReadiness(provider).state) {
-			case 'unsupported':
-				return m.provider_readiness_unsupported({ platform });
-			case 'disabled':
-				return m.provider_readiness_disabled({ platform });
-			case 'needs_configuration':
-				return m.provider_readiness_needs_configuration({ platform });
-			case 'reconnect_required':
-				return m.provider_readiness_reconnect_required({ platform });
-			case 'degraded':
-				return m.provider_readiness_degraded({ platform });
-			case 'approval_required':
-				return m.provider_readiness_approval_required({ platform });
-			case 'trial_only':
-				return m.provider_readiness_trial_only({ platform });
-			case 'policy_restricted':
-				return m.provider_readiness_policy_restricted({ platform });
-			case 'certification_required':
-				return m.provider_readiness_certification_required({ platform });
-			case 'expired_proof':
-				return m.provider_readiness_expired_proof({ platform });
-			case 'healthy':
-			default:
-				return '';
-		}
-	}
-
-	function providerCanConnect(provider: ProviderEntry): boolean {
-		return provider.status !== 'planned' && providerReadiness(provider).canProceed;
-	}
-
-	function providerNeedsAdminSetup(provider: ProviderEntry): boolean {
-		if (provider.status === 'planned') return true;
-		const action = providerReadiness(provider).action;
-		return action === 'configure' || action === 'contact_admin';
 	}
 
 	function providerActionEnabled(provider: ProviderEntry): boolean {
@@ -1529,10 +1467,14 @@
 		beginProviderConnection(provider);
 	}
 
-	function confirmOAuthConnection() {
+	function confirmOAuthConnection(connectionMode?: 'oauth' | 'instagram_login') {
 		const provider = oauthConfirmProvider;
 		if (!provider) return;
 		oauthConfirmOpen = false;
+		if (provider.platform === 'instagram') {
+			void connectOAuthProvider('instagram', connectionMode);
+			return;
+		}
 		beginProviderConnection(provider);
 	}
 
@@ -1565,6 +1507,9 @@
 				break;
 			case 'bluesky':
 				connectBluesky();
+				break;
+			case 'devnull':
+				connectDevNull();
 				break;
 			case 'discord':
 				connectDiscord();
@@ -1650,6 +1595,7 @@
 		<InlineNotice
 			tone={feedback.tone}
 			message={feedback.message}
+			class="[overflow-wrap:anywhere]"
 			dismissLabel={m.common_dismiss()}
 			onDismiss={onFeedbackDismiss}
 		/>
@@ -1680,13 +1626,6 @@
 					variant="muted"
 				/>
 			{:else}
-				{#if selectedWorkspaceId && canEditWorkspace}
-					<WorkspaceSetupGuide
-						workspaceID={selectedWorkspaceId}
-						context="accounts"
-						wrapperClass="mb-6"
-					/>
-				{/if}
 				{#if error}
 					<InlineNotice
 						tone="error"
@@ -1698,25 +1637,25 @@
 				{/if}
 
 				<!-- Connected Accounts -->
-				<div class="mb-10">
-					<SectionHeader
-						title={m.accounts_connected_channels()}
-						description={accountsLoadError && !accountsReady
-							? undefined
-							: m.accounts_connection_summary({
-									count: accounts.length,
-									workspace: selectedWorkspaceName
-								})}
-						class="mb-4"
-					>
-						{#snippet actions()}
-							{#if canEditWorkspace}
-								<Button href={links.createPublicationHref} size="sm"
-									>{m.accounts_create_post()}</Button
-								>
-							{/if}
-						{/snippet}
-					</SectionHeader>
+				<div class={accountsReady && accounts.length === 0 ? '' : 'mb-10'}>
+					{#if !(accountsReady && accounts.length === 0)}<SectionHeader
+							title={m.accounts_connected_channels()}
+							description={accountsLoadError && !accountsReady
+								? undefined
+								: m.accounts_connection_summary({
+										count: accounts.length,
+										workspace: selectedWorkspaceName
+									})}
+							class="mb-4"
+						>
+							{#snippet actions()}
+								{#if canEditWorkspace}
+									<Button variant="outline" href={links.createPublicationHref} size="sm"
+										>{m.accounts_create_post()}</Button
+									>
+								{/if}
+							{/snippet}
+						</SectionHeader>{/if}
 
 					{#if accountsLoadError}
 						<div data-testid="accounts-load-error">
@@ -1736,15 +1675,6 @@
 					{/if}
 					{#if accountsLoading && !accountsReady}
 						<PageLoading layout="grid" label={m.common_loading()} items={3} />
-					{:else if accountsReady && accounts.length === 0}
-						<EmptyState
-							themeIconRole="users"
-							title={m.accounts_empty_title()}
-							description={m.accounts_empty_body()}
-							variant="muted"
-							size="md"
-							headingLevel={3}
-						/>
 					{:else if accountsReady}
 						<div
 							class="grid gap-px overflow-hidden rounded-lg border bg-border sm:grid-cols-2 xl:grid-cols-3"
@@ -1760,7 +1690,7 @@
 												<SocialAccountIdentity
 													name={accountDisplayName(account)}
 													platform={account.platform}
-													platformLabel={accountPlatformName(account)}
+													platformLabel={accountPlatformName(account, providerEntries)}
 													avatarUrl={account.account_avatar_url}
 													size="lg"
 												/>
@@ -1775,13 +1705,15 @@
 												{/if}
 												{#if !account.is_active}
 													<span
+														role="img"
 														class="size-1.5 rounded-full bg-amber-500"
 														aria-label={m.accounts_connection_paused()}
 													></span>
 												{/if}
 											</div>
 										</div>
-										{#if canEditWorkspace}<DropdownMenu.Root>
+										{#if canEditWorkspace || (canConnectWorkspace && account.platform === 'x')}<DropdownMenu.Root
+											>
 												<DropdownMenu.Trigger>
 													{#snippet child({ props })}
 														<Button
@@ -1790,7 +1722,7 @@
 															size="icon-sm"
 															class="min-h-11 min-w-11 sm:min-h-9 sm:min-w-9"
 															aria-label={m.accounts_actions_for({
-																account: accountContextLabel(account)
+																account: accountContextLabel(account, providerEntries)
 															})}
 														>
 															<ThemeIcon role="more-horizontal" class="size-4" />
@@ -1798,18 +1730,23 @@
 													{/snippet}
 												</DropdownMenu.Trigger>
 												<DropdownMenu.Content align="end" class="w-64">
+													{#if account.platform === 'x'}
+														<DropdownMenu.Item onclick={() => openEditAccount(account)}
+															>{m.x_messaging_manage()}</DropdownMenu.Item
+														>
+													{/if}
 													<DropdownMenu.Item onclick={() => openEditAccount(account)}
 														>{m.accounts_details()}</DropdownMenu.Item
 													>
-													<DropdownMenu.Separator />
-													{#each accountRemovalKinds(account) as kind (kind)}
-														<DropdownMenu.Item
-															variant="destructive"
-															onclick={() => requestAccountRemoval(account, kind)}
-														>
-															{accountRemovalActionLabel(account, kind)}
-														</DropdownMenu.Item>
-													{/each}
+													{#if canEditWorkspace}<DropdownMenu.Separator />
+														{#each accountRemovalKinds(account) as kind (kind)}
+															<DropdownMenu.Item
+																variant="destructive"
+																onclick={() => requestAccountRemoval(account, kind)}
+															>
+																{accountRemovalActionLabel(account, kind)}
+															</DropdownMenu.Item>
+														{/each}{/if}
 												</DropdownMenu.Content>
 											</DropdownMenu.Root>{/if}
 									</div>
@@ -1838,7 +1775,7 @@
 					{/if}
 				</div>
 
-				{#if canEditWorkspace}
+				{#if canConnectWorkspace}
 					<!-- Connect a Platform -->
 					<div>
 						<SectionHeader
@@ -1897,23 +1834,44 @@
 							<PageLoading layout="grid" label={m.common_loading()} items={4} />
 						{:else if providersReady && providerEntries.length > 0}
 							{#if directProviders.length > 0}
-								<div class="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
-									{#each directProviders as provider (providerKey(provider))}
-										<div
-											data-testid={`provider-card-${providerTestID(provider)}`}
-											class="group flex h-full min-h-28 flex-col rounded-lg border bg-card p-4 transition-all hover:shadow-sm {providerCanConnect(
-												provider
-											)
-												? ''
-												: 'bg-muted/20'}"
-										>
-											<div class="flex items-start gap-3">
+								<div class="mb-4 sm:max-w-72">
+									<Input
+										type="search"
+										value={providerSearch}
+										oninput={(event) => (providerSearch = event.currentTarget.value)}
+										placeholder={m.accounts_search_providers()}
+										aria-label={m.accounts_search_providers()}
+										class="h-11 sm:h-9"
+										data-testid="provider-search"
+									/>
+								</div>
+								{#if visibleProviders.length === 0}
+									<p class="py-6 text-center text-sm text-muted-foreground">
+										{m.accounts_no_providers_match()}
+									</p>
+								{:else}
+									<ul
+										class="@container divide-y overflow-hidden rounded-lg border bg-card"
+										data-testid="provider-list"
+									>
+										{#each visibleProviders as provider (providerKey(provider))}
+											<li
+												data-testid={`provider-card-${providerTestID(provider)}`}
+												class="flex min-h-16 items-center gap-3 px-4 py-3 transition-colors hover:bg-navigation-hover {providerCanConnect(
+													provider
+												) || provider.platform === 'youtube'
+													? ''
+													: 'opacity-75'}"
+											>
 												<div
-													class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full {getPlatformColor(
-														provider.platform
-													)}"
+													class={provider.platform === 'youtube'
+														? 'flex shrink-0 items-center justify-center'
+														: `flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${getPlatformColor(provider.platform)}`}
 												>
-													<PlatformIcon platform={provider.platform} class="h-4 w-4 text-white" />
+													{#if provider.platform === 'youtube'}<YouTubeBrand />{:else}<PlatformIcon
+															platform={provider.platform}
+															class="h-4 w-4 text-white"
+														/>{/if}
 												</div>
 												<div class="min-w-0 flex-1">
 													<div class="flex flex-wrap items-center gap-2">
@@ -1936,71 +1894,73 @@
 													{#if provider.status !== 'planned' && !providerReadiness(provider).quiet}
 														<p
 															data-testid={`provider-readiness-${providerTestID(provider)}`}
-															class="mt-1 text-xs leading-5 text-muted-foreground"
+															class="mt-0.5 text-xs leading-5 text-muted-foreground"
 														>
 															{providerReadinessMessage(provider)}
 														</p>
 													{/if}
 												</div>
-											</div>
-											<Button
-												class="mt-3 min-h-11 self-end sm:min-h-9"
-												onclick={() => handleProviderAction(provider)}
-												size="sm"
-												disabled={!providerActionEnabled(provider)}
-											>
-												{#if connectingInstallationID === provider.installation_id}
-													<ProtectedIcon
-														icon="loading"
-														class="size-4 animate-spin motion-reduce:animate-none"
-													/>
-												{/if}
-												{providerActionLabel(provider)}
-											</Button>
-										</div>
-									{/each}
-								</div>
+												<Button
+													variant={providerCanConnect(provider) ? 'outline' : 'ghost'}
+													class="min-h-11 shrink-0 sm:min-h-9"
+													onclick={() => handleProviderAction(provider)}
+													size="sm"
+													disabled={!providerActionEnabled(provider)}
+												>
+													{#if connectingInstallationID === provider.installation_id}
+														<ProtectedIcon
+															icon="loading"
+															class="size-4 animate-spin motion-reduce:animate-none"
+														/>
+													{/if}
+													{providerActionLabel(provider)}
+												</Button>
+											</li>
+										{/each}
+									</ul>
+								{/if}
 							{/if}
 							{#if setupRequiredProviders.length > 0}
-								<details
-									class="mt-4 rounded-lg border bg-muted/10"
-									ontoggle={(e) =>
-										(setupRequiredOpen = (e.currentTarget as HTMLDetailsElement).open)}
+								<Disclosure
+									summary={`${m.accounts_provider_admin_required()} · ${setupRequiredProviders.length}`}
+									bind:open={setupRequiredOpen}
+									boxed
+									class="mt-4 bg-muted/10"
 								>
-									<summary
-										class="flex cursor-pointer list-none items-center justify-between px-4 py-3 text-sm font-medium focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-									>
-										<span
-											>{m.accounts_provider_admin_required()} · {setupRequiredProviders.length}</span
-										>
-										<span class="text-xs text-muted-foreground"
+									{#snippet summaryEnd()}
+										<span class="text-xs font-normal text-muted-foreground"
 											>{setupRequiredOpen
 												? m.accounts_provider_admin_hide()
 												: m.accounts_provider_admin_show()}</span
 										>
-									</summary>
+									{/snippet}
 									<div class="border-t px-3 py-3">
 										<p class="mb-3 text-xs text-muted-foreground">
 											{viewerIsInstanceAdmin
 												? m.accounts_provider_admin_enable_self()
 												: m.accounts_provider_admin_enable()}
 										</p>
-										<div class="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+										<div
+											class="grid grid-cols-[repeat(auto-fit,minmax(min(100%,16rem),1fr))] gap-3"
+										>
 											{#each setupRequiredProviders as provider (providerKey(provider))}
 												<div
 													data-testid={`provider-card-${providerTestID(provider)}`}
-													class="flex h-full min-h-28 flex-col rounded-lg border bg-card p-4 opacity-75"
+													class={provider.platform === 'youtube'
+														? 'flex h-full min-h-28 flex-col rounded-lg border bg-card p-4'
+														: 'flex h-full min-h-28 flex-col rounded-lg border bg-card p-4 opacity-75'}
 												>
 													<div class="flex items-start gap-3">
 														<div
-															class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full {getPlatformColor(
-																provider.platform
-															)}"
+															class={provider.platform === 'youtube'
+																? 'flex shrink-0 items-center justify-center'
+																: `flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${getPlatformColor(provider.platform)}`}
 														>
-															<PlatformIcon
-																platform={provider.platform}
-																class="h-4 w-4 text-white"
-															/>
+															{#if provider.platform === 'youtube'}<YouTubeBrand
+																/>{:else}<PlatformIcon
+																	platform={provider.platform}
+																	class="h-4 w-4 text-white"
+																/>{/if}
 														</div>
 														<div class="min-w-0 flex-1">
 															<div class="flex flex-wrap items-center gap-2">
@@ -2038,7 +1998,7 @@
 											{/each}
 										</div>
 									</div>
-								</details>
+								</Disclosure>
 							{/if}
 						{/if}
 					</div>
@@ -2056,312 +2016,62 @@
 	onConfirm={confirmAccountRemoval}
 />
 
-<Dialog.Root bind:open={oauthConfirmOpen}>
-	<Dialog.Content class="sm:max-w-md">
-		<Dialog.Header>
-			<Dialog.Title>
-				{m.accounts_oauth_confirm_title({
-					platform: oauthConfirmProvider
-						? providerTitle(oauthConfirmProvider)
-						: m.accounts_callback_social_account()
-				})}
-			</Dialog.Title>
-			<Dialog.Description>{m.accounts_oauth_confirm_description()}</Dialog.Description>
-		</Dialog.Header>
-		<ol class="space-y-3 text-sm">
-			<li class="flex gap-3">
-				<span
-					class="flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary"
-					>1</span
-				>
-				<span>{m.accounts_oauth_step_redirect()}</span>
-			</li>
-			<li class="flex gap-3">
-				<span
-					class="flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary"
-					>2</span
-				>
-				<span>{m.accounts_oauth_step_approve()}</span>
-			</li>
-			<li class="flex gap-3">
-				<span
-					class="flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary"
-					>3</span
-				>
-				<span>{m.accounts_oauth_step_return()}</span>
-			</li>
-		</ol>
-		<div
-			class="rounded-md border border-emerald-500/20 bg-emerald-500/8 p-3 text-sm text-emerald-800 dark:text-emerald-200"
-		>
-			<p class="font-medium">{m.accounts_oauth_password_title()}</p>
-			<p class="mt-1 text-xs/5">{m.accounts_oauth_password_description()}</p>
-		</div>
-		<Dialog.Footer>
-			<Dialog.Close>
-				{#snippet child({ props })}
-					<Button {...props} variant="outline">{m.common_cancel()}</Button>
-				{/snippet}
-			</Dialog.Close>
-			<Button onclick={confirmOAuthConnection}>
-				{m.accounts_oauth_continue({
-					platform: oauthConfirmProvider
-						? providerTitle(oauthConfirmProvider)
-						: m.accounts_callback_social_account()
-				})}
-			</Button>
-		</Dialog.Footer>
-	</Dialog.Content>
-</Dialog.Root>
+<OAuthConfirmDialog
+	bind:open={oauthConfirmOpen}
+	provider={oauthConfirmProvider}
+	title={oauthConfirmProvider
+		? providerTitle(oauthConfirmProvider)
+		: m.accounts_callback_social_account()}
+	description={oauthConfirmProvider ? providerDescription(oauthConfirmProvider) : null}
+	onConfirm={confirmOAuthConnection}
+/>
 
-<Dialog.Root bind:open={compatModalOpen}>
-	<Dialog.Content class="sm:max-w-md">
-		<Dialog.Header>
-			<Dialog.Title>
-				{compatModalProvider === 'pixelfed'
-					? m.accounts_connect_pixelfed()
-					: m.accounts_connect_mastodon()}
-			</Dialog.Title>
-			<Dialog.Description>
-				{compatModalProvider === 'pixelfed'
-					? m.accounts_pixelfed_description()
-					: m.accounts_mastodon_description()}
-			</Dialog.Description>
-		</Dialog.Header>
-		<form
-			class="space-y-4"
-			onsubmit={(e: SubmitEvent) => {
-				e.preventDefault();
-				connectCustomCompat();
-			}}
-		>
-			<div class="space-y-2">
-				<Label for={compatModalProvider === 'pixelfed' ? 'pixelfed-server' : 'mastodon-server'}>
-					{compatModalProvider === 'pixelfed'
-						? m.accounts_pixelfed_server_address()
-						: m.accounts_mastodon_server_address()}
-				</Label>
-				<Input
-					id={compatModalProvider === 'pixelfed' ? 'pixelfed-server' : 'mastodon-server'}
-					class="h-11 sm:h-9"
-					bind:value={customCompatInstance}
-					placeholder={compatModalProvider === 'pixelfed' ? 'pixelfed.social' : 'mastodon.social'}
-					autocomplete="url"
-					autocapitalize="none"
-					spellcheck="false"
-					required
-				/>
-			</div>
-			{#if compatError}
-				<InlineNotice
-					tone="error"
-					message={compatError}
-					dismissLabel={m.common_dismiss()}
-					onDismiss={() => (compatError = '')}
-				/>
-			{/if}
-			<div class="flex flex-wrap justify-end gap-2">
-				<Dialog.Close>
-					{#snippet child({ props })}
-						<Button {...props} class="min-h-11 sm:min-h-9" variant="outline" type="button">
-							{m.common_cancel()}
-						</Button>
-					{/snippet}
-				</Dialog.Close>
-				<Button
-					class="min-h-11 sm:min-h-9"
-					variant="outline"
-					type="button"
-					onclick={openCompatCode}
-				>
-					{m.accounts_code()}
-				</Button>
-				<Button class="min-h-11 sm:min-h-9" type="submit" disabled={customCompatLoading}>
-					{customCompatLoading ? m.common_connecting() : m.common_connect()}
-				</Button>
-			</div>
-		</form>
-	</Dialog.Content>
-</Dialog.Root>
+<CompatConnectDialog
+	bind:open={compatModalOpen}
+	provider={compatModalProvider}
+	bind:instance={customCompatInstance}
+	loading={customCompatLoading}
+	error={compatError}
+	onSubmit={connectCustomCompat}
+	onCode={openCompatCode}
+	onErrorDismiss={() => (compatError = '')}
+/>
 
-<Dialog.Root bind:open={fediverseModalOpen}>
-	<Dialog.Content class="sm:max-w-md">
-		<Dialog.Header>
-			<Dialog.Title>
-				{fediverseProvider === 'peertube'
-					? m.accounts_connect_peertube()
-					: fediverseProvider === 'lemmy'
-						? m.accounts_connect_lemmy()
-						: m.accounts_connect_piefed()}
-			</Dialog.Title>
-			<Dialog.Description>
-				{fediverseProvider === 'peertube'
-					? m.accounts_provider_peertube()
-					: fediverseProvider === 'lemmy'
-						? m.accounts_provider_lemmy()
-						: m.accounts_provider_piefed()}
-			</Dialog.Description>
-		</Dialog.Header>
-		{#if fediverseConnectionID && fediverseChannels.length > 0}
-			<div class="space-y-4">
-				<p class="text-sm text-muted-foreground">
-					{m.accounts_fediverse_channel_description()}
-				</p>
-				<div class="space-y-2" role="listbox" aria-label={m.accounts_fediverse_select_channel()}>
-					{#each fediverseChannels as channel (channel.id)}
-						<Button
-							variant="outline"
-							class="min-h-11 w-full justify-start sm:min-h-9"
-							disabled={fediverseLoading}
-							onclick={() => submitFediverseChannel(channel.id)}
-						>
-							{channel.display_name}
-						</Button>
-					{/each}
-				</div>
-				{#if fediverseError}
-					<InlineNotice
-						tone="error"
-						message={fediverseError}
-						dismissLabel={m.common_dismiss()}
-						onDismiss={() => (fediverseError = '')}
-					/>
-				{/if}
-			</div>
-		{:else}
-			<form
-				class="space-y-4"
-				onsubmit={(e) => {
-					e.preventDefault();
-					submitFediverseLogin();
-				}}
-			>
-				<div class="space-y-2">
-					<Label for="fediverse-instance">{m.accounts_instance_url()}</Label>
-					<Input
-						type="text"
-						id="fediverse-instance"
-						bind:value={fediverseInstance}
-						placeholder="https://tube.example"
-						autocomplete="url"
-						autocapitalize="none"
-						spellcheck="false"
-						required
-					/>
-				</div>
-				<div class="space-y-2">
-					<Label for="fediverse-username">{m.accounts_fediverse_username()}</Label>
-					<Input
-						type="text"
-						id="fediverse-username"
-						bind:value={fediverseUsername}
-						autocomplete="username"
-						autocapitalize="none"
-						spellcheck="false"
-						required
-					/>
-				</div>
-				<div class="space-y-2">
-					<Label for="fediverse-password">{m.accounts_fediverse_password()}</Label>
-					<Input
-						type="password"
-						id="fediverse-password"
-						bind:value={fediversePassword}
-						autocomplete="current-password"
-						required
-					/>
-				</div>
-				{#if fediverseProvider === 'peertube'}
-					<div class="space-y-2">
-						<Label for="fediverse-channel">{m.accounts_fediverse_channel()}</Label>
-						<Input
-							type="text"
-							id="fediverse-channel"
-							bind:value={fediverseChannel}
-							autocapitalize="none"
-							spellcheck="false"
-						/>
-					</div>
-				{/if}
-				{#if fediverseError}
-					<InlineNotice
-						tone="error"
-						message={fediverseError}
-						dismissLabel={m.common_dismiss()}
-						onDismiss={() => (fediverseError = '')}
-					/>
-				{/if}
-				<div class="flex justify-end gap-2">
-					<Dialog.Close>
-						{#snippet child({ props })}
-							<Button {...props} variant="outline" type="button">{m.common_cancel()}</Button>
-						{/snippet}
-					</Dialog.Close>
-					<Button type="submit" disabled={fediverseLoading}>
-						{fediverseLoading ? m.common_connecting() : m.common_connect()}
-					</Button>
-				</div>
-			</form>
-		{/if}
-	</Dialog.Content>
-</Dialog.Root>
+<FediverseConnectDialog
+	bind:open={fediverseModalOpen}
+	provider={fediverseProvider}
+	bind:instance={fediverseInstance}
+	bind:username={fediverseUsername}
+	bind:password={fediversePassword}
+	bind:channel={fediverseChannel}
+	loading={fediverseLoading}
+	error={fediverseError}
+	channels={fediverseChannels}
+	connectionID={fediverseConnectionID}
+	onSubmit={submitFediverseLogin}
+	onChannel={submitFediverseChannel}
+	onErrorDismiss={() => (fediverseError = '')}
+/>
 
-<Dialog.Root bind:open={blueskyModalOpen}>
-	<Dialog.Content class="sm:max-w-md">
-		<Dialog.Header>
-			<Dialog.Title>{m.accounts_connect_bluesky()}</Dialog.Title>
-			<Dialog.Description>
-				{m.accounts_bluesky_description()}
-			</Dialog.Description>
-		</Dialog.Header>
-		<form
-			class="space-y-4"
-			onsubmit={(e) => {
-				e.preventDefault();
-				submitBlueskyLogin();
-			}}
-		>
-			<div class="space-y-2">
-				<Label for="bluesky-handle">{m.accounts_handle()}</Label>
-				<Input
-					type="text"
-					id="bluesky-handle"
-					bind:value={blueskyHandle}
-					placeholder="user.bsky.social"
-					required
-				/>
-			</div>
-			<div class="space-y-2">
-				<Label for="bluesky-password">{m.accounts_app_password()}</Label>
-				<Input
-					type="password"
-					id="bluesky-password"
-					bind:value={blueskyAppPassword}
-					placeholder="xxxx-xxxx-xxxx-xxxx"
-					required
-				/>
-			</div>
-			{#if blueskyError}
-				<InlineNotice
-					tone="error"
-					message={blueskyError}
-					dismissLabel={m.common_dismiss()}
-					onDismiss={() => (blueskyError = '')}
-				/>
-			{/if}
-			<div class="flex justify-end gap-2">
-				<Dialog.Close>
-					{#snippet child({ props })}
-						<Button {...props} variant="outline" type="button">{m.common_cancel()}</Button>
-					{/snippet}
-				</Dialog.Close>
-				<Button type="submit" disabled={blueskyLoading}>
-					{blueskyLoading ? m.common_connecting() : m.common_connect()}
-				</Button>
-			</div>
-		</form>
-	</Dialog.Content>
-</Dialog.Root>
+<BlueskyConnectDialog
+	bind:open={blueskyModalOpen}
+	bind:handle={blueskyHandle}
+	bind:appPassword={blueskyAppPassword}
+	loading={blueskyLoading}
+	error={blueskyError}
+	onSubmit={submitBlueskyLogin}
+	onErrorDismiss={() => (blueskyError = '')}
+/>
+
+<DevNullConnectDialog
+	bind:open={devnullModalOpen}
+	bind:username={devnullUsername}
+	bind:privateKey={devnullPrivateKey}
+	loading={devnullLoading}
+	error={devnullError}
+	onSubmit={submitDevNullLogin}
+	onErrorDismiss={() => (devnullError = '')}
+/>
 
 {#if telegramModalOpen && selectedWorkspaceId}
 	{#key selectedWorkspaceId}
@@ -2373,72 +2083,16 @@
 	{/key}
 {/if}
 
-<Dialog.Root bind:open={discordModalOpen}>
-	<Dialog.Content class="sm:max-w-lg">
-		<Dialog.Header>
-			<Dialog.Title>{m.accounts_connect_discord()}</Dialog.Title>
-			<Dialog.Description>{m.accounts_discord_description()}</Dialog.Description>
-		</Dialog.Header>
-		<form
-			class="space-y-4"
-			onsubmit={(event) => {
-				event.preventDefault();
-				void submitDiscordWebhook();
-			}}
-		>
-			{#if discordBotConfigured}
-				<div class="space-y-3 rounded-md border bg-muted/20 p-4">
-					<div class="space-y-1">
-						<p class="font-medium">{m.accounts_connect_discord_bot()}</p>
-						<p class="text-sm text-muted-foreground">
-							{m.accounts_discord_bot_description()}
-						</p>
-					</div>
-					<Button class="min-h-11 w-full sm:min-h-9" type="button" onclick={connectDiscordBot}>
-						{m.accounts_connect_discord_bot()}
-					</Button>
-				</div>
-				<p class="text-sm font-medium text-muted-foreground">
-					{m.accounts_discord_webhook_alternative()}
-				</p>
-			{/if}
-			<div class="space-y-2">
-				<Label for="discord-webhook-url">{m.accounts_discord_webhook_url()}</Label>
-				<Input
-					id="discord-webhook-url"
-					type="password"
-					bind:value={discordWebhookUrl}
-					placeholder="https://discord.com/api/webhooks/…"
-					autocomplete="off"
-					autocapitalize="none"
-					spellcheck="false"
-					required
-				/>
-				<p class="text-sm text-muted-foreground">
-					{m.accounts_discord_url_help()}
-				</p>
-			</div>
-			{#if discordError}
-				<InlineNotice
-					tone="error"
-					message={discordError}
-					dismissLabel={m.common_dismiss()}
-					onDismiss={() => (discordError = '')}
-				/>
-			{/if}
-			<div class="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-				<Dialog.Close>
-					{#snippet child({ props })}
-						<Button {...props} variant="outline" type="button">{m.common_cancel()}</Button>
-					{/snippet}
-				</Dialog.Close>
-				<Button type="submit" disabled={discordLoading}>
-					{discordLoading ? m.accounts_discord_verifying() : m.common_connect()}
-				</Button>
-			</div>
-		</form>
-	</Dialog.Content>
-</Dialog.Root>
+<DiscordConnectDialog
+	bind:open={discordModalOpen}
+	bind:webhookUrl={discordWebhookUrl}
+	botConfigured={discordBotConfigured}
+	loading={discordLoading}
+	error={discordError}
+	onSubmit={() => void submitDiscordWebhook()}
+	onConnectBot={connectDiscordBot}
+	onErrorDismiss={() => (discordError = '')}
+/>
 
 <Sheet.Root open={editAccountDialogOpen} onOpenChange={handleEditAccountDialogOpen}>
 	<Sheet.Content
@@ -2471,9 +2125,14 @@
 							<SocialAccountIdentity
 								name={accountDisplayName(editingAccount)}
 								platform={editingAccount.platform}
-								platformLabel={accountPlatformName(editingAccount)}
+								platformLabel={accountPlatformName(editingAccount, providerEntries)}
 								avatarUrl={editingAccount.account_avatar_url}
-								detail={accountKindLabel(editingAccount)}
+								detail={editingAccount.alias?.trim()
+									? formatSocialAccountName(
+											editingAccount.account_username,
+											editingAccount.platform
+										)
+									: accountKindLabel(editingAccount)}
 								size="lg"
 							/>
 							{#if accountServer(editingAccount)}
@@ -2491,7 +2150,7 @@
 								onclick={() => void refreshAccountMetadata()}
 								disabled={accountMetadataRefreshing || editAccountLoading}
 								aria-label={m.accounts_refresh_profile_for({
-									account: accountContextLabel(editingAccount)
+									account: accountContextLabel(editingAccount, providerEntries)
 								})}
 							>
 								{#if accountMetadataRefreshing}
@@ -2507,6 +2166,16 @@
 							</Button>
 						{/if}
 					</div>
+					<div class="space-y-2">
+						<Label for="account-alias">{m.accounts_internal_label()}</Label>
+						<Input
+							id="account-alias"
+							class="min-h-11"
+							maxlength={100}
+							bind:value={editAccountAlias}
+						/>
+						<p class="text-xs text-muted-foreground">{m.accounts_internal_label_hint()}</p>
+					</div>
 					{#if accountMetadataRefreshError}
 						<InlineNotice
 							tone="error"
@@ -2514,6 +2183,15 @@
 							dismissLabel={m.common_dismiss()}
 							onDismiss={() => (accountMetadataRefreshError = '')}
 						/>
+					{/if}
+					{#if editingAccount.platform === 'x'}
+						{#key `${selectedWorkspaceId}:${editingAccount.id}`}
+							<XMessagingSettings
+								workspaceId={selectedWorkspaceId}
+								accountId={editingAccount.id}
+								canConnect={canConnectWorkspace}
+							/>
+						{/key}
 					{/if}
 					{#if editFeaturesLoading && !editFeaturesReady}
 						<div class="rounded-lg border p-3 text-sm text-muted-foreground">
@@ -2562,16 +2240,17 @@
 						{/if}
 					{/if}
 
-					<details class="group rounded-lg border bg-muted/10">
-						<summary
-							class="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 px-3 py-2 text-sm font-medium marker:hidden focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
-						>
-							{m.accounts_developer_shortcut()}
-							<ThemeIcon
-								role="chevron-down"
-								class="size-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180 motion-reduce:transition-none"
+					{#if selectedWorkspaceId}
+						{#key `${selectedWorkspaceId}:${editingAccount.id}`}
+							<PostImportSettings
+								workspaceID={selectedWorkspaceId}
+								accountID={editingAccount.id}
+								canEdit={canEditWorkspace}
 							/>
-						</summary>
+						{/key}
+					{/if}
+
+					<Disclosure summary={m.accounts_developer_shortcut()} boxed class="bg-muted/10">
 						<div class="space-y-3 border-t px-3 py-3">
 							<p class="text-xs leading-5 text-muted-foreground">
 								{m.accounts_shortcut_example()}
@@ -2594,7 +2273,8 @@
 								</p>
 							</div>
 						</div>
-					</details>
+					</Disclosure>
+
 					{#if editAccountError}
 						<InlineNotice
 							tone="error"

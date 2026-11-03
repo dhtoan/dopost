@@ -37,6 +37,7 @@ const (
 	discordAttachmentPermissionLostCode = "discord_attach_files_permission_lost"
 	discordMentionPermissionLostCode    = "discord_mention_permission_lost"
 	discordEmbedInvalidCode             = "discord_embed_invalid"
+	discordBotTokenInvalidCode          = "discord:bot_token_invalid"
 	discordAnalyticsMaxMessages         = 25
 )
 
@@ -309,6 +310,10 @@ func (d *DiscordBotAdapter) searchDiscordMembers(ctx context.Context, guildID st
 		options = append(options, DestinationOption{Value: member.User.ID, Label: "@" + label})
 	}
 	return PublishingOptionsPage{Options: options}, nil
+}
+
+func (d *DiscordBotAdapter) AccountCapabilityKeyInput(input AccountCapabilityInput) string {
+	return strings.TrimSpace(stringSetting(input.Settings, "channel_id"))
 }
 
 func (d *DiscordBotAdapter) ResolveAccountPublishingCapabilities(ctx context.Context, credential string, input AccountCapabilityInput) (AccountCapabilityResult, error) {
@@ -585,7 +590,7 @@ func (d *DiscordBotAdapter) sendDiscordBotMessage(ctx context.Context, channelID
 		response, err = doDiscordMultipartWithHeaders(ctx, endpoint, body, media, headers)
 	}
 	if err != nil {
-		return discordMessage{}, fmt.Errorf("sending discord bot message: %w", err)
+		return discordMessage{}, fmt.Errorf("sending discord bot message: %w", normalizeDiscordBotTokenError(err))
 	}
 	var message discordMessage
 	if err := json.Unmarshal(response, &message); err != nil {
@@ -1288,17 +1293,33 @@ func discordHTTPStatus(err error) int {
 }
 
 func normalizeDiscordPermissionCheckError(err error) error {
-	status := discordHTTPStatus(err)
-	if status == http.StatusUnauthorized || status == http.StatusForbidden || status == http.StatusNotFound {
+	if discordHTTPStatus(err) == http.StatusUnauthorized {
+		return &HTTPError{StatusCode: http.StatusUnauthorized, Code: discordBotTokenInvalidCode}
+	}
+	if status := discordHTTPStatus(err); status == http.StatusForbidden || status == http.StatusNotFound {
 		return &HTTPError{StatusCode: http.StatusForbidden, Code: discordChannelPermissionLostCode}
 	}
 	return err
 }
 
 func normalizeDiscordMentionPermissionError(err error) error {
-	status := discordHTTPStatus(err)
-	if status == http.StatusUnauthorized || status == http.StatusForbidden || status == http.StatusNotFound {
+	if discordHTTPStatus(err) == http.StatusUnauthorized {
+		return &HTTPError{StatusCode: http.StatusUnauthorized, Code: discordBotTokenInvalidCode}
+	}
+	if status := discordHTTPStatus(err); status == http.StatusForbidden || status == http.StatusNotFound {
 		return &HTTPError{StatusCode: http.StatusForbidden, Code: discordMentionPermissionLostCode}
 	}
 	return err
+}
+
+// normalizeDiscordBotTokenError reports an unauthorized bot-token-authenticated
+// call as invalid instance configuration. Discord returns 401 for bot
+// requests only when the token itself is rejected, and the instance bot token
+// is server configuration: an administrator must update it, so this failure
+// must never be classified as a user-account reconnection.
+func normalizeDiscordBotTokenError(err error) error {
+	if discordHTTPStatus(err) != http.StatusUnauthorized {
+		return err
+	}
+	return &HTTPError{StatusCode: http.StatusUnauthorized, Code: discordBotTokenInvalidCode}
 }

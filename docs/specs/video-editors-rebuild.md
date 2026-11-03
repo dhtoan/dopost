@@ -6,15 +6,15 @@ Status: approved by owner in session (all open questions answered). This spec is
 
 Replace the retired Video Editor with two local-first editing surfaces and a rebuilt recorder, while keeping signed-in authored projects portable through Cloud Video Projects:
 
-1. **Video Editor** (`/video-editor`) — multi-track timeline editor ported from FreeCut (MIT). Signed-in projects belong to the current OpenPost Workspace by default. Users can still create Local-only projects in a chosen folder. Transcription, transcript/text-based cutting, subtitles, silence removal, export.
+1. **Video Editor** (`/video-editor`) — multi-track timeline editor ported from FreeCut (MIT). Signed-in projects belong to the current dopost Workspace by default. Users can still create Local-only projects in a chosen folder. Transcription, transcript/text-based cutting, subtitles, silence removal, export.
 2. **Quick Cut** (`/quick-cut`) — fast lossless trimmer inspired by LosslessCut (**GPL-2.0: behavioral reference only, zero code ported**). No transcoding for eligible cuts; stream copy via mediabunny. Signed-in source projects save to the current Workspace by default, with an explicit Local-only mode.
 3. **Recorder** — screen / webcam / combined / audio capture, one shared module, entry points both standalone (`/record`) and inside the Video Editor. Signed-in recordings become required Project Assets in a Cloud Video Project by default. Local-only capture still downloads ordinary files.
 
-Cloud projects synchronize portable authored state, required original Project Assets, revision history, named checkpoints, and conflicts. Device view state, filesystem handles, derived caches, downloaded models, and unsaved exports remain local. Local-only projects never sync unless the user starts an explicit import. Final exports cross into Workspace Media only through an explicit save or composer handoff.
+Cloud projects synchronize portable authored state, required original Project Assets, revision history, named checkpoints, and conflicts. Device view state, filesystem handles, derived caches, downloaded models, and unsaved exports remain local. History inspection compares immutable revisions with the latest saved version, never the unsaved open timeline. It shows authored names and semantic changes without restoring or loading media. Local-only projects never sync unless the user starts an explicit import. Final exports cross into Workspace Media only through an explicit save or composer handoff.
 
 ## Naming and domain terms
 
-- Full editor product name: **OpenPost Video Editor**, route `/video-editor`.
+- Full editor product name: **dopost Video Editor**, route `/video-editor`.
 - Lossless tool: **Quick Cut** (established domain term), route `/quick-cut`. The old in-editor "quick-cut" mode is deleted.
 - Durable domain terms to retain in Hindsight: **Cloud Video Project** (Workspace-owned portable authored state and required Project Assets), **Project Asset** (source material required to reproduce a project), **Local-only project** (user-chosen disk folder holding project data), and **Recording** (capture produced by the recorder).
 - `/video-editor`, `/quick-cut`, and `/record` are the only editor routes. The old `/video-studio` and `/studio` aliases do not exist.
@@ -23,7 +23,7 @@ Cloud projects synchronize portable authored state, required original Project As
 
 `apps/server/internal/services/videoprojects/` owns authorization, immutable revisions, mutation application, conflict branches, checkpoints, Project Asset references, Trash retention, and completeness. Web and mobile consume the portable contract in `packages/video-project/`. The editor keeps storage mechanics behind its repository boundary, so timeline and route components work with project concepts rather than choosing cloud or filesystem persistence directly.
 
-Cloud saves use versioned, idempotent mutation batches with stable targets. A stale batch rebases when its targets are disjoint from newer work. An overlapping change creates an explicit conflict branch instead of silently replacing another device's edit. Originals use the configured `BlobStorage`; lightweight project state loads before optional originals, and `Keep available offline` pins the required originals on that device.
+Cloud saves use versioned, idempotent mutation batches with stable targets. A stale batch rebases when its targets are disjoint from newer work. An overlapping change creates an explicit conflict branch instead of silently replacing another device's edit. Saving a conflict as a copy creates independent Project Asset references with the same stable media IDs and shared originals. Media completion and storage failures update every reference in the Workspace. Unlinked uploads must finish before a copy is created; failure keeps the local conflict edit. Originals use the configured `BlobStorage`; lightweight project state loads before optional originals, and `Keep available offline` pins the required originals on that device.
 
 Ported from FreeCut (adapt React→Svelte 5 runes, Tailwind 4 + bits-ui `ui/` primitives, and paraglide i18n). Product chrome inherits the resolved organization theme. Preview, timeline, image pasteboard, guides, handles, scopes, and signal meters use explicit protected editor roles so authored media and editing geometry remain stable across every theme:
 
@@ -48,21 +48,21 @@ Dependencies in `apps/web/package.json`: `mediabunny@^1.51.0`, `@mediabunny/pror
 - The project model includes all ten FreeCut timeline item kinds: video, audio, image, Lottie, text, subtitle, shape, adjustment, controller, and composition. Reusable compositions support nested timelines and controller-based Motion parenting.
 - Local music generation, upscale, and frame interpolation are implemented. The packaged ACE-Step path passed a fixed-seed real-model WebGPU run with a valid, non-silent 10-second stereo WAV. Local scene captions, semantic and visual search, embeddings, and three-engine local voice generation are present.
 - Keyframes include the value graph, dope sheet, spatial curves, transition guards, and shared multi-key editing.
-- Projects support reusable top-level sequences and nested compound clips.
+- Projects support reusable top-level sequences and nested compound clips. Composition FPS edits preserve authored frame counts, so their duration in seconds changes. Existing instances retain the `sourceFps` captured at insertion; new instances use the current source FPS. Preview and export resolve nested frames through that instance rate.
 - Local transcription uses Parakeet by default and offers Whisper Tiny, Base, Small, and Large v3 Turbo, with language and WebGPU fallback.
 - No bundled models/audio: transcription downloads on first use (HF CDN) and caches in-browser; self-hosted offline installs get everything except transcription. Supersedes nothing in ADR 0006 (that ADR concerns distribution of assets we no longer bundle). Editor interaction sounds use `cuelume`, not bundled clips.
 
 ## Quick Cut (lossless)
 
-mediabunny-based (no ffmpeg.wasm): open file(s) → keyframe map via `EncodedPacketSink` → set segments (start/end, keyboard-driven, loop playback modes) → export via `Conversion` stream-copy trim; fall back to transcode only when an exact cut requires it (keyframe-cut toggle like LosslessCut's, implemented ourselves); merge segments; save to a Cloud Video Project or hand off to Send-to-OpenPost. Cloud Quick Cut documents use stable source and segment targets, upload originals as Project Assets, and fetch them only when the project is opened. Explicit Local-only projects keep their multi-file project JSON in the chosen workspace folder. UX reference: LosslessCut segment list/colors/playback modes/streams picker; code reference: none (GPL).
+mediabunny-based (no ffmpeg.wasm): open file(s) → keyframe map via `EncodedPacketSink` → set segments (start/end, keyboard-driven, loop playback modes) → export via `Conversion` stream-copy trim; fall back to transcode only when an exact cut requires it (keyframe-cut toggle like LosslessCut's, implemented ourselves); merge segments; save to a Cloud Video Project or hand off to Send-to-dopost. Cloud Quick Cut documents use stable source and segment targets, upload originals as Project Assets, and fetch them only when the project is opened. Explicit Local-only projects keep their multi-file project JSON in the chosen workspace folder. UX reference: LosslessCut segment list/colors/playback modes/streams picker; code reference: none (GPL).
 
 ## Recorder
 
-The recorder uses `getDisplayMedia` for screen capture and `getUserMedia` for webcam and microphone capture. Separate sources share a monotonic timebase and write WebM or MP4 chunks through a crash-safe worker. The standalone `/record` page turns a signed-in capture into one Cloud Video Project with aligned video and audio tracks, while Local-only mode downloads ordinary files. The Video Editor Record action uploads each capture as a Project Asset before inserting its linked timeline item. Recoverable scratch artifacts remain on the device until the cloud save or local download succeeds.
+The recorder uses `getDisplayMedia` for screen capture and `getUserMedia` for webcam and microphone capture. Screen and camera share a monotonic timebase and write WebM or MP4 chunks through a crash-safe worker. Microphone audio stays in the camera file, or the screen file when no camera is selected; screen and microphone audio are mixed when both belong to the screen. Microphone-only capture remains an audio file. The standalone `/record` page turns a signed-in capture into one Cloud Video Project with aligned clips, while Local-only mode downloads ordinary files. Video clips expose Detach audio for separate linked editing, with link and unlink independent of audio playback ownership. The Video Editor Record action uploads each capture as a Project Asset before inserting its linked timeline item. Recoverable scratch artifacts remain on the device until the cloud save or local download succeeds.
 
-## Send to OpenPost
+## Send to dopost
 
-After any export completes (Video Editor exports folder, Quick Cut output, finished recording): "Send to OpenPost" uploads the file via the existing media upload endpoints into the workspace Media library, with success state + "Compose" deep link reusing the existing composer attach flow. No return-token round trip; the old `/video-editor/return-tokens` contract dies with the backend deletion. Composer keeps its outbound "Edit video" handoff: it links to `/video-editor?source=media:<id>` style params; the editor imports that media file locally (download via existing media URL), edits locally, and the user sends results back manually. Composer-side error keys for return tokens are removed.
+After any export completes (Video Editor exports folder, Quick Cut output, finished recording): "Send to dopost" uploads the file via the existing media upload endpoints into the workspace Media library, with success state + "Compose" deep link reusing the existing composer attach flow. No return-token round trip; the old `/video-editor/return-tokens` contract dies with the backend deletion. Composer keeps its outbound "Edit video" handoff: `/video-editor/new?source=media:<id>` offers Quick Cut or Video Editor, then imports the workspace media into the selected editor. The user sends results back manually. Composer-side error keys for return tokens are removed.
 
 ## Deletions (Phase 0)
 
@@ -77,8 +77,8 @@ Docs/marketing/legal: docs-site `usage/video-editor.md` rewritten for the new mo
 ## Acceptance criteria
 
 1. Old editor fully gone; `bun run check -- backend`, `-- frontend`, `-- contracts` pass; app boots with no dangling references.
-2. Video Editor: pick workspace folder → create project → import media (copy/link) → multi-track timeline edit (split/trim/move/delete/undo-redo) → frame-accurate preview with audio → transcribe → edit by text (delete words applies ripple cut) → remove silence (signal + speech modes) → add transcript captions (burn-in + .srt sidecar) → export mp4/webm → exports listed → Send to OpenPost works.
-3. Quick Cut: open file → mark in/out → lossless export verified stream-copied (no re-encode when eligible) → merge segments → send to OpenPost.
+2. Video Editor: pick workspace folder → create project → import media (copy/link) → multi-track timeline edit (split/trim/move/delete/undo-redo) → frame-accurate preview with audio → transcribe → edit by text (delete words applies ripple cut) → remove silence (signal + speech modes) → add transcript captions (burn-in + .srt sidecar) → export mp4/webm → exports listed → Send to dopost works.
+3. Quick Cut: open file → mark in/out → lossless export verified stream-copied (no re-encode when eligible) → merge segments → send to dopost.
 4. Recorder: screen, webcam, audio, combined recordings land in workspace and import into the editor.
 5. Chromium-only gate shows the existing unsupported page elsewhere.
 6. i18n complete in en, es, fr, de, pt, pt-BR, tr, ja, ko, and zh; ux-consistency bar passes; cuelume sounds on key interactions.
@@ -87,3 +87,13 @@ Docs/marketing/legal: docs-site `usage/video-editor.md` rewritten for the new mo
 ## Out of scope (v1)
 
 Android wrapper optimization for the full editor, real-time collaborative editing, presence, and shared cursors remain outside the initial v1 build. Mobile capture and non-destructive clip preparation feed Cloud Video Projects without claiming full timeline or export parity. Post-v1 parity work now includes three-engine local voice generation, durable editor-generated images, upscaling, frame interpolation, and a commercial-safe local ACE-Step music generator. The other applicable items stay in the active FreeCut parity backlog.
+
+## Focused Quick Cut workflow
+
+Quick Cut and Video Editor remain separate editors. `/video-editor/new` offers the choice and preserves the composer source and publication return context. The Video page exposes both editors. Quick Cut starts with each complete source retained; Remove selection, transcript word removal, and cleanup subtract from the current edit. Keep selection narrows existing kept ranges without restoring earlier removals.
+
+Quick Cut uses shared editor chrome, history, transcription controls and browser transcription engines. Its source transcript contains word timings for editing, not subtitles. Source markers and transcripts travel in local and cloud project documents. Cuts and markers support undo and redo. Track and export settings appear in the export panel.
+
+Both editors use `lib/video-editor/audio/analysis-client.ts`. Signal detection applies the existing RMS detector to compact per-window levels. Speech detection runs Silero v5 through the maintained `@ricky0123/vad-web` adapter and shared ONNX runtime. Workers decode 16-second PCM chunks and retain only compact levels or voice probabilities. Cancel terminates the worker. The shared client snapshots reactive stream selections into plain worker messages without changing the selected indices, and releases the worker if dispatch fails. Quick Cut intersects removable ranges across every retained audio stream and channel, keeping speech present in any of them. Analysis only proposes ranges; users review and apply through each editor's existing mutation and export boundaries.
+
+References audited: LosslessCut (GPL-2.0, behavior only, no code copied), auto-editor (Unlicense, audio-level behavior only), ricky0123/vad (ISC adapter), and Silero VAD (MIT model). The shipped speech-model notices live in `apps/web/static/licenses/silero-vad/LICENSE`. Exact cuts remain subject to browser codec support; eligible keyframe cuts still use stream copy.

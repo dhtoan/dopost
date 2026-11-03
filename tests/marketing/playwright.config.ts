@@ -22,10 +22,22 @@ export default defineConfig({
   outputDir: `${repositoryRoot}/test-results`,
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
+  failOnFlakyTests: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
   workers: process.env.CI ? 1 : undefined,
   reporter: process.env.CI
-    ? [["github"], ["html", { open: "never", outputFolder: `${repositoryRoot}/playwright-report` }]]
+    ? [
+        ["github"],
+        ["html", { open: "never", outputFolder: `${repositoryRoot}/playwright-report` }],
+        [
+          "json",
+          {
+            outputFile:
+              process.env.PLAYWRIGHT_JSON_OUTPUT_FILE ??
+              `${repositoryRoot}/test-results/marketing-timings.json`,
+          },
+        ],
+      ]
     : "list",
   use: {
     baseURL,

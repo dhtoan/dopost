@@ -17,7 +17,9 @@ https://your-domain.com/api/v1/accounts/facebook/callback
   - `business_management`
   - `pages_show_list`
   - `pages_read_engagement`
+  - `pages_read_user_content`
   - `pages_manage_engagement`
+  - `pages_manage_metadata`
   - `pages_manage_posts`
   - `pages_messaging`
 - Public `OPENPOST_MEDIA_URL` or S3/R2 public media URL for image and video posts
@@ -36,7 +38,7 @@ Configure Facebook through the provider app registry. For bootstrap/self-hosting
 ]
 ```
 
-If `redirect_uri` is omitted, OpenPost derives it from `OPENPOST_APP_URL`.
+If `redirect_uri` is omitted, dopost derives it from `OPENPOST_APP_URL`.
 
 ## Current Scope
 
@@ -49,7 +51,7 @@ If `redirect_uri` is omitted, OpenPost derives it from `OPENPOST_APP_URL`.
 - Lists, replies to, hides, and deletes eligible Page comments when Comments and replies is enabled for that Page.
 - Supports Page inbox collection for Direct messages when enabled and replies within Meta's reply window. Direct messages and Comments and replies are separate per-account choices that start off.
 - Grow is not available for Facebook.
-- Supports scheduling and platform variants through the normal OpenPost post flow.
+- Supports scheduling and platform variants through the normal dopost post flow.
 
 Direct messages, Comments and replies, and Analytics are optional and per connected Page. Disabling a feature stops future provider reads and writes without deleting history or revoking provider authorization. Availability depends on provider support, required scopes, and plan access as distinct facts.
 
@@ -62,7 +64,7 @@ Direct messages, Comments and replies, and Analytics are optional and per connec
 
 ## Analytics
 
-Analytics is an optional feature per connected Facebook Page. It starts off for a new account. Enable it after connection or in Account details. OpenPost collects Page follower totals and published-post reactions, comments, and shares when enabled. It uses `pages_read_engagement`, keeps missing counters distinct from measured zero, and does not use deprecated Page impression metrics. Disabling Analytics stops future Facebook analytics collection without deleting stored metrics or revoking authorization.
+Analytics is an optional feature per connected Facebook Page. It starts off for a new account. Enable it after connection or in Account details. dopost collects Page follower totals and published-post reactions, comments, and shares when enabled. It uses `pages_read_engagement`, keeps missing counters distinct from measured zero, and does not use deprecated Page impression metrics. Disabling Analytics stops future Facebook analytics collection without deleting stored metrics or revoking authorization.
 
 ## Troubleshooting
 

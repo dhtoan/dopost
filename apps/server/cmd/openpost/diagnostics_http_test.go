@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -52,41 +53,16 @@ func (h *diagnosticsHTTPHarness) all() []diagnostics.Report {
 	return append([]diagnostics.Report(nil), h.reports...)
 }
 
-// TestDiagnosticsObserverCoversHumaStyle500s pins the Huma gap: the pinned
-// adapter writes its response and returns nil, so the Echo error hook never
-// fires. Observing the final response status must still report the failure.
-func TestDiagnosticsObserverCoversHumaStyle500s(t *testing.T) {
-	harness, reporter := newDiagnosticsHTTPHarness(t)
-	e := echo.New()
-	e.Use(observeDiagnosticFailures(reporter))
-	e.GET("/api/v1/publications", func(c echo.Context) error {
-		// Huma-style: response written, nil returned.
-		return c.JSON(http.StatusInternalServerError, map[string]string{"detail": "boom"})
-	})
-
-	response := httptest.NewRecorder()
-	e.ServeHTTP(response, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/publications", nil))
-	require.Equal(t, http.StatusInternalServerError, response.Code)
-
-	reporter.Flush()
-	reports := harness.all()
-	require.Len(t, reports, 1)
-	require.Equal(t, diagnostics.CodeAPI5xx, reports[0].ErrorCode)
-	require.Equal(t, diagnostics.SurfaceBackend, reports[0].Surface)
-	require.Equal(t, http.StatusInternalServerError, reports[0].HTTPStatus)
-	require.Equal(t, "/api/v1/publications", reports[0].Operation)
-}
-
 // TestDiagnosticsObserverDedupesAgainstErrorHandler ensures a handler that
 // returns an error (the classic error-hook path) produces exactly one
 // diagnostic report, not one per capture layer.
 func TestDiagnosticsObserverDedupesAgainstErrorHandler(t *testing.T) {
 	harness, reporter := newDiagnosticsHTTPHarness(t)
 	e := echo.New()
-	e.Use(observeDiagnosticFailures(reporter))
+	e.Use(observeHTTPFailures(nil, reporter))
 	installTelemetryErrorHandler(e, &telemetry.MemoryRecorder{}, reporter)
 	e.GET("/things/:id", func(echo.Context) error {
-		return errors.New("database unavailable")
+		return errors.Join(errors.New("private content and token=secret"), context.DeadlineExceeded)
 	})
 
 	response := httptest.NewRecorder()
@@ -98,6 +74,11 @@ func TestDiagnosticsObserverDedupesAgainstErrorHandler(t *testing.T) {
 	require.Len(t, reports, 1)
 	require.Equal(t, diagnostics.CodeAPI5xx, reports[0].ErrorCode)
 	require.Equal(t, "/things/:id", reports[0].Operation, "route template, never the concrete path")
+	payload, err := json.Marshal(reports[0])
+	require.NoError(t, err)
+	require.Contains(t, string(payload), `"error_kind":"deadline_exceeded"`)
+	require.NotContains(t, string(payload), "private content")
+	require.NotContains(t, string(payload), "token=secret")
 }
 
 // TestDiagnosticsObserverIgnoresClientErrors ensures validation errors,
@@ -105,7 +86,7 @@ func TestDiagnosticsObserverDedupesAgainstErrorHandler(t *testing.T) {
 func TestDiagnosticsObserverIgnoresClientErrors(t *testing.T) {
 	harness, reporter := newDiagnosticsHTTPHarness(t)
 	e := echo.New()
-	e.Use(observeDiagnosticFailures(reporter))
+	e.Use(observeHTTPFailures(nil, reporter))
 	e.GET("/ok", func(c echo.Context) error {
 		return c.String(http.StatusOK, "fine")
 	})

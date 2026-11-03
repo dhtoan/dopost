@@ -828,7 +828,7 @@ func insertLegacyRenditions(
 			CreatedAt:       publication.CreatedAt,
 			UpdatedAt:       publication.UpdatedAt,
 		}
-		if _, err := tx.NewInsert().Model(&rendition).Ignore().Exec(ctx); err != nil {
+		if _, err := tx.NewInsert().Model(&rendition).ExcludeColumn("position").Ignore().Exec(ctx); err != nil {
 			return err
 		}
 		for position, canonical := range segments {
@@ -1055,6 +1055,9 @@ func rewriteLegacyPublicationJobs(ctx context.Context, db bun.IDB, postID, publi
 		}
 		payload := map[string]interface{}{}
 		_ = json.Unmarshal([]byte(job.Payload), &payload)
+		if payload == nil {
+			payload = map[string]interface{}{}
+		}
 		delete(payload, "post_id")
 		payload["publication_id"] = publicationID
 		encoded, err := json.Marshal(payload)

@@ -9,6 +9,7 @@
 import type { TimelineItem } from '../../project/types';
 import {
 	hasVariableSpeed,
+	anchorSpeedRampBoundaries,
 	sourceFrameToTimelineOffset,
 	timelineOffsetToSourceFrame
 } from '../source-time-map';
@@ -16,7 +17,7 @@ import {
 	getMaxStartExtension,
 	getMaxTimelineDuration,
 	getSourceProperties,
-	isMediaItem,
+	hasSourceBoundaries,
 	timelineToSourceFrames
 } from './source-calculations';
 
@@ -30,7 +31,7 @@ interface TrimClampResult {
 /**
  * Calculate the clamped trim amount respecting source boundaries.
  *
- * For media items (video/audio), trimming is constrained by:
+ * For media clips and nested compositions, trimming is constrained by:
  * - Start handle: can't extend past source start (0)
  * - End handle: can't extend past source end (sourceDuration)
  * - Both: can't shrink below 1 frame duration
@@ -46,10 +47,10 @@ export function clampTrimAmount(
 	let clampedAmount = trimAmount;
 	let maxExtend: number | null = null;
 
-	if (isMediaItem(item)) {
+	if (hasSourceBoundaries(item)) {
 		const { sourceStart, sourceFps, speed, sourceDuration } = getSourceProperties(item);
 		const effectiveSourceFps = sourceFps ?? timelineFps;
-		if (hasVariableSpeed(item)) {
+		if (hasVariableSpeed(item) || item.isReversed) {
 			if (handle === 'start' && trimAmount < 0) {
 				const sourceTarget = item.isReversed ? sourceDuration : 0;
 				if (sourceTarget !== undefined) {
@@ -115,7 +116,7 @@ export function clampTrimAmount(
  * Clamp a start-trim amount so the item doesn't overlap the end of the previous
  * item on the same track, or an end-trim so it doesn't overlap the next start.
  * `excludedIds` are allowed to overlap (FreeCut used this for transition
- * partners; OpenPost v1 has no transitions, but the hook stays for parity).
+ * partners; dopost v1 has no transitions, but the hook stays for parity).
  */
 export function clampToAdjacentItems(
 	item: TimelineItem,
@@ -180,6 +181,9 @@ function clampToMinDuration(
 }
 
 export interface TrimSourceUpdate {
+	lottiePhaseOffset?: number;
+	sourceFps?: number;
+	speedRamp?: TimelineItem['speedRamp'];
 	sourceStart?: number;
 	sourceEnd?: number;
 }
@@ -192,21 +196,57 @@ export function calculateTrimSourceUpdate(
 	newDuration: number,
 	timelineFps: number = 30
 ): TrimSourceUpdate | null {
-	if (!isMediaItem(item)) return null;
+	if (item.type === 'lottie' && handle === 'start') {
+		return { lottiePhaseOffset: (item.lottiePhaseOffset ?? 0) + clampedAmount };
+	}
+	// Looping images have no source bounds; retain fractional phase through edits.
+	if (item.type === 'image' && handle === 'start') {
+		const sourceFps = item.sourceFps && item.sourceFps > 0 ? item.sourceFps : timelineFps;
+		const speed = item.speed && item.speed > 0 ? item.speed : 1;
+		return {
+			sourceFps,
+			sourceStart: (item.sourceStart ?? 0) + (clampedAmount / timelineFps) * speed * sourceFps
+		};
+	}
+	if (!hasSourceBoundaries(item)) return null;
 
 	const { sourceStart, sourceEnd, sourceFps, speed, sourceDuration } = getSourceProperties(item);
 	const effectiveSourceFps = sourceFps ?? timelineFps;
-	if (hasVariableSpeed(item)) {
+	if (hasVariableSpeed(item) || item.isReversed) {
+		const speedRamp = anchorSpeedRampBoundaries(item, timelineFps);
+		const rampPatch = speedRamp ? { speedRamp } : {};
 		if (handle === 'start') {
 			const boundary = Math.round(
 				timelineOffsetToSourceFrame(item, clampedAmount, timelineFps) + (item.isReversed ? 1 : 0)
 			);
-			return item.isReversed ? { sourceEnd: boundary } : { sourceStart: boundary };
+			return item.isReversed
+				? {
+						...rampPatch,
+						sourceEnd: Math.max(sourceStart + 1, Math.min(sourceDuration ?? Infinity, boundary))
+					}
+				: {
+						...rampPatch,
+						sourceStart: Math.max(
+							0,
+							Math.min((sourceEnd ?? sourceDuration ?? Infinity) - 1, boundary)
+						)
+					};
 		}
 		const boundary = Math.round(
 			timelineOffsetToSourceFrame(item, newDuration, timelineFps) + (item.isReversed ? 1 : 0)
 		);
-		return item.isReversed ? { sourceStart: boundary } : { sourceEnd: boundary };
+		return item.isReversed
+			? {
+					...rampPatch,
+					sourceStart: Math.max(
+						0,
+						Math.min((sourceEnd ?? sourceDuration ?? Infinity) - 1, boundary)
+					)
+				}
+			: {
+					...rampPatch,
+					sourceEnd: Math.max(sourceStart + 1, Math.min(sourceDuration ?? Infinity, boundary))
+				};
 	}
 
 	if (handle === 'start') {

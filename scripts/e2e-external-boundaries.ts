@@ -173,7 +173,7 @@ const server = Bun.serve({
             data: {
               id: customerMatch[1],
               email: record.email,
-              name: "OpenPost E2E",
+              name: "dopost E2E",
             },
             meta: { request_id: "req_e2e" },
           })
@@ -290,5 +290,5 @@ const smtp = Bun.listen({
 });
 
 process.stdout.write(
-  `OpenPost E2E boundaries listening on HTTP ${server.port}, HTTPS ${mastodon.port}, and SMTP ${smtp.port}\n`,
+  `dopost E2E boundaries listening on HTTP ${server.port}, HTTPS ${mastodon.port}, and SMTP ${smtp.port}\n`,
 );

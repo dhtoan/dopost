@@ -1,13 +1,15 @@
 <script lang="ts">
+	import { workspaceCtx } from '$lib/stores/workspace.svelte';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import { resolveAppPath } from '$lib/app-path';
 	import {
 		isMoreNavigationRoute,
 		isNavigationItemActive,
-		mobileNavigation
+		mobileNavigation,
+		primaryNavigation
 	} from '$lib/app-navigation';
-	import { AUNO_CREATE_ACTIONS } from '$lib/auno/create-actions';
+	import { DOPOST_CREATE_ACTIONS } from '$lib/dopost/create-actions';
 	import { ui } from '$lib/stores/ui.svelte';
 	import { m } from '$lib/paraglide/messages';
 	import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
@@ -16,7 +18,14 @@
 	import MobileMoreMenu from './mobile-more-menu.svelte';
 	import { publicationView } from '$lib/stores/publication-view.svelte';
 
-	const items = mobileNavigation;
+	const items = $derived(
+		workspaceCtx.currentWorkspace?.can_edit
+			? mobileNavigation
+			: [
+					...mobileNavigation.filter((item) => item.id !== 'new'),
+					...primaryNavigation.filter((item) => item.id === 'analytics')
+				]
+	);
 	let moreMenuOpen = $state(false);
 	let moreMenuContent = $state<HTMLDivElement | null>(null);
 
@@ -31,12 +40,14 @@
 
 	function iconFor(id: (typeof items)[number]['id']): ThemeIconRole {
 		switch (id) {
+			case 'home':
+				return 'home';
+			case 'analytics':
+				return 'analytics';
 			case 'communications':
 				return 'communications';
 			case 'publications':
 				return 'publications';
-			case 'media':
-				return 'media';
 			default:
 				return 'add';
 		}
@@ -44,14 +55,16 @@
 
 	function labelFor(id: (typeof items)[number]['id']) {
 		switch (id) {
+			case 'home':
+				return m.nav_home();
+			case 'analytics':
+				return m.sidebar_analytics();
 			case 'new':
 				return m.sidebar_new();
 			case 'communications':
 				return m.sidebar_communications();
 			case 'publications':
 				return m.sidebar_activity();
-			case 'media':
-				return m.sidebar_media();
 			default:
 				return '';
 		}
@@ -93,13 +106,16 @@
 								<button
 									{...props}
 									type="button"
-									class="flex min-h-11 w-full items-center justify-center rounded-md text-primary focus-visible:ring-2 focus-visible:ring-ring"
-									aria-label="Create"
-								><ThemeIcon role="add" class="size-6" /></button>
+									class="flex min-h-[var(--theme-touch-target)] w-full flex-col items-center justify-center gap-0.5 rounded-md text-primary focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+									aria-label={m.sidebar_new_post()}
+								>
+									<ThemeIcon role="add" class="size-5" />
+									<span class="text-xs leading-none font-medium">{labelFor(item.id)}</span>
+								</button>
 							{/snippet}
 						</DropdownMenu.Trigger>
 						<DropdownMenu.Content side="top" align="center" class="w-[min(20rem,calc(100vw-2rem))]">
-							{#each AUNO_CREATE_ACTIONS as action (action.id)}
+							{#each DOPOST_CREATE_ACTIONS as action (action.id)}
 								<DropdownMenu.Item
 									class="min-h-11 gap-3"
 									onclick={() => openCreateAction(action.href)}
@@ -120,15 +136,16 @@
 						data-active={active}
 						data-cuelume-toggle="tick"
 						class={[
-							'flex min-h-[var(--theme-touch-target)] w-full items-center justify-center rounded-md px-1 transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none',
-							active ? 'bg-accent text-foreground' : 'text-muted-foreground'
+							'flex min-h-[var(--theme-touch-target)] w-full flex-col items-center justify-center gap-0.5 rounded-md px-1 transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none',
+							active ? 'text-foreground' : 'text-muted-foreground'
 						]}
 						onclick={() => navigate(item)}
 						aria-current={active ? 'page' : undefined}
-						aria-label={labelFor(item.id)}
 					>
-						<span class="flex size-7 items-center justify-center"
-							><ThemeIcon role={icon} class="size-5" /></span>
+						<ThemeIcon role={icon} class="size-5" />
+						<span class="max-w-full truncate text-xs leading-none font-medium"
+							>{labelFor(item.id)}</span
+						>
 					</button>
 				{/if}
 			</li>
@@ -143,15 +160,15 @@
 							data-theme-navigation-item
 							data-active={moreActive}
 							class={[
-								'flex min-h-[var(--theme-touch-target)] w-full items-center justify-center rounded-md px-1 transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none',
-								moreActive ? 'bg-accent text-foreground' : 'text-muted-foreground'
+								'flex min-h-[var(--theme-touch-target)] w-full flex-col items-center justify-center gap-0.5 rounded-md px-1 transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none',
+								moreActive ? 'text-foreground' : 'text-muted-foreground'
 							]}
 							aria-current={moreActive ? 'page' : undefined}
-							aria-label={m.sidebar_more()}
 						>
-							<span class="flex size-7 items-center justify-center">
-								<ThemeIcon role="menu" class="size-5" />
-							</span>
+							<ThemeIcon role="menu" class="size-5" />
+							<span class="max-w-full truncate text-xs leading-none font-medium"
+								>{m.sidebar_more()}</span
+							>
 						</button>
 					{/snippet}
 				</DropdownMenu.Trigger>

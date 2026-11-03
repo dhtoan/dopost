@@ -65,7 +65,7 @@ assert.deepEqual(apiCatalog, {
 			],
 			'service-doc': [
 				{
-					href: 'https://docs.openpo.st/api-reference',
+					href: 'https://openpo.st/docs/api-reference',
 					type: 'text/html'
 				}
 			],
@@ -86,7 +86,7 @@ assert.deepEqual(apiCatalog, {
 			],
 			'service-doc': [
 				{
-					href: 'https://docs.openpo.st/guides/automation',
+					href: 'https://openpo.st/docs/mcp',
 					type: 'text/html'
 				}
 			]
@@ -173,7 +173,7 @@ for (const unsupportedPath of [
 }
 
 const authDiscovery = await readFile(path.join(outputRoot, 'auth.md'), 'utf8');
-assert.match(authDiscovery, /^# OpenPost Auth\.md$/m);
+assert.match(authDiscovery, /^# dopost Auth\.md$/m);
 assert.match(authDiscovery, /\.well-known\/oauth-protected-resource/);
 assert.match(authDiscovery, /\.well-known\/oauth-authorization-server/);
 assert.match(authDiscovery, /Authorization: Bearer <token>/);
@@ -188,15 +188,13 @@ assert.deepEqual([...favicon.subarray(0, 4)], [0, 0, 1, 0]);
 assert.ok((await readFile(path.join(outputRoot, 'apple-touch-icon.png'))).length > 0);
 
 const notFound = await readFile(path.join(outputRoot, '404.html'), 'utf8');
-assert.match(notFound, /<title>Page not found · OpenPost<\/title>/);
+assert.match(notFound, /<title>Page not found · dopost<\/title>/);
 assert.match(notFound, /<meta name="robots" content="noindex" \/>/);
 assert.ok(notFound.includes(`<h1>${marketingErrorRecovery.title}</h1>`));
 assert.ok(notFound.includes(marketingErrorRecovery.description));
 assert.ok(notFound.includes(marketingErrorRecovery.primary.label));
-for (const route of marketingErrorRecovery.routes) {
-	assert.ok(notFound.includes(`href="${route.href}"`));
-	assert.ok(notFound.includes(route.label));
-}
+assert.ok(notFound.includes(`href="${marketingErrorRecovery.help.href}"`));
+assert.ok(notFound.includes(`src="${marketingErrorRecovery.illustration}"`));
 assert.doesNotMatch(
 	notFound,
 	/(?:href|src)="\.\/_app\//,

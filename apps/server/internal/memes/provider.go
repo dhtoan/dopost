@@ -99,7 +99,7 @@ type TemplateExample struct {
 	URL  string   `json:"url"`
 }
 
-// Template is a normalized OpenPost template. SearchTerms are generated from
+// Template is a normalized dopost template. SearchTerms are generated from
 // stable discovery fields so callers do not need to reproduce normalization.
 type Template struct {
 	ID          string           `json:"id"`
@@ -143,9 +143,13 @@ type RenderRequest struct {
 	Extension     string         `json:"extension,omitempty"`
 	Layout        string         `json:"layout,omitempty"`
 	Font          string         `json:"font,omitempty"`
+	// Height is the rendered image height in pixels. Zero uses the provider
+	// default. Saving a meme requests a larger height than a candidate
+	// preview so published output is not upscaled by the composer or provider.
+	Height int `json:"height,omitempty"`
 }
 
-// OverlayImage keeps workspace media inside OpenPost's process. The built-in
+// OverlayImage keeps workspace media inside dopost's process. The built-in
 // renderer only reads these bounded bytes.
 type OverlayImage struct {
 	Data     []byte
@@ -178,7 +182,7 @@ type Provider interface {
 }
 
 // TemplateImageProvider is an optional provider capability for safely loading
-// catalog images through the backend. OpenPost uses it instead of exposing
+// catalog images through the backend. dopost uses it instead of exposing
 // provider URLs or server-only credentials to browsers.
 type TemplateImageProvider interface {
 	TemplateImage(context.Context, string) (RenderedImage, error)

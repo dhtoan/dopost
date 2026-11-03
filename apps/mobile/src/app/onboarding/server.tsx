@@ -1,11 +1,12 @@
+import { NativeText as Text } from "@/components/native-text";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { useState } from "react";
-import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text } from "react-native";
+import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet } from "react-native";
 
 import {
   BodyText,
   Button,
-  Card,
+  ContentSection,
   Screen,
   SectionHeader,
   TextField,
@@ -59,11 +60,11 @@ export default function ServerScreen() {
       >
         <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
           <Brand style={styles.brand} />
-          <Text style={[styles.title, { color: colors.onSurface }]}>Sign in to OpenPost</Text>
+          <Text style={[styles.title, { color: colors.onSurface }]}>Sign in to dopost</Text>
           <BodyText style={styles.subtitle}>Choose where to sign in.</BodyText>
 
-          <Card style={styles.hostedCard}>
-            <Text style={[styles.hostedTitle, { color: colors.onSurface }]}>OpenPost Hosted</Text>
+          <ContentSection style={styles.hostedCard}>
+            <Text style={[styles.hostedTitle, { color: colors.onSurface }]}>dopost Hosted</Text>
             <BodyText>Managed at {HOSTED_URL.replace("https://", "")}</BodyText>
             <Button
               title="Continue to sign in"
@@ -73,7 +74,7 @@ export default function ServerScreen() {
               onPress={() => void choose(HOSTED_URL, "hosted")}
               style={styles.hostedButton}
             />
-          </Card>
+          </ContentSection>
 
           {error ? (
             <BodyText accessibilityRole="alert" style={{ color: colors.error }}>
@@ -104,7 +105,7 @@ export default function ServerScreen() {
                 returnKeyType="done"
                 onSubmitEditing={() => void choose(url, "custom")}
               />
-              <BodyText>Use the HTTPS address for your OpenPost server.</BodyText>
+              <BodyText>Use the HTTPS address for your dopost server.</BodyText>
               <Button
                 title="Connect to server"
                 intent="ordinary"

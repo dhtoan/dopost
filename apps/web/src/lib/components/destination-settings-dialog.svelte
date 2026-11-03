@@ -6,6 +6,8 @@
 	import * as Dialog from '$lib/components/ui/dialog';
 	import { Input } from '$lib/components/ui/input';
 	import { Textarea } from '$lib/components/ui/textarea';
+	import Disclosure from '$lib/components/disclosure.svelte';
+	import { countPlatformText, YOUTUBE_DESCRIPTION_MAX_BYTES } from '@openpost/platform-text';
 	import AppSelect from './app-select.svelte';
 	import DestinationOptionCombobox from './destination-option-combobox.svelte';
 	import SocialAccountIdentity from './social-account-identity.svelte';
@@ -24,6 +26,9 @@
 	import { settingLabel } from '$lib/setting-label';
 	import { showToast } from '$lib/toast';
 	import DiscordEmbedEditor from './discord-embed-editor.svelte';
+	import type { TextCardResult } from '$lib/text-cards';
+	import { textCardDefaultsFrom } from '$lib/text-cards';
+	import TextCardSettings from './text-card-settings.svelte';
 
 	type SettingDefinition = components['schemas']['SettingDefinition'];
 	type SettingCondition = components['schemas']['SettingCondition'];
@@ -49,9 +54,13 @@
 		optionsLoading?: boolean;
 		optionsError?: string;
 		scopeLabel?: string;
+		emptySettingsHint?: string;
 		formatValue?: string;
 		formatOptions?: Array<{ value: string; label: string }>;
 		formatRequired?: boolean;
+		textCardSavedPreview?: TextCardResult;
+		textCardText?: string;
+		textCardAttachmentCount?: number;
 		onChange: (key: string, value: ComposerSettingValue) => void;
 		onFormatChange?: (value: string) => void;
 		onMediaChange?: (mediaId: string, key: string, value: ComposerSettingValue) => void;
@@ -63,6 +72,11 @@
 			file: File,
 			metadata?: GeneratedCoverFrame
 		) => void | Promise<void>;
+		onEditCover?: (
+			setting: SettingDefinition,
+			file: File,
+			metadata: GeneratedCoverFrame
+		) => Promise<void>;
 		onRemove?: () => void;
 	}
 
@@ -78,9 +92,13 @@
 		optionsLoading = false,
 		optionsError = '',
 		scopeLabel = '',
+		emptySettingsHint = '',
 		formatValue = '',
 		formatOptions = [],
 		formatRequired = false,
+		textCardSavedPreview,
+		textCardText = '',
+		textCardAttachmentCount = 0,
 		onChange,
 		onFormatChange,
 		onMediaChange,
@@ -88,6 +106,7 @@
 		onOptionLoadMore,
 		onRetry,
 		onFileChange,
+		onEditCover,
 		onRemove
 	}: Props = $props();
 
@@ -100,7 +119,7 @@
 
 	const accountName = $derived(
 		account
-			? formatSocialAccountName(account.account_username, account.platform) ||
+			? formatSocialAccountName(account.account_username, account.platform, account.alias) ||
 					account.slug ||
 					getPlatformName(account.platform)
 			: ''
@@ -119,6 +138,8 @@
 				group,
 				settings: settings.filter(
 					(setting) =>
+						setting.key !== 'text_card' &&
+						!setting.key.startsWith('text_card_') &&
 						setting.scope !== 'media_item' &&
 						setting.group === group &&
 						dependenciesMet(setting, values) &&
@@ -130,6 +151,9 @@
 			.filter((entry) => entry.settings.length > 0)
 	);
 	const mediaSettings = $derived(settings.filter((setting) => setting.scope === 'media_item'));
+	// The resolved catalogue owns the text-card defaults; the settings panel must
+	// show them rather than restating a colour literal.
+	const textCardDefaults = $derived(textCardDefaultsFrom(settings));
 	const unavailableSettings = $derived(
 		settings.filter(
 			(setting) =>
@@ -145,6 +169,12 @@
 		mediaItems.find((item) => item.mimeType.startsWith('video/')) ??
 			(mediaItems.length === 1 ? mediaItems[0] : undefined)
 	);
+
+	function youtubeDescriptionInvalid(setting: SettingDefinition): boolean {
+		if (account?.platform !== 'youtube' || setting.key !== 'description') return false;
+		const text = valueAsString(setting.key).trim();
+		return countPlatformText('youtube', text) > YOUTUBE_DESCRIPTION_MAX_BYTES || /[<>]/.test(text);
+	}
 
 	function valueAsString(key: string, scopedValues = values): string {
 		const value = scopedValues[key];
@@ -387,7 +417,7 @@
 
 <Dialog.Root bind:open>
 	<Dialog.Content
-		class="flex h-[100dvh] max-h-[100dvh] w-full max-w-none flex-col rounded-none p-0 sm:h-auto sm:max-h-[85vh] sm:max-w-xl sm:rounded-lg"
+		class="flex h-[100dvh] max-h-[100dvh] w-full max-w-none flex-col gap-0 overflow-clip rounded-none p-0 sm:h-auto sm:max-h-[85vh] sm:max-w-xl sm:rounded-lg"
 	>
 		<Dialog.Header class="shrink-0 border-b px-5 py-4 text-left">
 			<Dialog.Title>
@@ -414,6 +444,7 @@
 		</Dialog.Header>
 
 		<div class="min-h-0 flex-1 space-y-5 overflow-y-auto px-5 py-4">
+			{#if emptySettingsHint}<InlineNotice tone="info" message={emptySettingsHint} />{/if}
 			{#if validationMessage}
 				<InlineNotice tone="error" message={validationMessage}>
 					{#snippet actions()}
@@ -462,6 +493,18 @@
 				</section>
 			{/if}
 
+			{#if account && settings.some((setting) => setting.key === 'text_card') && formatValue !== 'instagram.reel'}
+				<TextCardSettings
+					savedPreview={textCardSavedPreview}
+					{account}
+					{values}
+					defaults={textCardDefaults}
+					outputProfile={formatValue}
+					text={textCardText}
+					attachmentCount={textCardAttachmentCount}
+					{onChange}
+				/>
+			{/if}
 			{#each groupedSettings as entry (entry.group)}
 				<section class="space-y-3" aria-labelledby="setting-group-{entry.group}">
 					<h3
@@ -503,6 +546,23 @@
 											{valueAsString(setting.key)}
 										</code>
 									{/if}
+								{:else if control === 'optional_boolean'}
+									<label class="text-sm font-medium" for="destination-setting-{setting.key}">
+										{settingLabel(setting)}
+									</label>
+									<AppSelect
+										id="destination-setting-{setting.key}"
+										ariaLabel={settingLabel(setting)}
+										class="mt-1 h-11 w-full"
+										value={valueAsString(setting.key) || 'inherit'}
+										options={[
+											{ value: 'inherit', label: m.compose_setting_unset() },
+											{ value: 'true', label: m.compose_setting_yes() },
+											{ value: 'false', label: m.compose_setting_no() }
+										]}
+										onValueChange={(value) =>
+											onChange(setting.key, value === 'inherit' ? null : value === 'true')}
+									/>
 								{:else if setting.type === 'boolean'}
 									<label class="flex min-h-11 items-center gap-3 text-sm">
 										<Checkbox
@@ -676,13 +736,15 @@
 											onChange={(value) => onChange(setting.key, value)}
 										/>
 									{:else if control === 'cover_frame' && videoMediaItem}
-										<VideoCoverFramePicker
-											mediaId={videoMediaItem.id}
-											value={values[setting.key]}
-											mode="timestamp"
-											label={settingLabel(setting)}
-											onTimestampChange={(timestampMs) => onChange(setting.key, timestampMs)}
-										/>
+										{#key videoMediaItem.id}
+											<VideoCoverFramePicker
+												mediaId={videoMediaItem.id}
+												value={values[setting.key]}
+												mode="timestamp"
+												label={settingLabel(setting)}
+												onTimestampChange={(timestampMs) => onChange(setting.key, timestampMs)}
+											/>
+										{/key}
 									{:else if ['media_picker', 'captions_file'].includes(control) && onFileChange}
 										<Input
 											id="destination-setting-{setting.key}"
@@ -705,22 +767,57 @@
 											</p>
 										{/if}
 										{#if supportsGeneratedCover(setting) && videoMediaItem}
-											<VideoCoverFramePicker
-												mediaId={videoMediaItem.id}
-												value={values[setting.key]}
-												mode="image"
-												label={settingLabel(setting)}
-												onFileChange={(file, metadata) => onFileChange?.(setting, file, metadata)}
-											/>
+											{#key videoMediaItem.id}
+												<VideoCoverFramePicker
+													mediaId={videoMediaItem.id}
+													value={values[setting.key]}
+													mode="image"
+													label={settingLabel(setting)}
+													onFileChange={(file, metadata) => onFileChange?.(setting, file, metadata)}
+													onEditFrame={onEditCover
+														? (file, metadata) => onEditCover!(setting, file, metadata)
+														: undefined}
+												/>
+											{/key}
 										{/if}
 									{:else if setting.type === 'textarea' || control === 'follow_up'}
 										<Textarea
 											id="destination-setting-{setting.key}"
-											class="mt-1 min-h-24"
+											class={account?.platform === 'youtube' && setting.key === 'description'
+												? 'mt-1 max-h-48 min-h-24 overflow-y-auto'
+												: 'mt-1 min-h-24'}
 											value={valueAsString(setting.key)}
+											aria-invalid={youtubeDescriptionInvalid(setting)}
+											aria-describedby={account?.platform === 'youtube' &&
+											setting.key === 'description'
+												? /[<>]/.test(valueAsString(setting.key))
+													? 'youtube-description-usage youtube-description-character-error'
+													: 'youtube-description-usage'
+												: undefined}
 											disabled={Boolean(setting.unavailable_reason)}
 											oninput={(event) => onChange(setting.key, event.currentTarget.value)}
 										/>
+										{#if account?.platform === 'youtube' && setting.key === 'description'}
+											<p
+												id="youtube-description-usage"
+												class="mt-1 text-xs"
+												class:text-destructive={youtubeDescriptionInvalid(setting)}
+												class:text-muted-foreground={!youtubeDescriptionInvalid(setting)}
+											>
+												{m.compose_description_bytes({
+													count: countPlatformText('youtube', valueAsString(setting.key)),
+													limit: YOUTUBE_DESCRIPTION_MAX_BYTES
+												})}
+											</p>
+											{#if /[<>]/.test(valueAsString(setting.key))}
+												<p
+													id="youtube-description-character-error"
+													class="mt-1 text-xs text-destructive"
+												>
+													{m.compose_description_angle_brackets()}
+												</p>
+											{/if}
+										{/if}
 									{:else}
 										<Input
 											id="destination-setting-{setting.key}"
@@ -896,6 +993,7 @@
 															id="destination-media-{item.id}-{setting.key}"
 															class="mt-1 min-h-24"
 															value={valueAsString(setting.key, scopedValues)}
+															maxlength={setting.constraints?.max_length}
 															disabled={Boolean(setting.unavailable_reason)}
 															oninput={(event) =>
 																onMediaChange?.(item.id, setting.key, event.currentTarget.value)}
@@ -930,10 +1028,11 @@
 			{/if}
 
 			{#if unavailableSettings.length > 0}
-				<details class="border-t pt-3">
-					<summary class="min-h-11 cursor-pointer py-2 text-sm text-muted-foreground">
-						{m.accounts_provider_unavailable()} ({unavailableSettings.length})
-					</summary>
+				<Disclosure
+					summary={`${m.accounts_provider_unavailable()} (${unavailableSettings.length})`}
+					summaryClass="text-muted-foreground"
+					class="border-t pt-3"
+				>
 					<ul class="space-y-3 pb-2">
 						{#each unavailableSettings as setting (setting.key)}
 							<li>
@@ -942,7 +1041,7 @@
 							</li>
 						{/each}
 					</ul>
-				</details>
+				</Disclosure>
 			{/if}
 		</div>
 

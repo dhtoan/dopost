@@ -2,7 +2,7 @@
  * Equal-power audio crossfade for visual transitions.
  *
  * Ported from FreeCut (MIT) — canvas-audio.ts equal-power sin/cos — retargeted
- * to OpenPost's TimelineTransition windows. Each audible clip that participates
+ * to dopost's TimelineTransition windows. Each audible clip that participates
  * in an active visual transition receives a multiplicative gain so the summed
  * power stays constant. The gain composes with existing volume/keyframe and
  * track mute/solo gains.
@@ -16,6 +16,8 @@ export interface TransitionGainSpan {
 	durationSeconds: number;
 	isIncoming: boolean;
 	dipToSilence: boolean;
+	/** Child transition progress after a nested composition retimes its clock. */
+	progressPoints?: Array<{ whenSeconds: number; progress: number }>;
 }
 
 export interface TransitionAudioExtent {
@@ -43,6 +45,42 @@ function windowProgress(
 	return Math.min(1, Math.max(0, (frame - window.startFrame) / (window.durationInFrames - 1)));
 }
 
+function sameSourceTiming(left: TimelineItem, right: TimelineItem): boolean {
+	const leftRamp = left.speedRamp ?? [];
+	const rightRamp = right.speedRamp ?? [];
+	return (
+		(left.sourceStart ?? 0) === (right.sourceStart ?? 0) &&
+		left.sourceEnd === right.sourceEnd &&
+		left.sourceFps === right.sourceFps &&
+		(left.speed ?? 1) === (right.speed ?? 1) &&
+		Boolean(left.isReversed) === Boolean(right.isReversed) &&
+		leftRamp.length === rightRamp.length &&
+		leftRamp.every((point, index) => {
+			const other = rightRamp[index]!;
+			return (
+				point.sourceFrame === other.sourceFrame &&
+				point.speed === other.speed &&
+				point.easing === other.easing
+			);
+		})
+	);
+}
+
+function isTransitionCompanion(item: TimelineItem, visual: TimelineItem): boolean {
+	if (item.from !== visual.from || item.durationInFrames !== visual.durationInFrames) return false;
+	if (item.linkedGroupId && item.linkedGroupId === visual.linkedGroupId) return true;
+	// Detaching transfers the soundtrack's transitions as well as its samples.
+	// Editing links can then change without removing the authored crossfade.
+	return Boolean(
+		visual.audioDetached &&
+		item.type === 'audio' &&
+		item.originId &&
+		item.originId === visual.originId &&
+		item.mediaId === visual.mediaId &&
+		sameSourceTiming(item, visual)
+	);
+}
+
 /**
  * Check whether `item` participates in `transition` either directly or as a
  * synchronized linked companion (video ↔ audio that share linkedGroupId and
@@ -56,9 +94,7 @@ export function isOutgoingTransitionParticipant(
 ): boolean {
 	if (item.id === transition.fromItemId) return true;
 	const from = itemsById.get(transition.fromItemId);
-	if (!from || !item.linkedGroupId || item.linkedGroupId !== from.linkedGroupId) return false;
-	// Synchronized companion: same timeline window as the visual clip
-	return item.from === from.from && item.durationInFrames === from.durationInFrames;
+	return from !== undefined && isTransitionCompanion(item, from);
 }
 
 export function isIncomingTransitionParticipant(
@@ -68,19 +104,27 @@ export function isIncomingTransitionParticipant(
 ): boolean {
 	if (item.id === transition.toItemId) return true;
 	const to = itemsById.get(transition.toItemId);
-	if (!to || !item.linkedGroupId || item.linkedGroupId !== to.linkedGroupId) return false;
-	return item.from === to.from && item.durationInFrames === to.durationInFrames;
+	return to !== undefined && isTransitionCompanion(item, to);
+}
+
+export function findLinkedAudioCompanion(
+	item: TimelineItem,
+	items: TimelineItem[]
+): TimelineItem | undefined {
+	if (item.type !== 'video' || !item.linkedGroupId || !item.mediaId) return undefined;
+	return items.find(
+		(candidate) =>
+			candidate.type === 'audio' &&
+			candidate.mediaId === item.mediaId &&
+			candidate.linkedGroupId === item.linkedGroupId &&
+			candidate.from === item.from &&
+			candidate.durationInFrames === item.durationInFrames &&
+			sameSourceTiming(candidate, item)
+	);
 }
 
 export function hasLinkedAudioCompanion(item: TimelineItem, items: TimelineItem[]): boolean {
-	if (item.type !== 'video' || !item.linkedGroupId) return false;
-	return items.some(
-		(candidate) =>
-			candidate.type === 'audio' &&
-			candidate.linkedGroupId === item.linkedGroupId &&
-			candidate.from === item.from &&
-			candidate.durationInFrames === item.durationInFrames
-	);
+	return findLinkedAudioCompanion(item, items) !== undefined;
 }
 
 export function transitionGainAtProgress(
@@ -95,6 +139,29 @@ export function transitionGainAtProgress(
 	return progress < 0.5 ? equalPowerGain(progress * 2, false) : 0;
 }
 
+/** Resolve retimed progress without changing the equal-power fade shape. */
+export function transitionProgressAtTime(span: TransitionGainSpan, seconds: number): number {
+	const points = span.progressPoints;
+	if (!points?.length)
+		return span.durationSeconds > 0 ? (seconds - span.startSeconds) / span.durationSeconds : 1;
+	if (seconds <= points[0]!.whenSeconds) return points[0]!.progress;
+	let low = 1;
+	let high = points.length;
+	while (low < high) {
+		const middle = Math.floor((low + high) / 2);
+		if (points[middle]!.whenSeconds < seconds) low = middle + 1;
+		else high = middle;
+	}
+	const right = points[low];
+	const left = points[low - 1]!;
+	if (!right) return left.progress;
+	const duration = right.whenSeconds - left.whenSeconds;
+	if (duration <= 0) return right.progress;
+	return (
+		left.progress + ((seconds - left.whenSeconds) / duration) * (right.progress - left.progress)
+	);
+}
+
 export function buildTransitionGainCurve(
 	span: TransitionGainSpan,
 	startSeconds: number,
@@ -106,8 +173,7 @@ export function buildTransitionGainCurve(
 	const curve = new Float32Array(sampleCount);
 	for (let index = 0; index < sampleCount; index++) {
 		const time = startSeconds + (durationSeconds * index) / (sampleCount - 1);
-		const progress =
-			span.durationSeconds > 0 ? (time - span.startSeconds) / span.durationSeconds : 1;
+		const progress = transitionProgressAtTime(span, time);
 		curve[index] = transitionGainAtProgress(progress, span.isIncoming, span.dipToSilence);
 	}
 	return curve;
@@ -252,19 +318,4 @@ export function audioCrossfadeGainAtFrame(
 		if (gain === 0) return 0;
 	}
 	return gain;
-}
-
-/**
- * Apply the crossfade multiplicatively to a single gain value at `frame`.
- * This is the preview path (per-frame HTMLMediaElement volume).
- */
-export function applyAudioCrossfadeToGain(
-	baseGain: number,
-	item: TimelineItem,
-	frame: number,
-	transitions: TimelineTransition[],
-	itemsById: Map<string, TimelineItem>
-): number {
-	const crossfade = audioCrossfadeGainAtFrame(item, frame, transitions, itemsById);
-	return baseGain * crossfade;
 }

@@ -68,8 +68,8 @@ function redirectRule(zone, paths, mode) {
     rule(
       `${zone.key}:canonical-redirect`,
       removeSlash
-        ? "OpenPost canonical marketing paths omit trailing slashes"
-        : "OpenPost documentation section indexes end in a slash",
+        ? "dopost canonical marketing paths omit trailing slashes"
+        : "dopost documentation section indexes end in a slash",
       `(http.host eq ${quote(zone.hostname)} and ${pathSet(paths)})`,
       "redirect",
       {
@@ -89,6 +89,7 @@ function redirectRule(zone, paths, mode) {
 
 function legacyRedirectRules(redirect, routes) {
   const canonicalRoutes = routes ?? [];
+  const targetBase = `https://${redirect.target_hostname}${redirect.target_path_prefix ?? ""}`;
   const sectionIndexes = canonicalRoutes.filter((route) => route !== "/" && route.endsWith("/"));
   const noncanonicalPaths =
     redirect.surface === "marketing"
@@ -104,13 +105,13 @@ function legacyRedirectRules(redirect, routes) {
           `${redirect.key}:canonical-host-redirect`,
           redirect.surface === "marketing"
             ? "Move old marketing URLs to canonical paths on openpo.st"
-            : "Move old documentation indexes to canonical paths on docs.openpo.st",
+            : "Move old documentation indexes to their canonical docs paths",
           `(http.host eq ${quote(redirect.hostname)} and ${pathSet(noncanonicalPaths)})`,
           "redirect",
           {
             from_value: {
               target_url: {
-                expression: `concat(${quote(`https://${redirect.target_hostname}`)}, ${normalizePath})`,
+                expression: `concat(${quote(targetBase)}, ${normalizePath})`,
               },
               status_code: 308,
               preserve_query_string: true,
@@ -119,17 +120,35 @@ function legacyRedirectRules(redirect, routes) {
         ),
       ]
     : [];
+  const root = redirect.target_path_prefix
+    ? [
+        rule(
+          `${redirect.key}:root-redirect`,
+          `Move the old ${redirect.surface} root to ${targetBase}`,
+          `(http.host eq ${quote(redirect.hostname)} and http.request.uri.path eq "/")`,
+          "redirect",
+          {
+            from_value: {
+              target_url: { value: targetBase },
+              status_code: 308,
+              preserve_query_string: true,
+            },
+          },
+        ),
+      ]
+    : [];
   return [
+    ...root,
     ...normalized,
     rule(
       `${redirect.key}:host-redirect`,
       `Move the old ${redirect.surface} host to ${redirect.target_hostname}`,
-      `(http.host eq ${quote(redirect.hostname)})`,
+      `(http.host eq ${quote(redirect.hostname)}${root.length ? ' and http.request.uri.path ne "/"' : ""})`,
       "redirect",
       {
         from_value: {
           target_url: {
-            expression: `concat(${quote(`https://${redirect.target_hostname}`)}, http.request.uri.path)`,
+            expression: `concat(${quote(targetBase)}, http.request.uri.path)`,
           },
           status_code: 308,
           preserve_query_string: true,
@@ -140,9 +159,10 @@ function legacyRedirectRules(redirect, routes) {
 }
 
 function rewriteRules(zone, routes) {
-  const rootRoute = routes.includes("/") ? ["/"] : [];
-  const sectionIndexes = routes.filter((route) => route !== "/" && route.endsWith("/"));
-  const ordinary = routes.filter((route) => route !== "/" && !route.endsWith("/"));
+  const rootPath = zone.path_prefix || "/";
+  const rootRoute = routes.includes(rootPath) ? [rootPath] : [];
+  const sectionIndexes = routes.filter((route) => route !== rootPath && route.endsWith("/"));
+  const ordinary = routes.filter((route) => route !== rootPath && !route.endsWith("/"));
   const rules = [];
   if (rootRoute.length) {
     rules.push(
@@ -151,7 +171,7 @@ function rewriteRules(zone, routes) {
         "Select the explicit root Markdown artifact for an exact Markdown request",
         expressionFor(zone.hostname, rootRoute),
         "rewrite",
-        { uri: { path: { value: "/index.md" } } },
+        { uri: { path: { value: `${rootPath === "/" ? "" : rootPath}/index.md` } } },
       ),
     );
   }
@@ -235,13 +255,20 @@ export function buildCloudflareEdgePlan({
   marketingRoutes = marketingRouteManifest.map(({ path: route }) => route),
   documentationRoutes = docsPageCatalog.map(({ route }) => route),
 } = {}) {
-  const routesBySurface = {
+  const sourceRoutesBySurface = {
     marketing: sortedUnique(marketingRoutes),
     documentation: sortedUnique(documentationRoutes),
   };
   const zones = blueprint.zones.map((zone) => {
     const surfaces = (zone.surfaces ?? []).map((surface) => {
-      const routes = routesBySurface[surface.key];
+      const sourceRoutes = sourceRoutesBySurface[surface.key];
+      const routes = sourceRoutes.map((route) =>
+        surface.path_prefix
+          ? route === "/"
+            ? surface.path_prefix
+            : `${surface.path_prefix}${route}`
+          : route,
+      );
       const canonicalRedirects =
         surface.key === "marketing"
           ? routes.filter((route) => route !== "/").map((route) => `${route}/`)
@@ -253,7 +280,7 @@ export function buildCloudflareEdgePlan({
         canonical_routes: routes,
         origin_headers: {
           canonical_html_paths: routes,
-          markdown_pattern: "/*.md",
+          markdown_pattern: `${surface.path_prefix ?? ""}/*.md`,
           vary: "Accept",
           rule_count: routes.length + surface.pages_base_header_rules,
         },
@@ -269,7 +296,7 @@ export function buildCloudflareEdgePlan({
       };
     });
     const legacyRules = (zone.redirects ?? []).flatMap((redirect) =>
-      legacyRedirectRules(redirect, routesBySurface[redirect.surface]),
+      legacyRedirectRules(redirect, sourceRoutesBySurface[redirect.surface]),
     );
     return {
       ...zone,
@@ -443,7 +470,7 @@ function phaseBody(zone, phase, current) {
   );
   return {
     description:
-      current?.description ?? "OpenPost phase entry point managed with repository evidence",
+      current?.description ?? "dopost phase entry point managed with repository evidence",
     rules: [...unmanaged.map(stripServerFields), ...zone.rules[phase]],
   };
 }
@@ -465,7 +492,7 @@ function unmanagedConflicts(zone, phase, state) {
       phase,
       ref: candidate.ref ?? null,
       description: candidate.description ?? null,
-      reason: "unmanaged rule shares an OpenPost-owned phase; resolve its ownership before apply",
+      reason: "unmanaged rule shares a dopost-owned phase; resolve its ownership before apply",
     }));
 }
 
@@ -541,7 +568,7 @@ function rollbackPlanForInspection(plan, inspection) {
         before:
           entry.current === null
             ? {
-                description: "Empty phase restored after OpenPost edge-plan rollback",
+                description: "Empty phase restored after dopost edge-plan rollback",
                 rules: [],
               }
             : writableEntrypoint(entry.current),

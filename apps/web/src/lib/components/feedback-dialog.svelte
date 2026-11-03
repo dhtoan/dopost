@@ -17,6 +17,7 @@
 	import { createQuery } from '@tanstack/svelte-query';
 	import { feedbackConfigQueryOptions } from '@openpost/query-catalog';
 	import { feedbackQueryAPI } from '$lib/query/feedback';
+	import Disclosure from '$lib/components/disclosure.svelte';
 
 	type FeedbackCategory = 'bug' | 'idea' | 'question';
 
@@ -235,7 +236,7 @@
 
 		{#if loading && !config}
 			<div class="flex min-h-40 items-center justify-center text-sm text-muted-foreground">
-				<ProtectedIcon icon="loading" class="mr-2 size-4 animate-spin" />
+				<ProtectedIcon icon="loading" class="mr-2 size-4 animate-spin motion-reduce:animate-none" />
 				{m.feedback_loading()}
 			</div>
 		{:else if !config}
@@ -346,7 +347,10 @@
 					</label>
 					{#if screenshotLoading}
 						<p class="flex items-center text-xs text-muted-foreground">
-							<ProtectedIcon icon="loading" class="mr-2 size-3.5 animate-spin" />
+							<ProtectedIcon
+								icon="loading"
+								class="mr-2 size-3.5 animate-spin motion-reduce:animate-none"
+							/>
 							{m.feedback_screenshot_capturing()}
 						</p>
 					{:else if screenshotDataURL}
@@ -366,7 +370,7 @@
 							>
 								<ThemeIcon role="close" class="size-4" />
 							</Button>
-							<p class="px-2 py-1 text-right text-[0.6875rem] text-muted-foreground">
+							<p class="px-2 py-1 text-right text-xs text-muted-foreground">
 								{Math.ceil(screenshotBytes / 1024)} KB
 							</p>
 						</div>
@@ -398,17 +402,17 @@
 						{/each}
 					</ul>
 					{#if includeDiagnostics && diagnosticsPreview}
-						<details class="rounded-md bg-muted/45 p-2 text-xs">
-							<summary class="cursor-pointer font-medium">
-								{m.feedback_diagnostics_preview()}
-							</summary>
+						<Disclosure
+							summary={m.feedback_diagnostics_preview()}
+							class="rounded-md bg-muted/45 p-2 text-xs"
+						>
 							<pre
 								class="mt-2 max-h-40 overflow-auto break-all whitespace-pre-wrap">{JSON.stringify(
 									diagnosticsPreview,
 									null,
 									2
 								)}</pre>
-						</details>
+						</Disclosure>
 					{/if}
 				</div>
 
@@ -419,7 +423,10 @@
 						{m.common_cancel()}
 					</Button>
 					<Button type="submit" disabled={sending || screenshotLoading || !message.trim()}>
-						{#if sending}<ProtectedIcon icon="loading" class="mr-2 size-4 animate-spin" />{/if}
+						{#if sending}<ProtectedIcon
+								icon="loading"
+								class="mr-2 size-4 animate-spin motion-reduce:animate-none"
+							/>{/if}
 						{sending ? m.feedback_sending() : m.feedback_send()}
 					</Button>
 				</Dialog.Footer>

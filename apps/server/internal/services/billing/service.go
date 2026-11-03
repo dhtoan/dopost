@@ -63,6 +63,8 @@ type Service struct {
 	paddle                  PaddleConfig
 	api                     PaddleAPI
 	apiInitErr              error
+	discordNotifier         *billingDiscordNotifier
+	discordInitErr          error
 	beforeSubscriptionApply func()
 }
 
@@ -73,6 +75,7 @@ type PaddleConfig struct {
 	ClientToken          string
 	AppURL               string
 	ReturnURL            string
+	DiscordWebhookURL    string
 	Plans                map[string]PlanConfig
 	PurchaseChoiceSecret string
 }
@@ -124,6 +127,7 @@ func NewService(db *bun.DB, webhookSecret string, paddleConfig ...PaddleConfig) 
 	if strings.TrimSpace(cfg.APIKey) != "" {
 		service.api, service.apiInitErr = newPaddleAPI(cfg)
 	}
+	service.discordNotifier, service.discordInitErr = newBillingDiscordNotifier(cfg.DiscordWebhookURL)
 	return service
 }
 
@@ -220,6 +224,24 @@ func (s *Service) ConfirmFirstWorkspace(ctx context.Context, input ConfirmFirstW
 }
 
 func (s *Service) confirmFirstWorkspaceTx(ctx context.Context, tx bun.Tx, input ConfirmFirstWorkspaceInput) (FirstWorkspaceConfirmation, error) {
+	if tx.Dialect().Name() == dialect.PG {
+		// Different confirmation keys still compete for one user's first Workspace.
+		if _, err := tx.ExecContext(
+			ctx,
+			"SELECT pg_advisory_xact_lock(hashtextextended('openpost:first-workspace:' || ?, 0))",
+			input.UserID,
+		); err != nil {
+			return FirstWorkspaceConfirmation{}, fmt.Errorf("locking first Workspace confirmation: %w", err)
+		}
+	}
+	if tx.Dialect().Name() == dialect.SQLite {
+		// Take the SQLite writer lock before any eligibility snapshot. A deferred
+		// read transaction cannot safely upgrade after another confirmation commits.
+		if _, err := tx.NewUpdate().Model((*models.OrganizationMember)(nil)).
+			Set("user_id = user_id").Where("user_id = ?", input.UserID).Exec(ctx); err != nil {
+			return FirstWorkspaceConfirmation{}, fmt.Errorf("locking first Workspace confirmation: %w", err)
+		}
+	}
 	var existing models.BillingCheckoutAttempt
 	err := tx.NewSelect().Model(&existing).Where("user_id = ?", input.UserID).Where("confirmation_key = ?", input.ConfirmationKey).Scan(ctx)
 	if err == nil {
@@ -601,11 +623,11 @@ func normalizeCheckoutReturnPath(value string) (string, error) {
 		return "", nil
 	}
 	if len(value) > 2048 || strings.ContainsAny(value, "\r\n") {
-		return "", fmt.Errorf("checkout return path must be a same-origin OpenPost route")
+		return "", fmt.Errorf("checkout return path must be a same-origin dopost route")
 	}
 	parsed, err := url.ParseRequestURI(value)
 	if err != nil || parsed.IsAbs() || parsed.Host != "" || !strings.HasPrefix(parsed.Path, "/") || strings.HasPrefix(parsed.Path, "//") {
-		return "", fmt.Errorf("checkout return path must be a same-origin OpenPost route")
+		return "", fmt.Errorf("checkout return path must be a same-origin dopost route")
 	}
 	return parsed.String(), nil
 }
@@ -722,7 +744,7 @@ func (s *Service) AcceptPaddleWebhook(ctx context.Context, body []byte, signatur
 			result.Duplicate = true
 			return nil
 		}
-		if !eventNeedsReconciliation(event.EventType) {
+		if !eventNeedsReconciliation(event.EventType) && !eventNeedsNotification(event.EventType) {
 			return nil
 		}
 		return enqueueWebhookJob(txCtx, tx, body, s.now().UTC())
@@ -751,6 +773,12 @@ func eventNeedsReconciliation(eventType string) bool {
 	default:
 		return false
 	}
+}
+
+func eventNeedsNotification(eventType string) bool {
+	return strings.HasPrefix(eventType, "customer.") ||
+		strings.HasPrefix(eventType, "subscription.") ||
+		strings.HasPrefix(eventType, "transaction.")
 }
 
 func insertWebhookEvent(
@@ -788,51 +816,86 @@ func (s *Service) HandleJob(ctx context.Context, jobType, payload string) error 
 		return fmt.Errorf("invalid queued Paddle webhook: %w", err)
 	}
 	entityID := eventEntityID(event.Data)
+	if entityID == "" && (eventNeedsReconciliation(event.EventType) || eventNeedsNotification(event.EventType)) {
+		return fmt.Errorf("paddle event missing entity id")
+	}
+	objects, err := s.processPaddleEvent(ctx, event, entityID)
+	if err != nil {
+		return err
+	}
+	return s.notifyPaddleEvent(ctx, event, objects.customer, objects.subscription, objects.transaction)
+}
+
+type paddleEventObjects struct {
+	customer     *paddle.Customer
+	subscription *paddle.Subscription
+	transaction  *paddle.Transaction
+}
+
+func (s *Service) processPaddleEvent(ctx context.Context, event paddleEvent, entityID string) (paddleEventObjects, error) {
 	switch {
 	case strings.HasPrefix(event.EventType, "subscription."):
-		return s.handleSubscriptionEvent(ctx, entityID)
-	case event.EventType == "transaction.completed":
-		return s.handleCompletedTransaction(ctx, entityID)
+		return s.processSubscriptionEvent(ctx, event.EventType, entityID)
+	case strings.HasPrefix(event.EventType, "transaction."):
+		return s.processTransactionEvent(ctx, event.EventType, entityID)
 	case strings.HasPrefix(event.EventType, "customer."):
-		if entityID == "" {
-			return fmt.Errorf("paddle customer event missing entity id")
-		}
-		return s.reconcileCustomerByID(ctx, entityID)
+		customer, err := s.fetchAndReconcileCustomer(ctx, entityID)
+		return paddleEventObjects{customer: customer}, err
 	default:
-		return nil
+		return paddleEventObjects{}, nil
 	}
 }
 
-func (s *Service) handleSubscriptionEvent(ctx context.Context, entityID string) error {
-	if entityID == "" {
-		return fmt.Errorf("paddle subscription event missing entity id")
-	}
+func (s *Service) processSubscriptionEvent(ctx context.Context, eventType, entityID string) (paddleEventObjects, error) {
 	subscription, err := s.api.GetSubscription(ctx, &paddle.GetSubscriptionRequest{SubscriptionID: entityID})
 	if err != nil {
-		return fmt.Errorf("fetching current Paddle subscription: %w", err)
+		return paddleEventObjects{}, fmt.Errorf("fetching current Paddle subscription: %w", err)
 	}
-	return s.reconcileSubscription(ctx, subscription, nil)
+	if eventNeedsReconciliation(eventType) {
+		if err := s.reconcileSubscription(ctx, subscription, nil); err != nil {
+			return paddleEventObjects{}, err
+		}
+	}
+	if strings.TrimSpace(subscription.CustomerID) == "" {
+		return paddleEventObjects{subscription: subscription}, nil
+	}
+	customer, err := s.fetchAndReconcileCustomer(ctx, subscription.CustomerID)
+	if err != nil {
+		return paddleEventObjects{}, err
+	}
+	return paddleEventObjects{customer: customer, subscription: subscription}, nil
 }
 
-func (s *Service) handleCompletedTransaction(ctx context.Context, entityID string) error {
-	if entityID == "" {
-		return fmt.Errorf("paddle transaction event missing entity id")
-	}
+func (s *Service) processTransactionEvent(ctx context.Context, eventType, entityID string) (paddleEventObjects, error) {
 	transaction, err := s.api.GetTransaction(ctx, &paddle.GetTransactionRequest{TransactionID: entityID})
 	if err != nil {
-		return fmt.Errorf("fetching current Paddle transaction: %w", err)
+		return paddleEventObjects{}, fmt.Errorf("fetching current Paddle transaction: %w", err)
 	}
-	if transaction.SubscriptionID != nil && strings.TrimSpace(*transaction.SubscriptionID) != "" {
-		subscription, err := s.api.GetSubscription(ctx, &paddle.GetSubscriptionRequest{SubscriptionID: *transaction.SubscriptionID})
-		if err != nil {
-			return fmt.Errorf("fetching Paddle subscription for transaction: %w", err)
+	var subscription *paddle.Subscription
+	if eventType == "transaction.completed" || eventType == "transaction.paid" {
+		subscriptionID := pointerString(transaction.SubscriptionID)
+		if subscriptionID != "" {
+			subscription, err = s.api.GetSubscription(ctx, &paddle.GetSubscriptionRequest{SubscriptionID: subscriptionID})
+			if err != nil {
+				return paddleEventObjects{}, fmt.Errorf("fetching Paddle subscription for transaction: %w", err)
+			}
+			if err := s.reconcileSubscription(ctx, subscription, transaction.CustomData); err != nil {
+				return paddleEventObjects{}, err
+			}
 		}
-		return s.reconcileSubscription(ctx, subscription, transaction.CustomData)
 	}
-	if transaction.CustomerID != nil {
-		return s.reconcileCustomerByID(ctx, *transaction.CustomerID)
+	customerID := firstNonEmpty(pointerString(transaction.CustomerID), transaction.Customer.ID)
+	if customerID == "" && subscription != nil {
+		customerID = subscription.CustomerID
 	}
-	return nil
+	var customer *paddle.Customer
+	if customerID != "" {
+		customer, err = s.fetchAndReconcileCustomer(ctx, customerID)
+		if err != nil {
+			return paddleEventObjects{}, err
+		}
+	}
+	return paddleEventObjects{customer: customer, subscription: subscription, transaction: transaction}, nil
 }
 
 func eventEntityID(data json.RawMessage) string {
@@ -846,11 +909,19 @@ func eventEntityID(data json.RawMessage) string {
 }
 
 func (s *Service) reconcileCustomerByID(ctx context.Context, customerID string) error {
+	_, err := s.fetchAndReconcileCustomer(ctx, customerID)
+	return err
+}
+
+func (s *Service) fetchAndReconcileCustomer(ctx context.Context, customerID string) (*paddle.Customer, error) {
 	customer, err := s.api.GetCustomer(ctx, &paddle.GetCustomerRequest{CustomerID: customerID})
 	if err != nil {
-		return fmt.Errorf("fetching current Paddle customer: %w", err)
+		return nil, fmt.Errorf("fetching current Paddle customer: %w", err)
 	}
-	return s.upsertCustomer(ctx, customer)
+	if err := s.upsertCustomer(ctx, customer); err != nil {
+		return nil, err
+	}
+	return customer, nil
 }
 
 func (s *Service) upsertCustomer(ctx context.Context, customer *paddle.Customer) error {
@@ -914,11 +985,21 @@ func (s *Service) resolvePaddleSubscription(ctx context.Context, subscription *p
 		planID = s.planIDForProviderPrice(priceID)
 	}
 	if attempt.OrganizationID == "" {
-		return resolvedPaddleSubscription{}, fmt.Errorf("paddle subscription missing a valid OpenPost checkout_id")
+		return resolvedPaddleSubscription{}, fmt.Errorf("paddle subscription missing a valid dopost checkout_id")
 	}
 	plan, ok := s.paddle.Plans[planID]
 	if !ok {
-		return resolvedPaddleSubscription{}, fmt.Errorf("paddle subscription references unknown OpenPost plan %q", planID)
+		return resolvedPaddleSubscription{}, fmt.Errorf("paddle subscription references unknown dopost plan %q", planID)
+	}
+	expectedPrice, err := s.planFor(planID, attempt.BillingPeriod)
+	if err != nil {
+		return resolvedPaddleSubscription{}, err
+	}
+	if priceID == "" || priceID != attempt.ProviderPriceID || priceID != expectedPrice {
+		return resolvedPaddleSubscription{}, fmt.Errorf("paddle subscription price does not match the checkout plan and billing period")
+	}
+	if attempt.ProviderSubscriptionID != "" && attempt.ProviderSubscriptionID != subscription.ID {
+		return resolvedPaddleSubscription{}, fmt.Errorf("paddle subscription does not match the checkout subscription")
 	}
 	return resolvedPaddleSubscription{
 		Attempt:   attempt,
@@ -1066,6 +1147,10 @@ func applySubscriptionReconciliation(ctx context.Context, tx bun.Tx, model *mode
 	}
 	if canceled {
 		return errCanceledCheckoutReconciliation
+	}
+	allowed, err := subscriptionReconciliationOwnsCheckout(ctx, tx, attempt, status, providerSubscriptionID)
+	if err != nil || !allowed {
+		return err
 	}
 	applied, err := upsertSubscription(ctx, tx, model)
 	if err != nil {
@@ -1258,4 +1343,30 @@ func parseRequiredPaddleTime(field, value string) (time.Time, error) {
 		return time.Time{}, fmt.Errorf("%s must be a valid RFC3339 timestamp", field)
 	}
 	return parsed.UTC(), nil
+}
+
+func subscriptionReconciliationOwnsCheckout(ctx context.Context, tx bun.Tx, attempt models.BillingCheckoutAttempt, status, providerSubscriptionID string) (bool, error) {
+	// Provider timestamps order events within a subscription, not across checkouts.
+	// A superseded checkout cannot regain ownership through a later cancellation
+	// or activation event. The organization lock fences this comparison and write.
+	var current models.BillingSubscription
+	currentErr := tx.NewSelect().Model(&current).Where("organization_id = ?", attempt.OrganizationID).Scan(ctx)
+	if currentErr != nil && !errors.Is(currentErr, sql.ErrNoRows) {
+		return false, currentErr
+	}
+	if currentErr == nil && current.ProviderSubscriptionID != providerSubscriptionID {
+		if status != "active" && status != "trialing" {
+			return false, nil
+		}
+		var previous models.BillingCheckoutAttempt
+		previousErr := tx.NewSelect().Model(&previous).Where("provider_subscription_id = ? AND organization_id = ?", current.ProviderSubscriptionID, attempt.OrganizationID).OrderExpr("created_at DESC").Limit(1).Scan(ctx)
+		if previousErr != nil && !errors.Is(previousErr, sql.ErrNoRows) {
+			return false, previousErr
+		}
+		if previousErr == nil && !attempt.CreatedAt.After(previous.CreatedAt) {
+			return false, nil
+		}
+	}
+
+	return true, nil
 }

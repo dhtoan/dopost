@@ -40,7 +40,7 @@ func (s *Service) get(ctx context.Context, db bun.IDB, organizationID, themeID s
 
 func (s *Service) validateReference(ctx context.Context, db bun.IDB, organizationID string, reference ThemeReference) error {
 	if reference.Kind == ReferenceBuiltIn {
-		family, ok := BuiltIns()[reference.ID]
+		family, ok := builtIn(reference.ID)
 		if !ok || reference.Version != builtInVersion(family) {
 			return fmt.Errorf("%w: unknown built-in revision", ErrInvalidInput)
 		}
@@ -120,7 +120,8 @@ func normalizeAndEncodeManifest(manifest ThemeManifest) (ThemeManifest, string, 
 }
 
 func decodeStoredManifest(raw string) (ThemeManifest, error) {
-	manifest, err := DecodeManifest([]byte(raw))
+	// Older palettes must remain editable when decorative contrast rules tighten.
+	manifest, err := decodeManifest([]byte(raw), validateStoredManifest)
 	if err != nil {
 		return ThemeManifest{}, fmt.Errorf("%w: %v", errStoredManifest, err)
 	}
@@ -162,7 +163,8 @@ func loadSettings(ctx context.Context, db bun.IDB, organizationID string) (setti
 	var row settingsRow
 	err := db.NewSelect().Model(&row).Where("organization_id = ?", organizationID).Scan(ctx)
 	if errors.Is(err, sql.ErrNoRows) {
-		defaultTheme := builtInReference(BuiltIns()["dither"])
+		family, _ := builtIn("calm")
+		defaultTheme := builtInReference(family)
 		return settingsRow{OrganizationID: organizationID, DefaultReferenceKind: string(defaultTheme.Kind), DefaultReferenceID: defaultTheme.ID, DefaultReferenceVersion: defaultTheme.Version}, nil
 	}
 	if err != nil {

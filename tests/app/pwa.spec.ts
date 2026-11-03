@@ -24,10 +24,14 @@ test("service worker updates wait for every open app window to close", async ({
   const second = await context.newPage();
   await second.goto("/image-editor");
   await second.waitForFunction(() => sessionStorage.getItem("pwa-registration-complete") === "yes");
+  const updateWorkerCreated = context.waitForEvent("serviceworker", (worker) =>
+    worker.url().endsWith("/sw.js?update-test=1"),
+  );
   await page.evaluate(async () => {
     await (await caches.open("openpost-pages-1")).put("/old-page", new Response("legacy"));
     await navigator.serviceWorker.register("/sw.js?update-test=1", { scope: "/" });
   });
+  const updateWorker = await updateWorkerCreated;
   await expect
     .poll(() =>
       page.evaluate(
@@ -46,6 +50,15 @@ test("service worker updates wait for every open app window to close", async ({
     ),
   ).toContain("?update-test=1");
   await second.close();
+  // Closing a page and activating its waiting worker are separate browser tasks.
+  // Observe activation without opening another client that could keep the old worker alive.
+  await expect
+    .poll(() =>
+      updateWorker.evaluate(
+        "({ url: self.registration.active?.scriptURL, state: self.registration.active?.state })",
+      ),
+    )
+    .toEqual({ url: updateWorker.url(), state: "activated" });
   const reopened = await context.newPage();
   await reopened.goto("/manifest.webmanifest");
   await expect
@@ -187,7 +200,7 @@ for (const scheme of ["light", "dark"] as const) {
         window.dispatchEvent(event);
       });
     await announceInstall();
-    await expect(page.getByText("Install OpenPost?", { exact: true })).toBeVisible();
+    await expect(page.getByText("Install dopost?", { exact: true })).toBeVisible();
     await expect(page.locator('[data-sonner-toast][data-mounted="true"]')).toBeVisible();
     await page.screenshot({
       path: testInfo.outputPath("desktop-install-toast.png"),
@@ -196,7 +209,7 @@ for (const scheme of ["light", "dark"] as const) {
     await page.reload();
     await expect(page.getByTestId("profile-menu-trigger")).toBeVisible();
     await announceInstall();
-    await expect(page.getByText("Install OpenPost?", { exact: true })).not.toBeVisible();
+    await expect(page.getByText("Install dopost?", { exact: true })).not.toBeVisible();
     await page.getByTestId("profile-menu-trigger").click();
     const install = page.getByRole("menuitem", {
       name: "Install app",
@@ -229,6 +242,12 @@ for (const scheme of ["light", "dark"] as const) {
 test("a cached local video project reopens and exports offline", async ({ page, context }) => {
   test.setTimeout(90_000);
   await page.addInitScript(() => {
+    if (!("showOpenFilePicker" in window)) {
+      Object.defineProperty(window, "showOpenFilePicker", {
+        configurable: true,
+        value: async () => [],
+      });
+    }
     Object.defineProperty(window, "showDirectoryPicker", {
       configurable: true,
       value: async () => {
@@ -252,22 +271,25 @@ test("a cached local video project reopens and exports offline", async ({ page, 
   await page.getByRole("textbox", { name: "Project name" }).fill("Offline video proof");
   await page.getByRole("button", { name: "Create", exact: true }).click();
   await expect(page.getByRole("tablist", { name: "Editor workspaces" })).toBeVisible();
-  await page
-    .getByRole("complementary", { name: "Assets" })
-    .getByRole("button", { name: "Add layer" })
-    .click();
+  await page.getByRole("banner").getByRole("button", { name: "More actions", exact: true }).click();
   await page.getByRole("menuitem", { name: "Add text", exact: true }).click();
   await page.locator("header").getByRole("button", { name: "More actions" }).click();
   await page.getByRole("menuitem", { name: "Save", exact: true }).click();
-  await expect(page.locator("header").getByText("Saving…", { exact: true })).not.toBeVisible();
+  await expect(page.getByRole("banner").locator('[role="status"][data-state]')).toHaveAttribute(
+    "data-state",
+    "saved",
+  );
   await page.reload();
   await expect(page.getByRole("tablist", { name: "Editor workspaces" })).toBeVisible();
   await context.setOffline(true);
   await page.reload();
   await expect(page.getByRole("tablist", { name: "Editor workspaces" })).toBeVisible();
   await page.locator("header").getByRole("button", { name: "More actions" }).click();
-  await page.getByRole("menuitem", { name: "Export MP4" }).click();
-  await expect(page.getByText("Saved Offline video proof.mp4 to the exports folder.")).toBeVisible({
+  await page.getByRole("menuitem", { name: "Export", exact: true }).click();
+  await page.getByRole("dialog").getByText("WebM", { exact: true }).click();
+  await page.getByRole("option", { name: "MP4", exact: true }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Render now", exact: true }).click();
+  await expect(page.getByText("Saved Offline video proof.mp4.")).toBeVisible({
     timeout: 60_000,
   });
   await page.getByRole("button", { name: "Exports" }).click();

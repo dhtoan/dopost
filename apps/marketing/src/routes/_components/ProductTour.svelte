@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { ditherSurface } from '@openpost/dither';
 	import { onMount } from 'svelte';
 	import ProductScreenshot from './ProductScreenshot.svelte';
 	import Pause from '@lucide/svelte/icons/pause';
@@ -17,7 +18,7 @@
 			darkSrcset:
 				'/assets/screenshots/main-dark-768.webp 768w, /assets/screenshots/main-dark-1536.webp 1536w, /assets/screenshots/main-dark.webp 2880w',
 			sizes: '(max-width: 800px) calc(100vw - 32px), 1248px',
-			alt: 'OpenPost composer with a draft, six social destinations, and scheduling controls',
+			alt: 'dopost composer with a draft, six social destinations, and scheduling controls',
 			caption: 'Turn your next idea into a post.'
 		},
 		{
@@ -25,7 +26,7 @@
 			icon: '/assets/brand/features/image-editor.svg',
 			lightSrc: '/assets/screenshots/image-editor-light.webp',
 			darkSrc: '/assets/screenshots/image-editor-dark.webp',
-			alt: 'OpenPost Image Editor with a tram photo, editable layers, and color controls',
+			alt: 'dopost Image Editor with a tram photo, editable layers, and color controls',
 			caption: 'Build an image from editable layers.'
 		},
 		{
@@ -33,7 +34,7 @@
 			icon: '/assets/brand/features/video-editor.svg',
 			lightSrc: '/assets/screenshots/video-editor-light.webp',
 			darkSrc: '/assets/screenshots/video-editor-dark.webp',
-			alt: 'OpenPost Video Editor with a video preview and multitrack timeline',
+			alt: 'dopost Video Editor with a video preview and multitrack timeline',
 			caption: 'Cut, caption, and finish your video.'
 		},
 		{
@@ -41,7 +42,7 @@
 			icon: '/assets/brand/features/calendar.svg',
 			lightSrc: '/assets/screenshots/calendar-light.webp',
 			darkSrc: '/assets/screenshots/calendar-dark.webp',
-			alt: 'OpenPost monthly calendar with scheduled publications',
+			alt: 'dopost monthly calendar with scheduled publications',
 			caption: 'Keep the week in view.'
 		},
 		{
@@ -49,7 +50,7 @@
 			icon: '/assets/brand/features/analytics.svg',
 			lightSrc: '/assets/screenshots/analytics-light.webp',
 			darkSrc: '/assets/screenshots/analytics-dark.webp',
-			alt: 'OpenPost analytics with account growth and publication results',
+			alt: 'dopost analytics with account growth and publication results',
 			caption: 'Check the results from your connected accounts.'
 		},
 		{
@@ -57,16 +58,16 @@
 			icon: '/assets/brand/features/media.svg',
 			lightSrc: '/assets/screenshots/media-light.webp',
 			darkSrc: '/assets/screenshots/media-dark.webp',
-			alt: 'OpenPost media library with saved photos and reusable brand assets',
+			alt: 'dopost media library with saved photos and reusable brand assets',
 			caption: 'Keep your photos, clips, and brand assets together.'
 		},
 		{
-			name: 'Accounts',
-			icon: '/assets/brand/features/accounts.svg',
-			lightSrc: '/assets/screenshots/accounts-light.webp',
-			darkSrc: '/assets/screenshots/accounts-dark.webp',
-			alt: 'OpenPost Accounts page with connected social profiles',
-			caption: 'Bring your social accounts into one place.'
+			name: 'Workflows',
+			icon: '/assets/brand/features/workflows.svg',
+			lightSrc: '/assets/screenshots/workflows-light.webp',
+			darkSrc: '/assets/screenshots/workflows-dark.webp',
+			alt: 'dopost Workflows sends breaking changes through AI writing, approval, and scheduling, while other releases become shortened drafts with tracking links',
+			caption: 'Announce breaking changes. Save smaller updates for later.'
 		}
 	];
 	let selected = $state(0);
@@ -115,9 +116,11 @@
 </script>
 
 <div
+	data-dither-panel
+	use:ditherSurface
 	class="product-tour"
 	role="region"
-	aria-label="OpenPost screenshot tour"
+	aria-label="dopost screenshot tour"
 	aria-roledescription="carousel"
 	bind:this={container}
 	onpointerenter={() => (hovered = true)}
@@ -126,25 +129,24 @@
 		if (!(event.target instanceof Element && event.target.closest('.tour-playback'))) paused = true;
 	}}
 >
-	{#if ready}
-		<div class="view-picker" role="group" aria-label="Explore OpenPost">
-			{#each views as item, index (item.name)}
-				<button
-					type="button"
-					class="focus-ring"
-					aria-pressed={selected === index}
-					onclick={() => select(index)}
-					><img src={item.icon} alt="" width="24" height="24" /><span>{item.name}</span><span
-						class="progress-track"
-						aria-hidden="true"
-						><span
-							style:transform={`scaleX(${selected === index ? (paused || reducedMotion ? 1 : progress) : 0})`}
-						></span></span
-					></button
-				>
-			{/each}
-		</div>
-	{/if}
+	<div class="view-picker" role="group" aria-label="Explore dopost">
+		{#each views as item, index (item.name)}
+			<button
+				type="button"
+				disabled={!ready}
+				class="focus-ring"
+				aria-pressed={selected === index}
+				onclick={() => select(index)}
+				><img src={item.icon} alt="" width="24" height="24" /><span>{item.name}</span><span
+					class="progress-track"
+					aria-hidden="true"
+					><span
+						style:transform={`scaleX(${selected === index ? (paused || reducedMotion ? 1 : progress) : 0})`}
+					></span></span
+				></button
+			>
+		{/each}
+	</div>
 	<div class="preview">
 		{#key selected}
 			<ProductScreenshot
@@ -185,8 +187,6 @@
 		border: 1px solid var(--border);
 		border-radius: 16px;
 		background: var(--card);
-		background-image: var(--marketing-dither-pattern);
-		background-size: 32px 32px;
 	}
 	.view-picker {
 		display: grid;

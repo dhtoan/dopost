@@ -1,12 +1,13 @@
 <script lang="ts">
 	import SocialAccountAvatar from '$lib/components/social-account-avatar.svelte';
-	import { cn, getPlatformName } from '$lib/utils';
+	import { cn, getPlatformKey, getPlatformName } from '$lib/utils';
 
 	interface Props {
 		name: string;
 		platform: string;
 		platformLabel?: string;
 		avatarUrl?: string | null;
+		handle?: string | null;
 		detail?: string;
 		size?: 'sm' | 'default' | 'lg';
 		compactOnMobile?: boolean;
@@ -19,6 +20,7 @@
 		platform,
 		platformLabel = '',
 		avatarUrl = '',
+		handle = undefined,
 		detail = '',
 		size = 'default',
 		compactOnMobile = false,
@@ -27,19 +29,20 @@
 	}: Props = $props();
 
 	const platformName = $derived(platformLabel || getPlatformName(platform));
+	const needsTextAttribution = $derived(getPlatformKey(platform) === 'youtube');
 </script>
 
 <span class={cn('flex min-w-0 items-center gap-2.5 text-left', className)} data-size={size}>
-	<SocialAccountAvatar {name} {platform} {avatarUrl} {size} />
+	<SocialAccountAvatar {name} {platform} {avatarUrl} {handle} {size} />
 	{#if size === 'sm'}
 		<span class="flex min-w-0 items-baseline gap-1.5">
 			<span class="truncate font-medium">{name}</span>
-			{#if showPlatform}
+			{#if showPlatform || needsTextAttribution}
 				<span
 					data-slot="social-account-platform"
 					class={cn(
 						'shrink-0 text-xs text-muted-foreground',
-						compactOnMobile && 'hidden sm:inline'
+						compactOnMobile && !needsTextAttribution && 'hidden sm:inline'
 					)}>· {platformName}</span
 				>
 			{/if}

@@ -6,9 +6,10 @@
 <script lang="ts">
 	import { onDestroy, onMount } from 'svelte';
 	import { ContextMenu } from 'bits-ui';
+	import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
 	import { m } from '$lib/paraglide/messages';
 	import { Input } from '$lib/components/ui/input';
-	import { Slider } from '$lib/components/ui/slider';
+	import { SliderRow } from '$lib/components/editor-density';
 	import AppSelect from '$lib/components/app-select.svelte';
 	import { ThemeIcon, ProtectedIcon } from '$lib/themes/icons';
 	import {
@@ -78,6 +79,7 @@
 	import { emitEditorSound } from '$lib/video-editor/sounds/editor-sounds';
 	import { getSpatialPointEffectConfig } from '$lib/video-editor/effects/spatial-point-editor';
 	import { spatialEffectEditorStore } from '$lib/video-editor/preview/spatial-effect-editor.svelte';
+	import { resolveEditableColorTargetIds } from '$lib/video-editor/effects/color-targets';
 
 	let {
 		itemId,
@@ -86,7 +88,10 @@
 		showColorTools = false,
 		showScopes = false,
 		gpuOnly = false,
-		hiddenGpuEffectIds = []
+		hiddenGpuEffectIds = [],
+		visibleGpuEffectIds,
+		dedicatedGpuEffectId,
+		scrollWithParent = false
 	}: {
 		itemId: string | null;
 		itemIds?: string[];
@@ -95,15 +100,25 @@
 		showScopes?: boolean;
 		gpuOnly?: boolean;
 		hiddenGpuEffectIds?: readonly string[];
+		visibleGpuEffectIds?: readonly string[];
+		dedicatedGpuEffectId?: string;
+		scrollWithParent?: boolean;
 	} = $props();
 
 	const item = $derived(itemId ? timelineStore.itemById.get(itemId) : undefined);
 	const hiddenGpuEffects = $derived(new Set(hiddenGpuEffectIds));
+	const visibleGpuEffects = $derived(
+		visibleGpuEffectIds === undefined ? null : new Set(visibleGpuEffectIds)
+	);
+	function gpuEffectVisible(effectId: string): boolean {
+		return !hiddenGpuEffects.has(effectId) && (visibleGpuEffects?.has(effectId) ?? true);
+	}
 	const effects = $derived(
 		(item?.effects ?? []).filter(
 			(effect) =>
 				(!gpuOnly || effect.type === 'gpu') &&
-				(effect.type !== 'gpu' || !hiddenGpuEffects.has(effect.effectId))
+				(visibleGpuEffects === null || effect.type === 'gpu') &&
+				(effect.type !== 'gpu' || gpuEffectVisible(effect.effectId))
 		)
 	);
 	const allEffectsEnabled = $derived(
@@ -113,8 +128,22 @@
 		item ? (resolveAnimatedEffectsAt(item, timelineStore.currentFrame) ?? []) : []
 	);
 	const selectedEffectItemIds = $derived(
-		itemId ? [...new Set([itemId, ...itemIds])].filter(Boolean) : []
+		resolveEditableColorTargetIds(itemId, itemIds, timelineStore.itemById, timelineStore.tracks)
 	);
+	const displayItemEditable = $derived(itemId !== null && selectedEffectItemIds.includes(itemId));
+	const dedicatedGpuEffect = $derived(
+		dedicatedGpuEffectId ? getGpuEffect(dedicatedGpuEffectId) : undefined
+	);
+	const dedicatedGpuEffectLabel = $derived(
+		dedicatedGpuEffect ? gpuEffectLabel(dedicatedGpuEffect) : dedicatedGpuEffectId
+	);
+	const dedicatedAddLabel = $derived(
+		dedicatedGpuEffectLabel
+			? `${m.video_editor_effects_add()} · ${dedicatedGpuEffectLabel}`
+			: m.video_editor_effects_add()
+	);
+
+	const panelId = $props.id();
 
 	/** In-flight slider values so dragging stays smooth before the undoable commit. */
 	let draftAmounts = $state<Record<string, number>>({});
@@ -126,10 +155,10 @@
 	let presetStatus = $state('');
 	let lutStatus = $state('');
 	let lutStatusEffectId = $state<string | null>(null);
-
-	$effect(() => {
-		if (gpuOnly && !pendingKind.startsWith('gpu:')) pendingKind = 'gpu:gpu-brightness';
-	});
+	let curveDraftSourceItemId: string | null = null;
+	let curveDraftTargetItemIds: string[] = [];
+	let curveDraftPreviewItemId: string | null = null;
+	let curveDraftEffectId: string | null = null;
 
 	const typeLabels = $derived<Record<Exclude<ItemType, 'gpu'>, string>>({
 		brightness: m.video_editor_effects_brightness(),
@@ -164,7 +193,7 @@
 	});
 
 	const effectOptions = $derived<EffectPickerOption[]>([
-		...(gpuOnly
+		...(gpuOnly || visibleGpuEffects !== null
 			? []
 			: EFFECT_DEFINITIONS.map((definition) => ({
 					value: definition.type,
@@ -175,7 +204,7 @@
 				}))),
 		...gpuCategories.flatMap((group) =>
 			group.effects
-				.filter((definition) => !hiddenGpuEffects.has(definition.id))
+				.filter((definition) => gpuEffectVisible(definition.id))
 				.map((definition) => ({
 					value: `gpu:${definition.id}`,
 					label: gpuEffectLabel(definition),
@@ -202,6 +231,12 @@
 			}))
 	]);
 
+	$effect(() => {
+		if (!effectOptions.some((option) => option.value === pendingKind)) {
+			pendingKind = effectOptions[0]?.value ?? '';
+		}
+	});
+
 	function definitionFor(type: string) {
 		return EFFECT_DEFINITIONS.find((entry) => entry.type === type);
 	}
@@ -210,7 +245,8 @@
 		return templates.every(
 			(template) =>
 				(!gpuOnly || template.kind === 'gpu') &&
-				(template.kind !== 'gpu' || !hiddenGpuEffects.has(template.effectId))
+				(visibleGpuEffects === null || template.kind === 'gpu') &&
+				(template.kind !== 'gpu' || gpuEffectVisible(template.effectId))
 		);
 	}
 
@@ -223,7 +259,9 @@
 	function pendingEffectTemplates(kind = pendingKind): EffectTemplate[] {
 		if (kind.startsWith('gpu:')) {
 			const effectId = kind.slice(4);
-			return getGpuEffect(effectId) ? [{ kind: 'gpu', effectId }] : [];
+			return getGpuEffect(effectId) && gpuEffectVisible(effectId)
+				? [{ kind: 'gpu', effectId }]
+				: [];
 		}
 		if (kind.startsWith('preset:')) {
 			return (
@@ -310,7 +348,8 @@
 
 	onDestroy(() => {
 		clearEffectDragData();
-		if (itemId) colorPreviewStore.clearEffectDraft(itemId);
+		if (curveDraftPreviewItemId) colorPreviewStore.clearEffectDraft(curveDraftPreviewItemId);
+		else if (itemId) colorPreviewStore.clearEffectDraft(itemId);
 		if (spatialEffectEditorStore.editingItemId === itemId) stopSpatialEditing();
 	});
 
@@ -323,6 +362,29 @@
 	function resolvedGpuEffect(effect: GpuEffect): GpuEffect {
 		const resolved = resolvedEffects.find((candidate) => candidate.id === effect.id);
 		return resolved?.type === 'gpu' ? resolved : effect;
+	}
+
+	function gpuRecovery(effect: GpuEffect): { message: string; params: string[] } | null {
+		if (effect.effectId === 'gpu-pixel-sort' || effect.effectId === 'gpu-pixel-sort-hq') {
+			const schema = getGpuEffect(effect.effectId)?.schema ?? [];
+			const low = Number(
+				effect.params.low ?? schema.find((param) => param.name === 'low')?.default
+			);
+			const high = Number(
+				effect.params.high ?? schema.find((param) => param.name === 'high')?.default
+			);
+			return low > high
+				? { message: m.video_editor_gpu_pixel_sort_empty_range(), params: ['low', 'high'] }
+				: null;
+		}
+		if (
+			effect.effectId === 'gpu-ascii' &&
+			effect.params.charSet === 'custom' &&
+			String(effect.params.customChars ?? '').trim().length === 0
+		) {
+			return { message: m.video_editor_gpu_ascii_empty_custom(), params: ['customChars'] };
+		}
+		return null;
 	}
 
 	function effectRelativeFrame(): number | null {
@@ -338,6 +400,15 @@
 
 	function commitGpuParam(effect: GpuEffect, paramName: string, value: GpuParamValue): void {
 		if (!itemId || !item) return;
+		if (!displayItemEditable) {
+			clearCurveDraft();
+			if (
+				setGpuEffectDataOnItems(itemId, selectedEffectItemIds, effect.id, { [paramName]: value })
+			) {
+				onedit();
+			}
+			return;
+		}
 		const property = getGpuEffectKeyframeProperty(effect, paramName);
 		const encoded = property ? effectKeyframeValue(effect, paramName, value) : null;
 		const updated =
@@ -355,6 +426,11 @@
 
 	function commitGpuParams(effect: GpuEffect, updates: Record<string, GpuParamValue>): void {
 		if (!itemId || !item) return;
+		if (!displayItemEditable) {
+			clearCurveDraft();
+			if (setGpuEffectDataOnItems(itemId, selectedEffectItemIds, effect.id, updates)) onedit();
+			return;
+		}
 		const apply = (): boolean => {
 			let changed = false;
 			for (const [paramName, value] of Object.entries(updates)) {
@@ -378,21 +454,48 @@
 	}
 
 	function draftCurveParams(effect: GpuEffect, params: Record<string, GpuParamValue> | null): void {
-		if (!itemId) return;
-		if (params) {
-			colorPreviewStore.setEffectDraft(
-				itemId,
-				effect,
-				params,
-				getCompatibleGpuEffectIds(itemId, selectedEffectItemIds, effect.id)
-			);
-		} else colorPreviewStore.clearEffectDraft(itemId, effect.id);
+		if (!params) {
+			clearCurveDraft();
+			return;
+		}
+		if (!itemId || selectedEffectItemIds.length === 0) return;
+		if (!curveDraftSourceItemId) {
+			curveDraftSourceItemId = itemId;
+			curveDraftTargetItemIds = [...selectedEffectItemIds];
+			curveDraftPreviewItemId = curveDraftTargetItemIds[0] ?? null;
+			curveDraftEffectId = effect.id;
+		}
+		if (!curveDraftPreviewItemId || !curveDraftSourceItemId) return;
+		colorPreviewStore.setEffectDraft(
+			curveDraftPreviewItemId,
+			effect,
+			params,
+			getCompatibleGpuEffectIds(
+				curveDraftSourceItemId,
+				curveDraftTargetItemIds,
+				curveDraftEffectId ?? effect.id
+			),
+			[curveDraftPreviewItemId]
+		);
 	}
 
 	function commitCurveParams(effect: GpuEffect, params: Record<string, GpuParamValue>): void {
-		if (!itemId) return;
-		colorPreviewStore.clearEffectDraft(itemId, effect.id);
-		if (setGpuEffectDataOnItems(itemId, selectedEffectItemIds, effect.id, params)) onedit();
+		const sourceItemId = curveDraftSourceItemId ?? itemId;
+		const targetItemIds = curveDraftSourceItemId ? curveDraftTargetItemIds : selectedEffectItemIds;
+		const effectId = curveDraftEffectId ?? effect.id;
+		clearCurveDraft();
+		if (!sourceItemId) return;
+		if (setGpuEffectDataOnItems(sourceItemId, targetItemIds, effectId, params)) onedit();
+	}
+
+	function clearCurveDraft(): void {
+		if (curveDraftPreviewItemId) {
+			colorPreviewStore.clearEffectDraft(curveDraftPreviewItemId, curveDraftEffectId ?? undefined);
+		}
+		curveDraftSourceItemId = null;
+		curveDraftTargetItemIds = [];
+		curveDraftPreviewItemId = null;
+		curveDraftEffectId = null;
 	}
 
 	function toggleEffectKeyframe(effect: GpuEffect, paramName: string): void {
@@ -424,7 +527,7 @@
 			autoEnabled: autoKeyframeStore.isEnabled(itemId, property),
 			hasTrack: Boolean(track?.frames.length),
 			atCurrentFrame: relativeFrame !== null && Boolean(track?.frames.includes(relativeFrame)),
-			canKeyframe: relativeFrame !== null,
+			canKeyframe: displayItemEditable && relativeFrame !== null,
 			onToggleAuto: () => autoKeyframeStore.toggle(itemId, property),
 			onToggleKeyframe: () => toggleEffectKeyframe(effect, paramName)
 		};
@@ -586,62 +689,86 @@
 			stopSpatialEditing();
 		}
 	});
+
+	$effect(() => {
+		if (!curveDraftSourceItemId || curveDraftSourceItemId === itemId) return;
+		clearCurveDraft();
+	});
 </script>
 
 <div
-	class="flex h-full min-h-0 w-full max-w-full flex-col gap-1 overflow-x-hidden"
+	class="flex h-full min-h-0 w-full max-w-full flex-col gap-1 overflow-x-hidden {scrollWithParent
+		? 'short-scroll-effects'
+		: ''}"
 	role="region"
 	aria-label={m.video_editor_effects()}
 >
 	{#if showColorTools}<ColorWorkspace {itemId} {itemIds} {onedit} />{/if}
-	<div
-		class="flex h-8 shrink-0 items-center gap-1 border-b border-[var(--video-editor-border)] px-1"
-	>
-		<EffectPicker
-			bind:value={pendingKind}
-			options={effectOptions}
-			ariaLabel={m.video_editor_effects_add()}
-			triggerLabel={m.video_editor_effects_add()}
-			searchPlaceholder={m.video_editor_effects_search()}
-			emptyLabel={m.video_editor_effects_no_results()}
-			disabled={!itemId}
-			draggable={itemId !== null}
-			dragTitle={itemId ? m.video_editor_effects_add_or_drag() : m.video_editor_effects_add()}
-			onSelect={addSelectedEffect}
-			onDragStart={startEffectDrag}
-			onDragEnd={finishEffectDrag}
-			onRemoveOption={deleteUserPreset}
-			removeOptionLabel={(name) => m.video_editor_effects_preset_delete_named({ name })}
-		/>
-		{#if effects.length > 0}
-			<button
-				type="button"
-				class="flex size-7 shrink-0 items-center justify-center rounded border border-[var(--video-editor-border)] bg-[var(--video-editor-control)] hover:bg-[var(--video-editor-control-hover)] focus-visible:outline-2 focus-visible:outline-[var(--video-editor-focus)]"
-				aria-label={m.video_editor_effects_preset_save_current()}
-				title={m.video_editor_effects_preset_save_current()}
-				aria-expanded={showPresetSave}
-				onclick={() => (showPresetSave = !showPresetSave)}
-			>
-				<ThemeIcon role="save" class="size-3.5" />
-			</button>
-			<button
-				type="button"
-				class="flex size-7 shrink-0 items-center justify-center rounded border border-[var(--video-editor-border)] bg-[var(--video-editor-control)] hover:bg-[var(--video-editor-control-hover)] focus-visible:outline-2 focus-visible:outline-[var(--video-editor-focus)]"
-				aria-label={allEffectsEnabled
-					? m.video_editor_effects_disable_all()
-					: m.video_editor_effects_enable_all()}
-				title={allEffectsEnabled
-					? m.video_editor_effects_disable_all()
-					: m.video_editor_effects_enable_all()}
-				onclick={toggleAllEffects}
-			>
-				{#if allEffectsEnabled}<ThemeIcon role="eye-off" class="size-3.5" />{:else}<ThemeIcon
-						role="eye"
-						class="size-3.5"
-					/>{/if}
-			</button>
-		{/if}
-	</div>
+	{#if !dedicatedGpuEffectId || effects.length > 0}
+		<div
+			class="flex h-8 shrink-0 items-center gap-1 border-b border-[var(--video-editor-border)] px-1 [@media(pointer:coarse)]:h-12"
+		>
+			{#if dedicatedGpuEffectId}
+				<button
+					type="button"
+					class="flex h-7 min-w-0 flex-1 items-center justify-center gap-1 rounded border border-[var(--video-editor-border)] bg-[var(--video-editor-control)] px-2 text-xs hover:bg-[var(--video-editor-control-hover)] focus-visible:outline-2 focus-visible:outline-[var(--video-editor-focus)] disabled:opacity-40 [@media(pointer:coarse)]:h-11"
+					disabled={selectedEffectItemIds.length === 0 || !dedicatedGpuEffect}
+					aria-label={dedicatedAddLabel}
+					title={dedicatedAddLabel}
+					onclick={() => addSelectedEffect(`gpu:${dedicatedGpuEffectId}`)}
+				>
+					<ThemeIcon role="add" class="size-3.5 shrink-0" />
+					<span class="truncate">{dedicatedAddLabel}</span>
+				</button>
+			{:else}
+				<EffectPicker
+					bind:value={pendingKind}
+					options={effectOptions}
+					ariaLabel={m.video_editor_effects_add()}
+					triggerLabel={m.video_editor_effects_add()}
+					searchPlaceholder={m.video_editor_effects_search()}
+					emptyLabel={m.video_editor_effects_no_results()}
+					disabled={selectedEffectItemIds.length === 0}
+					draggable={selectedEffectItemIds.length > 0}
+					dragTitle={itemId ? m.video_editor_effects_add_or_drag() : m.video_editor_effects_add()}
+					onSelect={addSelectedEffect}
+					onDragStart={startEffectDrag}
+					onDragEnd={finishEffectDrag}
+					onRemoveOption={deleteUserPreset}
+					removeOptionLabel={(name) => m.video_editor_effects_preset_delete_named({ name })}
+				/>
+			{/if}
+			{#if effects.length > 0}
+				<button
+					type="button"
+					class="flex size-7 shrink-0 items-center justify-center rounded border border-[var(--video-editor-border)] bg-[var(--video-editor-control)] hover:bg-[var(--video-editor-control-hover)] focus-visible:outline-2 focus-visible:outline-[var(--video-editor-focus)] [@media(pointer:coarse)]:size-11"
+					aria-label={m.video_editor_effects_preset_save_current()}
+					title={m.video_editor_effects_preset_save_current()}
+					aria-expanded={showPresetSave}
+					onclick={() => (showPresetSave = !showPresetSave)}
+				>
+					<ThemeIcon role="save" class="size-3.5" />
+				</button>
+				<button
+					type="button"
+					class="flex size-7 shrink-0 items-center justify-center rounded border border-[var(--video-editor-border)] bg-[var(--video-editor-control)] hover:bg-[var(--video-editor-control-hover)] focus-visible:outline-2 focus-visible:outline-[var(--video-editor-focus)] [@media(pointer:coarse)]:size-11"
+					disabled={selectedEffectItemIds.length === 0}
+					aria-label={allEffectsEnabled
+						? m.video_editor_effects_disable_all()
+						: m.video_editor_effects_enable_all()}
+					title={allEffectsEnabled
+						? m.video_editor_effects_disable_all()
+						: m.video_editor_effects_enable_all()}
+					onclick={toggleAllEffects}
+				>
+					{#if allEffectsEnabled}<ThemeIcon role="eye-off" class="size-3.5" />{:else}<ThemeIcon
+							role="eye"
+							class="size-3.5"
+						/>{/if}
+				</button>
+			{/if}
+		</div>
+	{/if}
 	{#if showPresetSave}
 		<div class="flex items-center gap-1 px-1">
 			<Input
@@ -677,12 +804,32 @@
 	{#if presetStatus}<p class="px-1 text-[10px] text-[var(--video-editor-muted)]" role="status">
 			{presetStatus}
 		</p>{/if}
-	{#if !itemId || effects.length === 0}
+	{#if dedicatedGpuEffectId && effects.length === 0}
+		<div class="flex min-h-0 flex-1 items-center justify-center p-4 text-center">
+			<div class="flex max-w-64 flex-col items-center gap-2">
+				<p class="text-xs font-medium text-[var(--video-editor-text)]">
+					{dedicatedGpuEffectLabel}
+				</p>
+				<button
+					type="button"
+					class="flex min-h-8 items-center justify-center gap-1.5 rounded-md bg-[var(--video-editor-primary)] px-3 text-xs font-medium text-[var(--video-editor-primary-text)] hover:brightness-105 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--video-editor-focus)] disabled:opacity-40 [@media(pointer:coarse)]:min-h-11"
+					disabled={selectedEffectItemIds.length === 0 || !dedicatedGpuEffect}
+					onclick={() => addSelectedEffect(`gpu:${dedicatedGpuEffectId}`)}
+				>
+					<ThemeIcon role="add" class="size-3.5" />
+					{dedicatedAddLabel}
+				</button>
+			</div>
+		</div>
+	{:else if !itemId || effects.length === 0}
 		<p class="px-1 text-xs text-[var(--video-editor-muted)]">
 			{m.video_editor_effects_none()}
 		</p>
 	{:else}
-		<ul class="min-h-0 flex-1 overflow-y-auto">
+		<ul
+			class="min-h-0 flex-1 overflow-y-auto {scrollWithParent ? 'short-scroll-effect-list' : ''}"
+			inert={selectedEffectItemIds.length === 0}
+		>
 			{#each effects as effect, index (effect.id)}
 				{@const definition = definitionFor(effect.type)}
 				{@const gpuDefinition = effect.type === 'gpu' ? getGpuEffect(effect.effectId) : undefined}
@@ -712,53 +859,31 @@
 											<ThemeIcon role="chevron-down" class="size-3.5 shrink-0" />
 										{/if}
 										<span class="truncate">{effectLabel(effect)}</span>
-										{#if collapsedEffects.has(effect.id) && !isEffectAtDefaults(effect)}
-											<span
-												class="inline-flex size-4 shrink-0 items-center justify-center"
-												aria-label={m.video_editor_effects_modified()}
-												data-effect-modified
-											>
+										{#if collapsedEffects.has(effect.id)}
+											{#if effect.type !== 'gpu' && definition}
+												<span class="shrink-0 font-mono text-[10px]"
+													>{(draftAmounts[effect.id] ?? effect.amount).toFixed(
+														definition.step < 1 ? 2 : 0
+													)}</span
+												>{/if}
+											{#if !isEffectAtDefaults(effect)}
 												<span
-													class="size-1.5 rounded-full bg-[var(--video-editor-primary)]"
-													aria-hidden="true"
-												></span>
-											</span>
+													class="inline-flex size-4 shrink-0 items-center justify-center"
+													role="img"
+													aria-label={m.video_editor_effects_modified()}
+												>
+													<span
+														class="size-1.5 rounded-full bg-[var(--video-editor-primary)]"
+														aria-hidden="true"
+													></span>
+												</span>
+											{/if}
 										{/if}
 									</button>
 									<div class="flex shrink-0 items-center">
 										<button
 											type="button"
-											class="rounded p-1 hover:bg-[var(--video-editor-control-hover)] focus-visible:outline-2 focus-visible:outline-[var(--video-editor-focus)] disabled:opacity-30"
-											disabled={index === 0}
-											aria-label={m.video_editor_effects_move_up()}
-											title={m.video_editor_effects_move_up()}
-											onclick={() => moveStackEffect(effect.id, -1)}
-										>
-											<ThemeIcon role="chevron-up" class="size-3" />
-										</button>
-										<button
-											type="button"
-											class="rounded p-1 hover:bg-[var(--video-editor-control-hover)] focus-visible:outline-2 focus-visible:outline-[var(--video-editor-focus)] disabled:opacity-30"
-											disabled={index === effects.length - 1}
-											aria-label={m.video_editor_effects_move_down()}
-											title={m.video_editor_effects_move_down()}
-											onclick={() => moveStackEffect(effect.id, 1)}
-										>
-											<ThemeIcon role="chevron-down" class="size-3" />
-										</button>
-										<button
-											type="button"
-											class="rounded p-1 hover:bg-[var(--video-editor-control-hover)] focus-visible:outline-2 focus-visible:outline-[var(--video-editor-focus)] disabled:opacity-30"
-											disabled={isEffectAtDefaults(effect)}
-											aria-label={m.video_editor_effects_reset()}
-											title={m.video_editor_effects_reset()}
-											onclick={() => resetStackEffect(effect.id)}
-										>
-											<ThemeIcon role="undo" class="size-3" />
-										</button>
-										<button
-											type="button"
-											class="rounded p-1 hover:bg-[var(--video-editor-control-hover)] focus-visible:outline-2 focus-visible:outline-[var(--video-editor-focus)]"
+											class="flex size-[22px] items-center justify-center rounded hover:bg-[var(--video-editor-control-hover)] focus-visible:outline-2 focus-visible:outline-[var(--video-editor-focus)]"
 											aria-label={effect.enabled
 												? m.video_editor_effects_disable()
 												: m.video_editor_effects_enable()}
@@ -768,20 +893,51 @@
 											onclick={() => toggleStackEffect(effect)}
 										>
 											{#if effect.enabled}
-												<ThemeIcon role="eye" class="size-3" />
+												<ThemeIcon role="eye" class="size-3.5" />
 											{:else}
-												<ThemeIcon role="eye-off" class="size-3" />
+												<ThemeIcon role="eye-off" class="size-3.5" />
 											{/if}
 										</button>
-										<button
-											type="button"
-											class="rounded p-1 hover:bg-[var(--video-editor-control-hover)] focus-visible:outline-2 focus-visible:outline-[var(--video-editor-focus)]"
-											aria-label={m.video_editor_effects_remove()}
-											title={m.video_editor_effects_remove()}
-											onclick={() => removeStackEffect(effect.id)}
-										>
-											<ThemeIcon role="delete" class="size-3" />
-										</button>
+										<DropdownMenu.Root>
+											<DropdownMenu.Trigger>
+												{#snippet child({ props })}
+													<button
+														{...props}
+														type="button"
+														class="flex size-[22px] items-center justify-center rounded hover:bg-[var(--video-editor-control-hover)] focus-visible:outline-2 focus-visible:outline-[var(--video-editor-focus)]"
+														aria-label={effectLabel(effect)}
+														title={effectLabel(effect)}
+													>
+														<ThemeIcon role="more-horizontal" class="size-3.5" />
+													</button>
+												{/snippet}
+											</DropdownMenu.Trigger>
+											<DropdownMenu.Content class="video-editor-theme w-52" align="end">
+												<DropdownMenu.Item
+													disabled={index === 0}
+													onclick={() => moveStackEffect(effect.id, -1)}
+												>
+													{m.video_editor_effects_move_up()}
+												</DropdownMenu.Item>
+												<DropdownMenu.Item
+													disabled={index === effects.length - 1}
+													onclick={() => moveStackEffect(effect.id, 1)}
+												>
+													{m.video_editor_effects_move_down()}
+												</DropdownMenu.Item>
+												<DropdownMenu.Separator />
+												<DropdownMenu.Item
+													disabled={isEffectAtDefaults(effect)}
+													onclick={() => resetStackEffect(effect.id)}
+												>
+													{m.video_editor_effects_reset()}
+												</DropdownMenu.Item>
+												<DropdownMenu.Separator />
+												<DropdownMenu.Item onclick={() => removeStackEffect(effect.id)}>
+													{m.video_editor_effects_remove()}
+												</DropdownMenu.Item>
+											</DropdownMenu.Content>
+										</DropdownMenu.Root>
 									</div>
 								</div>
 							{/snippet}
@@ -825,13 +981,15 @@
 					{#if !collapsedEffects.has(effect.id)}
 						<div class="px-2 pb-1.5" class:opacity-55={!effect.enabled}>
 							{#if definition && effect.type !== 'gpu'}
-								<Slider
+								<SliderRow
 									class="mt-1"
+									showLabel={false}
+									label={`${typeLabels[effect.type]} — ${m.video_editor_effects_amount()}`}
 									min={definition.min}
 									max={definition.max}
 									step={definition.step}
+									precision={definition.step < 1 ? 2 : 0}
 									value={draftAmounts[effect.id] ?? effect.amount}
-									ariaLabel={`${typeLabels[effect.type]} — ${m.video_editor_effects_amount()}`}
 									onValueChange={(value) => {
 										draftAmounts[effect.id] = value;
 									}}
@@ -840,6 +998,8 @@
 							{/if}
 							{#if gpuDefinition && effect.type === 'gpu'}
 								{@const resolvedEffect = resolvedGpuEffect(effect)}
+								{@const recovery = gpuRecovery(resolvedEffect)}
+								{@const recoveryId = `${panelId}-gpu-recovery-${effect.id}`}
 								{#if getSpatialPointEffectConfig(effect.effectId)}
 									<button
 										type="button"
@@ -866,25 +1026,28 @@
 									</button>
 								{/if}
 								{#if effect.effectId === 'gpu-lut'}
-									<button
-										type="button"
-										class="mt-1 w-full rounded border border-[var(--video-editor-border)] px-2 py-1 text-xs hover:bg-[var(--video-editor-control-hover)]"
-										title={m.video_editor_effects_lut_size_note()}
-										onclick={() => importLut(effect)}
-										>{typeof effect.params.lutName === 'string' && effect.params.lutName.length > 0
-											? effect.params.lutName
-											: m.video_editor_effects_choose_lut()}</button
-									>
-									<p class="mt-0.5 text-[10px] text-[var(--video-editor-muted)]">
-										{m.video_editor_effects_lut_size_note()}
-									</p>
-									{#if typeof effect.params.lutName === 'string' && effect.params.lutName.length > 0}
+									<div class="mt-1 flex items-center gap-1">
 										<button
 											type="button"
-											class="mt-1 w-full rounded border border-[var(--video-editor-border)] px-2 py-1 text-xs hover:bg-[var(--video-editor-control-hover)]"
-											onclick={() => resetLut(effect)}>{m.video_editor_effects_lut_reset()}</button
+											class="h-[25px] min-w-0 flex-1 truncate rounded border border-[var(--video-editor-border)] px-2 text-left text-[11px] hover:bg-[var(--video-editor-control-hover)]"
+											title={m.video_editor_effects_lut_size_note()}
+											onclick={() => importLut(effect)}
+											>{typeof effect.params.lutName === 'string' &&
+											effect.params.lutName.length > 0
+												? effect.params.lutName
+												: m.video_editor_effects_choose_lut()}</button
 										>
-									{/if}
+										{#if typeof effect.params.lutName === 'string' && effect.params.lutName.length > 0}
+											<button
+												type="button"
+												class="flex size-[22px] shrink-0 items-center justify-center rounded hover:bg-[var(--video-editor-control-hover)]"
+												aria-label={m.video_editor_effects_lut_reset()}
+												title={m.video_editor_effects_lut_reset()}
+												onclick={() => resetLut(effect)}
+												><ThemeIcon role="undo" class="size-3" /></button
+											>
+										{/if}
+									</div>
 									{#if lutStatusEffectId === effect.id && lutStatus}
 										<p class="mt-0.5 text-[10px] text-[var(--video-editor-muted)]" role="status">
 											{lutStatus}
@@ -930,11 +1093,23 @@
 									/>
 								{:else}
 									<div class="mt-1 flex flex-col gap-1">
+										{#if recovery}
+											<p
+												id={recoveryId}
+												role="status"
+												class="mb-1 text-xs leading-relaxed text-[var(--video-editor-muted)]"
+											>
+												{recovery.message}
+											</p>
+										{/if}
 										{#each gpuDefinition.schema as param (param.name)}
 											{#if !param.visibleWhen || param.visibleWhen(effect.params)}
 												<GpuParamControl
 													{param}
 													value={resolvedEffect.params[param.name]}
+													descriptionId={recovery?.params.includes(param.name)
+														? recoveryId
+														: undefined}
 													effectLabel={effectLabel(effect)}
 													oncommit={(value) => commitGpuParam(effect, param.name, value)}
 													keyframe={effectKeyframeControl(effect, param.name)}
@@ -952,3 +1127,18 @@
 	{/if}
 </div>
 {#if itemId && showScopes}<ColorScopes {itemId} />{/if}
+
+<style>
+	@media (max-height: 600px) {
+		.short-scroll-effects {
+			height: auto;
+			min-height: 100%;
+			overflow: visible;
+		}
+
+		.short-scroll-effects .short-scroll-effect-list {
+			flex: none;
+			overflow: visible;
+		}
+	}
+</style>

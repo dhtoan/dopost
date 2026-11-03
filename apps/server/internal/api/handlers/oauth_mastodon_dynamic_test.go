@@ -23,13 +23,13 @@ import (
 func TestGetMastodonProviderReturnsConfiguredInstanceURL(t *testing.T) {
 	const instanceURL = "https://social.example"
 	handler := &OAuthHandler{providers: map[string]platform.Adapter{
-		"mastodon:OpenPost E2E": platform.NewMastodonAdapter(
+		"mastodon:dopost E2E": platform.NewMastodonAdapter(
 			"client", "secret", "https://openpost.example/callback", instanceURL,
 		),
 	}}
 
-	adapter, readinessInstanceURL, err := handler.getMastodonProvider(
-		context.Background(), "OpenPost E2E", "",
+	adapter, readinessInstanceURL, err := handler.getCompatProvider(
+		context.Background(), mastodonProvider, "dopost E2E", "",
 	)
 
 	require.NoError(t, err)
@@ -43,11 +43,11 @@ func TestGetMastodonProviderResolvesConfiguredInstanceURLAlias(t *testing.T) {
 		"client", "secret", "https://openpost.example/callback", instanceURL,
 	)
 	handler := &OAuthHandler{providers: map[string]platform.Adapter{
-		"mastodon:OpenPost E2E": adapter,
+		"mastodon:dopost E2E": adapter,
 	}}
 
-	resolved, readinessInstanceURL, err := handler.getMastodonProvider(
-		context.Background(), instanceURL, "",
+	resolved, readinessInstanceURL, err := handler.getCompatProvider(
+		context.Background(), mastodonProvider, instanceURL, "",
 	)
 
 	require.NoError(t, err)
@@ -75,7 +75,7 @@ func TestGetAuthURLRegistersDynamicMastodonInstance(t *testing.T) {
 		require.Equal(t, http.MethodPost, r.Method)
 		require.Equal(t, "/api/v1/apps", r.URL.Path)
 		require.NoError(t, r.ParseForm())
-		require.Equal(t, "OpenPost", r.Form.Get("client_name"))
+		require.Equal(t, "dopost", r.Form.Get("client_name"))
 		require.Equal(t, "urn:ietf:wg:oauth:2.0:oob", r.Form.Get("redirect_uris"))
 		require.Equal(t, "read write", r.Form.Get("scopes"))
 		registrationCalls++
@@ -150,7 +150,7 @@ func TestGetAuthURLRegistersDynamicMastodonInstance(t *testing.T) {
 		restartedRegistrations[key] = adapter
 	})
 	restartedHandler.SetMastodonAppService(mastodonAppService)
-	adapter, canonicalURL, err := restartedHandler.getMastodonProvider(ctx, instanceServer.URL, "")
+	adapter, canonicalURL, err := restartedHandler.getCompatProvider(ctx, mastodonProvider, instanceServer.URL, "")
 	require.NoError(t, err)
 	require.NotNil(t, adapter)
 	require.Equal(t, instanceServer.URL, canonicalURL)

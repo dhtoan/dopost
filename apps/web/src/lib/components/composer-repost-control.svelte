@@ -8,13 +8,15 @@
 	import { Checkbox } from '$lib/components/ui/checkbox';
 	import { Input } from '$lib/components/ui/input';
 	import { Label } from '$lib/components/ui/label';
-	import SocialAccountIdentity from '$lib/components/social-account-identity.svelte';
+	import AccountPickerList from '$lib/components/account-picker/list.svelte';
+	import AccountPickerRow from '$lib/components/account-picker/row.svelte';
+	import AccountPickerSelectAll from '$lib/components/account-picker/select-all.svelte';
 	import RepostStageEditor from '$lib/components/repost-stage-editor.svelte';
 	import * as Popover from '$lib/components/ui/popover';
 	import * as RadioGroup from '$lib/components/ui/radio-group';
 	import * as Select from '$lib/components/ui/select';
 	import { m } from '$lib/paraglide/messages';
-	import { formatSocialAccountName } from '$lib/utils';
+	import { formatSocialAccountName, getPlatformName } from '$lib/utils';
 	import { ThemeIcon } from '$lib/themes/icons';
 
 	type RepostOverride = components['schemas']['Override'];
@@ -132,6 +134,18 @@
 		onChange?.();
 	}
 
+	function selectAllTargets() {
+		if (value.mode !== 'custom') return;
+		value.target_account_ids = targetAccounts.map((account) => account.id);
+		onChange?.();
+	}
+
+	function clearTargets() {
+		if (value.mode !== 'custom') return;
+		value.target_account_ids = [];
+		onChange?.();
+	}
+
 	function setThreshold(
 		field: 'min_likes' | 'min_comments' | 'min_reposts' | 'min_views',
 		raw: string
@@ -228,6 +242,10 @@
 			{/each}
 		</RadioGroup.Root>
 
+		<Button href="/workflows/reposts" variant="link" class="mx-4 mb-3">
+			{m.workflows_title()}<ThemeIcon role="arrow-right" class="size-4" />
+		</Button>
+
 		{#if value.mode === 'custom' && value.rule}
 			<div class="space-y-5 border-t p-4">
 				<fieldset class="space-y-2">
@@ -263,26 +281,33 @@
 								</Button>
 							</div>
 						{/if}
-						<div class="grid gap-2 sm:grid-cols-2">
-							{#each targetAccounts as account (account.id)}
-								<label class="flex min-h-12 items-center gap-3 rounded-md border px-3 py-2 text-sm">
-									<Checkbox
-										checked={(value.target_account_ids ?? []).includes(account.id)}
-										onCheckedChange={() => toggleTarget(account.id)}
-									/>
-									<SocialAccountIdentity
-										class="min-w-0 flex-1"
-										name={accountLabel(account)}
-										platform={account.platform}
-										avatarUrl={account.avatar_url}
-									/>
-								</label>
-							{:else}
-								<p class="text-sm text-muted-foreground sm:col-span-2">
-									{m.repost_no_supported_accounts()}
-								</p>
-							{/each}
-						</div>
+						{#if targetAccounts.length > 0}
+							<!-- Custom repost targets: any subset including none is an authored choice. -->
+							<AccountPickerSelectAll
+								selectedCount={(value.target_account_ids ?? []).length}
+								totalCount={targetAccounts.length}
+								onSelectAll={selectAllTargets}
+								onClearAll={clearTargets}
+								{disabled}
+							/>
+						{/if}
+						<AccountPickerList
+							accounts={targetAccounts}
+							searchText={(account) =>
+								`${accountLabel(account)} ${account.username} ${getPlatformName(account.platform)}`}
+							emptyLabel={m.repost_no_supported_accounts()}
+						>
+							{#snippet children(account)}
+								<AccountPickerRow
+									name={accountLabel(account)}
+									platform={account.platform}
+									avatarUrl={account.avatar_url}
+									selected={(value.target_account_ids ?? []).includes(account.id)}
+									onToggle={() => toggleTarget(account.id)}
+									class="rounded-md border px-3 py-2"
+								/>
+							{/snippet}
+						</AccountPickerList>
 					{/if}
 				</fieldset>
 

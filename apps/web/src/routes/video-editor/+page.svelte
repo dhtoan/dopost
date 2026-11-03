@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { appBranding } from '$lib/app-branding.svelte';
 	import { projectPresetName } from '$lib/video-editor/project/preset-label';
 	import { goto } from '$app/navigation';
 	import EditorStart from '$lib/components/editor-start.svelte';
@@ -29,9 +30,8 @@
 	import { permanentlyDeleteProject } from '$lib/video-editor/project/project-trash';
 	import type { Project } from '$lib/video-editor/project/types';
 	import {
-		cloudVideoProjectFamily,
 		CloudVideoProjectRepository,
-		type CloudVideoProject
+		type CloudVideoProjectSummary
 	} from '$lib/video-editor/cloud/project-repository';
 	import { importLocalProjectToCloud } from '$lib/video-editor/cloud/import-local-project';
 	import { saveCloudProjectBundle } from '$lib/video-editor/cloud/export-project-bundle';
@@ -72,8 +72,8 @@
 	let trashLoadGeneration = 0;
 	let storageMode = $state<'cloud' | 'local'>('cloud');
 	let storageModeChosen = $state(false);
-	let cloudProjects = $state<CloudVideoProject<Project>[]>([]);
-	let cloudTrashedProjects = $state<CloudVideoProject<Project>[]>([]);
+	let cloudProjects = $state<CloudVideoProjectSummary[]>([]);
+	let cloudTrashedProjects = $state<CloudVideoProjectSummary[]>([]);
 	let cloudLoading = $state(false);
 	let cloudError = $state('');
 	let cloudCreating = $state(false);
@@ -98,13 +98,13 @@
 		cloudLoading = true;
 		cloudError = '';
 		try {
-			const projects = await repository.list(true);
+			const projects = await repository.listSummaries(true);
 			if (generation !== cloudLoadGeneration) return;
 			cloudProjects = projects.filter(
-				(project) => !project.trashedAt && cloudVideoProjectFamily(project) !== 'quick-cut'
+				(project) => !project.trashedAt && project.schemaFamily !== 'quick-cut'
 			);
 			cloudTrashedProjects = projects.filter(
-				(project) => project.trashedAt && cloudVideoProjectFamily(project) !== 'quick-cut'
+				(project) => project.trashedAt && project.schemaFamily !== 'quick-cut'
 			);
 			cloudLoading = false;
 			void loadCloudOfflineProjectIds(generation, cloudWorkspaceId, cloudProjects);
@@ -119,7 +119,7 @@
 	async function loadCloudOfflineProjectIds(
 		generation: number,
 		workspaceId: string,
-		projects: CloudVideoProject<Project>[]
+		projects: CloudVideoProjectSummary[]
 	): Promise<void> {
 		try {
 			const ids = (
@@ -179,7 +179,7 @@
 		await handleCreateProject(m.video_editor_project_untitled(), settings);
 	}
 
-	async function openCloudProject(project: CloudVideoProject<Project>): Promise<void> {
+	async function openCloudProject(project: Pick<CloudVideoProjectSummary, 'id'>): Promise<void> {
 		await goto(`/video-editor/${project.id}?storage=cloud`);
 	}
 
@@ -198,21 +198,7 @@
 		}
 	}
 
-	async function exportCloudProject(project: CloudVideoProject<Project>): Promise<void> {
-		const repository = cloudRepository;
-		if (!repository || cloudExportingId) return;
-		cloudExportingId = project.id;
-		try {
-			await saveCloudProjectBundle(repository, project.id, project.name);
-			showToast(m.video_editor_project_bundle_exported({ name: project.name }), 'success');
-		} catch (error) {
-			showToast(error instanceof Error ? error.message : String(error), 'error');
-		} finally {
-			cloudExportingId = null;
-		}
-	}
-
-	async function trashCloudProject(project: CloudVideoProject<Project>): Promise<void> {
+	async function trashCloudProject(project: CloudVideoProjectSummary): Promise<void> {
 		const repository = cloudRepository;
 		if (!repository) return;
 		try {
@@ -225,7 +211,7 @@
 		}
 	}
 
-	async function toggleCloudProjectOffline(project: CloudVideoProject<Project>): Promise<void> {
+	async function toggleCloudProjectOffline(project: CloudVideoProjectSummary): Promise<void> {
 		const repository = cloudRepository;
 		if (!repository || cloudOfflineBusyId) return;
 		cloudOfflineBusyId = project.id;
@@ -244,7 +230,7 @@
 		}
 	}
 
-	async function restoreCloudProject(project: CloudVideoProject<Project>): Promise<void> {
+	async function restoreCloudProject(project: CloudVideoProjectSummary): Promise<void> {
 		const repository = cloudRepository;
 		if (!repository) return;
 		try {
@@ -610,22 +596,34 @@
 		}
 	}
 
-	async function handleExportBundle(project: Project): Promise<void> {
+	async function handleExportBundle(
+		project: Pick<Project, 'id' | 'name'>,
+		storage: 'local' | 'cloud'
+	): Promise<void> {
+		const repository = cloudRepository;
+		if (storage === 'cloud' && !repository) return;
 		if (exportingId || importing || bundleOperation) return;
 		const controller = new AbortController();
-		exportingId = project.id;
+		if (storage === 'cloud') cloudExportingId = project.id;
+		else exportingId = project.id;
 		exportingKind = 'bundle';
 		bundleOperation = 'export';
 		bundleController = controller;
 		bundleCanceling = false;
 		bundleProgress = { stage: 'collecting', percent: 0 };
 		try {
-			await saveProjectBundle(
-				project.id,
-				project.name,
-				(progress) => (bundleProgress = progress),
-				controller.signal
-			);
+			const onProgress = (progress: BundleProgress) => (bundleProgress = progress);
+			if (storage === 'cloud' && repository) {
+				await saveCloudProjectBundle(
+					repository,
+					project.id,
+					project.name,
+					onProgress,
+					controller.signal
+				);
+			} else {
+				await saveProjectBundle(project.id, project.name, onProgress, controller.signal);
+			}
 			showToast(m.video_editor_project_bundle_exported({ name: project.name }), 'success');
 		} catch (error) {
 			if (
@@ -638,6 +636,7 @@
 				showToast(error instanceof Error ? error.message : String(error), 'error');
 			}
 		} finally {
+			cloudExportingId = null;
 			exportingId = null;
 			exportingKind = null;
 			if (bundleController === controller) {
@@ -656,21 +655,51 @@
 	}
 </script>
 
-<svelte:head><title>{m.video_editor_title()}</title></svelte:head>
+<svelte:head>
+	<title>{appBranding.title(m.video_editor_title())}</title>
+	<meta
+		name="description"
+		content="Record or import footage, edit for four social formats, and export without a watermark."
+	/>
+	<link rel="canonical" href="https://app.openpo.st/video-editor" />
+	<meta property="og:site_name" content="dopost" />
+	<meta property="og:type" content="website" />
+	<meta property="og:title" content="Free social media video editor - dopost Video Editor" />
+	<meta
+		property="og:description"
+		content="Record or import footage, edit for four social formats, and export without a watermark."
+	/>
+	<meta property="og:url" content="https://app.openpo.st/video-editor" />
+	<meta property="og:image" content="https://app.openpo.st/og/app-video-editor.png" />
+	<meta property="og:image:secure_url" content="https://app.openpo.st/og/app-video-editor.png" />
+	<meta property="og:image:type" content="image/png" />
+	<meta property="og:image:width" content="1200" />
+	<meta property="og:image:height" content="630" />
+	<meta property="og:image:alt" content="Video Editor dopost editor social preview." />
+	<meta name="twitter:card" content="summary_large_image" />
+	<meta name="twitter:title" content="Free social media video editor - dopost Video Editor" />
+	<meta
+		name="twitter:description"
+		content="Record or import footage, edit for four social formats, and export without a watermark."
+	/>
+	<meta name="twitter:image" content="https://app.openpo.st/og/app-video-editor.png" />
+	<meta name="twitter:image:alt" content="Video Editor dopost editor social preview." />
+</svelte:head>
 
 <div
 	class="video-editor-theme flex min-h-dvh flex-col bg-[var(--video-editor-canvas)] text-[var(--video-editor-text)]"
 >
 	<EditorStart
-		kind="video"
 		title={m.editor_start_video_title()}
 		description={m.editor_start_video_description()}
 	>
 		{#snippet utility()}
 			{#if cloudWorkspaceId}
+				<span class="text-xs text-muted-foreground">{m.editor_storage_destination()}</span>
 				<div
 					class="flex rounded-lg border border-[var(--video-editor-border)] p-0.5"
-					aria-label={m.video_editor_projects_title()}
+					role="group"
+					aria-label={m.editor_storage_destination()}
 				>
 					<Button
 						variant={storageMode === 'cloud' ? 'secondary' : 'ghost'}
@@ -679,7 +708,7 @@
 						onclick={() => {
 							storageModeChosen = true;
 							storageMode = 'cloud';
-						}}>{m.video_editor_cloud_projects()}</Button
+						}}>{m.editor_storage_choice_cloud()}</Button
 					>
 					<Button
 						variant={storageMode === 'local' ? 'secondary' : 'ghost'}
@@ -688,7 +717,7 @@
 						onclick={() => {
 							storageModeChosen = true;
 							storageMode = 'local';
-						}}>{m.video_editor_local_only()}</Button
+						}}>{m.editor_storage_choice_local()}</Button
 					>
 				</div>
 			{/if}
@@ -697,6 +726,7 @@
 			{/if}
 		{/snippet}
 		{#snippet actions()}
+			<Button href="/quick-cut" variant="outline">{m.video_editor_quick_choice_action()}</Button>
 			<Button
 				onclick={() => void startProject()}
 				disabled={creating ||
@@ -711,7 +741,7 @@
 						icon="loading"
 						class="animate-spin motion-reduce:animate-none"
 					/>{:else}<ThemeIcon role="add" />{/if}
-				{m.editor_start_new_project()}
+				{m.video_editor_full_choice()}
 			</Button>
 		{/snippet}
 		{#if (storageMode === 'cloud' && cloudRepository) || gate.state === 'pick' || gate.state === 'ready' || gate.state === 'reconnect'}
@@ -737,7 +767,67 @@
 			</section>
 		{/if}
 
-		{#if storageMode === 'cloud' && cloudRepository}
+		{#if bundleProgress && bundleOperation}
+			<div
+				class="mt-4 rounded-lg border border-[var(--video-editor-border)] bg-[var(--video-editor-panel)] px-3 py-2"
+				role="status"
+				aria-live="polite"
+			>
+				<div class="flex items-center justify-between gap-3 text-xs">
+					<span class="font-medium">
+						{bundleOperation === 'import'
+							? m.video_editor_project_bundle_importing()
+							: m.video_editor_project_bundle_exporting()}
+					</span>
+					<div class="flex items-center gap-2">
+						<span>{Math.round(bundleProgress.percent)}%</span>
+						<Button
+							variant="ghost"
+							size="xs"
+							disabled={bundleCanceling}
+							onclick={handleCancelBundle}
+						>
+							{#if bundleCanceling}
+								<ProtectedIcon
+									icon="loading"
+									class="size-3.5 animate-spin motion-reduce:animate-none"
+								/>
+							{:else}
+								<ThemeIcon role="close" class="size-3.5" />
+							{/if}
+							{bundleCanceling
+								? m.video_editor_project_bundle_canceling()
+								: m.video_editor_project_bundle_cancel()}
+						</Button>
+					</div>
+				</div>
+				<div
+					class="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-[var(--video-editor-control)]"
+					role="progressbar"
+					aria-valuemin="0"
+					aria-valuemax="100"
+					aria-valuenow={Math.round(bundleProgress.percent)}
+					aria-label={bundleOperation === 'import'
+						? m.video_editor_project_bundle_importing()
+						: m.video_editor_project_bundle_exporting()}
+				>
+					<div
+						class="h-full rounded-full bg-primary transition-[width] motion-reduce:transition-none"
+						style:width={`${Math.max(0, Math.min(100, bundleProgress.percent))}%`}
+					></div>
+				</div>
+				{#if bundleProgress.currentFile}
+					<p
+						class="mt-1 truncate text-xs text-[var(--video-editor-muted)]"
+						title={bundleProgress.currentFile}
+					>
+						{bundleProgress.currentFile}
+					</p>
+				{/if}
+			</div>
+		{/if}
+
+		{#if cloudRepository}
 			<CloudProjectBrowser
 				projects={cloudProjects}
 				trashedProjects={cloudTrashedProjects}
@@ -752,45 +842,54 @@
 				ontrash={trashCloudProject}
 				onrestore={restoreCloudProject}
 				onimportlocal={importLocalProject}
-				onexport={exportCloudProject}
+				onexport={(project) => handleExportBundle(project, 'cloud')}
 				ontoggleoffline={toggleCloudProjectOffline}
 				onrefresh={loadCloudProjects}
 			/>
-		{:else if gate.state !== 'ready'}
-			<WorkspaceGatePanel {gate} variant="inline" />
-		{:else if gate.state === 'ready'}
-			<ProjectBrowser
-				projects={projectCatalog.projects}
-				thumbnailUrls={projectCatalog.thumbnailUrls}
-				{trashedProjects}
-				loading={projectCatalog.loading}
-				error={projectCatalog.error}
-				{trashError}
-				{trashBusyId}
-				{emptyingTrash}
-				{creating}
-				{importing}
-				{duplicatingId}
-				{exportingId}
-				{exportingKind}
-				{bundleProgress}
-				{bundleOperation}
-				{bundleCanceling}
-				oncreate={handleCreateProject}
-				onimportjson={handleImportJson}
-				onimportbundle={handleImportBundle}
-				onopen={openProject}
-				onupdate={handleUpdateProject}
-				onduplicate={handleDuplicate}
-				onexportjson={handleExportJson}
-				onexportbundle={handleExportBundle}
-				oncancelbundle={handleCancelBundle}
-				ondelete={handleDelete}
-				ondeletebatch={handleDeleteBatch}
-				onrestore={handleRestore}
-				onpurge={handlePurge}
-				onemptytrash={handleEmptyTrash}
-			/>
 		{/if}
+		<section class="mt-8 border-t pt-6" aria-label={m.video_editor_local_only()}>
+			<h2 class="mb-3 text-base font-semibold">{m.video_editor_local_only()}</h2>
+			{#if gate.state !== 'ready'}
+				<WorkspaceGatePanel {gate} variant="inline" />
+				<div class="mt-3 space-y-2">
+					<Button variant="outline" disabled aria-describedby="bundle-folder-required">
+						{m.video_editor_project_import_bundle()}
+					</Button>
+					<p id="bundle-folder-required" class="text-sm text-muted-foreground">
+						{m.video_editor_project_bundle_folder_required()}
+					</p>
+				</div>
+			{:else if gate.state === 'ready'}
+				<ProjectBrowser
+					projects={projectCatalog.projects}
+					thumbnailUrls={projectCatalog.thumbnailUrls}
+					{trashedProjects}
+					loading={projectCatalog.loading}
+					error={projectCatalog.error}
+					{trashError}
+					{trashBusyId}
+					{emptyingTrash}
+					{creating}
+					{importing}
+					{duplicatingId}
+					{exportingId}
+					{exportingKind}
+					{bundleOperation}
+					oncreate={handleCreateProject}
+					onimportjson={handleImportJson}
+					onimportbundle={handleImportBundle}
+					onopen={openProject}
+					onupdate={handleUpdateProject}
+					onduplicate={handleDuplicate}
+					onexportjson={handleExportJson}
+					onexportbundle={(project) => handleExportBundle(project, 'local')}
+					ondelete={handleDelete}
+					ondeletebatch={handleDeleteBatch}
+					onrestore={handleRestore}
+					onpurge={handlePurge}
+					onemptytrash={handleEmptyTrash}
+				/>
+			{/if}
+		</section>
 	</EditorStart>
 </div>

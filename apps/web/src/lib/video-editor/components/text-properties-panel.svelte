@@ -1,14 +1,30 @@
 <script lang="ts">
 	import { m } from '$lib/paraglide/messages';
 	import { Button } from '$lib/components/ui/button';
+	import TimerProperties from './timer-properties.svelte';
+	import TextStyleToggles from './text-style-toggles.svelte';
 	import { Input } from '$lib/components/ui/input';
 	import { Textarea } from '$lib/components/ui/textarea';
 	import AppSelect, { type AppSelectOption } from '$lib/components/app-select.svelte';
 	import ColorPicker from '$lib/components/color-picker.svelte';
 	import EditorFontPicker from '$lib/components/editor-font-picker.svelte';
+	import { Disclosure as EditorDisclosure } from '$lib/components/editor-density';
 	import { editorSession } from '$lib/video-editor/editor.svelte';
-	import type { TextSpan, TextStylePresetId, TimelineItem } from '../project/types';
+	import type {
+		KeyframeProperty,
+		TextSpan,
+		TextStylePresetId,
+		TimelineItem
+	} from '../project/types';
+	import { isTrackEffectivelyLocked } from '../timeline/utils/track-groups';
 	import { timelineStore } from '../timeline/stores/timeline-store.svelte';
+	import {
+		resolvePreExpressionItemAt,
+		getAnimatablePropertiesForItem
+	} from '../timeline/animated-properties';
+	import { setAnimatedProperties } from '../timeline/actions/keyframes';
+	import { executeAtomic } from '../timeline/commands/command-store.svelte';
+	import { autoKeyframeStore } from '../timeline/stores/auto-keyframe-store.svelte';
 	import { updateItemProperties } from '../timeline/actions/items';
 	import {
 		applyTextEffectPreset,
@@ -27,14 +43,18 @@
 		item,
 		itemIds = [],
 		onedit,
-		oncreatevoice
+		oncreatevoice,
+		onbrowsetextstyles
 	}: {
 		item: TimelineItem;
 		itemIds?: string[];
 		onedit: () => void;
 		oncreatevoice?: (itemId: string, text: string) => void;
+		onbrowsetextstyles?: () => void;
 	} = $props();
-	const activeItem = $derived(timelineStore.itemById.get(item.id) ?? item);
+	const sourceItem = $derived(timelineStore.itemById.get(item.id) ?? item);
+	const activeItem = $derived(resolvePreExpressionItemAt(sourceItem, timelineStore.currentFrame));
+	const locked = $derived(isTrackEffectivelyLocked(sourceItem.trackId, timelineStore.tracks));
 	const selectedTextItemIds = $derived.by(() => {
 		const selectedIds = itemIds.length > 0 ? itemIds : [activeItem.id];
 		const textIds = selectedIds.filter((id) => timelineStore.itemById.get(id)?.type === 'text');
@@ -102,7 +122,27 @@
 	}
 
 	function commitItem(patch: Partial<TimelineItem>): void {
-		updateItemProperties(activeItem.id, patch, 'UPDATE_TEXT_CONTENT');
+		if (locked) return;
+		const values: Partial<Record<KeyframeProperty, number>> = {};
+		const staticPatch = { ...patch };
+		for (const property of getAnimatablePropertiesForItem(sourceItem)) {
+			if (!(property in patch)) continue;
+			// SAFETY: the membership check excludes nested animation paths; every
+			// KeyframeProperty that is also a top-level TimelineItem field is numeric.
+			const field = property as Extract<KeyframeProperty, keyof TimelineItem>;
+			const value = patch[field];
+			if (value === undefined || !Number.isFinite(value)) continue;
+			values[property] = value;
+			delete staticPatch[field];
+		}
+		executeAtomic('UPDATE_TEXT_CONTENT', () => {
+			if (Object.keys(staticPatch).length)
+				updateItemProperties(activeItem.id, staticPatch, 'UPDATE_TEXT_CONTENT');
+			if (Object.keys(values).length)
+				setAnimatedProperties(activeItem.id, timelineStore.currentFrame, values, (property) =>
+					autoKeyframeStore.isEnabled(activeItem.id, property)
+				);
+		});
 		onedit();
 	}
 
@@ -120,92 +160,7 @@
 </script>
 
 <div class="space-y-2">
-	{#if oncreatevoice}
-		<Button
-			type="button"
-			size="sm"
-			variant="outline"
-			class="w-full"
-			disabled={!speakableText}
-			onclick={() => oncreatevoice?.(activeItem.id, speakableText)}
-		>
-			{m.video_editor_text_create_voice()}
-		</Button>
-	{/if}
-	<div class="space-y-1">
-		<span class="field-label">{m.video_editor_text_layout()}</span>
-		<div class="layout-switch" role="group" aria-label={m.video_editor_text_layout()}>
-			{#each [['single', m.video_editor_text_layout_single()], ['two', m.video_editor_text_layout_two()], ['three', m.video_editor_text_layout_three()]] as [value, label]}
-				<button
-					type="button"
-					class:active={layout === value}
-					aria-pressed={layout === value}
-					onclick={() => commitLayout(value as TextLayoutMode)}>{label}</button
-				>
-			{/each}
-		</div>
-	</div>
-
-	<div class="space-y-1">
-		<span id="text-template-label" class="field-label">{m.video_editor_text_templates()}</span>
-		<div class="template-strip" aria-labelledby="text-template-label">
-			{#each TEXT_STYLE_PRESETS as preset (preset.id)}
-				{@const copy = localizedTextStylePresetCopy(preset.id)}
-				<button
-					type="button"
-					class:active={activeItem.textStylePresetId === preset.id}
-					aria-label={m.video_editor_text_apply_template({
-						name: copy.label
-					})}
-					aria-pressed={activeItem.textStylePresetId === preset.id}
-					onclick={() => commitPreset(preset.id)}
-				>
-					<span class="template-canvas" data-kind={preset.previewKind} aria-hidden="true">
-						{#if copy.sample.eyebrow}<span class="eyebrow">{copy.sample.eyebrow}</span>{/if}
-						<span class="title">{copy.sample.title}</span>
-						{#if copy.sample.subtitle}<span class="subtitle">{copy.sample.subtitle}</span>{/if}
-					</span>
-					<span class="template-name">{copy.label}</span>
-				</button>
-			{/each}
-		</div>
-	</div>
-
-	{#if activeItem.textStylePresetId}
-		<label class="field-label block">
-			{m.video_editor_text_template_scale()}
-			<Input
-				class="field-input mt-0.5"
-				type="number"
-				min="0.5"
-				max="6"
-				step="0.05"
-				value={activeItem.textStyleScale ?? 1}
-				onchange={(event) =>
-					commitPreset(activeItem.textStylePresetId!, event.currentTarget.valueAsNumber)}
-			/>
-		</label>
-	{/if}
-
-	<div class="space-y-1">
-		<span id={`text-effects-${activeItem.id}`} class="field-label">
-			{m.video_editor_effects()}
-		</span>
-		<div class="grid grid-cols-4 gap-1" aria-labelledby={`text-effects-${activeItem.id}`}>
-			{#each ['none', 'shadow', 'outline', 'glow'] as presetId (presetId)}
-				<Button
-					type="button"
-					size="sm"
-					variant="outline"
-					class="h-7 min-w-0 px-1 text-xs"
-					onclick={() => commitEffectPreset(presetId as TextEffectPresetId)}
-				>
-					<span class="truncate">{effectPresetLabel(presetId as TextEffectPresetId)}</span>
-				</Button>
-			{/each}
-		</div>
-	</div>
-
+	{#if activeItem.timer}<TimerProperties item={activeItem} {onedit} />{/if}
 	{#if activeItem.textSpans?.length}
 		<div class="space-y-2">
 			{#each activeItem.textSpans as span, index (`${index}:${span.text}`)}
@@ -214,8 +169,9 @@
 						{spanLabel(index, activeItem.textSpans.length)}
 					</label>
 					<Textarea
+						disabled={locked}
 						id={`text-span-${activeItem.id}-${index}`}
-						class="mt-1 min-h-12 resize-y text-xs"
+						class="mt-1 min-h-9 resize-y text-xs"
 						value={span.text}
 						onchange={(event) => commitSpan(index, { text: event.currentTarget.value })}
 					></Textarea>
@@ -225,6 +181,7 @@
 							<label class="field-label col-span-2">
 								{m.video_editor_text_font()}
 								<EditorFontPicker
+									disabled={locked}
 									value={span.fontFamily ?? activeItem.fontFamily ?? 'Inter'}
 									onChange={({ family, assetID, weight, style }) =>
 										commitSpan(index, {
@@ -238,6 +195,7 @@
 							<label class="field-label">
 								{m.video_editor_property_size()}
 								<Input
+									disabled={locked}
 									class="field-input"
 									type="number"
 									min="8"
@@ -253,6 +211,7 @@
 							<label class="field-label">
 								{m.video_editor_property_weight()}
 								<AppSelect
+									disabled={locked}
 									value={String(span.fontWeight ?? activeItem.fontWeight ?? 400)}
 									options={weightSelectOptions}
 									ariaLabel={m.video_editor_property_weight()}
@@ -264,6 +223,7 @@
 							<label class="field-label">
 								{m.video_editor_property_tracking()}
 								<Input
+									disabled={locked}
 									class="field-input"
 									type="number"
 									min="-20"
@@ -277,6 +237,7 @@
 								/>
 							</label>
 							<ColorPicker
+								disabled={locked}
 								label={m.video_editor_text_color()}
 								value={span.color ?? activeItem.color ?? '#ffffff'}
 								live={false}
@@ -285,8 +246,10 @@
 						</div>
 						<div class="mt-2 flex gap-1">
 							<Button
+								disabled={locked}
 								type="button"
 								size="sm"
+								class="h-[var(--editor-22,22px)]"
 								variant={(span.fontStyle ?? activeItem.fontStyle) === 'italic'
 									? 'secondary'
 									: 'ghost'}
@@ -298,8 +261,10 @@
 									})}>{m.video_editor_text_italic()}</Button
 							>
 							<Button
+								disabled={locked}
 								type="button"
 								size="sm"
+								class="h-[var(--editor-22,22px)]"
 								variant={(span.underline ?? activeItem.underline) ? 'secondary' : 'ghost'}
 								aria-pressed={span.underline ?? activeItem.underline ?? false}
 								onclick={() =>
@@ -313,15 +278,20 @@
 			{/each}
 		</div>
 	{:else}
-		<Textarea
-			class="min-h-16 w-full resize-y text-xs"
-			value={activeItem.text ?? ''}
-			onchange={(event) => commitPlainText(event.currentTarget.value)}
-		></Textarea>
+		{#if !activeItem.timer}
+			<Textarea
+				disabled={locked}
+				class="min-h-12 w-full resize-y text-xs"
+				value={activeItem.text ?? ''}
+				aria-label={m.video_editor_tool_text()}
+				onchange={(event) => commitPlainText(event.currentTarget.value)}
+			></Textarea>
+		{/if}
 		<div class="grid grid-cols-2 gap-1.5">
 			<label class="field-label col-span-2">
 				{m.video_editor_text_font()}
 				<EditorFontPicker
+					disabled={locked}
 					value={activeItem.fontFamily ?? 'Inter'}
 					onChange={({ family, assetID, weight, style }) =>
 						commitItem({
@@ -332,26 +302,183 @@
 						})}
 				/>
 			</label>
-			<Button
-				type="button"
-				size="sm"
-				variant={activeItem.fontStyle === 'italic' ? 'secondary' : 'ghost'}
-				aria-pressed={activeItem.fontStyle === 'italic'}
-				onclick={() =>
+			<TextStyleToggles
+				disabled={locked}
+				isItalic={activeItem.fontStyle === 'italic'}
+				isUnderline={activeItem.underline ?? false}
+				ontoggleitalic={() =>
 					commitItem({
 						fontStyle: activeItem.fontStyle === 'italic' ? 'normal' : 'italic'
-					})}>{m.video_editor_text_italic()}</Button
+					})}
+				ontoggleunderline={() => commitItem({ underline: !activeItem.underline })}
+			/>
+		</div>
+	{/if}
+
+	<div class="grid grid-cols-2 gap-1.5">
+		<label class="field-label">
+			{m.video_editor_property_size()}
+			<Input
+				disabled={locked}
+				class="field-input"
+				type="number"
+				min="8"
+				max="500"
+				step="1"
+				value={activeItem.fontSize ?? 60}
+				onchange={(event) => commitItem({ fontSize: event.currentTarget.valueAsNumber })}
+			/>
+		</label>
+		<label class="field-label">
+			{m.video_editor_property_weight()}
+			<AppSelect
+				disabled={locked}
+				value={String(activeItem.fontWeight ?? 400)}
+				options={weightSelectOptions}
+				ariaLabel={m.video_editor_property_weight()}
+				class="field-select"
+				onValueChange={(fontWeight) => commitItem({ fontWeight: Number(fontWeight) })}
+			/>
+		</label>
+		<ColorPicker
+			disabled={locked}
+			label={m.video_editor_text_color()}
+			value={activeItem.color ?? '#ffffff'}
+			live={false}
+			onChange={(value) => commitItem({ color: value })}
+		/>
+		<div class="text-[10px] text-[var(--video-editor-muted)]">
+			<ColorPicker
+				disabled={locked}
+				label={m.video_editor_text_background()}
+				value={activeItem.backgroundColor ?? '#000000'}
+				live={false}
+				onChange={(value) => commitItem({ backgroundColor: value })}
+			/>
+			<button
+				type="button"
+				class="mt-0.5 w-full rounded px-1 py-1 text-[9px] hover:bg-[var(--video-editor-control-hover)] hover:text-[var(--video-editor-text)] focus-visible:outline-2 focus-visible:outline-[var(--video-editor-focus)] disabled:opacity-40"
+				disabled={locked || !activeItem.backgroundColor}
+				onclick={() => commitItem({ backgroundColor: undefined })}
 			>
+				{m.video_editor_text_clear_background()}
+			</button>
+		</div>
+	</div>
+
+	<div class="text-actions">
+		{#if onbrowsetextstyles}
 			<Button
 				type="button"
 				size="sm"
-				variant={activeItem.underline ? 'secondary' : 'ghost'}
-				aria-pressed={activeItem.underline ?? false}
-				onclick={() => commitItem({ underline: !activeItem.underline })}
-				>{m.video_editor_text_underline()}</Button
+				variant="outline"
+				class="h-8 min-w-0"
+				onclick={onbrowsetextstyles}
 			>
+				{m.video_editor_text_browse_styles()}
+			</Button>
+		{/if}
+		{#if oncreatevoice}
+			<Button
+				type="button"
+				size="sm"
+				variant="outline"
+				class="h-8 min-w-0"
+				disabled={!speakableText}
+				onclick={() => oncreatevoice?.(activeItem.id, speakableText)}
+			>
+				{m.video_editor_text_create_voice()}
+			</Button>
+		{/if}
+	</div>
+
+	<div class="space-y-1">
+		<span class="field-label">{m.video_editor_text_layout()}</span>
+		<div class="layout-switch" role="group" aria-label={m.video_editor_text_layout()}>
+			{#each [['single', m.video_editor_text_layout_single()], ['two', m.video_editor_text_layout_two()], ['three', m.video_editor_text_layout_three()]] as [value, label]}
+				<button
+					disabled={locked}
+					type="button"
+					class:active={layout === value}
+					aria-pressed={layout === value}
+					onclick={() => commitLayout(value as TextLayoutMode)}>{label}</button
+				>
+			{/each}
 		</div>
+	</div>
+
+	{#if !onbrowsetextstyles}
+		<EditorDisclosure
+			label={m.video_editor_text_browse_styles()}
+			class="rounded-md border border-[var(--video-editor-border)]"
+		>
+			<div
+				class="template-strip border-t border-[var(--video-editor-border)]"
+				role="group"
+				aria-label={m.video_editor_text_templates()}
+			>
+				{#each TEXT_STYLE_PRESETS as preset (preset.id)}
+					{@const copy = localizedTextStylePresetCopy(preset.id)}
+					<button
+						disabled={locked}
+						type="button"
+						class:active={activeItem.textStylePresetId === preset.id}
+						aria-label={m.video_editor_text_apply_template({ name: copy.label })}
+						aria-pressed={activeItem.textStylePresetId === preset.id}
+						onclick={() => commitPreset(preset.id)}
+					>
+						<span class="template-canvas" data-kind={preset.previewKind} aria-hidden="true">
+							{#if copy.sample.eyebrow}<span class="eyebrow">{copy.sample.eyebrow}</span>{/if}
+							<span class="title">{copy.sample.title}</span>
+							{#if copy.sample.subtitle}<span class="subtitle">{copy.sample.subtitle}</span>{/if}
+						</span>
+						<span class="template-name">{copy.label}</span>
+					</button>
+				{/each}
+			</div>
+		</EditorDisclosure>
 	{/if}
+
+	{#if activeItem.textStylePresetId}
+		<label class="field-label block">
+			{m.video_editor_text_template_scale()}
+			<Input
+				disabled={locked}
+				class="field-input mt-0.5"
+				type="number"
+				min="0.5"
+				max="6"
+				step="0.05"
+				value={activeItem.textStyleScale ?? 1}
+				onchange={(event) =>
+					commitPreset(activeItem.textStylePresetId!, event.currentTarget.valueAsNumber)}
+			/>
+		</label>
+	{/if}
+
+	<EditorDisclosure
+		label={m.video_editor_effects()}
+		class="rounded-md border border-[var(--video-editor-border)]"
+	>
+		<div
+			class="grid grid-cols-4 gap-1 border-t border-[var(--video-editor-border)] p-2"
+			role="group"
+			aria-label={m.video_editor_effects()}
+		>
+			{#each ['none', 'shadow', 'outline', 'glow'] as presetId (presetId)}
+				<Button
+					disabled={locked}
+					type="button"
+					size="sm"
+					variant="outline"
+					class="h-[var(--editor-22,22px)] min-w-0 px-1 text-[10px]"
+					onclick={() => commitEffectPreset(presetId as TextEffectPresetId)}
+				>
+					<span class="truncate">{effectPresetLabel(presetId as TextEffectPresetId)}</span>
+				</Button>
+			{/each}
+		</div>
+	</EditorDisclosure>
 </div>
 
 <style>
@@ -364,7 +491,7 @@
 	:global(.field-select) {
 		width: 100%;
 		min-width: 0;
-		height: 2rem;
+		height: 25px;
 		margin-top: 0.125rem;
 		border: 1px solid var(--video-editor-border);
 		border-radius: 0.375rem;
@@ -386,9 +513,14 @@
 		border-radius: 0.5rem;
 		background: var(--video-editor-control);
 	}
+	.text-actions {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(min(100%, 10rem), 1fr));
+		gap: 0.375rem;
+	}
 	.layout-switch button {
 		min-width: 0;
-		height: 1.75rem;
+		height: 22px;
 		border-radius: 0.375rem;
 		font-size: 0.625rem;
 		color: var(--video-editor-muted);
@@ -409,13 +541,13 @@
 		display: flex;
 		gap: 0.375rem;
 		overflow-x: auto;
-		padding: 0.125rem 0.125rem 0.375rem;
+		padding: 0.5rem 0.125rem 0.25rem;
 		scrollbar-color: var(--video-editor-border) transparent;
 		scrollbar-width: thin;
 	}
 	.template-strip > button {
-		width: 6rem;
-		flex: 0 0 6rem;
+		width: 4.75rem;
+		flex: 0 0 4.75rem;
 		border: 1px solid var(--video-editor-border);
 		border-radius: 0.5rem;
 		padding: 0.25rem;
@@ -437,7 +569,7 @@
 	}
 	.template-canvas {
 		display: flex;
-		height: 3rem;
+		height: 2.25rem;
 		flex-direction: column;
 		align-items: center;
 		justify-content: center;
@@ -512,8 +644,8 @@
 	.template-name {
 		display: block;
 		overflow: hidden;
-		padding: 0.25rem 0.125rem 0;
-		font-size: 0.5625rem;
+		padding: 0.2rem 0.125rem 0;
+		font-size: 0.5rem;
 		text-overflow: ellipsis;
 		white-space: nowrap;
 	}
@@ -540,8 +672,8 @@
 	}
 	@media (pointer: coarse) {
 		.layout-switch button,
-		.template-strip > button,
-		.span-style summary {
+		.span-style summary,
+		.template-strip > button {
 			min-height: 2.75rem;
 		}
 	}

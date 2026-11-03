@@ -11,6 +11,7 @@ import {
 import { reconcileQueryMutation } from '$lib/query/mutation-reconciliation';
 import type {
 	ImageEditorBrandKit,
+	ImageEditorEffectPreset,
 	ImageEditorDesignSummary,
 	ImageEditorDocument,
 	ImageEditorDocumentResponse,
@@ -91,6 +92,7 @@ function imageEditorBrandKit(data: ApiImageEditorBrandKit): ImageEditorBrandKit 
 		colors: data.colors ?? [],
 		text_styles: data.text_styles ?? [],
 		backgrounds: data.backgrounds ?? [],
+		effect_presets: data.effect_presets ?? [],
 		fonts: (data.fonts ?? []).map((font) => ({ ...font, id: font.id ?? font.media_id }))
 	};
 }
@@ -147,7 +149,7 @@ function requireImageEditorTemplateWorkspace(
 
 function settleImageEditorMutation(
 	session: QueryMutationSession,
-	response: Pick<Response, 'status'>
+	response: Pick<Response, 'status' | 'headers'>
 ): void {
 	settleQueryMutationSession(session, response);
 }
@@ -316,6 +318,16 @@ export async function deleteImageEditorDesign(workspaceID: string, id: string): 
 	});
 }
 
+export async function restoreImageEditorDesign(workspaceID: string, id: string): Promise<void> {
+	const session = captureQueryMutationSession();
+	const { error, response } = await client.POST('/image-editor/designs/{id}/restore', {
+		params: { path: { id } }
+	});
+	settleImageEditorMutation(session, response);
+	if (error) throw new Error(problemMessage(error, 'Could not restore the design.'));
+	await reconcileImageEditorDesign(session, workspaceID, id);
+}
+
 export async function toggleImageEditorDesignFavorite(
 	workspaceID: string,
 	id: string
@@ -470,6 +482,35 @@ export async function createImageEditorCheckpoint(
 	return revision;
 }
 
+export async function deleteImageEditorCheckpoint(
+	workspaceID: string,
+	id: string,
+	revisionID: string
+): Promise<void> {
+	const session = captureQueryMutationSession();
+	const { error, response } = await client.DELETE(
+		'/image-editor/designs/{id}/revisions/{revision_id}',
+		{
+			params: { path: { id, revision_id: revisionID }, query: { confirm: true } }
+		}
+	);
+	settleImageEditorMutation(session, response);
+	if (error)
+		throw new ImageEditorAPIError(
+			problemMessage(error, 'Could not remove the checkpoint.'),
+			response.status
+		);
+	await reconcileQueryMutation(queryClient, session, {
+		cancel: [{ queryKey: imageEditorQueryKeys.revision(workspaceID, id, revisionID) }],
+		reconcile: () =>
+			queryClient.removeQueries({
+				queryKey: imageEditorQueryKeys.revision(workspaceID, id, revisionID),
+				exact: true
+			})
+	});
+	await reconcileImageEditorRevisions(session, workspaceID, id);
+}
+
 export async function restoreImageEditorRevision(
 	workspaceID: string,
 	id: string,
@@ -532,8 +573,7 @@ export async function createImageEditorReturnToken(input: {
 		body: input
 	});
 	settleImageEditorMutation(session, response);
-	if (error || !data)
-		throw new Error(problemMessage(error, 'Could not open OpenPost Image Editor.'));
+	if (error || !data) throw new Error(problemMessage(error, 'Could not open dopost Image Editor.'));
 	return { token: data.token, expires_at: data.expires_at };
 }
 
@@ -552,7 +592,7 @@ export async function completeImageEditorReturnToken(
 	);
 	settleImageEditorMutation(session, response);
 	if (error || !data)
-		throw new Error(problemMessage(error, 'Could not return OpenPost Image Editor exports.'));
+		throw new Error(problemMessage(error, 'Could not return dopost Image Editor exports.'));
 	return data.return_url;
 }
 
@@ -573,7 +613,7 @@ export async function consumeImageEditorReturnToken(token: string): Promise<{
 	);
 	settleImageEditorMutation(session, response);
 	if (error || !data)
-		throw new Error(problemMessage(error, 'Could not restore OpenPost Image Editor exports.'));
+		throw new Error(problemMessage(error, 'Could not restore dopost Image Editor exports.'));
 	return {
 		workspace_id: data.workspace_id,
 		return_url: data.return_url,
@@ -582,4 +622,43 @@ export async function consumeImageEditorReturnToken(token: string): Promise<{
 		media_ids: data.media_ids ?? [],
 		constraints: data.constraints
 	};
+}
+
+export async function saveImageEditorEffectPreset(
+	workspaceID: string,
+	preset: ImageEditorEffectPreset
+): Promise<ImageEditorBrandKit> {
+	const session = captureQueryMutationSession();
+	const { data, error, response } = await client.PUT('/image-editor/effect-presets/{id}', {
+		params: { path: { id: preset.id } },
+		body: { workspace_id: workspaceID, name: preset.name, effects: preset.effects }
+	});
+	settleImageEditorMutation(session, response);
+	if (error || !data) throw new Error(problemMessage(error, 'Could not save the effect preset.'));
+	const kit = requireImageEditorWorkspace(imageEditorBrandKit(data), workspaceID);
+	const queryKey = imageEditorQueryKeys.brandKit(workspaceID);
+	await reconcileQueryMutation(queryClient, session, {
+		cancel: [{ queryKey, exact: true }],
+		reconcile: () => queryClient.setQueryData(queryKey, kit)
+	});
+	return kit;
+}
+
+export async function deleteImageEditorEffectPreset(
+	workspaceID: string,
+	id: string
+): Promise<ImageEditorBrandKit> {
+	const session = captureQueryMutationSession();
+	const { data, error, response } = await client.DELETE('/image-editor/effect-presets/{id}', {
+		params: { path: { id }, query: { workspace_id: workspaceID } }
+	});
+	settleImageEditorMutation(session, response);
+	if (error || !data) throw new Error(problemMessage(error, 'Could not delete the effect preset.'));
+	const kit = requireImageEditorWorkspace(imageEditorBrandKit(data), workspaceID);
+	const queryKey = imageEditorQueryKeys.brandKit(workspaceID);
+	await reconcileQueryMutation(queryClient, session, {
+		cancel: [{ queryKey, exact: true }],
+		reconcile: () => queryClient.setQueryData(queryKey, kit)
+	});
+	return kit;
 }

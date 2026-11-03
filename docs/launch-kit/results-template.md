@@ -1,11 +1,11 @@
 # Campaign Results Template
 
-> **TEMPLATE — NOT ACTUAL PUBLISHED PROOF.** Every field below is empty or marked pending. Do not share this file as a results report until real OpenPost lifecycle events and provider evidence replace the placeholders.
+> **TEMPLATE — NOT ACTUAL PUBLISHED PROOF.** Every field below is empty or marked pending. Do not share this file as a results report until real dopost lifecycle events and provider evidence replace the placeholders.
 
 ## Campaign record
 
 - Campaign: `[CAMPAIGN NAME]`
-- OpenPost version or commit: `[VERSION]`
+- dopost version or commit: `[VERSION]`
 - Launch window and timezone: `[WINDOW]`
 - Workspace: `[NON-SECRET NAME OR ID]`
 - Human reviewer: `[NAME]`
@@ -16,7 +16,7 @@
 ## Workflow result
 
 - Base post prepared: `[YES / NO]`
-- Destination-specific renditions reviewed: `[COUNT]`
+- Destination-specific variants reviewed: `[COUNT]`
 - Providers removed after verification: `[LIST AND REASON]`
 - Manual edits after agent preparation: `[SUMMARY]`
 - Queue result: `[PENDING / COMPLETE / PARTIAL / FAILED]`
@@ -25,9 +25,9 @@
 
 | Provider | Account | Format | Scheduled state | Final state | Provider post ID | Published URL | Failure or retry ID | Evidence captured at |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `[PROVIDER]` | `[ACCOUNT]` | `[FORMAT]` | Pending — not proof of publication | Pending |  |  |  |  |
+| `[PROVIDER]` | `[ACCOUNT]` | `[FORMAT]` | Pending — not proof of post | Pending |  |  |  |  |
 
-Only mark a destination published when OpenPost records the provider result. Preserve failures and retries as outcomes; do not delete them to make the report look clean.
+Only mark a destination published when dopost records the provider result. Preserve failures and retries as outcomes; do not delete them to make the report look clean.
 
 ## Activation results
 
@@ -37,7 +37,7 @@ Only mark a destination published when OpenPost records the provider result. Pre
 - Successfully scheduled or published: `[VALUE]`
 - Paying customers: `[VALUE]`
 - OAuth failure rate: `[VALUE]`
-- First-publication failure rate: `[VALUE]`
+- First-post failure rate: `[VALUE]`
 - Median time to first scheduled post: `[VALUE]`
 - Queue backlog or missing final states: `[VALUE]`
 
@@ -47,7 +47,7 @@ State the measurement window, denominator, and exclusions for every rate. Leave 
 
 Add a quote only when all are true:
 
-- the person used OpenPost;
+- the person used dopost;
 - the quote describes a specific workflow or outcome;
 - the name, role, and wording are accurate;
 - the person approved public attribution.
@@ -66,8 +66,8 @@ Quote: `[NONE COLLECTED YET]`
 
 - Verification log: `[LINK]`
 - Demo: `[LINK]`
-- OpenPost lifecycle export or screenshots: `[LINK]`
+- dopost lifecycle export or screenshots: `[LINK]`
 - Provider URLs: `[LINKS]`
 - Public technical write-up: `[LINK]`
 
-Do not link to the sample rendition files as proof that anything published.
+Do not link to the sample variant files as proof that anything published.

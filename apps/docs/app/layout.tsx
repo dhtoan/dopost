@@ -2,17 +2,18 @@ import type { Metadata } from "next";
 import { Providers } from "@/components/providers";
 import "@fontsource-variable/geist";
 import "./global.css";
+import { docsPath, docsSiteUrl, docsSocialImageUrlForRoute } from "@openpost/social-images";
 
-const docsSocialImagePath = "/og/home.png";
+const docsSocialImagePath = docsSocialImageUrlForRoute("/");
 
 export const metadata: Metadata = {
-  metadataBase: new URL("https://docs.openpo.st"),
-  title: { template: "%s | OpenPost Docs", default: "OpenPost Docs" },
+  metadataBase: new URL(docsSiteUrl),
+  title: { template: "%s | dopost Docs", default: "dopost Docs" },
   description:
-    "Connect your accounts, publish your first post, and keep your content moving with OpenPost.",
-  icons: { icon: "/assets/brand/icon.svg" },
+    "Connect your accounts, publish your first post, and keep your content moving with dopost.",
+  icons: { icon: docsPath("/assets/brand/icon.svg") },
   openGraph: {
-    siteName: "OpenPost Docs",
+    siteName: "dopost Docs",
     type: "website",
     images: [
       {
@@ -20,7 +21,7 @@ export const metadata: Metadata = {
         width: 1200,
         height: 630,
         type: "image/png",
-        alt: "OpenPost documentation social preview.",
+        alt: "dopost documentation social preview.",
       },
     ],
   },
@@ -31,13 +32,15 @@ export const metadata: Metadata = {
         url: docsSocialImagePath,
         width: 1200,
         height: 630,
-        alt: "OpenPost documentation social preview.",
+        alt: "dopost documentation social preview.",
       },
     ],
   },
   other: {
-    "integration-screenshot-sources": "/assets/screenshots/integrations/SOURCES.txt",
-    "integration-screenshot-license": "/assets/screenshots/integrations/POSTIZ-LICENSE.txt",
+    "integration-screenshot-sources": docsPath("/assets/screenshots/integrations/SOURCES.txt"),
+    "integration-screenshot-license": docsPath(
+      "/assets/screenshots/integrations/POSTIZ-LICENSE.txt",
+    ),
   },
 };
 

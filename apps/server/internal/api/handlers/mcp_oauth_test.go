@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -115,15 +116,15 @@ func TestMCPOAuthAuthorizationCodeFlowIssuesUsableMCPToken(t *testing.T) {
 	}{
 		{"mcp:full", "mcp:full"},
 		{"mcp:read", "mcp:read"},
-		{"mcp:read mcp:full", "mcp:full"},
-		{"mcp:full mcp:read", "mcp:full"},
+		{"mcp:read mcp:full", "mcp:read mcp:full"},
+		{"mcp:full mcp:read", "mcp:read mcp:full"},
 		{"mcp:read mcp:read", "mcp:read"},
 	} {
 		t.Run(tc.scope, func(t *testing.T) {
 			srv := newMCPOAuthTestServer(t)
 			redirectURI := "https://chatgpt.com/connector/oauth/callback/openpost"
 			client := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-				_, _ = fmt.Fprintf(w, `{"client_name":"ChatGPT OpenPost","redirect_uris":["%s"],"token_endpoint_auth_method":"none","scope":"mcp:read mcp:full"}`, redirectURI)
+				_, _ = fmt.Fprintf(w, `{"client_name":"ChatGPT dopost","redirect_uris":["%s"],"token_endpoint_auth_method":"none","scope":"mcp:read mcp:full"}`, redirectURI)
 			}))
 			t.Cleanup(client.Close)
 			srv.oauth.SetHTTPClient(client.Client())
@@ -137,6 +138,7 @@ func TestMCPOAuthAuthorizationCodeFlowIssuesUsableMCPToken(t *testing.T) {
 			require.Subset(t, metadata["scopes_supported"], []any{"mcp:read", "mcp:full"})
 			require.Contains(t, metadata["grant_types_supported"], "refresh_token")
 			require.Equal(t, true, metadata["client_id_metadata_document_supported"])
+			require.Equal(t, true, metadata["authorization_response_iss_parameter_supported"])
 
 			verifier := strings.Repeat("e", 43)
 			authorizeResp := srv.request(t, http.MethodPost, "/api/v1/mcp/oauth/authorize", map[string]any{
@@ -187,14 +189,28 @@ func TestMCPOAuthAuthorizationCodeFlowIssuesUsableMCPToken(t *testing.T) {
 				"jsonrpc": "2.0",
 				"id":      "init",
 				"method":  "initialize",
+				"params": map[string]any{
+					"protocolVersion": "2025-06-18",
+					"capabilities":    map[string]any{},
+					"clientInfo":      map[string]any{"name": "oauth-test", "version": "1"},
+				},
 			}, token.AccessToken)
 			require.Equal(t, http.StatusOK, initializeResp.Code, initializeResp.Body.String())
+			var initialized map[string]any
+			require.NoError(t, json.Unmarshal(initializeResp.Body.Bytes(), &initialized))
+			require.Equal(t, "2.0", initialized["jsonrpc"])
+			require.Equal(t, "init", initialized["id"])
+			require.NotContains(t, initialized, "error")
+			initializedResult := initialized["result"].(map[string]any)
+			require.Equal(t, "2025-06-18", initializedResult["protocolVersion"])
+			require.Equal(t, "openpost", initializedResult["serverInfo"].(map[string]any)["name"])
+			require.Contains(t, initializedResult["capabilities"].(map[string]any), "tools")
 
 			var stored models.APIToken
 			require.NoError(t, srv.db.NewSelect().Model(&stored).Where("token_prefix = ?", tokenPrefix(t, token.AccessToken)).Scan(context.Background()))
 			require.Equal(t, "https://app.openpost.test/mcp", stored.Audience)
 			require.Equal(t, "ws-1", stored.WorkspaceID)
-			require.Equal(t, "ChatGPT OpenPost", stored.Name)
+			require.Equal(t, "ChatGPT dopost", stored.Name)
 		})
 	}
 }
@@ -230,6 +246,10 @@ func TestOAuthDynamicClientRegistrationIsPolicyControlled(t *testing.T) {
 	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &response))
 	require.Contains(t, response["client_id"], "op_app_")
 	require.Equal(t, "none", response["token_endpoint_auth_method"])
+
+	var createdBy sql.NullString
+	require.NoError(t, db.NewRaw("SELECT created_by_user_id FROM external_applications WHERE client_id = ?", response["client_id"]).Scan(t.Context(), &createdBy))
+	require.False(t, createdBy.Valid)
 
 	for attempt := 1; attempt < dynamicClientRegistrationsPerHour; attempt++ {
 		request = httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/oauth/register", strings.NewReader(body))
@@ -370,4 +390,14 @@ func tokenPrefix(t *testing.T, token string) string {
 	parts := strings.SplitN(token, "_", 4)
 	require.Len(t, parts, 4)
 	return parts[2]
+}
+
+func TestMCPOAuthRevokeWorksWithoutExternalApplications(t *testing.T) {
+	srv := newMCPOAuthTestServer(t)
+	issued, err := srv.apiTokens.GenerateTokenWithOptions(t.Context(), "user-1", "MCP", apitokens.ScopeMCP, apitokens.GenerateOptions{WorkspaceID: "ws-1", Audience: "https://app.openpost.test/mcp"})
+	require.NoError(t, err)
+	response := srv.form(t, "/oauth/revoke", url.Values{"token": {issued.Token}})
+	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+	_, err = srv.apiTokens.ValidateToken(t.Context(), issued.Token)
+	require.ErrorIs(t, err, apitokens.ErrRevokedToken)
 }

@@ -2,6 +2,8 @@
 	import { Button } from '$lib/components/ui/button';
 	import ColorPicker from '$lib/components/color-picker.svelte';
 	import { ThemeIcon } from '$lib/themes/icons';
+	import AppSelect from '$lib/components/app-select.svelte';
+	import { projectPresetName } from '$lib/video-editor/project/preset-label';
 	import { Input } from '$lib/components/ui/input';
 	import { m } from '$lib/paraglide/messages';
 	import { editorSession } from '$lib/video-editor/editor.svelte';
@@ -13,6 +15,7 @@
 	} from '$lib/video-editor/project/canvas-settings';
 	import { updateCompositeCompositionCanvas } from '$lib/video-editor/sequences/sequence-actions';
 	import {
+		PROJECT_PRESETS,
 		MAX_PROJECT_HEIGHT,
 		MAX_PROJECT_WIDTH,
 		MIN_PROJECT_HEIGHT,
@@ -41,6 +44,28 @@
 		heightDraft = metadata.height;
 		backgroundDraft = metadata.backgroundColor ?? '#000000';
 	});
+
+	const canvasPreset = $derived(
+		PROJECT_PRESETS.find(
+			(preset) => preset.width === metadata?.width && preset.height === metadata?.height
+		)?.id ?? 'custom'
+	);
+	const canvasOptions = $derived([
+		...PROJECT_PRESETS.map((preset) => ({
+			value: preset.id,
+			label: `${projectPresetName(preset.id)} · ${preset.width} × ${preset.height}`
+		})),
+		{ value: 'custom', label: m.video_editor_project_preset_custom() }
+	]);
+	function applyCanvasPreset(id: string): void {
+		const preset = PROJECT_PRESETS.find((candidate) => candidate.id === id);
+		if (!preset) return;
+		const dimensions = { width: preset.width, height: preset.height };
+		const changed = activeComposite
+			? updateCompositeCompositionCanvas(activeComposite.id, dimensions)
+			: updateProjectCanvas(dimensions);
+		if (changed) onedit();
+	}
 
 	function commitDimension(dimension: 'width' | 'height', input: HTMLInputElement): void {
 		if (!metadata) return;
@@ -115,15 +140,20 @@
 			</p>
 		</div>
 
-		<div
-			class="rounded-lg border border-[var(--video-editor-border)] bg-[var(--video-editor-control)] p-3"
-		>
+		<div class="pt-3">
 			<div class="mb-2 flex items-center justify-between gap-2">
 				<h3 class="text-xs font-medium">{m.video_editor_project_canvas_dimensions()}</h3>
 				<span class="font-mono text-[10px] text-[var(--video-editor-muted)]"
 					>{metadata.fps} fps</span
 				>
 			</div>
+			<AppSelect
+				value={canvasPreset}
+				options={canvasOptions}
+				ariaLabel={m.video_editor_project_canvas_dimensions()}
+				onValueChange={applyCanvasPreset}
+				class="mb-3 w-full"
+			/>
 			<div class="grid grid-cols-2 gap-2">
 				<label class="grid gap-1 text-xs">
 					<span>{m.video_editor_project_width()}</span>
@@ -158,7 +188,7 @@
 					type="button"
 					variant="outline"
 					size="sm"
-					class="min-h-11 lg:min-h-8"
+					class="min-h-8 lg:min-h-8 [@media(pointer:coarse)]:min-h-11"
 					onclick={swapDimensions}
 				>
 					<ThemeIcon role="swap" class="size-3.5" />
@@ -168,7 +198,7 @@
 					type="button"
 					variant="ghost"
 					size="sm"
-					class="min-h-11 lg:min-h-8"
+					class="min-h-8 lg:min-h-8 [@media(pointer:coarse)]:min-h-11"
 					onclick={resetDimensions}
 				>
 					<ThemeIcon role="undo" class="size-3.5" />
@@ -179,9 +209,7 @@
 			</div>
 		</div>
 
-		<div
-			class="rounded-lg border border-[var(--video-editor-border)] bg-[var(--video-editor-control)] p-3"
-		>
+		<div class="mt-3 border-t border-[var(--video-editor-border)] pt-3">
 			<h3 class="mb-2 text-xs font-medium">{m.video_editor_project_canvas_background()}</h3>
 			<div class="flex items-center gap-2">
 				<ColorPicker

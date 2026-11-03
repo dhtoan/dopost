@@ -1,10 +1,12 @@
 <!-- Type-specific, undoable clip inspector with FreeCut-compatible auto-key rules. -->
 <script lang="ts">
+	import { sequenceStore } from '../sequences/sequence-store.svelte';
 	import { m } from '$lib/paraglide/messages';
-	import { Input } from '$lib/components/ui/input';
 	import { Button } from '$lib/components/ui/button';
+	import { Input } from '$lib/components/ui/input';
 	import AppSelect, { type AppSelectOption } from '$lib/components/app-select.svelte';
 	import ColorPicker from '$lib/components/color-picker.svelte';
+	import { Disclosure as EditorDisclosure, HintButton } from '$lib/components/editor-density';
 	import { timelineStore } from '$lib/video-editor/timeline/stores/timeline-store.svelte';
 	import { autoKeyframeStore } from '$lib/video-editor/timeline/stores/auto-keyframe-store.svelte';
 	import { setAnimatedProperty } from '$lib/video-editor/timeline/actions/keyframes';
@@ -16,10 +18,9 @@
 	import LottiePropertiesPanel from './lottie-properties-panel.svelte';
 	import TextPropertiesPanel from './text-properties-panel.svelte';
 	import SubtitlePropertiesPanel from './subtitle-properties-panel.svelte';
-	import { editorSession } from '$lib/video-editor/editor.svelte';
 	import CompositionControlOverrides from './composition-control-overrides.svelte';
 	import { resolveAnimatedItemLocalAt } from '$lib/video-editor/timeline/animated-properties';
-	import { getSynchronizedLinkedItems } from '$lib/video-editor/timeline/utils/linked-items';
+	import { findLinkedAudioCompanion } from '$lib/video-editor/audio/transition-crossfade';
 	import AudioDuckingPanel from './audio-ducking-panel.svelte';
 	import AudioEffectsPanel from './audio-effects-panel.svelte';
 	import {
@@ -48,27 +49,31 @@
 		itemId,
 		itemIds = [],
 		onedit,
-		oncreatevoice
+		oncreatevoice,
+		onbrowsetextstyles
 	}: {
 		itemId: string | null;
 		itemIds?: string[];
 		onedit: () => void;
 		oncreatevoice?: (itemId: string, text: string) => void;
+		onbrowsetextstyles?: () => void;
 	} = $props();
 	const item = $derived(itemId ? timelineStore.itemById.get(itemId) : undefined);
+
 	const audioItems = $derived.by(() => {
 		const selectedIds = itemIds.length > 0 ? itemIds : itemId ? [itemId] : [];
 		const selected = [...new Set(selectedIds)]
 			.map((id) => timelineStore.itemById.get(id))
 			.filter((candidate): candidate is TimelineItem => candidate !== undefined);
-		const selectedAudio = selected.filter((candidate) => candidate.type === 'audio');
-		if (selectedAudio.length > 0) return selectedAudio;
 		const resolved = new Map<string, TimelineItem>();
 		for (const candidate of selected) {
+			if (candidate.type === 'audio') {
+				resolved.set(candidate.id, candidate);
+				continue;
+			}
 			if (candidate.type !== 'video') continue;
-			const companion = getSynchronizedLinkedItems(timelineStore.items, candidate.id).find(
-				(linked) => linked.type === 'audio'
-			);
+			const companion = findLinkedAudioCompanion(candidate, timelineStore.items);
+			if (candidate.audioDetached && !companion) continue;
 			resolved.set((companion ?? candidate).id, companion ?? candidate);
 		}
 		return [...resolved.values()];
@@ -83,21 +88,7 @@
 		step: number;
 	}
 
-	const textFields: NumericField[] = [
-		{
-			property: 'fontSize',
-			label: m.video_editor_property_size(),
-			min: 8,
-			max: 500,
-			step: 1
-		},
-		{
-			property: 'fontWeight',
-			label: m.video_editor_property_weight(),
-			min: 100,
-			max: 900,
-			step: 100
-		},
+	const textAdvancedFields: NumericField[] = [
 		{
 			property: 'lineHeight',
 			label: m.video_editor_property_line_height(),
@@ -174,8 +165,8 @@
 	];
 
 	function valueFor(source: TimelineItem, property: KeyframeProperty): number {
-		const frameWidth = editorSession.project?.metadata.width ?? 1920;
-		const frameHeight = editorSession.project?.metadata.height ?? 1080;
+		const frameWidth = sequenceStore.activeWidth;
+		const frameHeight = sequenceStore.activeHeight;
 		const resolved = resolveAnimatedItemLocalAt(source, timelineStore.currentFrame, {
 			fps: timelineStore.fps,
 			frameWidth,
@@ -224,27 +215,27 @@
 			case 'volume':
 				return resolved.volume ?? 1;
 			case 'fontSize':
-				return source.fontSize ?? defaultValue(property);
+				return resolved.fontSize ?? defaultValue(property);
 			case 'fontWeight':
-				return source.fontWeight ?? defaultValue(property);
+				return resolved.fontWeight ?? defaultValue(property);
 			case 'lineHeight':
-				return source.lineHeight ?? defaultValue(property);
+				return resolved.lineHeight ?? defaultValue(property);
 			case 'letterSpacing':
-				return source.letterSpacing ?? 0;
+				return resolved.letterSpacing ?? 0;
 			case 'paddingX':
-				return source.paddingX ?? 0;
+				return resolved.paddingX ?? 0;
 			case 'paddingY':
-				return source.paddingY ?? 0;
+				return resolved.paddingY ?? 0;
 			case 'borderRadius':
-				return source.borderRadius ?? 0;
+				return resolved.borderRadius ?? 0;
 			case 'strokeWidth':
-				return source.strokeWidth ?? 0;
+				return resolved.strokeWidth ?? 0;
 			case 'textShadowOffsetX':
-				return source.textShadow?.offsetX ?? 0;
+				return resolved.textShadow?.offsetX ?? 0;
 			case 'textShadowOffsetY':
-				return source.textShadow?.offsetY ?? 0;
+				return resolved.textShadow?.offsetY ?? 0;
 			case 'textShadowBlur':
-				return source.textShadow?.blur ?? 0;
+				return resolved.textShadow?.blur ?? 0;
 		}
 		return defaultValue(property);
 	}
@@ -273,14 +264,12 @@
 
 	function commitText(patch: Partial<TimelineItem>): void {
 		if (!itemId) return;
-		updateItemProperties(itemId, patch, 'UPDATE_CLIP_PROPERTIES');
-		onedit();
+		if (updateItemProperties(itemId, patch, 'UPDATE_CLIP_PROPERTIES')) onedit();
 	}
 
 	function commitAudioPatch(patch: Partial<TimelineItem>): void {
 		if (!audioItem) return;
-		updateItemProperties(audioItem.id, patch, 'UPDATE_CLIP_AUDIO');
-		onedit();
+		if (updateItemProperties(audioItem.id, patch, 'UPDATE_CLIP_AUDIO')) onedit();
 	}
 
 	function commitTextShadowColor(color: string): void {
@@ -297,22 +286,75 @@
 </script>
 
 {#if item}
-	<div class="flex flex-col gap-3" aria-label={m.video_editor_clip_properties()}>
+	<div class="flex flex-col gap-3" role="group" aria-label={m.video_editor_clip_properties()}>
 		{#if item.type === 'adjustment'}
 			<p class="text-xs leading-relaxed text-muted-foreground">
 				{m.video_editor_adjustment_layer_hint()}
 			</p>
-		{:else if item.type !== 'audio'}
-			{#if item.type === 'composition'}
-				<CompositionControlOverrides {item} {onedit} />
-			{/if}
-			<ClipTransformSection itemId={item.id} {itemIds} {onedit} />
 		{/if}
 
-		<ClipCropSection itemId={item.id} {itemIds} {onedit} />
-
-		{#if item.type === 'image'}
-			<AnimatedImagePlaybackSection itemId={item.id} {itemIds} {onedit} />
+		{#if item.type === 'text'}
+			<section aria-label={m.video_editor_tool_text()}>
+				<TextPropertiesPanel {item} {itemIds} {onedit} {oncreatevoice} {onbrowsetextstyles} />
+				<div class="mt-1 grid grid-cols-2 gap-1">
+					<label class="text-[10px] text-muted-foreground">
+						{m.video_editor_text_alignment()}
+						<AppSelect
+							value={item.textAlign ?? 'center'}
+							options={textAlignmentOptions}
+							ariaLabel={m.video_editor_text_alignment()}
+							class="mt-0.5 h-[25px] w-full text-xs"
+							onValueChange={(textAlign) =>
+								commitText({ textAlign: textAlign as TimelineItem['textAlign'] })}
+						/>
+					</label>
+					<label class="text-[10px] text-muted-foreground">
+						{m.video_editor_text_vertical_alignment()}
+						<AppSelect
+							value={item.verticalAlign ?? 'middle'}
+							options={verticalAlignmentOptions}
+							ariaLabel={m.video_editor_text_vertical_alignment()}
+							class="mt-0.5 h-[25px] w-full text-xs"
+							onValueChange={(verticalAlign) =>
+								commitText({ verticalAlign: verticalAlign as TimelineItem['verticalAlign'] })}
+						/>
+					</label>
+				</div>
+				<EditorDisclosure label={m.video_editor_advanced()} class="mt-2">
+					<div class="border-t border-border p-2">
+						<div class="grid grid-cols-2 gap-1">
+							{#each textAdvancedFields as field (field.property)}
+								<label class="text-[10px] text-muted-foreground"
+									>{field.label}<Input
+										class="mt-0.5 w-full rounded bg-field px-1.5 py-1 text-xs text-field-foreground"
+										type="number"
+										min={field.min}
+										max={field.max}
+										step={field.step}
+										value={valueFor(item, field.property)}
+										onchange={(event) =>
+											commitNumeric(field.property, event.currentTarget.valueAsNumber)}
+									/></label
+								>
+							{/each}
+						</div>
+						<div class="mt-1 grid grid-cols-2 gap-1">
+							<ColorPicker
+								label={m.video_editor_text_stroke_color()}
+								value={item.strokeColor ?? '#000000'}
+								live={false}
+								onChange={(value) => commitText({ strokeColor: value })}
+							/>
+							<ColorPicker
+								label={m.video_editor_text_shadow_color()}
+								value={item.textShadow?.color ?? '#000000'}
+								live={false}
+								onChange={commitTextShadowColor}
+							/>
+						</div>
+					</div>
+				</EditorDisclosure>
+			</section>
 		{/if}
 
 		{#if item.type === 'shape'}
@@ -327,30 +369,121 @@
 			<LottiePropertiesPanel {item} {onedit} />
 		{/if}
 
-		{#if ['video', 'image', 'lottie', 'text', 'shape', 'subtitle', 'composition'].includes(item.type)}
-			<CornerPinPropertiesPanel {item} {onedit} />
+		{#if item.type === 'subtitle'}
+			<SubtitlePropertiesPanel
+				{item}
+				canvasWidth={sequenceStore.activeWidth}
+				canvasHeight={sequenceStore.activeHeight}
+				{onedit}
+			/>
+		{/if}
+
+		{#if item.type === 'composition'}
+			<CompositionControlOverrides {item} {onedit} />
+		{/if}
+
+		{#if item.type !== 'adjustment' && item.type !== 'audio'}
+			<ClipTransformSection itemId={item.id} {itemIds} {onedit} />
+		{/if}
+
+		<ClipCropSection itemId={item.id} {itemIds} {onedit} />
+
+		{#if item.type === 'image'}
+			<AnimatedImagePlaybackSection itemId={item.id} {itemIds} {onedit} />
 		{/if}
 
 		{#if item.type === 'video' || item.type === 'audio'}
-			<ClipPlaybackSection itemId={item.id} {itemIds} {onedit} />
-			<ClipAudioCoreSection itemId={item.id} {itemIds} {onedit} />
+			<ClipAudioCoreSection {audioItems} {onedit} />
 
 			{#if audioItem}
-				<section>
-					<details class="mt-2 rounded-md border border-border bg-muted/40">
-						<summary
-							class="flex min-h-8 cursor-pointer list-none items-center justify-between px-2 text-[10px] text-muted-foreground focus-visible:outline-2 focus-visible:outline-ring"
-						>
-							<span>{m.video_editor_audio_fade_shape()}</span><span class="text-muted-foreground/70"
-								>{m.video_editor_audio_fade_shape_description()}</span
+				{@const noise = resolveNoiseReductionSettings(audioItem)}
+				<AudioEqPanel items={audioItems} {onedit} />
+				<AudioEffectsPanel item={audioItem} />
+				<AudioDuckingPanel item={audioItem} {onedit} />
+				<EditorDisclosure
+					label={m.video_editor_audio_noise_title()}
+					summary={noise.enabled
+						? m.video_editor_audio_noise_applied({ amount: String(noise.amount) })
+						: m.video_editor_audio_noise_bypassed()}
+					class="mt-2 border-t border-[var(--video-editor-border)]"
+				>
+					{#snippet actions()}
+						<HintButton
+							label={m.video_editor_audio_noise_description()}
+							hint={m.video_editor_audio_noise_description()}
+						/>
+					{/snippet}
+					<div class="p-2" data-testid="noise-reduction-panel">
+						<div class="flex items-center gap-2">
+							<div class="flex items-center gap-2">
+								<Checkbox
+									checked={noise.enabled}
+									aria-label={m.video_editor_audio_noise_enable()}
+									onCheckedChange={(checked) =>
+										commitAudioPatch({
+											audioNoiseReductionEnabled: checked === true,
+											audioNoiseReductionAmount: noise.amount
+										})}
+								/>
+								<Label class="text-[11px] text-foreground"
+									>{m.video_editor_audio_noise_enable()}</Label
+								>
+							</div>
+							<span class="ml-auto text-[10px] text-muted-foreground" aria-live="polite">
+								{noise.enabled
+									? m.video_editor_audio_noise_applied({ amount: String(noise.amount) })
+									: m.video_editor_audio_noise_bypassed()}
+							</span>
+						</div>
+						<div class="mt-2 space-y-1">
+							<Label
+								for={`nr-${audioItem.id}`}
+								class="text-[10px] text-muted-foreground"
+								title={m.video_editor_audio_noise_amount_hint({
+									amount: String(nrDraftAmount ?? noise.amount)
+								})}>{m.video_editor_audio_noise_amount()}</Label
 							>
+							<Slider
+								value={nrDraftAmount ?? noise.amount}
+								min={0}
+								max={100}
+								step={1}
+								disabled={!noise.enabled}
+								ariaLabel={m.video_editor_audio_noise_aria()}
+								onValueChange={(v) => {
+									nrDraftAmount = clampNoiseReductionAmount(v);
+								}}
+								onValueCommit={(v) => {
+									const clamped = clampNoiseReductionAmount(v);
+									nrDraftAmount = null;
+									commitAudioPatch({
+										audioNoiseReductionAmount: clamped,
+										audioNoiseReductionEnabled: true
+									});
+								}}
+							/>
+						</div>
+					</div>
+				</EditorDisclosure>
+			{/if}
+
+			<ClipPlaybackSection itemId={item.id} {itemIds} {onedit} />
+
+			{#if audioItem}
+				<EditorDisclosure label={m.video_editor_advanced()}>
+					<details class="mt-2">
+						<summary
+							class="flex min-h-[25px] cursor-pointer list-none items-center justify-between px-2 text-[10px] text-muted-foreground focus-visible:outline-2 focus-visible:outline-ring"
+							title={m.video_editor_audio_fade_shape_description()}
+						>
+							<span>{m.video_editor_audio_fade_shape()}</span>
 						</summary>
 						<div class="grid grid-cols-2 gap-1 border-t border-border p-2">
 							{#each [{ label: m.video_editor_audio_fade_in_curve(), field: 'audioFadeInCurve', value: audioItem.audioFadeInCurve ?? 0, min: -1, max: 1 }, { label: m.video_editor_audio_fade_out_curve(), field: 'audioFadeOutCurve', value: audioItem.audioFadeOutCurve ?? 0, min: -1, max: 1 }, { label: m.video_editor_audio_fade_in_bias(), field: 'audioFadeInCurveX', value: audioItem.audioFadeInCurveX ?? 0.52, min: 0.04, max: 0.96 }, { label: m.video_editor_audio_fade_out_bias(), field: 'audioFadeOutCurveX', value: audioItem.audioFadeOutCurveX ?? 0.52, min: 0.04, max: 0.96 }] as control (control.field)}
 								<label class="text-[10px] text-muted-foreground">
 									{control.label}
 									<Input
-										class="mt-0.5 h-8 w-full bg-field text-xs text-field-foreground"
+										class="mt-0.5 h-[25px] w-full bg-field text-xs text-field-foreground"
 										type="number"
 										min={control.min}
 										max={control.max}
@@ -368,175 +501,12 @@
 							{/each}
 						</div>
 					</details>
-					<div class="mt-2 space-y-2">
-						<AudioEqPanel items={audioItems} {onedit} />
-						<AudioEffectsPanel item={audioItem} />
-						<AudioDuckingPanel item={audioItem} {onedit} />
-					</div>
-					<div
-						class="mt-2 rounded-md border border-border bg-muted/40 p-2"
-						data-testid="noise-reduction-panel"
-					>
-						<div class="flex items-center justify-between gap-2">
-							<h4 class="text-[10px] font-semibold tracking-wider text-muted-foreground uppercase">
-								{m.video_editor_audio_noise_title()}
-							</h4>
-							<span class="text-[10px] text-muted-foreground/70"
-								>{m.video_editor_audio_noise_description()}</span
-							>
-						</div>
-						{#if audioItem}
-							{@const nr = resolveNoiseReductionSettings(audioItem)}
-							<div class="mt-2 flex items-center gap-2">
-								<div class="flex items-center gap-2">
-									<Checkbox
-										checked={nr.enabled}
-										aria-label={m.video_editor_audio_noise_enable()}
-										onCheckedChange={(checked) =>
-											commitAudioPatch({
-												audioNoiseReductionEnabled: checked === true,
-												audioNoiseReductionAmount: nr.amount
-											})}
-									/>
-									<Label class="text-[11px] text-foreground"
-										>{m.video_editor_audio_noise_enable()}</Label
-									>
-								</div>
-								<span class="ml-auto text-[10px] text-muted-foreground" aria-live="polite">
-									{nr.enabled
-										? m.video_editor_audio_noise_applied({ amount: String(nr.amount) })
-										: m.video_editor_audio_noise_bypassed()}
-								</span>
-							</div>
-							<div class="mt-2 space-y-1">
-								<Label for={`nr-${audioItem.id}`} class="text-[10px] text-muted-foreground"
-									>{m.video_editor_audio_noise_amount()}</Label
-								>
-								<Slider
-									value={nrDraftAmount ?? nr.amount}
-									min={0}
-									max={100}
-									step={1}
-									disabled={!nr.enabled}
-									ariaLabel={m.video_editor_audio_noise_aria()}
-									onValueChange={(v) => {
-										nrDraftAmount = clampNoiseReductionAmount(v);
-									}}
-									onValueCommit={(v) => {
-										const clamped = clampNoiseReductionAmount(v);
-										nrDraftAmount = null;
-										commitAudioPatch({
-											audioNoiseReductionAmount: clamped,
-											audioNoiseReductionEnabled: true
-										});
-									}}
-								/>
-								<p class="mt-1 text-[10px] leading-snug text-muted-foreground/70">
-									{m.video_editor_audio_noise_amount_hint({
-										amount: String(nrDraftAmount ?? nr.amount)
-									})}
-								</p>
-							</div>
-						{/if}
-					</div>
-				</section>
+				</EditorDisclosure>
 			{/if}
 		{/if}
 
-		{#if item.type === 'text'}
-			<section>
-				<h3 class="mb-1 text-[10px] font-semibold tracking-wider text-muted-foreground uppercase">
-					{m.video_editor_tool_text()}
-				</h3>
-				<TextPropertiesPanel {item} {itemIds} {onedit} {oncreatevoice} />
-				<div class="mt-2 grid grid-cols-2 gap-1">
-					{#each textFields as field (field.property)}
-						<label class="text-[10px] text-muted-foreground"
-							>{field.label}<Input
-								class="mt-0.5 w-full rounded bg-field px-1.5 py-1 text-xs text-field-foreground"
-								type="number"
-								min={field.min}
-								max={field.max}
-								step={field.step}
-								value={valueFor(item, field.property)}
-								onchange={(event) =>
-									commitNumeric(field.property, event.currentTarget.valueAsNumber)}
-							/></label
-						>
-					{/each}
-				</div>
-				<div class="mt-1 grid grid-cols-2 gap-1">
-					<ColorPicker
-						label={m.video_editor_text_color()}
-						value={item.color ?? '#ffffff'}
-						live={false}
-						onChange={(value) => commitText({ color: value })}
-					/>
-					<div class="text-[10px] text-muted-foreground">
-						<ColorPicker
-							label={m.video_editor_text_background()}
-							value={item.backgroundColor ?? '#000000'}
-							live={false}
-							onChange={(value) => commitText({ backgroundColor: value })}
-						/><button
-							type="button"
-							class="mt-0.5 w-full rounded px-1 py-1 text-[9px] text-muted-foreground hover:bg-accent hover:text-accent-foreground focus-visible:outline-2 focus-visible:outline-ring disabled:opacity-40"
-							disabled={!item.backgroundColor}
-							onclick={() => commitText({ backgroundColor: undefined })}
-							>{m.video_editor_text_clear_background()}</button
-						>
-					</div>
-					<ColorPicker
-						label={m.video_editor_text_stroke_color()}
-						value={item.strokeColor ?? '#000000'}
-						live={false}
-						onChange={(value) => commitText({ strokeColor: value })}
-					/>
-					<ColorPicker
-						label={m.video_editor_text_shadow_color()}
-						value={item.textShadow?.color ?? '#000000'}
-						live={false}
-						onChange={commitTextShadowColor}
-					/>
-				</div>
-				<div class="mt-1 grid grid-cols-2 gap-1">
-					<label class="text-[10px] text-muted-foreground">
-						{m.video_editor_text_alignment()}
-						<AppSelect
-							value={item.textAlign ?? 'center'}
-							options={textAlignmentOptions}
-							ariaLabel={m.video_editor_text_alignment()}
-							class="mt-0.5 h-8 w-full text-xs"
-							onValueChange={(textAlign) =>
-								commitText({
-									textAlign: textAlign as TimelineItem['textAlign']
-								})}
-						/>
-					</label>
-					<label class="text-[10px] text-muted-foreground">
-						{m.video_editor_text_vertical_alignment()}
-						<AppSelect
-							value={item.verticalAlign ?? 'middle'}
-							options={verticalAlignmentOptions}
-							ariaLabel={m.video_editor_text_vertical_alignment()}
-							class="mt-0.5 h-8 w-full text-xs"
-							onValueChange={(verticalAlign) =>
-								commitText({
-									verticalAlign: verticalAlign as TimelineItem['verticalAlign']
-								})}
-						/>
-					</label>
-				</div>
-			</section>
-		{/if}
-
-		{#if item.type === 'subtitle'}
-			<SubtitlePropertiesPanel
-				{item}
-				canvasWidth={editorSession.project?.metadata.width ?? 1920}
-				canvasHeight={editorSession.project?.metadata.height ?? 1080}
-				{onedit}
-			/>
+		{#if ['video', 'image', 'lottie', 'text', 'shape', 'subtitle', 'composition'].includes(item.type)}
+			<CornerPinPropertiesPanel {item} {onedit} />
 		{/if}
 	</div>
 {/if}

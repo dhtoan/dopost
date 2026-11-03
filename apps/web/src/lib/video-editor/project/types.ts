@@ -1,7 +1,8 @@
+import type { TimerSettings } from '../timers/timer';
 import type { PaperBackgroundId } from '../effects/paper/catalog';
 import type { GpuParamValues } from '../effects/gpu/types';
 /**
- * Project document model for the OpenPost Video Editor.
+ * Project document model for the dopost Video Editor.
  *
  * Ported from FreeCut (MIT) - types/project.ts - adapted to the current surface:
  * video / audio / image / Lottie / text / subtitle / shape / adjustment / controller /
@@ -24,6 +25,12 @@ export type {
 	TransitionTiming,
 	WipeDirection as TransitionDirection
 } from '../transitions/types';
+
+/** Portions of each original fade outside a split clip, in seconds. */
+export interface ClipFadeOffsets {
+	in: number;
+	out: number;
+}
 
 export interface AudioDuckingSettings {
 	duckOthersDb: number;
@@ -766,8 +773,11 @@ export interface TimelineItem
 	lottieSlotOverrides?: Record<string, number | [number, number]>;
 
 	// Text items
+	timer?: TimerSettings;
 	text?: string;
 	textSpans?: TextSpan[];
+	/** Derived local layout bounds for inherited text rendering, never authored. */
+	textLayoutSize?: { width: number; height: number };
 	spanLayout?: TextSpanLayout;
 	textLayoutDrafts?: TextLayoutDrafts;
 	textStylePresetId?: TextStylePresetId;
@@ -832,7 +842,10 @@ export interface TimelineItem
 	cornerPin?: TimelineItemCornerPin;
 
 	// Audio properties
+	/** Audio was moved to a separate clip; unlinking or deleting it must not restore this source. */
+	audioDetached?: boolean;
 	volume?: number;
+	audioFadeOffsets?: ClipFadeOffsets;
 	audioFadeIn?: number;
 	audioFadeOut?: number;
 	audioFadeInCurve?: number;
@@ -842,6 +855,7 @@ export interface TimelineItem
 	audioDucking?: AudioDuckingSettings;
 
 	// Video properties
+	videoFadeOffsets?: ClipFadeOffsets;
 	fadeIn?: number;
 	fadeOut?: number;
 
@@ -958,6 +972,8 @@ export interface ProjectTimeline {
 }
 
 export interface SubComposition {
+	/** Editable hold between fixed entrance and exit events in a saved block. */
+	reusableHold?: { start: number; end: number };
 	id: string;
 	name: string;
 	editorKind?: 'sequence' | 'composite-2d';
@@ -1006,7 +1022,7 @@ export interface Project {
 	 * Schema version for migrations. Projects without this field are version 1.
 	 */
 	schemaVersion?: number;
-	/** Distinguishes OpenPost's schema history from compatible foreign project formats. */
+	/** Distinguishes dopost's schema history from compatible foreign project formats. */
 	schemaFamily?: 'openpost';
 	thumbnailId?: string;
 	metadata: ProjectResolution;

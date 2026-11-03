@@ -2,7 +2,7 @@
  * Arc-length-aware trim paths and variable-width stroke tapers.
  *
  * The taper math follows FreeCut's MIT-licensed shared shape helpers, adapted
- * to the Canvas2D path used by both OpenPost preview and export.
+ * to the Canvas2D path used by both dopost preview and export.
  */
 
 import type { TimelineItem } from '../project/types';

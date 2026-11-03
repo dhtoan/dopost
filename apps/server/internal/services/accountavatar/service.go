@@ -3,17 +3,15 @@ package accountavatar
 import (
 	"bytes"
 	"context"
-	"errors"
 	"fmt"
-	"io"
 	"net/http"
-	"net/url"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/openpost/backend/internal/avatarfetch"
 	"github.com/openpost/backend/internal/netguard"
 	"github.com/openpost/backend/internal/services/mediastore"
 )
@@ -22,67 +20,43 @@ const (
 	accountAvatarKeyPrefix = "avatar_account_"
 	accountAvatarURLPrefix = "/avatars/"
 	maxAccountAvatarBytes  = 4 * 1024 * 1024
+	accountAvatarTimeout   = 15 * time.Second
 )
 
 var unsafeObjectKeyCharacter = regexp.MustCompile(`[^a-zA-Z0-9_-]+`)
 
 type Service struct {
-	storage     mediastore.BlobStorage
-	httpClient  *http.Client
-	validateURL func(context.Context, *url.URL) error
+	storage  mediastore.BlobStorage
+	client   *http.Client
+	resolver netguard.Resolver
+}
+
+// Cache is the storage boundary used by account connection and profile refresh.
+type Cache interface {
+	CacheAvatar(context.Context, string, string) (string, error)
+	Delete(context.Context, string) error
 }
 
 func New(storage mediastore.BlobStorage) *Service {
-	policy := netguard.URLPolicy{Label: "profile photo URL", AllowedSchemes: []string{"https"}}
-	service := &Service{
-		storage:    storage,
-		httpClient: netguard.NewHTTPClient(15*time.Second, policy),
-		validateURL: func(ctx context.Context, remote *url.URL) error {
-			if !isLinkedInMediaHost(remote.Hostname()) {
-				return fmt.Errorf("profile photo URL is not hosted by LinkedIn")
-			}
-			return netguard.ValidateURL(ctx, remote, policy)
-		},
-	}
-	service.httpClient.CheckRedirect = func(req *http.Request, _ []*http.Request) error {
-		return service.validateURL(req.Context(), req.URL)
-	}
-	return service
+	return &Service{storage: storage}
 }
 
-func (s *Service) CacheLinkedIn(ctx context.Context, accountID, rawURL string) (string, error) {
-	remote, err := url.Parse(strings.TrimSpace(rawURL))
-	if err != nil || remote == nil {
-		return "", fmt.Errorf("invalid LinkedIn profile photo URL")
-	}
-	if err := s.validateURL(ctx, remote); err != nil {
+// CacheAvatar copies any provider's profile photo into our storage so the
+// stored photo keeps working after the provider's signed CDN URL expires.
+// The previous photo, if any, stays the caller's to retire through Delete so
+// replaced photos stop counting against storage.
+func (s *Service) CacheAvatar(ctx context.Context, accountID, rawURL string) (string, error) {
+	result, err := avatarfetch.Fetch(ctx, rawURL, avatarfetch.Bounds{
+		Label: "profile photo URL", Timeout: accountAvatarTimeout,
+		MaxBytes: maxAccountAvatarBytes, Resolver: s.resolver, Client: s.client,
+	})
+	if err != nil {
 		return "", err
 	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, remote.String(), nil)
-	if err != nil {
-		return "", fmt.Errorf("create LinkedIn profile photo request: %w", err)
-	}
-	resp, err := s.httpClient.Do(req)
-	if err != nil {
-		return "", errors.New("fetch LinkedIn profile photo request failed")
-	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		return "", fmt.Errorf("LinkedIn profile photo returned HTTP %d", resp.StatusCode)
-	}
-
-	content, err := io.ReadAll(io.LimitReader(resp.Body, maxAccountAvatarBytes+1))
-	if err != nil {
-		return "", fmt.Errorf("read LinkedIn profile photo: %w", err)
-	}
-	if len(content) == 0 || len(content) > maxAccountAvatarBytes {
-		return "", fmt.Errorf("LinkedIn profile photo must be between 1 byte and 4MB")
-	}
-	contentType := http.DetectContentType(content)
+	contentType := result.ContentType
 	extension := imageExtension(contentType)
 	if extension == "" {
-		return "", fmt.Errorf("LinkedIn profile photo has unsupported content type %q", contentType)
+		return "", fmt.Errorf("profile photo has unsupported content type %q", contentType)
 	}
 
 	key := fmt.Sprintf(
@@ -91,28 +65,25 @@ func (s *Service) CacheLinkedIn(ctx context.Context, accountID, rawURL string) (
 		uuid.NewString(),
 		extension,
 	)
-	if _, err := mediastore.SaveWithContentType(ctx, s.storage, key, bytes.NewReader(content), contentType); err != nil {
+	if _, err := mediastore.SaveWithContentType(ctx, s.storage, key, bytes.NewReader(result.Data), contentType); err != nil {
 		_ = mediastore.DeleteForCleanup(ctx, s.storage, key)
-		return "", fmt.Errorf("save LinkedIn profile photo: %w", err)
+		return "", fmt.Errorf("save profile photo: %w", err)
 	}
 	return accountAvatarURLPrefix + key, nil
 }
 
 func (s *Service) Delete(ctx context.Context, avatarURL string) error {
-	remote, err := url.Parse(strings.TrimSpace(avatarURL))
-	if err != nil {
+	if !IsCached(avatarURL) {
 		return nil
 	}
-	key := filepath.Base(remote.Path)
-	if !strings.HasPrefix(key, accountAvatarKeyPrefix) {
-		return nil
-	}
+	key := filepath.Base(avatarURL)
 	return mediastore.DeleteForCleanup(ctx, s.storage, key)
 }
 
-func isLinkedInMediaHost(host string) bool {
-	host = strings.ToLower(strings.TrimSpace(host))
-	return host == "media.licdn.com" || strings.HasSuffix(host, ".licdn.com")
+// IsCached identifies only account photos served by dopost, never remote URLs.
+func IsCached(rawURL string) bool {
+	return strings.HasPrefix(rawURL, accountAvatarURLPrefix+accountAvatarKeyPrefix) &&
+		!strings.ContainsAny(strings.TrimPrefix(rawURL, accountAvatarURLPrefix), "/?#")
 }
 
 func imageExtension(contentType string) string {

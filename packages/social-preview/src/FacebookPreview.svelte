@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { previewEditing } from "./editing";
   import Globe2 from "@lucide/svelte/icons/globe-2";
   import MoreHorizontal from "@lucide/svelte/icons/ellipsis";
   import X from "@lucide/svelte/icons/x";
@@ -8,6 +9,9 @@
   import PreviewAvatar from "./PreviewAvatar.svelte";
   import PreviewMedia from "./PreviewMedia.svelte";
   import VerticalPreview from "./VerticalPreview.svelte";
+  import PreviewText from "./PreviewText.svelte";
+
+  const editing = previewEditing();
 
   interface Props {
     model: PreviewModel;
@@ -16,7 +20,10 @@
 
   let { model, compact = false }: Props = $props();
   const primary = $derived(model.segments[0] ?? { id: "primary", text: "" });
-  const media = $derived(primary.media?.length ? primary.media : model.media);
+  const media = $derived(primary.media ?? model.media);
+  const text = $derived(
+    model.format === "video" ? model.subtitle || primary.text : primary.text,
+  );
   const isVertical = $derived(
     model.format === "story" || model.format === "reel",
   );
@@ -38,10 +45,8 @@
       </div>
     </header>
 
-    {#if primary.text}
-      <p class="post-text">{primary.text}</p>
-    {/if}
-    {#if model.card}<PreviewAttachment
+    {#if editing()?.text}<div class="post-text">{@render editing()!.text(primary)}</div>{:else if text}<div class="post-text"><PreviewText {text} lines={5} /></div>{/if}
+    {#if model.card}<PreviewAttachment segment={primary}
         card={model.card}
         platform="facebook"
       />{/if}
@@ -64,27 +69,27 @@
 
 <style>
   .facebook-preview {
-    --native-bg: #f0f2f5;
-    --native-surface: #fff;
-    --native-fg: #050505;
-    --native-muted: #65676b;
-    --native-border: #ced0d4;
-    --native-soft: #e4e6eb;
-    width: min(100%, 31.25rem);
+    --native-surface: light-dark(#fff, #242526);
+    --native-fg: light-dark(#050505, #e4e6eb);
+    --native-muted: light-dark(#65676b, #b0b3b8);
+    --native-border: light-dark(#ced0d4, #3e4042);
+    --native-soft: light-dark(#e4e6eb, #3a3b3c);
+    width: min(100%, 41.25rem);
     overflow: hidden;
-    border: 1px solid #dddfe2;
     border-radius: 0.5rem;
     background: var(--native-surface);
     color: var(--native-fg);
-    box-shadow: 0 1px 2px rgb(0 0 0 / 14%);
-    font-family: Arial, Helvetica, sans-serif;
+    box-shadow: 0 1px 2px rgb(0 0 0 / 20%);
+    font-family:
+      system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI Historic", "Segoe UI",
+      Helvetica, Arial, sans-serif;
   }
 
   header {
     display: grid;
     grid-template-columns: auto minmax(0, 1fr) auto;
     align-items: center;
-    gap: 0.6rem;
+    gap: 0.5rem;
     padding: 0.75rem 1rem 0.45rem;
   }
 
@@ -96,7 +101,8 @@
 
   .identity strong {
     overflow: hidden;
-    font-size: 0.88rem;
+    font-size: 0.9375rem;
+    font-weight: 600;
     line-height: 1.25;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -107,7 +113,7 @@
     align-items: center;
     gap: 0.25rem;
     color: var(--native-muted);
-    font-size: 0.72rem;
+    font-size: 0.8125rem;
   }
 
   .identity span :global(svg) {
@@ -129,21 +135,22 @@
   .post-text {
     margin: 0;
     padding: 0.35rem 1rem 0.75rem;
-    font-size: 0.94rem;
-    line-height: 1.35;
+    font-size: 0.9375rem;
+    line-height: 1.3333;
     overflow-wrap: anywhere;
     white-space: pre-wrap;
   }
 
   .engagement {
     display: flex;
-    min-height: 2.7rem;
+    min-height: 2.5rem;
     align-items: center;
-    gap: 0.35rem;
+    gap: 0.6rem;
+    padding-block: 0.5rem;
     margin-inline: 1rem;
     border-bottom: 1px solid var(--native-border);
     color: var(--native-muted);
-    font-size: 0.78rem;
+    font-size: 0.9375rem;
   }
 
   .reactions {
@@ -152,20 +159,20 @@
 
   .reactions i {
     display: grid;
-    width: 1.15rem;
-    height: 1.15rem;
+    width: 1.25rem;
+    height: 1.25rem;
     place-items: center;
-    margin-right: -0.15rem;
+    margin-right: -0.25rem;
     border: 2px solid var(--native-surface);
     border-radius: 50%;
-    background: #1877f2;
+    background: #0866ff;
     color: white;
-    font-size: 0.65rem;
+    font-size: 0.625rem;
     font-style: normal;
   }
 
   .reactions i:last-child {
-    background: #f55368;
+    background: #f3425f;
   }
 
   .engagement .right {
@@ -173,40 +180,27 @@
   }
 
   .action-row {
-    padding: 0.15rem 0.55rem;
+    padding: 0.25rem 1rem;
+  }
+
+  .action-row :global(.action) {
+    min-height: 2.25rem;
+    gap: 0.5rem;
+    border-radius: 0.25rem;
+    font-size: 0.9375rem;
+  }
+
+  .action-row :global(.action:hover) {
+    background: var(--native-soft);
+  }
+
+  .action-row :global(.icon svg) {
+    width: 1.25rem;
+    height: 1.25rem;
   }
 
   .compact header,
   .compact .post-text {
     padding-inline: 0.75rem;
-  }
-
-  @media (prefers-color-scheme: dark) {
-    .facebook-preview {
-      --native-bg: #18191a;
-      --native-surface: #242526;
-      --native-fg: #e4e6eb;
-      --native-muted: #b0b3b8;
-      --native-border: #3e4042;
-      --native-soft: #3a3b3c;
-      border-color: #3e4042;
-    }
-  }
-
-  :global(.dark) .facebook-preview {
-    --native-bg: #18191a;
-    --native-surface: #242526;
-    --native-fg: #e4e6eb;
-    --native-muted: #b0b3b8;
-    --native-border: #3e4042;
-    --native-soft: #3a3b3c;
-    border-color: #3e4042;
-  }
-
-  @media (max-width: 32rem) {
-    .facebook-preview {
-      border-inline: 0;
-      border-radius: 0;
-    }
   }
 </style>

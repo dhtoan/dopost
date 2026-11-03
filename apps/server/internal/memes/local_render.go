@@ -32,12 +32,23 @@ import (
 
 const (
 	builtinRenderHeight       = 600
+	builtinRenderMaxHeight    = 2160
 	builtinMaxGIFFrames       = 20
 	builtinPILLineHeightScale = 1.15
 	builtinPILDefaultSpacing  = 4
 )
 
 var standaloneIRegexp = regexp.MustCompile(`\bi\b`)
+
+func clampBuiltinRenderHeight(height int) int {
+	if height <= 0 {
+		return builtinRenderHeight
+	}
+	if height > builtinRenderMaxHeight {
+		return builtinRenderMaxHeight
+	}
+	return height
+}
 
 func (p *BuiltinProvider) Render(ctx context.Context, request RenderRequest) (RenderedImage, error) {
 	if !p.Available() {
@@ -63,6 +74,7 @@ func (p *BuiltinProvider) Render(ctx context.Context, request RenderRequest) (Re
 	if err != nil {
 		return RenderedImage{}, err
 	}
+	height := clampBuiltinRenderHeight(request.Height)
 	extension := normalizeBuiltinExtension(request.Extension)
 	asset := selectBuiltinAsset(template, request.Styles, extension == "gif")
 	data, err := fs.ReadFile(p.files, "catalog/templates/"+template.ID+"/"+asset)
@@ -74,14 +86,14 @@ func (p *BuiltinProvider) Render(ctx context.Context, request RenderRequest) (Re
 	var mimeType string
 	var renderedExtension string
 	if extension == "gif" && strings.HasSuffix(strings.ToLower(asset), ".gif") {
-		rendered, err = p.renderBuiltinGIF(ctx, template, data, request.Text, overlays)
+		rendered, err = p.renderBuiltinGIF(ctx, template, data, request.Text, overlays, height)
 		mimeType, renderedExtension = "image/gif", "gif"
 	} else {
 		background, decodeErr := imaging.Decode(bytes.NewReader(data), imaging.AutoOrientation(true))
 		if decodeErr != nil {
 			return RenderedImage{}, &ProviderError{Kind: ErrorKindInvalidResponse, Operation: "render", Cause: decodeErr}
 		}
-		frame, renderErr := p.renderBuiltinFrame(ctx, template, background, request.Text, overlays, 1)
+		frame, renderErr := p.renderBuiltinFrame(ctx, template, background, request.Text, overlays, 1, height)
 		if renderErr != nil {
 			return RenderedImage{}, renderErr
 		}
@@ -149,11 +161,15 @@ func (p *BuiltinProvider) renderBuiltinFrame(
 	lines []string,
 	overlays []image.Image,
 	percent float64,
+	height int,
 ) (*image.NRGBA, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	frame := imaging.Resize(background, 0, builtinRenderHeight, imaging.Lanczos)
+	if height <= 0 {
+		height = builtinRenderHeight
+	}
+	frame := imaging.Resize(background, 0, height, imaging.Lanczos)
 	canvas := imaging.Clone(frame)
 	for index, foreground := range overlays {
 		if index >= len(template.Overlay) {
@@ -232,6 +248,9 @@ func (p *BuiltinProvider) drawBuiltinCaption(canvas *image.NRGBA, field builtinT
 	height := int(float64(canvas.Bounds().Dy()) * field.ScaleY)
 	if width < 1 || height < 1 {
 		return nil
+	}
+	if p.captionNeedsShaping(field.Font, value) {
+		return p.drawShapedCaption(canvas, field, value)
 	}
 	fontSource := p.builtinFont(field.Font, value)
 	maxFontSize := canvas.Bounds().Dy() / 9
@@ -639,6 +658,7 @@ func (p *BuiltinProvider) renderBuiltinGIF(
 	data []byte,
 	lines []string,
 	overlays []image.Image,
+	height int,
 ) ([]byte, error) {
 	source, err := gif.DecodeAll(bytes.NewReader(data))
 	if err != nil {
@@ -647,8 +667,7 @@ func (p *BuiltinProvider) renderBuiltinGIF(
 	if len(source.Image) == 0 {
 		return nil, fmt.Errorf("animated meme template contains no frames")
 	}
-	width, height := source.Config.Width, source.Config.Height
-	canvas := image.NewNRGBA(image.Rect(0, 0, width, height))
+	canvas := image.NewNRGBA(image.Rect(0, 0, source.Config.Width, source.Config.Height))
 	previousBounds := image.Rectangle{}
 	var restore *image.NRGBA
 	selected := selectedBuiltinGIFFrames(len(source.Image))
@@ -671,7 +690,7 @@ func (p *BuiltinProvider) renderBuiltinGIF(
 		if len(source.Image) > 1 {
 			percent = float64(index) / float64(len(source.Image))
 		}
-		rendered, renderErr := p.renderBuiltinFrame(ctx, template, canvas, lines, overlays, percent)
+		rendered, renderErr := p.renderBuiltinFrame(ctx, template, canvas, lines, overlays, percent, height)
 		if renderErr != nil {
 			return nil, renderErr
 		}

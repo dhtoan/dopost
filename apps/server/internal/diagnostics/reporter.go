@@ -26,7 +26,7 @@ const (
 )
 
 // Config is the complete diagnostics contract. Reporting is enabled by
-// default and delivers to the official OpenPost receiver unless the
+// default and delivers to the official dopost receiver unless the
 // operator overrides the receiver or disables reporting. The
 // OPENPOST_DIAGNOSTICS_ENABLED=false environment value is a hard
 // kill-switch that wins over every other setting.
@@ -39,7 +39,7 @@ type Config struct {
 	// (OPENPOST_DIAGNOSTICS_ENABLED=false). It wins over Enabled.
 	EnvDisabled bool
 	// ReceiverURL is the diagnostics receiver endpoint. It defaults to the
-	// official OpenPost receiver; empty means disabled: reports are
+	// official dopost receiver; empty means disabled: reports are
 	// validated and dropped, never sent.
 	ReceiverURL string
 	// InstallationIDFile persists the random installation ID without the
@@ -392,7 +392,7 @@ func (r *Reporter) waitForRetryBackoff() bool {
 	}
 }
 
-// postReport delivers one envelope to the OpenPost-owned diagnostics
+// postReport delivers one envelope to the dopost-owned diagnostics
 // receiver. Only the diagnostic envelope crosses the boundary: never the
 // browser's cookies, authorization headers, referrer, or client IP.
 //

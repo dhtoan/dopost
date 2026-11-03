@@ -18,20 +18,14 @@ type decodedAnalyticsSnapshot struct {
 	metadata map[string]platform.AnalyticsMetricMetadata
 }
 
-func dailyFollowerTrend(accounts []AccountOverview, accountID string) []DailyBreakdownPoint {
+func dailyFollowerTrend(accounts []AccountOverview) []DailyBreakdownPoint {
 	byDate := map[string][]DailyBreakdownItem{}
 	for _, account := range accounts {
-		if accountID != "" && account.ID != accountID {
-			continue
-		}
 		for index := 1; index < len(account.FollowerSeries); index++ {
 			current := account.FollowerSeries[index]
 			delta := current.Value - account.FollowerSeries[index-1].Value
-			if delta == 0 {
-				continue
-			}
 			byDate[current.Date] = append(byDate[current.Date], DailyBreakdownItem{
-				Key: account.ID, Label: account.Username, Platform: account.Platform, Value: delta,
+				AccountID: account.ID, Key: account.ID, Label: account.Username, Platform: account.Platform, Value: delta,
 			})
 		}
 	}
@@ -41,27 +35,27 @@ func dailyFollowerTrend(accounts []AccountOverview, accountID string) []DailyBre
 func (s *Service) loadDailyContentTrends(
 	ctx context.Context,
 	workspaceID string,
-	start time.Time,
-	accountID string,
-) ([]DailyBreakdownPoint, []DailyBreakdownPoint, error) {
+	start, end time.Time,
+	accountIDs []string,
+) ([]DailyBreakdownPoint, []DailyBreakdownPoint, []DailyBreakdownPoint, error) {
 	var snapshots []models.AnalyticsRenditionSnapshot
 	query := s.db.NewSelect().Model(&snapshots).
-		Where("workspace_id = ? AND captured_at >= ?", workspaceID, start).
+		Where("workspace_id = ? AND captured_at >= ? AND captured_at < ?", workspaceID, start, end).
 		Order("rendition_id ASC", "captured_at ASC")
-	if accountID != "" {
-		query = query.Where("social_account_id = ?", accountID)
+	if len(accountIDs) > 0 {
+		query = query.Where("social_account_id IN (?)", bun.List(accountIDs))
 	}
 	if err := query.Scan(ctx); err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return nil, nil, fmt.Errorf("list rendition analytics trend: %w", err)
+		return nil, nil, nil, fmt.Errorf("list rendition analytics trend: %w", err)
 	}
 	if len(snapshots) == 0 {
-		return []DailyBreakdownPoint{}, []DailyBreakdownPoint{}, nil
+		return []DailyBreakdownPoint{}, []DailyBreakdownPoint{}, []DailyBreakdownPoint{}, nil
 	}
 
 	renditionIDs := uniqueRenditionIDs(snapshots)
-	baselines, err := s.loadRenditionTrendBaselines(ctx, workspaceID, start, accountID, renditionIDs)
+	baselines, err := s.loadLatestRenditionSnapshots(ctx, workspaceID, renditionIDs, start, accountIDs...)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	snapshots = append(baselines, snapshots...)
 	sort.SliceStable(snapshots, func(i, j int) bool {
@@ -73,15 +67,16 @@ func (s *Service) loadDailyContentTrends(
 
 	publicationByID, err := s.loadTrendPublications(ctx, snapshots)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	accountByID, err := s.loadTrendAccounts(ctx, snapshots)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	engagementByDate := map[string][]DailyBreakdownItem{}
 	viewsByDate := map[string][]DailyBreakdownItem{}
+	visibilityByDate := map[string][]DailyBreakdownItem{}
 	for _, history := range renditionTrendHistories(snapshots) {
 		publication := publicationByID[history[0].PublicationID]
 		account := accountByID[history[0].SocialAccountID]
@@ -90,39 +85,9 @@ func (s *Service) loadDailyContentTrends(
 			publishedAt = publication.UpdatedAt
 		}
 		label := firstNonEmptyAnalyticsText(publication.Title, publication.SourceText, publication.SourceContent)
-		appendRenditionTrend(history, start, publishedAt, label, account.AccountUsername, engagementByDate, viewsByDate)
+		appendRenditionTrend(history, start, publishedAt, label, account.AccountUsername, engagementByDate, viewsByDate, visibilityByDate)
 	}
-	return orderedDailyBreakdown(engagementByDate), orderedDailyBreakdown(viewsByDate), nil
-}
-
-func (s *Service) loadRenditionTrendBaselines(
-	ctx context.Context,
-	workspaceID string,
-	start time.Time,
-	accountID string,
-	renditionIDs []string,
-) ([]models.AnalyticsRenditionSnapshot, error) {
-	if len(renditionIDs) == 0 {
-		return []models.AnalyticsRenditionSnapshot{}, nil
-	}
-	statement := `
-		WITH ranked AS (
-			SELECT id, workspace_id, publication_id, rendition_id, social_account_id, platform,
-				metrics_json, metric_metadata_json, capture_key, captured_at,
-				ROW_NUMBER() OVER (PARTITION BY rendition_id ORDER BY captured_at DESC) AS row_number
-			FROM analytics_rendition_snapshots
-			WHERE workspace_id = ? AND captured_at < ? AND rendition_id IN (?)`
-	args := []any{workspaceID, start, bun.List(renditionIDs)}
-	if accountID != "" {
-		statement += " AND social_account_id = ?"
-		args = append(args, accountID)
-	}
-	statement += ") SELECT id, workspace_id, publication_id, rendition_id, social_account_id, platform, metrics_json, metric_metadata_json, capture_key, captured_at FROM ranked WHERE row_number = 1"
-	var snapshots []models.AnalyticsRenditionSnapshot
-	if err := s.db.NewRaw(statement, args...).Scan(ctx, &snapshots); err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return nil, fmt.Errorf("load rendition analytics trend baselines: %w", err)
-	}
-	return snapshots, nil
+	return orderedDailyBreakdown(engagementByDate), orderedDailyBreakdown(viewsByDate), orderedDailyBreakdown(visibilityByDate), nil
 }
 
 func (s *Service) loadTrendPublications(
@@ -216,13 +181,19 @@ func appendRenditionTrend(
 	username string,
 	engagementByDate map[string][]DailyBreakdownItem,
 	viewsByDate map[string][]DailyBreakdownItem,
+	visibilityByDate map[string][]DailyBreakdownItem,
 ) {
 	daily := make([]models.AnalyticsRenditionSnapshot, 0, len(history))
 	for _, snapshot := range history {
 		date := snapshot.CapturedAt.UTC().Format("2006-01-02")
-		if len(daily) > 0 && daily[len(daily)-1].CapturedAt.UTC().Format("2006-01-02") == date {
-			daily[len(daily)-1] = snapshot
-			continue
+		if len(daily) > 0 {
+			last := daily[len(daily)-1]
+			// A range can begin mid-day. Keep its earlier baseline separate
+			// from that day's latest in-range measurement.
+			if last.CapturedAt.Before(start) == snapshot.CapturedAt.Before(start) && last.CapturedAt.UTC().Format("2006-01-02") == date {
+				daily[len(daily)-1] = snapshot
+				continue
+			}
 		}
 		daily = append(daily, snapshot)
 	}
@@ -245,19 +216,26 @@ func appendRenditionTrend(
 		}
 		date := snapshot.CapturedAt.UTC().Format("2006-01-02")
 		item := DailyBreakdownItem{
-			Key: snapshot.RenditionID, Label: label, Platform: snapshot.Platform,
+			AccountID: snapshot.SocialAccountID, Key: snapshot.RenditionID, Label: label, Platform: snapshot.Platform,
 			PublicationID: snapshot.PublicationID,
 		}
 		var engagementDelta int64
+		engagementMeasured := false
 		for _, metric := range engagementProjectionMetricNames(current.values) {
-			engagementDelta += comparableContentMetricDelta(current.values, current.metadata, previous, metric)
+			if delta, measured := comparableContentMetricDelta(current.values, current.metadata, previous, metric); measured {
+				engagementDelta += delta
+				engagementMeasured = true
+			}
 		}
-		if engagementDelta != 0 {
+		if engagementMeasured {
 			engagementByDate[date] = append(engagementByDate[date], withTrendValue(item, engagementDelta, username))
 		}
-		viewsDelta := comparableContentMetricDelta(current.values, current.metadata, previous, platform.MetricViews)
-		if viewsDelta != 0 {
+		if viewsDelta, measured := comparableContentMetricDelta(current.values, current.metadata, previous, platform.MetricViews); measured {
 			viewsByDate[date] = append(viewsByDate[date], withTrendValue(item, viewsDelta, username))
+		}
+
+		if delta, measured := visibilitySnapshotDelta(snapshot.Platform, current, previous); measured {
+			visibilityByDate[date] = append(visibilityByDate[date], withTrendValue(item, delta, username))
 		}
 		previous = current
 	}
@@ -268,7 +246,7 @@ func comparableContentMetricDelta(
 	currentMetadata map[string]platform.AnalyticsMetricMetadata,
 	previous *decodedAnalyticsSnapshot,
 	metric string,
-) int64 {
+) (int64, bool) {
 	currentValue, ok := compatibleCountMetricValue(
 		current,
 		currentMetadata,
@@ -276,10 +254,10 @@ func comparableContentMetricDelta(
 		platform.AnalyticsMetricAggregationLifetimeTotal,
 	)
 	if !ok {
-		return 0
+		return 0, false
 	}
 	if previous == nil {
-		return currentValue
+		return currentValue, true
 	}
 	previousValue, ok := compatibleCountMetricValue(
 		previous.values,
@@ -288,9 +266,9 @@ func comparableContentMetricDelta(
 		platform.AnalyticsMetricAggregationLifetimeTotal,
 	)
 	if !ok {
-		return 0
+		return 0, false
 	}
-	return currentValue - previousValue
+	return currentValue - previousValue, true
 }
 
 func withTrendValue(item DailyBreakdownItem, value int64, username string) DailyBreakdownItem {
@@ -331,4 +309,22 @@ func orderedDailyBreakdown(byDate map[string][]DailyBreakdownItem) []DailyBreakd
 		points = append(points, point)
 	}
 	return points
+}
+
+func visibilityMeasurementCompatible(current, previous platform.AnalyticsMetricMetadata) bool {
+	return current.Source == previous.Source && engagementKey(current) == engagementKey(previous)
+}
+
+func visibilitySnapshotDelta(provider string, current, previous *decodedAnalyticsSnapshot) (int64, bool) {
+	visibility := projectedVisibility(ContentOverview{Platform: provider, Metrics: current.values, MetricMetadata: current.metadata})
+	if visibility == nil {
+		return 0, false
+	}
+	if previous != nil {
+		prior := projectedVisibility(ContentOverview{Platform: provider, Metrics: previous.values, MetricMetadata: previous.metadata})
+		if prior == nil || prior.Metric != visibility.Metric || prior.Basis != visibility.Basis || !visibilityMeasurementCompatible(current.metadata[visibility.Metric], previous.metadata[visibility.Metric]) {
+			return 0, false
+		}
+	}
+	return comparableContentMetricDelta(current.values, current.metadata, previous, visibility.Metric)
 }

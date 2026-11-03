@@ -27,6 +27,7 @@ var configTestEnvKeys = []string{
 	"OPENPOST_PROXY_AUTH_SECRET",
 	"OPENPOST_PROXY_AUTH_WORKSPACE_NAME",
 	"OPENPOST_OAUTH_DYNAMIC_REGISTRATION_ENABLED",
+	"OPENPOST_MCP_MODE",
 	"OPENPOST_EDITION",
 	"OPENPOST_APP_E2E_HOSTED_SIGNUP",
 	"OPENPOST_APP_E2E_DELIVERY_PROJECTION",
@@ -57,6 +58,8 @@ var configTestEnvKeys = []string{
 	"OPENPOST_IMAGE_CAPTION_PROVIDER",
 	"OPENPOST_IMAGE_CAPTION_REQUIRE_ZDR",
 	"OPENPOST_TEXT_GENERATION_MODEL",
+	"OPENPOST_EDITOR_AGENT_MODEL",
+	"OPENPOST_WORKFLOW_DECISION_MODEL",
 	"OPENPOST_MEME_GENERATOR_ENABLED",
 	"OPENPOST_MEME_GENERATION_MODEL",
 	"OPENPOST_IMAGE_EDITOR_ENABLED",
@@ -71,6 +74,7 @@ var configTestEnvKeys = []string{
 	"OPENPOST_FEEDBACK_DESTINATION_URL",
 	"OPENPOST_FEEDBACK_RECIPIENT",
 	"OPENPOST_FEEDBACK_SUPPORT_URL",
+	"OPENPOST_DISCORD_PRESENCE_STREAM_URL",
 	"OPENPOST_TELEMETRY_ENABLED",
 	"OPENPOST_POSTHOG_PROJECT_TOKEN",
 	"OPENPOST_POSTHOG_API_HOST",
@@ -104,6 +108,9 @@ var configTestEnvKeys = []string{
 	"OPENPOST_SMTP_SERVER_NAME",
 	"OPENPOST_EXTRA_CORS_ORIGINS",
 	"OPENPOST_CORS_EXTRA_ORIGINS",
+	"OPENPOST_TRUSTED_PROXY_CIDRS",
+	"OPENPOST_WORKFLOWS_AI_ENABLED",
+	"OPENPOST_WORKFLOWS_AI_MONTHLY_CALL_LIMIT",
 	"X_CLIENT_ID",
 	"TWITTER_CLIENT_ID",
 	"X_CLIENT_SECRET",
@@ -113,20 +120,21 @@ var configTestEnvKeys = []string{
 	"OPENPOST_X_MONTHLY_BUDGET_MICROUSD",
 	"OPENPOST_X_POST_CREATE_COST_MICROUSD",
 	"OPENPOST_X_POST_CREATE_WITH_URL_COST_MICROUSD",
-	"OPENPOST_X_ACCOUNT_HISTORY_READ_REQUESTS_PER_DAY",
 	"OPENPOST_PROVIDER_USAGE_RETENTION_DAYS",
 	"MASTODON_REDIRECT_URI",
 	"MASTODON_SERVERS",
 	"LINKEDIN_CLIENT_ID",
 	"LINKEDIN_CLIENT_SECRET",
 	"LINKEDIN_REDIRECT_URI",
+	"OPENPOST_LINKEDIN_AUTH_MODE",
 	"LINKEDIN_DISABLE_THREAD_REPLIES",
 	"OPENPOST_DISABLE_LINKEDIN_THREAD_REPLIES",
+	"OPENPOST_LINKEDIN_ORGANIZATIONS_ENABLED",
+	"OPENPOST_DISABLE_TIKTOK_DISPLAY_API",
 	"THREADS_CLIENT_ID",
 	"THREADS_CLIENT_SECRET",
 	"THREADS_REDIRECT_URI",
 	"OPENPOST_PROVIDER_APPS",
-	"OPENPOST_ANALYTICS_SOURCES",
 	"OPENPOST_CONNECTORS_FILE",
 	"OPENPOST_PROVIDER_CERTIFICATION_ENFORCED",
 	"OPENPOST_STORAGE_DRIVER",
@@ -144,6 +152,7 @@ var configTestEnvKeys = []string{
 	"OPENPOST_PADDLE_ENVIRONMENT",
 	"OPENPOST_PADDLE_CLIENT_TOKEN",
 	"OPENPOST_PADDLE_WEBHOOK_SECRET",
+	"OPENPOST_BILLING_DISCORD_WEBHOOK_URL",
 	"OPENPOST_PADDLE_CHECKOUT_RETURN_URL",
 	"OPENPOST_PADDLE_FOUNDER_MONTHLY_PRICE_ID",
 	"OPENPOST_PADDLE_FOUNDER_ANNUAL_PRICE_ID",
@@ -176,14 +185,42 @@ func TestLoadControlsOAuthDynamicClientRegistration(t *testing.T) {
 	require.True(t, Load().OAuthDCR)
 }
 
+func TestLoadTikTokDisplayAPIToggle(t *testing.T) {
+	require.False(t, Load().DisableTikTokDisplayAPI)
+
+	t.Setenv("OPENPOST_DISABLE_TIKTOK_DISPLAY_API", "true")
+
+	require.True(t, Load().DisableTikTokDisplayAPI)
+}
+
+func TestLoadMCPMode(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		value string
+		want  string
+	}{
+		{name: "direct by default", want: MCPModeDirect},
+		{name: "direct", value: " direct ", want: MCPModeDirect},
+		{name: "search", value: "SEARCH", want: MCPModeSearch},
+		{name: "both", value: "both", want: MCPModeBoth},
+		{name: "invalid falls back to direct", value: "sideways", want: MCPModeDirect},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Setenv("OPENPOST_MCP_MODE", test.value)
+
+			require.Equal(t, test.want, Load().MCPMode)
+		})
+	}
+}
+
 func TestLoadAndValidateProxyAuthentication(t *testing.T) {
 	t.Setenv("OPENPOST_PROXY_AUTH_SECRET", "proxy-auth-secret-with-at-least-thirty-two-characters")
-	t.Setenv("OPENPOST_PROXY_AUTH_WORKSPACE_NAME", "OpenPost")
+	t.Setenv("OPENPOST_PROXY_AUTH_WORKSPACE_NAME", "dopost")
 
 	cfg := Load()
 
 	require.Equal(t, "proxy-auth-secret-with-at-least-thirty-two-characters", cfg.ProxyAuthSecret)
-	require.Equal(t, "OpenPost", cfg.ProxyAuthWorkspaceName)
+	require.Equal(t, "dopost", cfg.ProxyAuthWorkspaceName)
 	require.NoError(t, cfg.ValidateRuntime())
 
 	t.Setenv("OPENPOST_PROXY_AUTH_SECRET", "too-short")
@@ -306,16 +343,6 @@ func TestMediaSigningKeyCanRemainStableAcrossEncryptionRotation(t *testing.T) {
 	require.NotEqual(t, cfg.EncryptionKey, cfg.MediaSigningKey)
 }
 
-func TestValidateRuntimeRejectsMalformedAnalyticsSourcesJSON(t *testing.T) {
-	t.Setenv("OPENPOST_ANALYTICS_SOURCES_FILE", writeEnvFile(t, "analytics-sources", `[{`))
-
-	err := Load().ValidateRuntime()
-
-	require.Error(t, err)
-	require.ErrorContains(t, err, "OPENPOST_ANALYTICS_SOURCES")
-	require.ErrorContains(t, err, "valid JSON")
-}
-
 func TestLoadSupportsHostedAndSelfHostedProviderBotContracts(t *testing.T) {
 	t.Setenv("OPENPOST_APP_URL", "https://app.openpo.st")
 	t.Setenv("OPENPOST_PROVIDER_APPS", `[
@@ -326,19 +353,55 @@ func TestLoadSupportsHostedAndSelfHostedProviderBotContracts(t *testing.T) {
 
 	cfg := Load()
 
-	require.Len(t, cfg.ProviderApps, 8)
-	require.Equal(t, "webhook", cfg.ProviderApps[1].ConnectionMode)
-	require.Equal(t, "peertube", cfg.ProviderApps[2].Provider)
-	require.Equal(t, "lemmy", cfg.ProviderApps[3].Provider)
-	require.Equal(t, "piefed", cfg.ProviderApps[4].Provider)
-	require.Equal(t, "pinterest", cfg.ProviderApps[5].Provider)
-	require.Equal(t, "https://app.openpo.st/api/v1/accounts/pinterest/callback", cfg.ProviderApps[5].RedirectURI)
-	require.Equal(t, "telegram", cfg.ProviderApps[6].Provider)
-	require.Equal(t, "openpost_bot", cfg.ProviderApps[6].BotUsername)
-	require.Empty(t, cfg.ProviderApps[6].RedirectURI)
-	require.Equal(t, "discord", cfg.ProviderApps[7].Provider)
-	require.Equal(t, "bot", cfg.ProviderApps[7].ConnectionMode)
-	require.Equal(t, "https://app.openpo.st/api/v1/accounts/discord/callback", cfg.ProviderApps[7].RedirectURI)
+	require.Len(t, cfg.ProviderApps, 9)
+	require.Equal(t, "devnull", cfg.ProviderApps[1].Provider)
+	require.Equal(t, "ssh_signature", cfg.ProviderApps[1].ConnectionMode)
+	require.Equal(t, "webhook", cfg.ProviderApps[2].ConnectionMode)
+	require.Equal(t, "peertube", cfg.ProviderApps[3].Provider)
+	require.Equal(t, "lemmy", cfg.ProviderApps[4].Provider)
+	require.Equal(t, "piefed", cfg.ProviderApps[5].Provider)
+	require.Equal(t, "pinterest", cfg.ProviderApps[6].Provider)
+	require.Equal(t, "https://app.openpo.st/api/v1/accounts/pinterest/callback", cfg.ProviderApps[6].RedirectURI)
+	require.Equal(t, "telegram", cfg.ProviderApps[7].Provider)
+	require.Equal(t, "openpost_bot", cfg.ProviderApps[7].BotUsername)
+	require.Empty(t, cfg.ProviderApps[7].RedirectURI)
+	require.Equal(t, "discord", cfg.ProviderApps[8].Provider)
+	require.Equal(t, "bot", cfg.ProviderApps[8].ConnectionMode)
+	require.Equal(t, "https://app.openpo.st/api/v1/accounts/discord/callback", cfg.ProviderApps[8].RedirectURI)
+}
+
+func TestLoadReadsBillingDiscordWebhookFromFile(t *testing.T) {
+	t.Setenv("OPENPOST_BILLING_DISCORD_WEBHOOK_URL_FILE", writeEnvFile(t, "billing-discord-webhook", "https://discord.com/api/webhooks/test/token\n"))
+
+	cfg := Load()
+
+	require.Equal(t, "https://discord.com/api/webhooks/test/token", cfg.BillingDiscordWebhookURL)
+	require.NoError(t, cfg.ValidateRuntime())
+}
+
+func TestLoadReadsDiscordPresenceStreamURL(t *testing.T) {
+	t.Setenv("OPENPOST_DISCORD_PRESENCE_STREAM_URL", "https://www.youtube.com/watch?v=openpost")
+
+	cfg := Load()
+
+	require.Equal(t, "https://www.youtube.com/watch?v=openpost", cfg.DiscordPresenceStreamURL)
+	require.NoError(t, cfg.ValidateRuntime())
+}
+
+func TestValidateRuntimeRejectsInvalidDiscordPresenceStreamURL(t *testing.T) {
+	t.Setenv("OPENPOST_DISCORD_PRESENCE_STREAM_URL", "https://openpo.st/live")
+
+	err := Load().ValidateRuntime()
+
+	require.ErrorContains(t, err, "OPENPOST_DISCORD_PRESENCE_STREAM_URL")
+}
+
+func TestValidateRuntimeRejectsNonDiscordBillingWebhook(t *testing.T) {
+	t.Setenv("OPENPOST_BILLING_DISCORD_WEBHOOK_URL", "https://example.com/hooks/test")
+
+	err := Load().ValidateRuntime()
+
+	require.ErrorContains(t, err, "OPENPOST_BILLING_DISCORD_WEBHOOK_URL")
 }
 
 func TestLoadCloudCORSOriginsExcludeLocalDevelopmentDefaults(t *testing.T) {
@@ -350,6 +413,7 @@ func TestLoadCloudCORSOriginsExcludeLocalDevelopmentDefaults(t *testing.T) {
 
 	require.Equal(t, []string{
 		"https://app.openpo.st",
+		"https://openpo.st",
 		"https://admin.example.com",
 	}, cfg.CORSOrigins)
 	require.NotContains(t, cfg.CORSOrigins, "http://localhost:5173")
@@ -388,12 +452,6 @@ func TestValidateRuntimeRejectsNegativeProviderCostConfiguration(t *testing.T) {
 	require.ErrorContains(t, err, "OPENPOST_X_POST_CREATE_WITH_URL_COST_MICROUSD >= 0")
 	require.ErrorContains(t, err, "OPENPOST_X_ENGAGEMENT_DAILY_READ_BUDGET >= 0")
 	require.ErrorContains(t, err, "OPENPOST_PROVIDER_USAGE_RETENTION_DAYS >= 0")
-}
-
-func TestValidateRuntimeRejectsNegativeXAccountHistoryReadBudget(t *testing.T) {
-	cfg := &Config{Edition: EditionSelfHost, XAccountHistoryReadRequestsPerDay: -1}
-	err := cfg.ValidateRuntime()
-	require.ErrorContains(t, err, "OPENPOST_X_ACCOUNT_HISTORY_READ_REQUESTS_PER_DAY must be >= 0")
 }
 
 func TestValidateRuntimeRejectsCloudMissingS3Primitives(t *testing.T) {
@@ -534,10 +592,10 @@ func validCloudRuntimeConfig() *Config {
 		SupportEmail:                "openpost@rgo.pt",
 		EmailVerificationRequired:   true,
 		EmailProvider:               "smtp",
-		EmailFrom:                   "OpenPost <openpost@example.com>",
+		EmailFrom:                   "dopost <openpost@example.com>",
 		SMTPHost:                    "smtp.example.com",
 		SMTPPort:                    587,
-		SMTPFrom:                    "OpenPost <openpost@example.com>",
+		SMTPFrom:                    "dopost <openpost@example.com>",
 		TelemetryEnabled:            true,
 		PostHogProjectToken:         "phc_test",
 		PostHogAPIHost:              "https://eu.i.posthog.com",
@@ -560,8 +618,9 @@ func TestLoadEnablesTelemetryByDefaultForCloudInstances(t *testing.T) {
 	cfg := Load()
 	require.True(t, cfg.TelemetryEnabled)
 	require.Equal(t, "https://eu.i.posthog.com", cfg.PostHogAPIHost)
-	require.Equal(t, "https://cool.openpo.st", cfg.PostHogBrowserHost)
-	require.Equal(t, "https://eu.posthog.com", cfg.PostHogUIHost)
+	// dopost does not ship managed PostHog browser or UI hosts.
+	require.Empty(t, cfg.PostHogBrowserHost)
+	require.Empty(t, cfg.PostHogUIHost)
 	require.Equal(t, "production", cfg.TelemetryEnvironment)
 }
 
@@ -669,4 +728,51 @@ func writeEnvFile(t *testing.T, name, value string) string {
 	path := filepath.Join(t.TempDir(), name)
 	require.NoError(t, os.WriteFile(path, []byte(value), 0o600))
 	return path
+}
+
+func TestHostedWaitlistDefaultsAndReopening(t *testing.T) {
+	for _, tc := range []struct {
+		edition, enabled string
+		want             bool
+	}{
+		{EditionCloud, "", true}, {EditionCloud, "false", false},
+		{EditionSelfHost, "", false}, {EditionSelfHost, "true", false},
+	} {
+		t.Run(tc.edition+"/"+tc.enabled, func(t *testing.T) {
+			t.Setenv("OPENPOST_EDITION", tc.edition)
+			t.Setenv("OPENPOST_HOSTED_WAITLIST_ENABLED", tc.enabled)
+			require.Equal(t, tc.want, Load().HostedWaitlistEnabled)
+		})
+	}
+}
+
+func TestSelfHostedRuntimeRejectsWildcardCORS(t *testing.T) {
+	cfg := Load()
+	cfg.Edition = EditionSelfHost
+	cfg.CORSOrigins = []string{"https://app.example.com", "*"}
+	require.ErrorContains(t, cfg.ValidateRuntime(), "without wildcard origins")
+}
+
+func TestRuntimeProxyAndWorkflowLimits(t *testing.T) {
+	t.Setenv("OPENPOST_TRUSTED_PROXY_CIDRS", "127.0.0.1/32, ::1/128")
+	cfg := Load()
+	require.Equal(t, []string{"127.0.0.1/32", "::1/128"}, cfg.TrustedProxyCIDRs)
+	require.True(t, cfg.WorkflowsAIEnabled)
+	require.Equal(t, int64(1000), cfg.WorkflowsAIMonthlyCalls)
+	require.NoError(t, cfg.ValidateRuntime())
+	t.Setenv("OPENPOST_TRUSTED_PROXY_CIDRS", "::ffff:10.0.0.0/120")
+	require.NoError(t, Load().ValidateRuntime())
+	t.Setenv("OPENPOST_TRUSTED_PROXY_CIDRS", "::ffff:10.0.0.0/80")
+	require.ErrorContains(t, Load().ValidateRuntime(), "OPENPOST_TRUSTED_PROXY_CIDRS")
+	t.Setenv("OPENPOST_TRUSTED_PROXY_CIDRS", "0.0.0.0/not-a-prefix")
+	require.ErrorContains(t, Load().ValidateRuntime(), "OPENPOST_TRUSTED_PROXY_CIDRS")
+	t.Setenv("OPENPOST_TRUSTED_PROXY_CIDRS", "")
+	t.Setenv("OPENPOST_WORKFLOWS_AI_MONTHLY_CALL_LIMIT", "-1")
+	require.ErrorContains(t, Load().ValidateRuntime(), "OPENPOST_WORKFLOWS_AI_MONTHLY_CALL_LIMIT")
+	t.Setenv("OPENPOST_WORKFLOWS_AI_MONTHLY_CALL_LIMIT", "0")
+	t.Setenv("OPENPOST_WORKFLOWS_AI_ENABLED", "false")
+	cfg = Load()
+	require.False(t, cfg.WorkflowsAIEnabled)
+	require.Zero(t, cfg.WorkflowsAIMonthlyCalls)
+	require.NoError(t, cfg.ValidateRuntime())
 }

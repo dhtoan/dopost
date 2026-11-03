@@ -40,10 +40,10 @@
 			Privacy Policy
 		</h1>
 		<p class="mt-5 text-lg leading-8 text-muted-foreground">
-			What the hosted OpenPost service processes, why it does so, and the choices available to you.
+			What the hosted dopost service processes, why it does so, and the choices available to you.
 		</p>
 		<p class="mt-4 text-sm font-medium">
-			This policy is for people who use or evaluate the hosted OpenPost service.
+			This policy is for people who use or evaluate the hosted dopost service.
 		</p>
 		<div class="mt-5 flex flex-wrap gap-x-5 gap-y-2 text-sm font-medium">
 			<a
@@ -90,13 +90,13 @@
 
 		<h2>1. Who is responsible</h2>
 		<p>
-			The hosted OpenPost service at <a href="https://app.openpo.st">app.openpo.st</a>
+			The hosted dopost service at <a href="https://app.openpo.st">app.openpo.st</a>
 			is operated by Rodrigo Dias in Porto, Portugal. For privacy requests, email
-			<a href="mailto:openpost@rgo.pt">openpost@rgo.pt</a>. OpenPost is the data controller for
+			<a href="mailto:openpost@rgo.pt">openpost@rgo.pt</a>. dopost is the data controller for
 			account and service data described in this policy.
 		</p>
 		<p>
-			A self-hosted OpenPost installation is controlled by its operator. This policy does not govern
+			A self-hosted dopost installation is controlled by its operator. This policy does not govern
 			an independent self-hosted installation; contact that operator about its practices.
 		</p>
 
@@ -108,23 +108,23 @@
 			</li>
 			<li>
 				<strong>Post data:</strong> drafts, scheduled and published content, media, account versions,
-				OpenPost Image Editor designs and saved versions, explicitly cloud-saved OpenPost Video Editor
-				projects, templates, brand settings, prompts, schedules, post status, and job history.
+				dopost Image Editor designs and saved versions, explicitly cloud-saved dopost Video Editor projects,
+				templates, brand settings, prompts, schedules, post status, and job history.
 			</li>
 			<li>
-				<strong>Analytics data:</strong> account and content numbers, past results, update and discovery
-				status, safe platform error codes, and bounded titles and text for eligible content published
-				outside OpenPost. This lets you inspect measured evidence and prepare a repurpose draft for review.
-				Analytics records do not contain raw platform replies, remote media, access tokens, bot tokens,
-				webhook secrets, or direct messages.
+				<strong>Analytics data:</strong> account and content numbers for posts published through dopost,
+				past results, update status, and safe platform error codes. This lets you inspect measured evidence
+				and prepare a repurpose draft for review. Analytics records do not contain raw platform replies,
+				remote media, access tokens, bot tokens, webhook secrets, or direct messages.
 			</li>
 			<li>
 				<strong>Product and website telemetry:</strong> persistent first-party browser analytics after
-				permission, or limited personless cookieless events after cookie rejection; opaque signed-in user
-				and workspace identifiers; product and service events; country for persistent browser events;
-				release, route-template, status, and sanitized error facts. We discard raw client IP after approved
-				enrichment. We do not send post content, media, request bodies, credentials, email addresses,
-				names, usernames, query strings, or raw URLs as telemetry properties.
+				permission, or limited personless events after choosing cookie-free analytics; optional native
+				app analytics after a separate per-server choice; opaque signed-in user and workspace identifiers;
+				product and service events; country for persistent browser events; release, route-template, status,
+				and sanitized error facts. We discard raw client IP after approved enrichment. We do not send
+				post content, media, request bodies, credentials, email addresses, names, usernames, query strings,
+				or raw URLs as telemetry properties.
 			</li>
 			<li>
 				<strong>Brand font records:</strong> custom WOFF2, TTF, or OTF files, family and style details,
@@ -132,18 +132,18 @@
 			</li>
 			<li>
 				<strong>Connected-account data:</strong> social network, account ID, username, profile, supported
-				features, X plan when relevant, granted access, and encrypted access or refresh tokens. OpenPost
+				features, X plan when relevant, granted access, and encrypted access or refresh tokens. dopost
 				does not ask for your social-network password.
 			</li>
 			<li>
 				<strong>Security data:</strong> password hashes, session identifiers, passkey public-key material,
 				TOTP settings, API token details, IP address, browser details, sign-in and token activity, and
-				password-reset records. OpenPost never stores a readable account password.
+				password-reset records. dopost never stores a readable account password.
 			</li>
 			<li>
 				<strong>Billing data:</strong> plan access, subscription, checkout, customer, transaction, and
 				billing-status identifiers received from Paddle or the payment provider identified at checkout.
-				OpenPost does not receive or store full payment-card details.
+				dopost does not receive or store full payment-card details.
 			</li>
 			<li>
 				<strong>Support and service data:</strong> messages you send, service logs, errors, request timing,
@@ -161,9 +161,9 @@
 		<p>
 			Camera access is requested only after you choose a camera action. A live preview stays in the
 			browser and is not saved. A still photo is uploaded to the selected workspace only after you
-			choose to use it. OpenPost Video Editor can optionally record a camera track; that recording
-			and its local project stay in browser storage until you choose a cloud save, Media save, or
-			post handoff.
+			choose to use it. dopost Video Editor can optionally record a camera track; that recording and
+			its local project stay in browser storage until you choose a cloud save, Media save, or post
+			handoff.
 		</p>
 
 		<h2>4. Why we use data</h2>
@@ -208,7 +208,7 @@
 			<li>
 				<strong>OpenRouter and selected AI model providers</strong>, when automatic image captioning
 				is enabled, to process a 400-pixel JPEG thumbnail and up to 1,000 characters of the relevant
-				draft or thread segment as untrusted context. OpenPost does not send the original image for
+				draft or thread segment as untrusted context. dopost does not send the original image for
 				this feature. Their service and privacy terms apply.
 			</li>
 			<li>
@@ -230,7 +230,7 @@
 			</li>
 		</ul>
 		<p>
-			OpenPost does not sell personal data, build advertising profiles, or share personal data for
+			dopost does not sell personal data, build advertising profiles, or share personal data for
 			cross-context behavioral advertising.
 		</p>
 		<p>
@@ -239,23 +239,100 @@
 			facts, and the human production-access boundary.
 		</p>
 
-		<h2>6. Google and YouTube API data</h2>
+		<h2 id="youtube-api-data" class="scroll-mt-24">6. Google and YouTube API data</h2>
 		<p>
-			If you connect YouTube, OpenPost uses Google API data only to provide the connection,
-			video-publishing, and channel or video analytics features you request. That use and transfer
-			comply with the
+			If you connect YouTube, dopost uses Google API data only to provide the connection, video
+			publishing, channel or video analytics, native-post imports, and comment features you request.
+			That use and transfer comply with the
 			<a href="https://developers.google.com/terms/api-services-user-data-policy"
 				>Google API Services User Data Policy</a
-			>, including its Limited Use requirements. OpenPost does not use Google user data for ads,
+			>, including its Limited Use requirements. dopost does not use Google user data for ads,
 			credit decisions, or unrelated profiling.
 		</p>
 		<p>
-			OpenPost uses YouTube API Services. Google's handling of information is described in the
+			dopost uses YouTube API Services. Google's handling of information is described in the
 			<a href="https://policies.google.com/privacy">Google Privacy Policy</a>.
 		</p>
+		<h3>Information accessed, collected, and stored</h3>
 		<p>
-			You can disconnect a YouTube account in OpenPost and revoke access from your
-			<a href="https://myaccount.google.com/permissions">Google account permissions</a>.
+			Depending on your permissions and the features you enable, dopost accesses and stores the
+			following information through the YouTube Data API and YouTube Analytics API:
+		</p>
+		<ul>
+			<li>
+				Channel identity and profile information, including channel ID, channel name, custom URL or
+				handle, profile image URL, and subscriber count. We use these to identify the channel you
+				connect, display its profile, and show available account information.
+			</li>
+			<li>
+				Video and playlist information, including video IDs and links, playlist IDs and names, the
+				uploads-playlist ID, public video titles, descriptions, publication times, and privacy or
+				processing status. We use these to offer playlist choices, import eligible public posts when
+				enabled, and associate publishing results and comments with the correct video.
+			</li>
+			<li>
+				Publication records, including the video ID and URL returned by YouTube, upload and
+				processing state, and the title, description, video, thumbnail, captions, playlist choice,
+				schedule, visibility, audience, and other publishing settings you submit. We store these to
+				publish your content, resume interrupted uploads, and show delivery outcomes. The video,
+				thumbnail, and caption files you supply are uploaded to YouTube for your selected action.
+				Native-post imports retrieve metadata, not copies of videos from YouTube.
+			</li>
+			<li>
+				Channel and video metrics, including subscriber and video counts, views, likes, and comment
+				counts. Date-bound Analytics reports can include views, estimated watch time, average view
+				duration and percentage viewed, subscribers gained and lost, likes, comments, and shares. We
+				store normalized metric values, source, retrieval time, and reporting periods to display
+				your account and post performance and produce requested reports or CSV exports.
+			</li>
+			<li>
+				Comments and replies, including text, comment and parent IDs, associated video, author
+				channel ID, display name and profile image URL, publication time, and moderation state. We
+				store these for enabled inbox collection, to show conversations, and to send or moderate
+				comments when you request those actions.
+			</li>
+			<li>
+				Authorization information, including granted scopes, encrypted access and refresh tokens,
+				token expiry, and connection status. We use these to maintain the connection and perform
+				authorized actions. dopost does not receive or store your Google or YouTube password.
+			</li>
+		</ul>
+		<p>
+			This information is processed by the Hosted service and the infrastructure providers named in
+			the <a href={resolve('/trust')}>Hosted service trust register</a>. Authorized workspace
+			members can access the connected channel's content and results according to their roles. Your
+			requested uploads, replies, and moderation actions send the relevant content and identifiers
+			to YouTube. Exported YouTube data remains subject to the
+			<a href={resolve('/terms') + '#youtube-data-exports'}>YouTube data export conditions</a>,
+			including deletion or refresh within 30 calendar days of the last fetch or refresh from
+			YouTube. Downloading a file does not restart that period.
+		</p>
+		<h3 id="youtube-data-deletion" class="scroll-mt-24">
+			Storage, deletion, and access revocation
+		</h3>
+		<p>
+			The retention schedule below describes the records dopost keeps and their deletion triggers.
+			Access and refresh tokens are encrypted in the service database and retained for the
+			authorized connection until revoked or removed. Disconnecting a single destination stops its
+			use but can leave a shared authorization grant in place.
+		</p>
+		<p>
+			You can disconnect a YouTube account or revoke its grant in dopost. You can also revoke
+			dopost's access on the
+			<a href="https://security.google.com/settings/security/permissions"
+				>Google security settings page</a
+			>. To request deletion of stored YouTube data without deleting your dopost account, or to ask
+			a privacy question, contact <a href="mailto:openpost@rgo.pt">openpost@rgo.pt</a> and identify the
+			connected channel and workspace. You can also request account deletion from account settings.
+		</p>
+		<p>
+			YouTube analytics, imported metadata, and fetched comment caches expire after 22 days. Channel
+			profiles are refreshed after 21 days, or their stale name and image are cleared. We delete
+			data covered by a YouTube data-deletion request or a grant revocation made through dopost as
+			soon as possible and within seven calendar days. Data obtained under consent revoked through
+			Google security settings must be deleted as soon as possible and within 30 calendar days of
+			revocation. Deleting data stored by dopost does not delete videos, comments, or other data
+			stored by YouTube. Use YouTube's own controls to delete that content.
 		</p>
 
 		<h2>7. Retention and deletion</h2>
@@ -270,12 +347,14 @@
 			Deletion can be delayed when you must first transfer shared ownership, cancel active billing,
 			or preserve the last required instance administrator. Primary account and personal workspace
 			data are removed when deletion completes. The Hosted service makes daily database and media
-			recovery copies in root-restricted operator storage. Routine database dumps and changed or
-			deleted media versions are pruned by a daily job after they become more than 14 days old. A
-			copy can therefore remain until the next daily run. Operator-created repair or incident
-			snapshots follow a separate review and are kept only while needed for recovery, security,
-			legal duties, fraud prevention, or enforcing legal rights. OpenPost does not add a separate
-			application-level encryption layer to each backup artifact.
+			recovery copies in restricted operator storage on a private NAS. At most seven successful
+			database and media snapshots are retained. An independent hourly cleanup removes dopost
+			snapshots older than six days, including when a new backup fails. Operator-created repair or
+			incident snapshots follow a separate review and are kept only while needed for recovery,
+			security, legal duties, fraud prevention, or enforcing legal rights. dopost does not add a
+			separate application-level encryption layer to each backup artifact. Recovery copies
+			containing YouTube API data, including exceptional snapshots, remain subject to the YouTube
+			deletion and refresh deadlines above.
 		</p>
 		<p><strong>Retention schedule reviewed:</strong> {inventoryReviewedOn}</p>
 
@@ -333,19 +412,19 @@
 			one fixed name. A prefix covers names with a generated suffix. The inventory was reviewed on {inventoryReviewedOn}.
 		</p>
 		<p>
-			OpenPost Image Editor background removal runs in your browser with model and runtime files
-			served by the OpenPost operator. Source pixels are not sent to a background-removal service. A
+			dopost Image Editor background removal runs in your browser with model and runtime files
+			served by the dopost operator. Source pixels are not sent to a background-removal service. A
 			result is uploaded to the selected workspace only when processing succeeds.
 		</p>
 		<p>
 			The Hosted service, marketing site, and documentation site use PostHog EU Cloud for product,
-			service, error, and website telemetry. Before you choose, OpenPost sends no optional browser
+			service, error, and website telemetry. Before you choose, dopost sends no optional browser
 			telemetry. If you allow analytics cookies, first-party identity and sessions can continue
-			across OpenPost sibling subdomains. PostHog derives country for those browser events before
-			discarding the raw IP. If you continue without analytics cookies, OpenPost sends limited
-			personless events with daily server-hashed identity and no geography. You can also turn
+			across dopost sibling subdomains. PostHog derives country for those browser events before
+			discarding the raw IP. If you choose cookie-free analytics under More options, dopost sends
+			limited personless events with daily server-hashed identity and no geography. Decline turns
 			optional browser analytics fully off. Do Not Track and Global Privacy Control force that full
-			browser opt-out. The signed-in app and backend use opaque OpenPost identifiers for separately
+			browser opt-out. The signed-in app and backend use opaque dopost identifiers for separately
 			disclosed service telemetry; the browser choice does not disable authoritative backend
 			outcomes. Autocapture, session replay, heatmaps, surveys, console capture, network timing and
 			bodies, advertising profiles, and cross-site tracking are disabled. The privacy-enhanced
@@ -353,7 +432,16 @@
 			and playback data.
 		</p>
 		<p>
-			OpenPost Video Editor live previews, optional screen, camera, and audio recording, editing,
+			The native app sends screen visits, selected actions, device and app version facts, and
+			sanitized JavaScript errors only after you choose Allow analytics. Change this in Privacy. The
+			preference is stored securely for each server on the device. Analytics identity and pending
+			events stay in memory and are cleared when you decline, switch server, or change account.
+			Consented signed-in activity uses the opaque dopost user ID. Native analytics does not include
+			location, touch histories, recordings, post content, or native crash dumps.
+		</p>
+
+		<p>
+			dopost Video Editor live previews, optional screen, camera, and audio recording, editing,
 			transcription, voice detection, framing analysis, and export run in the browser. Model files
 			are downloaded only after the user starts the related tool. Local project data, recordings,
 			sources, and exports are uploaded only when the user chooses a cloud save, Media save, or post
@@ -417,7 +505,7 @@
 		<h2>9. International transfers</h2>
 		<p>
 			Your selected social networks and some service providers may process data outside Portugal or
-			the European Economic Area. When OpenPost controls a transfer and a safeguard is required, it
+			the European Economic Area. When dopost controls a transfer and a safeguard is required, it
 			must use an adequacy decision, contractual safeguards, or another lawful transfer method. The
 			Hosted service trust register states the current provider-specific facts and any unresolved
 			documentation gap. Publishing to a social network is also a transfer that you choose.
@@ -437,10 +525,10 @@
 
 		<h2>11. Security</h2>
 		<p>
-			OpenPost uses encrypted social account tokens, password hashing, secure session cookies,
-			limited tool tokens that you can remove, access controls, TOTP, passkeys, request limits,
-			backups, and checks for unsafe software packages. No internet service can guarantee full
-			security. Report a suspected security flaw to
+			dopost uses encrypted social account tokens, password hashing, secure session cookies, limited
+			tool tokens that you can remove, access controls, TOTP, passkeys, request limits, backups, and
+			checks for unsafe software packages. No internet service can guarantee full security. Report a
+			suspected security flaw to
 			<a href="mailto:openpost+security@rgo.pt">openpost+security@rgo.pt</a>.
 		</p>
 

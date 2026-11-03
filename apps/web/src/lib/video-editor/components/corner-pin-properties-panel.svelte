@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { m } from '$lib/paraglide/messages';
+	import { ProtectedIcon } from '$lib/themes/icons';
 	import { Input } from '$lib/components/ui/input';
+	import { Disclosure as EditorDisclosure, HintButton } from '$lib/components/editor-density';
 	import type { TimelineItem, TimelineItemCornerPin } from '$lib/video-editor/project/types';
 	import {
 		resolveCornerPinForSize,
@@ -8,9 +10,22 @@
 		type CornerPinKey,
 		type CornerPinOffsets
 	} from '$lib/video-editor/preview/corner-pin';
+	import { timelineStore } from '../timeline/stores/timeline-store.svelte';
+	import { isTrackEffectivelyLocked } from '../timeline/utils/track-groups';
 	import { updateItemProperties } from '$lib/video-editor/timeline/actions/items';
 
 	let { item, onedit }: { item: TimelineItem; onedit: () => void } = $props();
+	const locked = $derived(isTrackEffectivelyLocked(item.trackId, timelineStore.tracks));
+	let open = $state(false);
+	let openItemId = $state('');
+	$effect(() => {
+		if (item.id !== openItemId) {
+			openItemId = item.id;
+			open = item.cornerPin !== undefined;
+		} else if (item.cornerPin !== undefined) {
+			open = true;
+		}
+	});
 	const width = $derived(Math.max(1, item.transform?.width ?? item.cornerPin?.referenceWidth ?? 1));
 	const height = $derived(
 		Math.max(1, item.transform?.height ?? item.cornerPin?.referenceHeight ?? 1)
@@ -30,8 +45,7 @@
 	];
 
 	function commit(cornerPin: TimelineItemCornerPin | undefined): void {
-		updateItemProperties(item.id, { cornerPin }, 'UPDATE_CORNER_PIN');
-		onedit();
+		if (updateItemProperties(item.id, { cornerPin }, 'UPDATE_CORNER_PIN')) onedit();
 	}
 
 	function setCoordinate(corner: CornerPinKey, axis: 0 | 1, value: number): void {
@@ -42,51 +56,63 @@
 	}
 </script>
 
-<section class="flex flex-col gap-2">
-	<div class="flex items-center justify-between gap-2">
-		<h3 class="text-[10px] font-semibold tracking-wider text-[var(--video-editor-muted)] uppercase">
-			{m.video_editor_corner_pin()}
-		</h3>
-		{#if item.cornerPin}
-			<button
-				type="button"
-				class="rounded px-1.5 py-1 text-[10px] text-[var(--video-editor-muted)] hover:bg-[var(--video-editor-control-hover)] focus-visible:outline-2 focus-visible:outline-[var(--video-editor-focus)]"
-				onclick={() => commit(undefined)}>{m.video_editor_corner_pin_reset()}</button
+{#snippet disclosureActions()}
+	<HintButton
+		label={`${m.video_editor_corner_pin()}: ${m.video_editor_corner_pin_hint()}`}
+		hint={m.video_editor_corner_pin_hint()}
+		class="text-[var(--video-editor-muted)] hover:text-[var(--video-editor-ink)]"
+	/>
+	{#if item.cornerPin}
+		<button
+			disabled={locked}
+			type="button"
+			class="flex size-[22px] items-center justify-center rounded-[4px] text-[var(--video-editor-muted)] hover:bg-[var(--video-editor-control-hover)] focus-visible:outline-2 focus-visible:outline-[var(--video-editor-focus)] [@media(pointer:coarse)]:size-11"
+			aria-label={m.video_editor_corner_pin_reset()}
+			title={m.video_editor_corner_pin_reset()}
+			onclick={() => commit(undefined)}
+			><ProtectedIcon icon="editor-rotate-left" class="size-3.5" /></button
+		>
+	{/if}
+{/snippet}
+
+<EditorDisclosure
+	label={m.video_editor_corner_pin()}
+	summary={item.cornerPin ? m.video_editor_modified() : undefined}
+	bind:open
+	actions={disclosureActions}
+	class="overflow-hidden rounded-md border border-[var(--video-editor-border)] bg-[var(--video-editor-panel)]"
+>
+	<div class="flex flex-col gap-2 border-t border-[var(--video-editor-border)] p-2">
+		{#each corners as corner (corner.key)}
+			<div
+				class="grid h-[25px] grid-cols-[1.5rem_1fr_1fr] items-center gap-1 [@media(pointer:coarse)]:h-11"
 			>
-		{/if}
-	</div>
-	<p class="text-[10px] leading-4 text-[var(--video-editor-muted)]">
-		{m.video_editor_corner_pin_hint()}
-	</p>
-	{#each corners as corner (corner.key)}
-		<div class="grid grid-cols-[1.5rem_1fr_1fr] items-end gap-1">
-			<span class="pb-2 text-[10px] font-medium text-[var(--video-editor-text)]"
-				>{corner.label}</span
-			>
-			<label class="min-w-0 text-[9px] text-[var(--video-editor-muted)]">
-				X
+				<span class="text-[10px] font-medium text-[var(--video-editor-text)]">{corner.label}</span>
 				<Input
+					disabled={locked}
 					type="number"
 					min="-2000"
 					max="2000"
 					step="1"
-					class="mt-0.5 h-8 w-full rounded bg-[var(--video-editor-field)] px-1.5 text-xs text-[var(--video-editor-field-text)]"
+					aria-label={`${corner.label} X`}
+					title={`${corner.label} X`}
+					class="h-[25px] w-full rounded bg-[var(--video-editor-field)] px-1.5 text-[11px] text-[var(--video-editor-field-text)] tabular-nums"
 					value={pin[corner.key][0]}
 					onchange={(event) => setCoordinate(corner.key, 0, event.currentTarget.valueAsNumber)}
 				/>
-			</label>
-			<label class="min-w-0 text-[9px] text-[var(--video-editor-muted)]">
-				Y
 				<Input
+					disabled={locked}
 					type="number"
 					min="-2000"
 					max="2000"
 					step="1"
-					class="mt-0.5 h-8 w-full rounded bg-[var(--video-editor-field)] px-1.5 text-xs text-[var(--video-editor-field-text)]"
+					aria-label={`${corner.label} Y`}
+					title={`${corner.label} Y`}
+					class="h-[25px] w-full rounded bg-[var(--video-editor-field)] px-1.5 text-[11px] text-[var(--video-editor-field-text)] tabular-nums"
 					value={pin[corner.key][1]}
 					onchange={(event) => setCoordinate(corner.key, 1, event.currentTarget.valueAsNumber)}
 				/>
-			</label>
-		</div>
-	{/each}
-</section>
+			</div>
+		{/each}
+	</div>
+</EditorDisclosure>

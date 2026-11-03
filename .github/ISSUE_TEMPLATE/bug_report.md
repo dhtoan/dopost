@@ -31,7 +31,7 @@ Add screenshots if they show the problem more clearly.
 
 ## Environment
 
-- OpenPost version:
+- dopost version:
 - Deployment method (binary/Docker/other):
 - Operating system:
 - Go version (if building from source):

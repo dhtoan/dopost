@@ -1,28 +1,36 @@
 import { OpenAPIPage } from "@/components/api-page";
 import type { OpenAPIPageProps } from "fumadocs-openapi/ui";
-import { docsSocialImageUrlForRoute } from "@openpost/social-images";
+import {
+  docsPath,
+  docsSiteUrl,
+  docsSocialEntries,
+  docsSocialImageUrlForRoute,
+} from "@openpost/social-images";
 import { source, documentationIcon } from "@/lib/source";
 import { openapi } from "@/lib/openapi";
 import { operationDocument } from "@/lib/api-document";
 import { DocsBody, DocsDescription, DocsPage, DocsTitle } from "fumadocs-ui/page";
-import { MarkdownCopyButton, ViewOptionsPopover } from "fumadocs-ui/layouts/docs/page";
+import {
+  DocumentationMarkdownCopyButton as MarkdownCopyButton,
+  DocumentationPre,
+  DocumentationHeading,
+} from "@/components/documentation-copy";
+import { PageOptions } from "@/components/page-options";
 import defaultMdxComponents from "fumadocs-ui/mdx";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 
 const featureMarks: Record<string, string> = {
-  "guides/quickstart.mdx": "/assets/brand/features/compose.svg",
-  "guides/publishing.mdx": "/assets/brand/features/compose.svg",
-  "guides/image-editor.mdx": "/assets/brand/features/image-editor.svg",
-  "guides/video-editor.mdx": "/assets/brand/features/video-editor.svg",
-  "guides/scheduling.mdx": "/assets/brand/features/calendar.svg",
-  "guides/analytics.mdx": "/assets/brand/features/analytics.svg",
-  "guides/media-library.mdx": "/assets/brand/features/media.svg",
-  "guides/inbox.mdx": "/assets/brand/features/inbox.svg",
-  "guides/accounts.mdx": "/assets/brand/features/accounts.svg",
-  "guides/recording.mdx": "/assets/brand/features/recorder.svg",
-  "guides/workspaces.mdx": "/assets/brand/features/workspaces.svg",
-  "guides/automation.mdx": "/assets/brand/features/automation.svg",
+  "guides/quickstart.mdx": docsPath("/assets/brand/features/compose.svg"),
+  "guides/publishing.mdx": docsPath("/assets/brand/features/compose.svg"),
+  "image-editor/index.mdx": docsPath("/assets/brand/features/image-editor.svg"),
+  "video-editor/index.mdx": docsPath("/assets/brand/features/video-editor.svg"),
+  "guides/analytics.mdx": docsPath("/assets/brand/features/analytics.svg"),
+  "guides/media-library.mdx": docsPath("/assets/brand/features/media.svg"),
+  "guides/inbox.mdx": docsPath("/assets/brand/features/inbox.svg"),
+  "guides/accounts.mdx": docsPath("/assets/brand/features/accounts.svg"),
+  "guides/workspaces.mdx": docsPath("/assets/brand/features/workspaces.svg"),
+  "automate/index.mdx": docsPath("/assets/brand/features/automation.svg"),
 };
 
 type Props = { params: Promise<{ slug?: string[] }> };
@@ -58,17 +66,15 @@ export default async function Page({ params }: Props) {
               Copy page
             </MarkdownCopyButton>
           )}
-          <ViewOptionsPopover
-            aria-label="Open page options"
-            markdownUrl={page.data._openapi ? undefined : `/${page.path.replace(/\.mdx?$/, ".md")}`}
-            githubUrl={
-              page.data._openapi
-                ? undefined
-                : `https://github.com/getopenpost/openpost/edit/main/apps/docs/content/docs/${page.path}`
-            }
-          >
-            Ask AI
-          </ViewOptionsPopover>
+          {!page.data._openapi && (
+            <PageOptions
+              aria-label="Open page options"
+              markdownUrl={`/${page.path.replace(/\.mdx?$/, ".md")}`}
+              githubUrl={`https://github.com/getopenpost/openpost/edit/main/apps/docs/content/docs/${page.path}`}
+            >
+              Ask AI
+            </PageOptions>
+          )}
         </div>
       </div>
       <DocsDescription>{page.data.description}</DocsDescription>
@@ -76,13 +82,22 @@ export default async function Page({ params }: Props) {
         <MDX
           components={{
             ...defaultMdxComponents,
+            pre: DocumentationPre,
+            h1: (props) => <DocumentationHeading {...props} as="h1" />,
+            h2: (props) => <DocumentationHeading {...props} as="h2" />,
+            h3: (props) => <DocumentationHeading {...props} as="h3" />,
+            h4: (props) => <DocumentationHeading {...props} as="h4" />,
+            h5: (props) => <DocumentationHeading {...props} as="h5" />,
+            h6: (props) => <DocumentationHeading {...props} as="h6" />,
             OpenAPIPage: async (props: OpenAPIPageProps) => {
               const schema = await openapi.getSchema("openpost");
               return (
                 <OpenAPIPage
                   {...props}
                   preloaded={{
-                    docs: { openpost: operationDocument(schema.bundled, props.operations ?? []) },
+                    docs: {
+                      openpost: operationDocument(schema.bundled, props.operations ?? []),
+                    },
                   }}
                 />
               );
@@ -92,7 +107,7 @@ export default async function Page({ params }: Props) {
       </DocsBody>
       <div className="docs-page-help">
         <span>Need a hand?</span>
-        <a href="/guides/troubleshooting">Troubleshooting</a>
+        <a href={docsPath("/guides/troubleshooting")}>Troubleshooting</a>
         <a href="https://github.com/getopenpost/openpost/issues">Report an issue</a>
       </div>
     </DocsPage>
@@ -105,8 +120,10 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const page = source.getPage((await params).slug);
   if (!page) notFound();
   const title = page.data.title;
-  const description = page.data.description;
-  const canonical = `https://docs.openpo.st${page.url}`;
+  const description =
+    docsSocialEntries.find((entry) => entry.route === page.url)?.description ??
+    page.data.description;
+  const canonical = page.url === "/" ? docsSiteUrl : `${docsSiteUrl}${page.url}`;
   const image = docsSocialImageUrlForRoute(page.url);
   return {
     title,
@@ -115,11 +132,16 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       canonical,
       types: {
         "text/plain": [
-          { url: "/llms.txt", title: "OpenPost documentation index" },
-          { url: "/llms-full.txt", title: "OpenPost documentation" },
+          { url: "/llms.txt", title: "dopost documentation index" },
+          { url: "/llms-full.txt", title: "dopost documentation" },
         ],
         ...(!page.data._openapi
-          ? { "text/markdown": `/${page.path.replace(/\.mdx?$/, ".md")}` }
+          ? {
+              "text/markdown": [
+                { url: `/${page.path.replace(/\.mdx?$/, ".md")}`, title: page.data.title },
+                { url: "/sitemap.md", title: "Documentation Markdown sitemap" },
+              ],
+            }
           : {}),
       },
     },
@@ -127,7 +149,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       title,
       description,
       url: canonical,
-      siteName: "OpenPost Docs",
+      siteName: "dopost Docs",
       type: "website",
       images: [{ url: image, width: 1200, height: 630, type: "image/png", alt: title }],
     },

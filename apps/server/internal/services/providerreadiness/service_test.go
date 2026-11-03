@@ -5,6 +5,10 @@ import (
 	"errors"
 	"testing"
 	"time"
+
+	"github.com/openpost/backend/internal/models"
+	"github.com/openpost/backend/internal/platform"
+	"github.com/stretchr/testify/require"
 )
 
 func TestServiceFailsClosedWhenLedgerIsMissingOrUnavailable(t *testing.T) {
@@ -56,18 +60,34 @@ func TestServiceEnvironmentDisableHasPriorityAndSkipsLedger(t *testing.T) {
 	}
 }
 
-func TestRequiresCertifiedOperationKeepsDiscordBotOnTheNormalReadinessPath(t *testing.T) {
+func TestDiscordAnalyticsDoesNotInheritGlobalPublishingCertificationGate(t *testing.T) {
 	t.Parallel()
 
-	if requiresCertifiedOperation("discord") {
-		t.Fatal("Discord bot mode unexpectedly requires a separate certification gate")
-	}
-	if !requiresCertifiedOperation("telegram") {
-		t.Fatal("Telegram bot mode lost its certification gate")
-	}
-	if !requiresCertifiedOperation("pinterest") {
-		t.Fatal("Pinterest lost its certification gate")
-	}
+	catalog, err := NewConfigurationCatalog(RuntimeApps([]platform.AppConfig{{
+		Provider:       "discord",
+		ConnectionMode: platform.ConnectionModeBot,
+		ClientID:       "discord-client",
+		ClientSecret:   "discord-secret",
+		BotToken:       "discord-token",
+		RedirectURI:    "https://openpost.test/discord/callback",
+	}}, ConfigurationSourceEnvironment, ProviderEnvironmentProduction))
+	require.NoError(t, err)
+	service := NewService(&fakeLedger{
+		approvalErr: ErrLedgerFactNotFound,
+		controlErr:  ErrLedgerFactNotFound,
+	}, ServiceOptions{
+		Configurations:       catalog,
+		ManagedProduction:    true,
+		EnforceCertification: true,
+		DefaultControl:       RuntimeControlStateEnabled,
+	})
+	decision := service.DecideAccountOperation(t.Context(), models.SocialAccount{
+		ID:              "discord-account",
+		WorkspaceID:     "workspace-1",
+		Platform:        "discord",
+		CapabilityState: `{"connection_type":"bot"}`,
+	}, OperationAnalytics, ExecutionIntentProduction)
+	require.True(t, decision.AnalyticsReady, "Discord bot analytics should use normal configured-account readiness")
 }
 
 func decisionRequest(input EvaluationInput) DecisionRequest {
@@ -95,11 +115,16 @@ type fakeLedger struct {
 	live                  *CertificationEvidence
 	liveErr               error
 	reads                 int
+	approvalReads         int
+	localReads            int
+	liveReads             int
+	controlReads          int
 	appendedCertification *CertificationEvidence
 }
 
 func (f *fakeLedger) LatestApprovalReview(context.Context, Subject) (*ApprovalReview, error) {
 	f.reads++
+	f.approvalReads++
 	return f.approval, f.approvalErr
 }
 
@@ -110,13 +135,16 @@ func (f *fakeLedger) ApprovalReviewByID(context.Context, string) (*ApprovalRevie
 func (f *fakeLedger) LatestCertification(_ context.Context, _ Subject, kind EvidenceKind, _ string) (*CertificationEvidence, error) {
 	f.reads++
 	if kind == EvidenceKindLocal {
+		f.localReads++
 		return f.local, f.localErr
 	}
+	f.liveReads++
 	return f.live, f.liveErr
 }
 
 func (f *fakeLedger) EffectiveRuntimeControl(_ context.Context, subject Subject, _ time.Time) (RuntimeControl, error) {
 	f.reads++
+	f.controlReads++
 	if control, ok := f.controls[subject.Operation]; ok {
 		return control, f.controlErr
 	}

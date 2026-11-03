@@ -7,7 +7,7 @@
 	import AppSelect from '$lib/components/app-select.svelte';
 	import { ProtectedIcon, ThemeIcon } from '$lib/themes/icons';
 	import { voiceoverRecorder } from '$lib/video-editor/recorder/voiceover-recorder.svelte';
-	import { toast } from 'svelte-sonner';
+	import { showToast } from '$lib/toast';
 
 	let {
 		projectId,
@@ -45,7 +45,7 @@
 	$effect(() => {
 		const error = voiceoverRecorder.error;
 		if (!error) return;
-		toast.error(errorMessage(error));
+		showToast(errorMessage(error), 'error');
 		voiceoverRecorder.clearError();
 	});
 
@@ -82,7 +82,12 @@
 
 {#if voiceoverRecorder.supported}
 	{#if voiceoverRecorder.status === 'idle' || voiceoverRecorder.status === 'requesting'}
-		<div class="flex shrink-0 items-center gap-0.5" data-voiceover-control>
+		<div
+			class="shrink-0 items-center gap-0.5 {voiceoverRecorder.status === 'idle'
+				? 'hidden @min-[800px]/program:flex'
+				: 'flex'}"
+			data-voiceover-control
+		>
 			<Button
 				size="icon-xs"
 				variant="ghost"
@@ -143,7 +148,9 @@
 						></div>
 					</div>
 					<div class="space-y-2 text-xs">
-						<label class="flex min-h-11 items-center justify-between gap-3">
+						<label
+							class="flex min-h-8 items-center justify-between gap-3 [@media(pointer:coarse)]:min-h-11"
+						>
 							<span>{m.video_editor_voiceover_noise_suppression()}</span>
 							<Checkbox
 								checked={voiceoverRecorder.noiseSuppression}
@@ -152,7 +159,9 @@
 									voiceoverRecorder.setNoiseSuppression(checked === true)}
 							/>
 						</label>
-						<label class="flex min-h-11 items-center justify-between gap-3">
+						<label
+							class="flex min-h-8 items-center justify-between gap-3 [@media(pointer:coarse)]:min-h-11"
+						>
 							<span>{m.video_editor_voiceover_auto_gain()}</span>
 							<Checkbox
 								checked={voiceoverRecorder.autoGainControl}
@@ -161,7 +170,9 @@
 									voiceoverRecorder.setAutoGainControl(checked === true)}
 							/>
 						</label>
-						<label class="flex min-h-11 items-center justify-between gap-3">
+						<label
+							class="flex min-h-8 items-center justify-between gap-3 [@media(pointer:coarse)]:min-h-11"
+						>
 							<span>{m.video_editor_voiceover_mute_timeline()}</span>
 							<Checkbox
 								checked={voiceoverRecorder.muteTimeline}
@@ -170,7 +181,9 @@
 							/>
 						</label>
 					</div>
-					<div class="flex min-h-11 items-center justify-between gap-3 text-xs">
+					<div
+						class="flex min-h-8 items-center justify-between gap-3 text-xs [@media(pointer:coarse)]:min-h-11"
+					>
 						<span>{m.video_editor_voiceover_sync_offset()}</span>
 						<div class="flex items-center gap-1">
 							<Button
@@ -219,7 +232,7 @@
 			<span class="min-w-12 text-center font-mono text-xs tabular-nums">{elapsed}</span>
 			{#if voiceoverRecorder.status === 'finalizing'}
 				<span
-					class="flex min-h-11 items-center gap-1 px-1 text-xs text-muted-foreground md:min-h-7"
+					class="flex min-h-8 items-center gap-1 px-1 text-xs text-muted-foreground md:min-h-7 [@media(pointer:coarse)]:min-h-11"
 				>
 					<ProtectedIcon icon="loading" class="size-3.5 animate-spin motion-reduce:animate-none" />
 					{m.video_editor_voiceover_saving()}

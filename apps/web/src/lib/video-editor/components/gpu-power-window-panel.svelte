@@ -167,7 +167,7 @@
 </div>
 <div class="pb-1" class:opacity-50={disabled}>
 	<svg
-		class="aspect-video w-full touch-none rounded border border-[var(--video-editor-border)] bg-black"
+		class="aspect-video w-full max-w-sm touch-none rounded border border-[var(--video-editor-border)] bg-black"
 		viewBox="0 0 100 56.25"
 		role="application"
 		aria-label={`${effectLabel}: ${m.video_editor_power_window_gizmo()}`}
@@ -239,7 +239,7 @@
 			]}
 			ariaLabel={label}
 			{disabled}
-			class="h-7 text-xs"
+			class="h-[var(--editor-22,22px)] text-xs"
 			onValueChange={(value) => oncommit('shape', value)}
 		/>
 	</label>
@@ -269,7 +269,7 @@
 		{@const label = param ? gpuParamLabel(param) : name}
 		<button
 			type="button"
-			class="flex h-7 min-w-0 flex-1 items-center justify-center gap-1.5 rounded border border-[var(--video-editor-border)] px-2 text-xs focus-visible:outline-2 focus-visible:outline-[var(--video-editor-focus)] disabled:opacity-40 {active
+			class="flex h-[var(--editor-22,22px)] min-w-0 flex-1 items-center justify-center gap-1.5 rounded border border-[var(--video-editor-border)] px-2 text-xs focus-visible:outline-2 focus-visible:outline-[var(--video-editor-focus)] disabled:opacity-40 {active
 				? 'bg-[var(--video-editor-primary)] text-[var(--video-editor-primary-text)]'
 				: 'hover:bg-[var(--video-editor-control-hover)]'}"
 			aria-pressed={active}

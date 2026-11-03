@@ -70,6 +70,24 @@ func (stub *publicationBuildPublicationStub) CreateFromBuild(
 
 type publicationBuildTestAuthenticator struct{}
 
+func TestPublicationBuildProfilesIncludeImagePostVariants(t *testing.T) {
+	handler := &PublicationBuildHandler{}
+	for _, provider := range []string{"x", "linkedin"} {
+		t.Run(provider, func(t *testing.T) {
+			profiles := handler.publicationBuildOutputProfiles(t.Context(), models.SocialAccount{Platform: provider}, "")
+			for _, profile := range profiles {
+				if profile.Key == provider+".post" {
+					require.Zero(t, profile.MediaMinCount, "plain text remains supported")
+					require.GreaterOrEqual(t, profile.MediaMaxCount, 1, "a post must also support one image")
+					require.Contains(t, profile.AllowedMIMEs, "image/png")
+					return
+				}
+			}
+			t.Fatal("post output profile missing")
+		})
+	}
+}
+
 func (publicationBuildTestAuthenticator) AuthenticateBearer(
 	_ context.Context,
 	token string,
@@ -321,6 +339,9 @@ func TestPublicationBuildRetryEnforcesDurableActiveBuildLimit(t *testing.T) {
 	)
 
 	require.Equal(t, http.StatusTooManyRequests, retry.Code, retry.Body.String())
+	var stored publicationbuilder.BuildRecord
+	require.NoError(t, server.db.NewSelect().Model(&stored).Where("id = ?", failed.ID).Scan(t.Context()))
+	require.Equal(t, publicationbuilder.BuildStateFailed, stored.State, "the rejected retry must leave the target failed")
 }
 
 func TestPublicationBuildCreateStoresReferencesWithoutFetchingThem(t *testing.T) {
@@ -356,14 +377,17 @@ func TestPublicationBuildCreateStoresReferencesWithoutFetchingThem(t *testing.T)
 func TestPublicationBuildCreateAcceptsMultilineContextNotes(t *testing.T) {
 	server := newPublicationBuildTestServer(t)
 	contextNotes := "What changed:\n- Removed the setup step\n- Kept the existing workflow"
+	instructions := "Start with the practical benefit for the reader.\nKeep the release version and supplied links.\nExplain what changed without inventing metrics, setup steps, outcomes or features.\nUse a short opening and one concrete use case."
 
 	response := server.request(t, http.MethodPost, "/api/v1/publication-builds", publicationBuildRequest(map[string]any{
 		"context_notes":       contextNotes,
 		"context_may_publish": true,
+		"direction":           map[string]any{"instructions": instructions},
 	}), "multiline-context-notes", "web-token")
 
 	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
 	build := decodePublicationBuild(t, response)
+	require.Equal(t, instructions, build.Input.Direction.Instructions)
 	require.Equal(t, []publicationbuilder.SourceMaterial{{
 		ID: "context:notes", Kind: "text", Label: "Additional context", Text: contextNotes, Publishable: true,
 	}}, build.Input.Sources)
@@ -522,7 +546,7 @@ func newPublicationBuildTestServer(t *testing.T) *publicationBuildTestServer {
 	_, err = db.NewInsert().Model(&users).Exec(t.Context())
 	require.NoError(t, err)
 	workspaces := []models.Workspace{
-		{ID: "ws-1", OrganizationID: "org-1", Name: "OpenPost"},
+		{ID: "ws-1", OrganizationID: "org-1", Name: "dopost"},
 		{ID: "ws-2", OrganizationID: "org-2", Name: "Other"},
 	}
 	_, err = db.NewInsert().Model(&workspaces).Exec(t.Context())

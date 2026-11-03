@@ -41,7 +41,7 @@ describe('project bundle utilities', () => {
 		expect(completed).toBe(16);
 	});
 
-	it('rejects traversal, repeated ids, conflicting paths, and changed manifests', () => {
+	it('rejects traversal, repeated ids, and changed manifests', () => {
 		expect(isSafeBundlePath('../project.json')).toBe(false);
 		expect(isSafeBundlePath('/project.json')).toBe(false);
 		expect(isSafeBundlePath('media/hash/video.mp4')).toBe(true);
@@ -92,7 +92,7 @@ describe('project bundle utilities', () => {
 		expect(() => validateBundleManifest(changed)).toThrow('checksum does not match');
 	});
 
-	it('creates safe internal paths and OpenPost bundle names', () => {
+	it('creates safe internal paths and dopost bundle names', () => {
 		expect(bundleMediaPath('abc', '../Launch: final.mp4')).toBe('media/abc/_Launch_ final.mp4');
 		expect(sanitizeBundleFileName('Launch: final')).toBe('Launch_ final.openpost.zip');
 		expect(PROJECT_BUNDLE_MANIFEST_PATH).toBe('manifest.json');

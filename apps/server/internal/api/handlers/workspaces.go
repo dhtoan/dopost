@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -25,6 +26,7 @@ import (
 	"github.com/openpost/backend/internal/services/workspacedeletion"
 	"github.com/openpost/backend/internal/services/workspaceprovisioning"
 	"github.com/openpost/backend/internal/services/workspaceteam"
+	"github.com/openpost/backend/internal/telemetry"
 	"github.com/uptrace/bun"
 )
 
@@ -32,6 +34,7 @@ type WorkspaceHandler struct {
 	db                   *bun.DB
 	auth                 middleware.Authenticator
 	entitlement          entitlements.Service
+	telemetry            telemetry.Recorder
 	notifications        *notifications.Service
 	team                 *workspaceteam.Service
 	setup                *setupprojection.Service
@@ -67,6 +70,10 @@ func (h *WorkspaceHandler) SetFrontendURL(frontendURL string) {
 	h.frontendURL = strings.TrimRight(strings.TrimSpace(frontendURL), "/")
 }
 
+func (h *WorkspaceHandler) SetTelemetry(recorder telemetry.Recorder) {
+	h.telemetry = recorder
+}
+
 func (h *WorkspaceHandler) SetNotificationService(service *notifications.Service) {
 	h.notifications = service
 	h.team = workspaceteam.NewService(h.db, h.entitlement, service)
@@ -94,20 +101,23 @@ type CreateWorkspaceOutput struct {
 }
 
 type WorkspaceResponse struct {
-	WorkspaceID        string `json:"id"`
-	OrganizationID     string `json:"organization_id"`
-	OrganizationName   string `json:"organization_name"`
-	WorkspaceName      string `json:"name"`
-	AvatarURL          string `json:"avatar_url"`
-	Color              string `json:"color"`
-	WorkspaceCreatedAt string `json:"created_at"`
-	Role               string `json:"role" enum:"admin,editor,viewer" doc:"Current user's workspace role"`
-	CanEdit            bool   `json:"can_edit" doc:"Whether the current user can change workspace content"`
-	SSORequired        bool   `json:"sso_required" doc:"Whether this workspace requires organization SSO"`
-	SSOAuthenticated   bool   `json:"sso_authenticated" doc:"Whether the current credential satisfies organization SSO"`
-	SSOProviderID      string `json:"sso_provider_id,omitempty" doc:"Identity provider required for this workspace"`
-	SSOProviderName    string `json:"sso_provider_name,omitempty" doc:"Identity provider name required for this workspace"`
-	SSOIdentityLinked  bool   `json:"sso_identity_linked" doc:"Whether the required provider is explicitly linked to this user"`
+	WorkspaceID          string `json:"id"`
+	OrganizationID       string `json:"organization_id"`
+	OrganizationName     string `json:"organization_name"`
+	WorkspaceName        string `json:"name"`
+	AvatarURL            string `json:"avatar_url"`
+	Color                string `json:"color"`
+	WorkspaceCreatedAt   string `json:"created_at"`
+	Role                 string `json:"role" enum:"admin,editor,client,viewer" doc:"Current user's workspace role"`
+	CanEdit              bool   `json:"can_edit" doc:"Whether the current user can change workspace content"`
+	CanConnect           bool   `json:"can_connect" doc:"Whether the current user can connect or reconnect social accounts"`
+	ClientReviewsEnabled bool   `json:"client_reviews_enabled,omitempty" doc:"Whether this deployment accepts new client review requests"`
+	CanApprove           bool   `json:"can_approve" doc:"Whether the current user can decide an assigned publication review"`
+	SSORequired          bool   `json:"sso_required" doc:"Whether this workspace requires organization SSO"`
+	SSOAuthenticated     bool   `json:"sso_authenticated" doc:"Whether the current credential satisfies organization SSO"`
+	SSOProviderID        string `json:"sso_provider_id,omitempty" doc:"Identity provider required for this workspace"`
+	SSOProviderName      string `json:"sso_provider_name,omitempty" doc:"Identity provider name required for this workspace"`
+	SSOIdentityLinked    bool   `json:"sso_identity_linked" doc:"Whether the required provider is explicitly linked to this user"`
 }
 
 type ListWorkspacesOutput struct {
@@ -270,7 +280,7 @@ type OrganizationTeamOutput struct {
 type WorkspaceMemberResponse struct {
 	UserID        string  `json:"user_id" doc:"User ID"`
 	Email         string  `json:"email" doc:"User email"`
-	Role          string  `json:"role" enum:"admin,editor,viewer" doc:"Workspace role"`
+	Role          string  `json:"role" enum:"admin,editor,client,viewer" doc:"Workspace role"`
 	Status        string  `json:"status" enum:"active,inactive" doc:"Workspace access state"`
 	CreatedAt     string  `json:"created_at" doc:"When access was first granted"`
 	UpdatedAt     string  `json:"updated_at" doc:"When access last changed"`
@@ -307,7 +317,7 @@ type WorkspaceTeamOutput struct {
 type WorkspaceTeamInput struct {
 	PathID string `path:"id" doc:"Workspace ID"`
 	Query  string `query:"q" maxLength:"200" doc:"Case-insensitive member or invitation email search"`
-	Role   string `query:"role" enum:"all,admin,editor,viewer" default:"all" doc:"Filter by role"`
+	Role   string `query:"role" enum:"all,admin,editor,client,viewer" default:"all" doc:"Filter by role"`
 	Status string `query:"status" enum:"all,active,inactive,pending,created,queued,sent,delivered,delivery_failed,delivery_unavailable,expired,revoked,accepted" default:"all" doc:"Filter by member access or exact invitation lifecycle state"`
 }
 
@@ -315,7 +325,7 @@ type CreateWorkspaceInvitationInput struct {
 	PathID string `path:"id" doc:"Workspace ID"`
 	Body   struct {
 		Email string `json:"email" format:"email" doc:"Email address to invite"`
-		Role  string `json:"role" enum:"admin,editor,viewer" doc:"Workspace role to grant"`
+		Role  string `json:"role" enum:"admin,editor,client,viewer" doc:"Workspace role to grant"`
 	}
 }
 
@@ -347,7 +357,7 @@ type UpdateWorkspaceMemberInput struct {
 	PathID string `path:"id" doc:"Workspace ID"`
 	UserID string `path:"user_id" doc:"Workspace member user ID"`
 	Body   struct {
-		Role   string `json:"role,omitempty" enum:"admin,editor,viewer" doc:"Replacement workspace role"`
+		Role   string `json:"role,omitempty" enum:"admin,editor,client,viewer" doc:"Replacement workspace role"`
 		Status string `json:"status,omitempty" enum:"active,inactive" doc:"Replacement workspace access state"`
 	}
 }
@@ -480,6 +490,10 @@ func (h *WorkspaceHandler) CreateWorkspace(api huma.API) {
 
 		err := h.insertWorkspaceBoundary(ctx, organization, organizationMember, workspace, member, userID)
 		if err != nil {
+			var statusError huma.StatusError
+			if errors.As(err, &statusError) {
+				return nil, err
+			}
 			if errors.Is(err, errOrganizationChangedDuringWorkspaceCreation) {
 				return nil, huma.Error409Conflict("Organization access changed; review the Workspace destination and try again")
 			}
@@ -498,10 +512,25 @@ var errOrganizationChangedDuringWorkspaceCreation = errors.New("organization cha
 
 func (h *WorkspaceHandler) insertWorkspaceBoundary(ctx context.Context, organization *models.Organization, organizationMember *models.OrganizationMember, workspace *models.Workspace, member *models.WorkspaceMember, userID string) error {
 	return h.db.RunInTx(ctx, &sql.TxOptions{}, func(txCtx context.Context, tx bun.Tx) error {
+		quotaOrganizationID := workspace.OrganizationID
+		if organization != nil {
+			// Serialize first-Organization creation by actor, before counting memberships.
+			locked, err := tx.NewUpdate().Model((*models.User)(nil)).Set("email = email").Where("id = ?", userID).Exec(txCtx)
+			if err != nil {
+				return err
+			}
+			if rows, err := locked.RowsAffected(); err != nil || rows != 1 {
+				return errOrganizationChangedDuringWorkspaceCreation
+			}
+			quotaOrganizationID = ""
+		}
 		if organization == nil {
 			if err := lockOrganizationForWorkspaceCreation(txCtx, tx, workspace.OrganizationID, userID); err != nil {
 				return err
 			}
+		}
+		if err := h.checkCreateWorkspaceEntitlementWithDB(txCtx, tx, quotaOrganizationID, userID); err != nil {
+			return err
 		}
 		return workspaceprovisioning.Create(txCtx, tx, workspaceprovisioning.Boundary{
 			Organization:       organization,
@@ -896,9 +925,12 @@ func (h *WorkspaceHandler) acceptWorkspaceInvitation(
 }
 
 func (h *WorkspaceHandler) checkCreateWorkspaceEntitlement(ctx context.Context, organizationID, userID string) error {
+	return h.checkCreateWorkspaceEntitlementWithDB(ctx, h.db, organizationID, userID)
+}
+func (h *WorkspaceHandler) checkCreateWorkspaceEntitlementWithDB(ctx context.Context, db bun.IDB, organizationID, userID string) error {
 	var current int
 	if organizationID != "" {
-		if err := h.db.NewSelect().
+		if err := db.NewSelect().
 			ColumnExpr("COUNT(*)").
 			Model((*models.Workspace)(nil)).
 			Where("organization_id = ?", organizationID).
@@ -906,7 +938,7 @@ func (h *WorkspaceHandler) checkCreateWorkspaceEntitlement(ctx context.Context, 
 			return huma.Error500InternalServerError("failed to check workspace limit")
 		}
 	} else {
-		if err := h.db.NewSelect().
+		if err := db.NewSelect().
 			ColumnExpr("COUNT(*)").
 			Model((*models.WorkspaceMember)(nil)).
 			Where("user_id = ? AND status = ?", userID, models.WorkspaceMemberStatusActive).
@@ -915,7 +947,7 @@ func (h *WorkspaceHandler) checkCreateWorkspaceEntitlement(ctx context.Context, 
 		}
 	}
 
-	decision, err := h.entitlement.Check(ctx, entitlements.Request{
+	decision, err := entitlements.CheckWithDB(ctx, h.entitlement, db, entitlements.Request{
 		OrganizationID: organizationID,
 		UserID:         userID,
 		Limit:          entitlements.LimitWorkspaces,
@@ -1144,7 +1176,11 @@ func (h *WorkspaceHandler) StartWorkspaceComposition(api huma.API) {
 		if err != nil {
 			return nil, huma.Error500InternalServerError("failed to inspect Workspace composition")
 		}
-		claimed := rows == 1
+		newlyCreated := rows == 1
+		if newlyCreated {
+			h.captureFirstCompositionStarted(ctx, userID, input.PathID, claim)
+		}
+		claimed := newlyCreated
 		if !claimed {
 			var stored models.WorkspaceFirstComposition
 			if err := h.db.NewSelect().Model(&stored).Where("workspace_id = ?", input.PathID).Scan(ctx); err != nil {
@@ -1154,6 +1190,25 @@ func (h *WorkspaceHandler) StartWorkspaceComposition(api huma.API) {
 		}
 		return &StartWorkspaceCompositionOutput{Body: StartWorkspaceCompositionResponse{Claimed: claimed}}, nil
 	})
+}
+
+// captureFirstCompositionStarted records the server-owned observation of an
+// already-committed first-composition claim. Telemetry is best effort: a
+// recorder failure never fails the product operation.
+func (h *WorkspaceHandler) captureFirstCompositionStarted(ctx context.Context, userID, workspaceID string, claim *models.WorkspaceFirstComposition) {
+	if h.telemetry == nil {
+		return
+	}
+	if err := h.telemetry.Capture(ctx, telemetry.Event{
+		Name:        telemetry.EventFirstCompositionStarted,
+		DistinctID:  userID,
+		WorkspaceID: workspaceID,
+		UUID:        "composition:" + workspaceID,
+		Timestamp:   claim.CreatedAt,
+		Properties:  map[string]any{"signal": claim.Signal},
+	}); err != nil {
+		log.Printf("Failed to enqueue first composition telemetry: %v", err)
+	}
 }
 
 func (h *WorkspaceHandler) GetWorkspaceDeletionPreview(api huma.API) {
@@ -1394,10 +1449,6 @@ func optionalString(value string) *string {
 	return &value
 }
 
-func hashWorkspaceInvitationToken(token string) string {
-	return workspaceteam.HashInvitationToken(token)
-}
-
 func workspaceTeamHTTPError(err error, fallback string) error {
 	message := strings.TrimSpace(err.Error())
 	if message == "" {
@@ -1615,6 +1666,9 @@ func (h *WorkspaceHandler) UpdateWorkspaceSettings(api huma.API) {
 				return nil, huma.Error400BadRequest("slot_end_hour must be between 0 and 23")
 			}
 			workspace.SlotEndHour = *input.Body.SlotEndHour
+		}
+		if (input.Body.SlotStartHour != nil || input.Body.SlotEndHour != nil) && workspace.SlotStartHour > workspace.SlotEndHour {
+			return nil, huma.Error400BadRequest("slot_end_hour must be at or after slot_start_hour")
 		}
 		if input.Body.SlotIntervalMinutes != nil {
 			if *input.Body.SlotIntervalMinutes < 1 || *input.Body.SlotIntervalMinutes > 180 {

@@ -4,6 +4,7 @@
 	import ColorPicker from '$lib/components/color-picker.svelte';
 	import { Slider } from '$lib/components/ui/slider';
 	import AppSelect from '$lib/components/app-select.svelte';
+	import { HintButton } from '$lib/components/editor-density';
 	import type {
 		TimelineItem,
 		KeyframeProperty,
@@ -14,15 +15,8 @@
 		updateBackground,
 		updateBackgroundBackgroundColor,
 		updateBackgroundColors,
-		updateBackgroundDensity,
 		updateBackgroundForeground,
-		updateBackgroundForegroundOpacity,
-		updateBackgroundOffsetX,
-		updateBackgroundOffsetY,
-		updateBackgroundPatternKind,
-		updateBackgroundRotation,
-		updateBackgroundScale,
-		updateBackgroundSmoothness
+		updateBackgroundPatternKind
 	} from '$lib/video-editor/timeline/actions/backgrounds';
 	import ShaderBackgroundControls from './shader-background-controls.svelte';
 	import { backgroundPresetLabel as presetLabel } from '../backgrounds/labels';
@@ -30,27 +24,33 @@
 	import { clampBackground } from '../backgrounds/types';
 	import { shaderBackgroundSupport } from '../backgrounds/shader-support.svelte';
 	import { autoKeyframeStore } from '$lib/video-editor/timeline/stores/auto-keyframe-store.svelte';
+	import { resolvePreExpressionItemAt } from '../timeline/animated-properties';
 	import { setAnimatedProperty } from '$lib/video-editor/timeline/actions/keyframes';
 	import { timelineStore } from '$lib/video-editor/timeline/stores/timeline-store.svelte';
 
-	let { item, onedit }: { item: TimelineItem; onedit: () => void } = $props();
+	let { item: sourceItem, onedit }: { item: TimelineItem; onedit: () => void } = $props();
+	const item = $derived(
+		resolvePreExpressionItemAt(
+			timelineStore.itemById.get(sourceItem.id) ?? sourceItem,
+			timelineStore.currentFrame
+		)
+	);
 	const bg = $derived(item.background!);
 	onMount(() => {
 		shaderBackgroundSupport.check();
 	});
 
-	function commitKeyframeOr(
-		keyframeProp: KeyframeProperty | undefined,
-		value: number,
-		fallback: () => void
-	): void {
-		if (keyframeProp && autoKeyframeStore.isEnabled(item.id, keyframeProp)) {
-			setAnimatedProperty(item.id, keyframeProp, timelineStore.currentFrame, value, true);
+	function commitNumeric(property: KeyframeProperty, value: number): void {
+		if (
+			setAnimatedProperty(
+				item.id,
+				property,
+				timelineStore.currentFrame,
+				value,
+				autoKeyframeStore.isEnabled(item.id, property)
+			)
+		)
 			onedit();
-			return;
-		}
-		fallback();
-		onedit();
 	}
 
 	function applyPreset(id: string): void {
@@ -71,9 +71,16 @@
 	class="flex flex-col gap-3 rounded-[10px] border border-[var(--video-editor-border)] bg-[var(--video-editor-panel)] p-2.5"
 	aria-label={m.video_editor_background_inspector()}
 >
-	<h3 class="text-[10px] font-semibold tracking-wider text-[var(--video-editor-muted)] uppercase">
-		{m.video_editor_backgrounds_title()}
-	</h3>
+	<div class="flex items-center gap-1">
+		<h3 class="flex-1 text-xs font-medium text-[var(--video-editor-muted)]">
+			{m.video_editor_backgrounds_title()}
+		</h3>
+		<HintButton
+			label={m.video_editor_background_hint()}
+			hint={m.video_editor_background_hint()}
+			class="text-[var(--video-editor-muted)] hover:text-[var(--video-editor-ink)]"
+		/>
+	</div>
 
 	<AppSelect
 		value={BACKGROUND_PRESETS.find(
@@ -137,15 +144,14 @@
 				max={1}
 				step={0.01}
 				ariaLabel={m.video_editor_background_smoothness()}
-				onValueCommit={(v) =>
-					commitKeyframeOr('backgroundSmoothness', v, () => updateBackgroundSmoothness(item.id, v))}
+				onValueCommit={(v) => commitNumeric('backgroundSmoothness', v)}
 			/>
 		</label>
 	{:else}
 		<label class="flex flex-col gap-1 text-[10px] text-[var(--video-editor-muted)]">
 			{m.video_editor_background_pattern_kind()}
 			<AppSelect
-				class="mt-0.5 h-8 w-full text-xs"
+				class="mt-0.5 h-[25px] w-full text-[11px]"
 				value={bg.pattern}
 				options={[
 					{ value: 'dots', label: m.video_editor_background_pattern_dots() },
@@ -207,8 +213,7 @@
 				max={1}
 				step={0.01}
 				ariaLabel={m.video_editor_background_density()}
-				onValueCommit={(v) =>
-					commitKeyframeOr('backgroundDensity', v, () => updateBackgroundDensity(item.id, v))}
+				onValueCommit={(v) => commitNumeric('backgroundDensity', v)}
 			/>
 		</label>
 		<label class="flex flex-col gap-1 text-[10px] text-[var(--video-editor-muted)]">
@@ -223,10 +228,7 @@
 				max={1}
 				step={0.01}
 				ariaLabel={m.video_editor_background_fg_opacity()}
-				onValueCommit={(v) =>
-					commitKeyframeOr('backgroundForegroundOpacity', v, () =>
-						updateBackgroundForegroundOpacity(item.id, v)
-					)}
+				onValueCommit={(v) => commitNumeric('backgroundForegroundOpacity', v)}
 			/>
 		</label>
 	{/if}
@@ -244,8 +246,7 @@
 				max={360}
 				step={1}
 				ariaLabel={m.video_editor_background_rotation()}
-				onValueCommit={(v) =>
-					commitKeyframeOr('backgroundRotation', v, () => updateBackgroundRotation(item.id, v))}
+				onValueCommit={(v) => commitNumeric('backgroundRotation', v)}
 			/>
 		</label>
 		<label class="flex flex-col gap-1 text-[10px] text-[var(--video-editor-muted)]">
@@ -260,8 +261,7 @@
 				max={4}
 				step={0.01}
 				ariaLabel={m.video_editor_background_scale()}
-				onValueCommit={(v) =>
-					commitKeyframeOr('backgroundScale', v, () => updateBackgroundScale(item.id, v))}
+				onValueCommit={(v) => commitNumeric('backgroundScale', v)}
 			/>
 		</label>
 	</div>
@@ -279,8 +279,7 @@
 				max={bg.kind === 'shader' ? 1 : 0.5}
 				step={0.01}
 				ariaLabel={m.video_editor_background_offset_x()}
-				onValueCommit={(v) =>
-					commitKeyframeOr('backgroundOffsetX', v, () => updateBackgroundOffsetX(item.id, v))}
+				onValueCommit={(v) => commitNumeric('backgroundOffsetX', v)}
 			/>
 		</label>
 		<label class="flex flex-col gap-1 text-[10px] text-[var(--video-editor-muted)]">
@@ -295,15 +294,8 @@
 				max={bg.kind === 'shader' ? 1 : 0.5}
 				step={0.01}
 				ariaLabel={m.video_editor_background_offset_y()}
-				onValueCommit={(v) =>
-					commitKeyframeOr('backgroundOffsetY', v, () => updateBackgroundOffsetY(item.id, v))}
+				onValueCommit={(v) => commitNumeric('backgroundOffsetY', v)}
 			/>
 		</label>
 	</div>
-
-	{#if bg.kind !== 'shader'}
-		<p class="text-[10px] leading-4 text-[var(--video-editor-muted)]">
-			{m.video_editor_background_hint()}
-		</p>
-	{/if}
 </section>

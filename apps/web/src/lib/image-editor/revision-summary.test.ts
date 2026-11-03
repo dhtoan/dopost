@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { blankImageEditorDocument } from './document';
+import { blankImageEditorDocument, cloneImageEditorDocument } from './document';
 import { imageEditorRevisionHasChanges, summarizeImageEditorRevision } from './revision-summary';
 
-describe('OpenPost Image Editor revision summaries', () => {
+describe('dopost Image Editor revision summaries', () => {
 	it('reports directional page, layer, canvas, and guide changes', () => {
 		const current = blankImageEditorDocument({
 			key: 'instagram-square',
@@ -61,18 +61,58 @@ describe('OpenPost Image Editor revision summaries', () => {
 		});
 	});
 
-	it('recognizes an identical document', () => {
-		const current = blankImageEditorDocument({
-			key: 'instagram-square',
+	it('compares persisted omitted defaults without hiding authored text or guide changes', () => {
+		const persisted = blankImageEditorDocument({
+			key: 'square',
 			name: 'Square',
 			width_px: 1080,
 			height_px: 1080,
 			default_format: 'png',
 			profiles: []
 		});
-		expect(imageEditorRevisionHasChanges(summarizeImageEditorRevision(current, current))).toBe(
+		delete persisted.pages[0].guides;
+		persisted.pages[0].layers = [
+			{
+				id: 'text',
+				type: 'text',
+				name: 'AUDIT',
+				visible: true,
+				locked: false,
+				opacity: 1,
+				transform: {
+					x: 0,
+					y: 0,
+					width: 300,
+					height: 100,
+					rotation: 0,
+					flip_x: false,
+					flip_y: false
+				},
+				text: {
+					text: 'AUDIT',
+					font_family: 'Geist',
+					font_weight: 700,
+					font_style: 'normal',
+					font_size: 90,
+					color: '#000000',
+					align: 'left',
+					line_height: 1.2,
+					letter_spacing: 0,
+					stroke_width: 0,
+					shadow: { color: '#000000', blur: 0, offset_x: 0, offset_y: 0 }
+				}
+			}
+		];
+		const reopened = cloneImageEditorDocument(JSON.parse(JSON.stringify(persisted)));
+		expect(imageEditorRevisionHasChanges(summarizeImageEditorRevision(reopened, persisted))).toBe(
 			false
 		);
+		reopened.pages[0].layers[0].text!.text = 'Changed';
+		reopened.pages[0].guides!.horizontal = [100];
+		expect(summarizeImageEditorRevision(reopened, persisted)).toMatchObject({
+			layersChanged: 1,
+			guidePagesChanged: 1
+		});
 	});
 
 	it('reports a page output grade as a page change', () => {

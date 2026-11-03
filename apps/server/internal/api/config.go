@@ -21,6 +21,7 @@ var publicOperationIDs = map[string]struct{}{
 	"get-auth-configuration":             {},
 	"get-public-profile":                 {},
 	"get-running-version":                {},
+	"get-github-star-count":              {},
 	"get-telemetry-config":               {},
 	"health-check":                       {},
 	"list-capabilities":                  {},
@@ -32,6 +33,7 @@ var publicOperationIDs = map[string]struct{}{
 	"poll-cli-auth":                      {},
 	"readiness-check":                    {},
 	"register":                           {},
+	"join-hosted-waitlist":               {},
 	"request-password-reset":             {},
 	"resend-email-verification":          {},
 	"reset-password":                     {},
@@ -60,7 +62,7 @@ func configureAutomationContract(config *huma.Config) {
 	config.Components.SecuritySchemes[bearerSecurityScheme] = &huma.SecurityScheme{
 		Type:         "http",
 		Scheme:       "bearer",
-		BearerFormat: "OpenPost API token or session JWT",
+		BearerFormat: "dopost API token or session JWT",
 	}
 	config.Components.SecuritySchemes[sessionCookieSecurityScheme] = &huma.SecurityScheme{
 		Type: "apiKey",

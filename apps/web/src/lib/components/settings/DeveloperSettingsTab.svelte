@@ -15,6 +15,7 @@
 	import { getLocaleTag } from '$lib/i18n';
 	import { getOptionalUnsavedChanges } from '$lib/unsaved-changes.svelte';
 	import { showToast } from '$lib/toast';
+	import { writeClipboardText } from '$lib/clipboard';
 	import * as Select from '$lib/components/ui/select';
 	import { Button } from '$lib/components/ui/button';
 	import AsyncActionButton from '$lib/components/async-action-button.svelte';
@@ -54,14 +55,14 @@
 	let mcpActivityLoading = $state(true);
 	let mcpActivityError = $state('');
 	let apiTokenBusy = $state(false);
-	let apiTokenName = $state('OpenPost MCP');
+	let apiTokenName = $state('dopost MCP');
 	let apiTokenScope = $state<APITokenScope>('mcp:read');
 	let apiTokenWorkspaceScope = $state('current');
 	let apiTokenExpiryPreset = $state<APITokenExpiryPreset>('90');
 	let apiTokenCustomExpiry = $state('');
 	let savedAPITokenDraft = $state(
 		JSON.stringify({
-			name: 'OpenPost MCP',
+			name: 'dopost MCP',
 			scope: 'mcp:read',
 			workspace: 'current',
 			expiry: '90',
@@ -320,9 +321,10 @@
 			createdAPIToken === token;
 		if (!userID || !isCurrentRequest()) return;
 		try {
-			await navigator.clipboard.writeText(token);
+			await writeClipboardText(token);
 			if (!isCurrentRequest()) return;
 			apiTokenCopyState = 'copied';
+			apiTokenError = '';
 			clearTimeout(apiTokenCopyResetTimer);
 			apiTokenCopyResetTimer = setTimeout(() => {
 				if (isCurrentRequest()) apiTokenCopyState = 'idle';
@@ -393,7 +395,7 @@
 		resetAPITokenCopyFeedback();
 		revokeDialogOpen = false;
 		pendingTokenID = '';
-		apiTokenName = 'OpenPost MCP';
+		apiTokenName = 'dopost MCP';
 		apiTokenScope = 'mcp:read';
 		apiTokenWorkspaceScope = 'current';
 		apiTokenExpiryPreset = '90';
@@ -409,6 +411,12 @@
 	function retryMCPActivity() {
 		attemptedMCPActivityUserID = '';
 		void loadMCPActivity({ refresh: true });
+	}
+
+	function workspaceLabel(workspaceID: string) {
+		return (
+			workspaceCtx.workspaces.find((workspace) => workspace.id === workspaceID)?.name || workspaceID
+		);
 	}
 
 	function formatDateTime(value: string): string {
@@ -516,12 +524,8 @@
 	class="mb-4"
 />
 
-{#if apiTokenScope === 'api:read'}
-	<InlineNotice tone="info" message={m.settings_token_scope_api_read_boundary()} class="mb-4" />
-{:else if apiTokenScope === 'api:write'}
+{#if apiTokenScope === 'api:write'}
 	<InlineNotice tone="warning" message={m.settings_token_scope_api_write_boundary()} class="mb-4" />
-{:else if apiTokenScope === 'mcp:read'}
-	<InlineNotice tone="info" message={m.settings_token_scope_mcp_read_boundary()} class="mb-4" />
 {:else if apiTokenScope === 'mcp:full'}
 	<InlineNotice tone="warning" message={m.settings_token_scope_mcp_full_boundary()} class="mb-4" />
 {/if}
@@ -541,7 +545,7 @@
 	<InlineNotice tone="error" message={apiTokenError} class="mb-4" />
 {/if}
 
-<div class="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_220px_220px_190px_auto]">
+<div class="mb-4 grid gap-3 sm:grid-cols-2">
 	<div class="space-y-2">
 		<Label for="api-token-name">{m.settings_token_name()}</Label>
 		<Input
@@ -624,7 +628,10 @@
 				(apiTokenWorkspaceScope === 'current' && !workspaceCtx.currentWorkspace)}
 		>
 			{#if apiTokenBusy}
-				<ProtectedIcon icon="loading" class="mr-2 h-4 w-4 animate-spin" />
+				<ProtectedIcon
+					icon="loading"
+					class="mr-2 h-4 w-4 animate-spin motion-reduce:animate-none"
+				/>
 			{/if}
 			{m.settings_create_token()}
 		</Button>
@@ -652,9 +659,14 @@
 		data-feedback-redact
 	>
 		<p class="font-medium">{m.settings_copy_token_now()}</p>
-		<p class="mt-2 font-mono text-xs break-all" aria-label={m.settings_token_secret_label()}>
-			{createdAPIToken}
-		</p>
+		<Input
+			class="mt-2 font-mono text-xs"
+			value={createdAPIToken}
+			readonly
+			aria-label={m.settings_token_secret_label()}
+			onclick={(event) => event.currentTarget.select()}
+			onfocus={(event) => event.currentTarget.select()}
+		/>
 		<AsyncActionButton
 			type="button"
 			variant="outline"
@@ -716,7 +728,7 @@
 						})}
 						{#if token.workspace_id}
 							· {m.settings_token_workspace()}
-							<span class="font-mono">{token.workspace_id}</span>
+							<span>{workspaceLabel(token.workspace_id)}</span>
 						{:else}
 							· {m.settings_all_workspaces()}
 						{/if}
@@ -746,7 +758,7 @@
 {/if}
 
 <a
-	href="https://docs.openpo.st/development/api-tokens"
+	href="https://openpo.st/docs/development/api-tokens"
 	target="_blank"
 	rel="noreferrer"
 	class="mt-4 inline-flex min-h-11 items-center gap-2 text-sm font-medium text-primary hover:underline"
@@ -768,7 +780,10 @@
 		</div>
 		<Button variant="outline" size="sm" onclick={retryMCPActivity} disabled={mcpActivityLoading}>
 			{#if mcpActivityLoading}
-				<ProtectedIcon icon="loading" class="mr-2 h-4 w-4 animate-spin" />
+				<ProtectedIcon
+					icon="loading"
+					class="mr-2 h-4 w-4 animate-spin motion-reduce:animate-none"
+				/>
 			{/if}
 			{m.common_refresh()}
 		</Button>
@@ -800,7 +815,7 @@
 								{formatDateTime(call.created_at)} · {call.duration_ms} ms
 								{#if call.workspace_id}
 									· {m.settings_mcp_workspace()}
-									<span class="font-mono">{call.workspace_id}</span>
+									<span>{workspaceLabel(call.workspace_id)}</span>
 								{/if}
 							</p>
 							{#if call.client_name || call.client_scope}

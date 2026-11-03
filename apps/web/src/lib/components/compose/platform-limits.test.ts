@@ -9,13 +9,12 @@ import {
 } from './platform-limits';
 
 describe('platform-limits', () => {
-	it('uses X weighted text counting', () => {
-		expect(platformTextLength('x', 'Hello, world! 👋')).toBe(16);
-		expect(platformTextLength('x', '👨‍👩‍👧‍👦')).toBe(2);
-		expect(platformTextLength('x', '日本語')).toBe(6);
-		expect(platformTextLength('x', 'See https://example.com/this/is/a/long/path')).toBe(27);
-		expect(platformTextLength('x', 'cafe\u0301')).toBe(4);
-		expect(platformTextLength('mastodon', '日本語')).toBe(3);
+	it('routes normalized platform names to the shared text counter', () => {
+		expect(platformTextLength(' Twitter:account ', 'https://example.com/long/path')).toBe(23);
+		expect(platformTextLength(' MASTODON:example.social ', '@alice@example.social hi')).toBe(9);
+		expect(platformTextLength(' Bluesky ', '👨‍👩‍👧‍👦')).toBe(1);
+		expect(platformTextLength(' THREADS ', '👨‍👩‍👧‍👦')).toBe(25);
+		expect(platformTextLength(' YouTube ', '  é  ')).toBe(2);
 	});
 
 	it('does not invent a limit when no destination uses the shared text', () => {

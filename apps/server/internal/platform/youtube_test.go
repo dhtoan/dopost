@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -25,11 +26,19 @@ func TestYouTubeGenerateAuthURL(t *testing.T) {
 		t.Fatalf("unexpected auth url %s", authURL)
 	}
 	query := parsed.Query()
+	for _, scope := range strings.Fields(query.Get("scope")) {
+		if scope == "https://www.googleapis.com/auth/userinfo.email" || scope == "https://www.googleapis.com/auth/userinfo.profile" {
+			t.Fatalf("YouTube channel connection requested unrelated identity scope %s", scope)
+		}
+	}
 	if query.Get(oauthParamClientID) != "client-id" {
 		t.Fatalf("expected client id, got %q", query.Get(oauthParamClientID))
 	}
 	if query.Get("access_type") != "offline" || query.Get("prompt") != "consent" {
 		t.Fatalf("expected offline consent auth URL, got %s", authURL)
+	}
+	if query.Has("include_granted_scopes") {
+		t.Fatalf("YouTube connection must request only its current scope set: %s", authURL)
 	}
 	if !strings.Contains(query.Get("scope"), "youtube.upload") {
 		t.Fatalf("expected youtube.upload scope, got %q", query.Get("scope"))
@@ -39,6 +48,57 @@ func TestYouTubeGenerateAuthURL(t *testing.T) {
 	}
 	if !strings.Contains(query.Get("scope"), youtubeAnalyticsReadScope) {
 		t.Fatalf("expected youtube analytics scope, got %q", query.Get("scope"))
+	}
+	if !strings.Contains(query.Get("scope"), "https://www.googleapis.com/auth/youtube.force-ssl") {
+		t.Fatalf("expected YouTube comment permission, got %q", query.Get("scope"))
+	}
+}
+
+func TestYouTubeGetProfileUsesGrantedYouTubeReadScope(t *testing.T) {
+	originalClient := httpClient
+	t.Cleanup(func() { httpClient = originalClient })
+	requests := 0
+	httpClient = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		requests++
+		if req.URL.Path != "/youtube/v3/channels" {
+			t.Fatalf("unexpected profile endpoint %s", req.URL)
+		}
+		if req.Header.Get(headerAuthorization) != "Bearer channel-token" {
+			t.Fatalf("unexpected authorization header %q", req.Header.Get(headerAuthorization))
+		}
+		return jsonResponse(req, `{"items":[{"id":"channel-1","snippet":{"title":"Founder channel","customUrl":"@founder","thumbnails":{"default":{"url":"https://yt.example/avatar.jpg"}}}}]}`), nil
+	})}
+
+	profile, err := NewYouTubeAdapter("client", "secret", "https://app.example/callback").GetProfile(t.Context(), "channel-token")
+	if err != nil {
+		t.Fatalf("GetProfile returned error: %v", err)
+	}
+	if profile.ID != "channel-1" || profile.Username != "@founder" || profile.DisplayName != "Founder channel" {
+		t.Fatalf("unexpected YouTube profile: %#v", profile)
+	}
+	if requests != 1 {
+		t.Fatalf("GetProfile made %d requests, want exactly one authorized channel lookup", requests)
+	}
+}
+
+func TestYouTubeGetProfileRejectsAccountsWithoutChannels(t *testing.T) {
+	originalClient := httpClient
+	t.Cleanup(func() { httpClient = originalClient })
+	requests := 0
+	httpClient = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		requests++
+		if req.URL.Path != "/youtube/v3/channels" {
+			t.Fatalf("unexpected profile endpoint %s", req.URL)
+		}
+		return jsonResponse(req, `{"items":[]}`), nil
+	})}
+
+	profile, err := NewYouTubeAdapter("client", "secret", "https://app.example/callback").GetProfile(t.Context(), "channel-token")
+	if err == nil || !strings.Contains(err.Error(), "no YouTube channels") {
+		t.Fatalf("GetProfile error = %v, want no-channels error", err)
+	}
+	if profile != nil || requests != 1 {
+		t.Fatalf("GetProfile returned profile %#v after %d requests, want nil after one channel lookup", profile, requests)
 	}
 }
 
@@ -81,7 +141,7 @@ func TestYouTubeExchangeRefreshAndSelectChannel(t *testing.T) {
 			if req.URL.Query().Get("mine") != "true" {
 				t.Fatalf("expected mine=true, got %s", req.URL.RawQuery)
 			}
-			return jsonResponse(req, `{"items":[{"id":"channel-1","snippet":{"title":"OpenPost Channel","customUrl":"@openpost","thumbnails":{"default":{"url":"https://yt.example/avatar.jpg"}}},"statistics":{"subscriberCount":"123"}}]}`), nil
+			return jsonResponse(req, `{"items":[{"id":"channel-1","snippet":{"title":"dopost Channel","customUrl":"@openpost","thumbnails":{"default":{"url":"https://yt.example/avatar.jpg"}}},"statistics":{"subscriberCount":"123"}}]}`), nil
 		default:
 			t.Fatalf("unexpected request %s %s", req.Method, req.URL.String())
 			return nil, nil
@@ -181,6 +241,21 @@ func TestYouTubeThumbnailRetryDoesNotUploadVideoAgain(t *testing.T) {
 	id, err := adapter.UploadMediaResumable(t.Context(), "token", "channel", request(), saved, checkpoint)
 	if err != nil || id != "live-video" || uploads != 1 || thumbnails != 2 {
 		t.Fatalf("retry: id=%q err=%v uploads=%d thumbnails=%d", id, err, uploads, thumbnails)
+	}
+}
+
+func TestYouTubeThumbnailPhoneVerificationUsesStableError(t *testing.T) {
+	originalClient := httpClient
+	t.Cleanup(func() { httpClient = originalClient })
+	httpClient = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return jsonResponseWithStatus(req, http.StatusForbidden, `{"error":{"errors":[{"domain":"youtube.thumbnail","reason":"forbidden"}],"message":"private provider detail"}}`), nil
+	})}
+	err := NewYouTubeAdapter("client", "secret", "https://app.example/callback").setYouTubeThumbnail(t.Context(), "token", "video-1", UploadMediaRequest{
+		ThumbnailMimeType: "image/jpeg", ThumbnailSize: 5, ThumbnailReader: strings.NewReader("cover"),
+	})
+	var providerErr *HTTPError
+	if !errors.As(err, &providerErr) || providerErr.Code != "youtube:thumbnail_channel_verification_required" || strings.Contains(err.Error(), "private provider detail") {
+		t.Fatalf("unexpected thumbnail error: %v", err)
 	}
 }
 
@@ -303,7 +378,7 @@ func TestYouTubeUploadMediaWithMetadata(t *testing.T) {
 	if metadata.Snippet.Title != "Launch Short" || metadata.Status.PrivacyStatus != "private" {
 		t.Fatalf("unexpected metadata: %#v", metadata)
 	}
-	if !metadata.Status.ContainsSyntheticMedia {
+	if metadata.Status.ContainsSyntheticMedia == nil || !*metadata.Status.ContainsSyntheticMedia {
 		t.Fatal("expected synthetic media disclosure in upload metadata")
 	}
 	if uploadedBody != "video-bytes" {
@@ -504,7 +579,9 @@ func TestYouTubeCaptionDuplicateResponseIsReconciled(t *testing.T) {
 	originalClient := httpClient
 	defer func() { httpClient = originalClient }()
 
+	requests := 0
 	httpClient = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		requests++
 		if req.Method != http.MethodPost || req.URL.Path != "/upload/youtube/v3/captions" {
 			t.Fatalf("unexpected request %s %s", req.Method, req.URL.String())
 		}
@@ -520,6 +597,9 @@ func TestYouTubeCaptionDuplicateResponseIsReconciled(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("stable captionExists response must reconcile, got %v", err)
+	}
+	if requests != 1 {
+		t.Fatalf("expected one native request, got %d", requests)
 	}
 }
 
@@ -699,6 +779,119 @@ func TestYouTubeUploadRejectsMissingRequiredChoicesBeforeNetwork(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "privacy") {
 		t.Fatalf("expected explicit privacy error, got %v", err)
 	}
+	for _, scenario := range []struct{ privacy, publishAt, wantError string }{
+		{"public", "2030-10-12T12:00:00Z", "private"},
+		{"unlisted", "2030-10-12T12:00:00Z", "private"},
+		{"private", "tomorrow", "RFC 3339"},
+	} {
+		_, err := adapter.UploadMediaWithMetadata(context.Background(), "access-token", "channel-1", UploadMediaRequest{
+			MimeType: "video/mp4", Size: 5, Title: "Launch", Reader: strings.NewReader("video"),
+			Settings: map[string]interface{}{"privacy": scenario.privacy, "category_id": "22", "publish_at": scenario.publishAt},
+		})
+		if err == nil || !strings.Contains(err.Error(), scenario.wantError) {
+			t.Fatalf("expected %s error before network, got %v", scenario.wantError, err)
+		}
+	}
+}
+
+func TestPrepareYouTubeUploadRejectsProviderInvalidFields(t *testing.T) {
+	base := func() UploadMediaRequest {
+		return UploadMediaRequest{
+			MimeType: "video/mp4",
+			Size:     11,
+			Title:    "Launch",
+			Settings: map[string]interface{}{"privacy": "public", "category_id": "22"},
+			OpenReaderAt: func(offset int64) (io.ReadCloser, error) {
+				return io.NopCloser(strings.NewReader("video-bytes"[offset:])), nil
+			},
+		}
+	}
+	if _, err := prepareYouTubeUpload(base()); err != nil {
+		t.Fatalf("valid upload rejected: %v", err)
+	}
+
+	angled := base()
+	angled.Title = "Launch <now>"
+	if _, err := prepareYouTubeUpload(angled); err == nil || !strings.Contains(err.Error(), "<>") {
+		t.Fatalf("expected title charset error, got %v", err)
+	}
+
+	long := base()
+	long.Description = strings.Repeat("é", 2500)
+	if _, err := prepareYouTubeUpload(long); err != nil {
+		t.Fatalf("5000-byte multibyte description rejected: %v", err)
+	}
+	long.Description = strings.Repeat("é", 2501)
+	if _, err := prepareYouTubeUpload(long); err == nil || !strings.Contains(err.Error(), "5000") {
+		t.Fatalf("expected description byte error, got %v", err)
+	}
+
+	settingTitle := base()
+	settingTitle.Title = ""
+	settingTitle.Settings = map[string]interface{}{"privacy": "public", "category_id": "22", "title": "Setting <title>"}
+	if _, err := prepareYouTubeUpload(settingTitle); err == nil || !strings.Contains(err.Error(), "<>") {
+		t.Fatalf("expected settings-title charset error, got %v", err)
+	}
+}
+
+func TestYouTubeUploadDisclosureMetadata(t *testing.T) {
+	originalClient := httpClient
+	defer func() { httpClient = originalClient }()
+	for _, scenario := range []struct {
+		name                    string
+		disclosures             map[string]interface{}
+		wantKids, wantSynthetic string
+	}{
+		{name: "absent"},
+		{name: "null", disclosures: map[string]interface{}{"self_declared_made_for_kids": nil, "contains_synthetic_media": nil}},
+		{name: "false", disclosures: map[string]interface{}{"self_declared_made_for_kids": false, "contains_synthetic_media": false}, wantKids: "false", wantSynthetic: "false"},
+		{name: "true", disclosures: map[string]interface{}{"self_declared_made_for_kids": true, "contains_synthetic_media": true}, wantKids: "true", wantSynthetic: "true"},
+		{name: "independent choices", disclosures: map[string]interface{}{"self_declared_made_for_kids": false, "contains_synthetic_media": true}, wantKids: "false", wantSynthetic: "true"},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			var status map[string]json.RawMessage
+			httpClient = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+				switch {
+				case req.Method == http.MethodPost && req.URL.Path == "/upload/youtube/v3/videos":
+					var metadata struct {
+						Status map[string]json.RawMessage `json:"status"`
+					}
+					if err := json.NewDecoder(req.Body).Decode(&metadata); err != nil {
+						t.Fatal(err)
+					}
+					status = metadata.Status
+					resp := jsonResponse(req, `{}`)
+					resp.Header.Set("Location", "https://www.googleapis.com/upload/youtube/v3/videos/session")
+					return resp, nil
+				case req.Method == http.MethodPut && req.URL.Path == "/upload/youtube/v3/videos/session":
+					return jsonResponseWithStatus(req, http.StatusCreated, `{"id":"scheduled-video"}`), nil
+				case req.Method == http.MethodGet && req.URL.Path == "/youtube/v3/videos":
+					return jsonResponse(req, `{"items":[{"id":"scheduled-video","processingDetails":{"processingStatus":"succeeded"},"status":{"uploadStatus":"processed"}}]}`), nil
+				default:
+					t.Fatalf("unexpected request %s %s", req.Method, req.URL)
+					return nil, nil
+				}
+			})}
+			settings := map[string]interface{}{"privacy": "private", "category_id": "22", "publish_at": "2030-10-12T20:00:00.125+08:00"}
+			for key, value := range scenario.disclosures {
+				settings[key] = value
+			}
+			id, err := NewYouTubeAdapter("", "", "").UploadMediaWithMetadata(context.Background(), "token", "channel", UploadMediaRequest{
+				MimeType: "video/mp4", Size: 11, Title: "Launch", Settings: settings, Reader: strings.NewReader("video-bytes"),
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if id != "scheduled-video" {
+				t.Fatalf("unexpected video ID %q", id)
+			}
+			for key, want := range map[string]string{"selfDeclaredMadeForKids": scenario.wantKids, "containsSyntheticMedia": scenario.wantSynthetic, "publishAt": `"2030-10-12T12:00:00.125Z"`, "privacyStatus": `"private"`} {
+				if string(status[key]) != want {
+					t.Errorf("%s = %s, want %s", key, status[key], want)
+				}
+			}
+		})
+	}
 }
 
 func TestValidateMediaYouTubeRequiresOneVideo(t *testing.T) {
@@ -717,5 +910,101 @@ func TestValidateMediaYouTubeRequiresOneVideo(t *testing.T) {
 	issues = ValidateMedia(providerYouTube, []MediaItem{{ID: "video", MimeType: "video/mp4"}})
 	if len(issues) != 0 {
 		t.Fatalf("expected no issues for one video, got %#v", issues)
+	}
+}
+
+func TestYouTubeUploadRejectsInvalidDescriptionsBeforeNetwork(t *testing.T) {
+	originalClient := httpClient
+	defer func() { httpClient = originalClient }()
+	httpClient = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		t.Fatalf("invalid description reached provider: %s", req.URL)
+		return nil, nil
+	})}
+	for _, description := range []string{strings.Repeat("é", 2501), strings.Repeat("界", 1667), strings.Repeat("😀", 1251), "Launch <now", "Launch now>"} {
+		t.Run(fmt.Sprintf("bytes=%d", len(description)), func(t *testing.T) {
+			req := UploadMediaRequest{Reader: strings.NewReader("video-bytes"), MimeType: "video/mp4", Size: 11, Title: "Launch", Description: description, Settings: map[string]interface{}{"privacy": "public", "category_id": "22"}, OpenReaderAt: func(offset int64) (io.ReadCloser, error) {
+				return io.NopCloser(strings.NewReader("video-bytes"[offset:])), nil
+			}}
+			_, err := NewYouTubeAdapter("", "", "").UploadMediaResumable(t.Context(), "access", "account", req, ResumableMediaUploadState{}, func(ResumableMediaUploadState) error { return nil })
+			if err == nil || !strings.Contains(err.Error(), "description") {
+				t.Fatalf("expected description rejection, got %v", err)
+			}
+		})
+	}
+}
+
+func TestYouTubeUploadApprovalBlocksWritesButAllowsAcceptedVideoRecovery(t *testing.T) {
+	originalClient := httpClient
+	defer func() { httpClient = originalClient }()
+	writes, reads := 0, 0
+	httpClient = &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		if request.Method != http.MethodGet {
+			writes++
+			return nil, errors.New("unexpected provider write")
+		}
+		reads++
+		return jsonResponse(request, `{"items":[{"id":"accepted-video","status":{"uploadStatus":"processed"},"processingDetails":{"processingStatus":"succeeded"}}]}`), nil
+	})}
+	revoked := errors.New("approval revoked")
+	req := UploadMediaRequest{MimeType: "video/mp4", Size: 5, Title: "Approved launch", Settings: map[string]interface{}{"privacy": "public", "category_id": "22"}, BeforeWrite: func(context.Context) error { return revoked }, OpenReaderAt: func(int64) (io.ReadCloser, error) { return io.NopCloser(strings.NewReader("video")), nil }}
+	adapter := NewYouTubeAdapter("", "", "")
+	checkpoint := func(ResumableMediaUploadState) error { return nil }
+	_, err := adapter.UploadMediaResumable(t.Context(), "token", "channel", req, ResumableMediaUploadState{}, checkpoint)
+	if !errors.Is(err, revoked) || writes != 0 {
+		t.Fatalf("revoked fresh upload: err=%v writes=%d", err, writes)
+	}
+	// An ambiguous chunk may already have completed. Do not repeat it or prevent
+	// the read that records the provider's existing result.
+	id, err := adapter.UploadMediaResumable(t.Context(), "token", "channel", req, ResumableMediaUploadState{ProviderMediaID: "accepted-video", Status: MediaUploadUploaded, TotalBytes: 5, UploadedBytes: 5}, checkpoint)
+	if err != nil || id != "accepted-video" || reads != 1 || writes != 0 {
+		t.Fatalf("accepted upload recovery: id=%s err=%v reads=%d writes=%d", id, err, reads, writes)
+	}
+	_, err = adapter.uploadYouTubeChunk(t.Context(), "token", req, "https://www.googleapis.com/upload/session", 0)
+	if !errors.Is(err, revoked) || writes != 0 {
+		t.Fatalf("revoked resumed chunk: err=%v writes=%d", err, writes)
+	}
+}
+
+func TestYouTubeUploadDistinguishesDailyQuotaFromTransientRateLimits(t *testing.T) {
+	originalClient := httpClient
+	t.Cleanup(func() { httpClient = originalClient })
+	tests := []struct{ name, body, wantCode string }{
+		{"daily upload quota", `{"error":{"code":429,"message":"private project and token","details":[{"@type":"type.googleapis.com/google.rpc.ErrorInfo","reason":"RATE_LIMIT_EXCEEDED","domain":"googleapis.com","metadata":{"service":"youtube.googleapis.com","quota_limit":"defaultVideoInsertPerDayPerProject","consumer":"private-project"}}]}}`, "youtube:daily_upload_quota_exceeded"},
+		{"ordinary rate limit", `{"error":{"code":429,"details":[{"@type":"type.googleapis.com/google.rpc.ErrorInfo","metadata":{"service":"youtube.googleapis.com","quota_limit":"RequestsPerMinutePerProject"}}]}}`, "429"},
+		{"message alone is insufficient", `{"error":{"code":429,"message":"defaultVideoInsertPerDayPerProject"}}`, "429"},
+		{"another service", `{"error":{"code":429,"details":[{"@type":"type.googleapis.com/google.rpc.ErrorInfo","metadata":{"service":"other.googleapis.com","quota_limit":"defaultVideoInsertPerDayPerProject"}}]}}`, "429"},
+		{"untyped metadata", `{"error":{"code":429,"details":[{"metadata":{"service":"youtube.googleapis.com","quota_limit":"defaultVideoInsertPerDayPerProject"}}]}}`, "429"},
+		{"malformed body", `{"error":`, ""},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			calls := 0
+			httpClient = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+				calls++
+				if req.URL.Path != "/upload/youtube/v3/videos" {
+					t.Fatalf("unexpected upload request: %s", req.URL.Path)
+				}
+				response := jsonResponseWithStatus(req, http.StatusTooManyRequests, test.body)
+				response.Header.Set("Retry-After", "60")
+				return response, nil
+			})}
+			_, err := NewYouTubeAdapter("client", "secret", "https://app.example/callback").UploadMediaWithMetadata(t.Context(), "token", "channel", UploadMediaRequest{
+				Reader: strings.NewReader("video"), MimeType: "video/mp4", Size: 5, Title: "Quota test", Settings: map[string]interface{}{"privacy": "public", "category_id": "22"},
+			})
+			var providerErr *HTTPError
+			if !errors.As(err, &providerErr) || providerErr.Code != test.wantCode {
+				t.Fatalf("upload error = %v, want code %q", err, test.wantCode)
+			}
+			wantRetryAfter := time.Minute
+			if test.wantCode == "youtube:daily_upload_quota_exceeded" {
+				wantRetryAfter = 0
+			}
+			if calls != 1 || providerErr.StatusCode != 429 || providerErr.RetryAfter != wantRetryAfter {
+				t.Fatalf("unexpected quota handling: calls=%d error=%#v", calls, providerErr)
+			}
+			if strings.Contains(err.Error(), "private") {
+				t.Fatalf("provider details leaked: %v", err)
+			}
+		})
 	}
 }

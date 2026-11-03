@@ -27,6 +27,7 @@
 		optionGroupsByAccount: Record<string, Record<string, DestinationOption[]>>;
 		optionErrorsByAccount?: Record<string, string>;
 		optionsLoadingAccountId?: string;
+		optionsLoadingAccountIds?: ReadonlySet<string>;
 		onChange: (account: SocialAccount, key: string, value: ComposerSettingValue) => void;
 		onFormatChange: (account: SocialAccount, outputProfile: string) => void;
 		onAddMedia: () => void;
@@ -40,6 +41,7 @@
 		optionGroupsByAccount,
 		optionErrorsByAccount = {},
 		optionsLoadingAccountId = '',
+		optionsLoadingAccountIds,
 		onChange,
 		onFormatChange,
 		onAddMedia,
@@ -71,7 +73,7 @@
 
 	function accountLabel(account: SocialAccount): string {
 		return (
-			formatSocialAccountName(account.account_username, account.platform) ||
+			formatSocialAccountName(account.account_username, account.platform, account.alias) ||
 			account.slug ||
 			getPlatformName(account.platform)
 		);
@@ -153,7 +155,9 @@
 					<div
 						class={[
 							setting.type === 'textarea' ? 'sm:col-span-2' : '',
-							singleRequiredField && setting.type !== 'textarea' ? 'sm:col-start-2' : ''
+							singleRequiredField && setting.type !== 'textarea'
+								? 'flex items-center justify-between gap-3'
+								: ''
 						]
 							.filter(Boolean)
 							.join(' ')}
@@ -173,11 +177,20 @@
 									size="sm"
 								/>
 								<span>{settingLabel(setting)}</span>
-								<span class="sr-only">{accountContextLabel(account)}</span>
+								<span
+									class={account.platform === 'youtube'
+										? 'text-xs text-muted-foreground'
+										: 'sr-only'}>{accountContextLabel(account)}</span
+								>
 							</label>
 						{:else}
 							<label
-								class="flex items-center gap-1.5 text-sm font-medium"
+								class={[
+									'flex items-center gap-1.5 text-sm font-medium',
+									singleRequiredField ? 'min-w-0 flex-1' : ''
+								]
+									.filter(Boolean)
+									.join(' ')}
 								for="required-{account.id}-{setting.key}"
 							>
 								<SocialAccountAvatar
@@ -195,9 +208,10 @@
 									options={optionsFor(account.id, setting)}
 									placeholder={m.compose_choose_value({ field: settingLabel(setting) })}
 									ariaLabel={`${settingLabel(setting)} · ${accountContextLabel(account)}`}
-									class="mt-1 h-11"
+									class={singleRequiredField ? 'h-11 w-auto shrink-0' : 'mt-1 h-11'}
 									disabled={setting.control === 'remote_picker' &&
-										optionsLoadingAccountId === account.id}
+										(optionsLoadingAccountId === account.id ||
+											optionsLoadingAccountIds?.has(account.id))}
 									onValueChange={(value) => onChange(account, setting.key, value)}
 								/>
 								{#if setting.control === 'remote_picker' && optionErrorsByAccount[account.id]}
@@ -220,7 +234,7 @@
 											? 'url'
 											: 'text'}
 									value={valueAsString(account.id, setting.key)}
-									class="mt-1 h-11"
+									class={singleRequiredField ? 'h-11 w-auto shrink-0' : 'mt-1 h-11'}
 									aria-invalid={missing}
 									oninput={(event) => onChange(account, setting.key, event.currentTarget.value)}
 								/>
@@ -244,7 +258,7 @@
 						type="button"
 						variant="outline"
 						size="sm"
-						class="h-9 shrink-0"
+						class="shrink-0"
 						disabled={mediaActionDisabled}
 						aria-busy={mediaActionDisabled}
 						onclick={onAddMedia}

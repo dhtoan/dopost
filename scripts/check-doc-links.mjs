@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -12,29 +12,28 @@ const excludedPrefixes = [
   "apps/web/static/image-editor-models/",
 ];
 
-export function configuredNavigationTargets(config) {
-  const targets = new Set();
-  const visit = (value) => {
-    if (Array.isArray(value)) {
-      for (const item of value) visit(item);
-      return;
-    }
-    if (!value || typeof value !== "object") return;
-    if (typeof value.link === "string") targets.add(value.link);
-    if (Array.isArray(value.items)) visit(value.items);
-  };
-
-  visit(config?.themeConfig?.nav);
-  for (const sidebar of Object.values(config?.themeConfig?.sidebar ?? {})) {
-    visit(sidebar);
-  }
-  return [...targets].sort();
-}
-
 function fumadocsPageRoute(page) {
   if (page === "index") return "/";
   if (page.endsWith("/index")) return `/${page.slice(0, -6)}`;
   return `/${page}`;
+}
+
+function fumadocsMetaTarget(entry, relativeDirectory) {
+  if (
+    entry === "..." ||
+    entry === "z...a" ||
+    entry.startsWith("---") ||
+    entry.startsWith("...") ||
+    entry.startsWith("!")
+  ) {
+    return undefined;
+  }
+
+  const link = entry.match(/^(?:external:)?(?:\[[^\]]+\])?\[[^\]]+\]\(([^)]+)\)$/u);
+  if (link) return link[1];
+
+  const page = path.posix.join(relativeDirectory, entry.replace(/\.mdx?$/u, ""));
+  return fumadocsPageRoute(page);
 }
 
 export function fumadocsNavigationTargets(root) {
@@ -46,9 +45,9 @@ export function fumadocsNavigationTargets(root) {
     if (existsSync(metaPath)) {
       const meta = JSON.parse(readFileSync(metaPath, "utf8"));
       for (const entry of Array.isArray(meta) ? meta : (meta.pages ?? [])) {
-        if (entry === "..." || typeof entry !== "string" || entry.startsWith("---")) continue;
-        const page = path.posix.join(relativeDirectory, entry.replace(/\.mdx?$/u, ""));
-        targets.push(fumadocsPageRoute(page));
+        if (typeof entry !== "string") continue;
+        const target = fumadocsMetaTarget(entry, relativeDirectory);
+        if (target) targets.push(target);
       }
     }
     for (const entry of readdirSync(directory, { withFileTypes: true })) {
@@ -83,15 +82,21 @@ export function localDocumentationCandidates(root, sourceFile, rawTarget) {
   if (!localTarget) return [];
 
   const sourcePath = path.join(root, sourceFile);
+  const docsMountedTarget =
+    sourceFile.startsWith("apps/docs/") && localTarget.startsWith("/docs")
+      ? localTarget.slice("/docs".length) || "/"
+      : localTarget;
   const bases =
-    localTarget.startsWith("/") && sourceFile.startsWith("apps/docs/")
+    docsMountedTarget.startsWith("/") && sourceFile.startsWith("apps/docs/")
       ? [
-          path.join(root, "apps/docs", localTarget),
-          path.join(root, "apps/docs/content/docs", localTarget),
-          path.join(root, "apps/docs/public", localTarget),
-          ...(localTarget === "/openapi.json" ? [path.join(root, "apps/web/openapi.json")] : []),
+          path.join(root, "apps/docs", docsMountedTarget),
+          path.join(root, "apps/docs/content/docs", docsMountedTarget),
+          path.join(root, "apps/docs/public", docsMountedTarget),
+          ...(docsMountedTarget === "/openapi.json"
+            ? [path.join(root, "apps/web/openapi.json")]
+            : []),
         ]
-      : [path.resolve(path.dirname(sourcePath), localTarget)];
+      : [path.resolve(path.dirname(sourcePath), docsMountedTarget)];
   return bases.flatMap((base) => [
     base,
     `${base}.md`,
@@ -104,7 +109,13 @@ export function localDocumentationCandidates(root, sourceFile, rawTarget) {
 
 export function localDocumentationTargetExists(root, sourceFile, target) {
   const candidates = localDocumentationCandidates(root, sourceFile, target);
-  return candidates.length === 0 || candidates.some((candidate) => existsSync(candidate));
+  const pageLink = sourceFile.startsWith("apps/docs/content/docs/");
+  return (
+    candidates.length === 0 ||
+    candidates.some(
+      (candidate) => existsSync(candidate) && (!pageLink || statSync(candidate).isFile()),
+    )
+  );
 }
 
 export function markdownTargets(contents) {
@@ -138,14 +149,10 @@ export function unreachableDocumentationPages(
   };
 
   queue(
-    pages.has("apps/docs/index.md")
-      ? "apps/docs/index.md"
-      : pages.has("apps/docs/content/docs/index.mdx")
-        ? "apps/docs/content/docs/index.mdx"
-        : undefined,
+    pages.has("apps/docs/content/docs/index.mdx") ? "apps/docs/content/docs/index.mdx" : undefined,
   );
   for (const target of navigationTargets) {
-    queue(resolvePage("apps/docs/.vitepress/config.ts", target));
+    queue(resolvePage("apps/docs/content/docs/index.mdx", target));
   }
 
   const reachable = new Set();
@@ -187,28 +194,16 @@ async function main() {
     }
   }
 
-  const configFile = "apps/docs/.vitepress/config.ts";
-  const hasLegacyConfig = existsSync(path.join(repositoryRoot, configFile));
-  const docsConfig = hasLegacyConfig
-    ? (await import(pathToFileURL(path.join(repositoryRoot, configFile)).href)).default
-    : undefined;
-  const navigationTargets = hasLegacyConfig
-    ? configuredNavigationTargets(docsConfig)
-    : fumadocsNavigationTargets(repositoryRoot);
+  const navigationTargets = fumadocsNavigationTargets(repositoryRoot);
   for (const target of navigationTargets) {
-    const exists = hasLegacyConfig
-      ? localDocumentationTargetExists(repositoryRoot, configFile, target)
-      : fumadocsNavigationTargetExists(repositoryRoot, target);
-    if (!exists) {
-      failures.push(`${configFile} -> ${target}`);
+    if (!fumadocsNavigationTargetExists(repositoryRoot, target)) {
+      failures.push(`apps/docs/content/docs/meta.json -> ${target}`);
     }
   }
 
   const documentationPages = files.filter(
     (file) =>
-      (file.startsWith("apps/docs/content/docs/") ||
-        (file.startsWith("apps/docs/") && !file.startsWith("apps/docs/content/"))) &&
-      !file.startsWith("apps/docs/.generated/") &&
+      file.startsWith("apps/docs/content/docs/") &&
       !/^apps\/docs\/content\/docs\/api-reference\/[^/]+\/[^/]+\.mdx$/u.test(file),
   );
   const unreachablePages = unreachableDocumentationPages(

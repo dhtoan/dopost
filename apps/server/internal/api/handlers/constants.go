@@ -20,7 +20,7 @@ const (
 	tagProfiles          = "Profiles"
 	tagReposts           = "Repost Automation"
 	tagSocialSets        = "Social Sets"
-	tagImageEditor       = "OpenPost Image Editor"
+	tagImageEditor       = "dopost Image Editor"
 	tagStockMedia        = "Stock Media"
 	tagWorkspaces        = "Workspaces"
 

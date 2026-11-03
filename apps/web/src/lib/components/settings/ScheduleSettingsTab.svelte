@@ -3,14 +3,15 @@
 	import { Button } from '$lib/components/ui/button';
 	import { Checkbox } from '$lib/components/ui/checkbox';
 	import { Input } from '$lib/components/ui/input';
+	import EmptyState from '$lib/components/empty-state.svelte';
 	import InlineNotice from '$lib/components/inline-notice.svelte';
 	import FieldFeedback from '$lib/components/field-feedback.svelte';
 	import PageLoading from '$lib/components/page-loading.svelte';
 	import SectionHeader from '$lib/components/section-header.svelte';
 	import SettingsFormFooter from '$lib/components/settings-form-footer.svelte';
+	import AsyncActionButton from '$lib/components/async-action-button.svelte';
 	import DestructiveConfirmDialog from '$lib/components/destructive-confirm-dialog.svelte';
 	import type { DestructiveActionOutcome } from '$lib/destructive-action-outcome';
-	import { runDestructiveSequence } from '$lib/destructive-action';
 	import { client } from '$lib/api/client';
 	import { postingSchedulesQueryOptions, schedulingQueryKeys } from '@openpost/query-catalog';
 	import { queryClient } from '$lib/query/client';
@@ -46,6 +47,9 @@
 		new Intl.DateTimeFormat(getLocaleTag(), { weekday: 'long', timeZone: 'UTC' })
 	);
 	let saving = $state(false);
+	const timeRangeInvalid = $derived(
+		workspaceCtx.settings.slot_start_hour > workspaceCtx.settings.slot_end_hour
+	);
 	let loadedScheduleWorkspaceID = '';
 	let scheduleRequestSequence = 0;
 	let removeTimeDialogOpen = $state(false);
@@ -110,6 +114,7 @@
 	}
 
 	async function saveSettings() {
+		if (timeRangeInvalid || intervalError) return;
 		saving = true;
 		try {
 			await workspaceCtx.saveSettings({
@@ -318,6 +323,7 @@
 		}
 		newTimeError = '';
 		try {
+			let added = false;
 			for (const day of newTimeDays) {
 				const exists = schedules.some(
 					(schedule) =>
@@ -327,12 +333,14 @@
 				);
 				if (!exists) {
 					await createSchedule(workspaceID, day, parsed.hour, parsed.minute);
+					added = true;
 				}
 			}
 			if (isCurrentWorkspace(workspaceID)) {
 				await loadSchedules(workspaceID, true);
 				savedScheduleDraft = scheduleDraftSnapshot();
-				notify(m.settings_time_added());
+				if (added) notify(m.settings_time_added());
+				else showToast(m.settings_time_already_exists());
 			}
 		} catch (e) {
 			notify(e instanceof Error ? e.message : m.settings_action_failed(), 'error');
@@ -384,40 +392,27 @@
 		const targets = Object.values(row.days).filter((schedule): schedule is PostingSchedule =>
 			Boolean(schedule)
 		);
-		const outcome = await runDestructiveSequence(targets, async (schedule) => {
-			if (!queryMutationSessionIsCurrent(view.session)) {
-				throw new Error(m.settings_action_failed());
-			}
-			const { error: err, response } = await client.DELETE('/posting-schedules/{id}', {
-				params: { path: { id: schedule.id } }
+		let failure: unknown;
+		try {
+			const { error: err, response } = await client.POST('/posting-schedules/batch-delete', {
+				body: { workspace_id: view.workspaceID, ids: targets.map((schedule) => schedule.id) }
 			});
 			settleQueryMutationSession(view.session, response);
-			if (err && response.status !== 404) {
-				throw new Error(err.detail || m.settings_action_failed());
-			}
-		});
+			if (err) throw new Error(err.detail || m.settings_action_failed());
+		} catch (error) {
+			failure = error;
+		}
+
 		const reconciled = await reconcileScheduleMutation(view);
 		if (!reconciled || !scheduleMutationViewIsCurrent(view)) return { ok: false };
-		if (outcome.error) {
-			const remainingIDs = new Set(outcome.remaining.map((schedule) => schedule.id));
-			if (pendingTimeRow === row) {
-				pendingTimeRow = {
-					...row,
-					days: Object.fromEntries(
-						Object.entries(row.days).filter(
-							([, schedule]) => schedule && remainingIDs.has(schedule.id)
-						)
-					)
-				};
-			}
-			await loadSchedules(view.workspaceID);
-			if (!scheduleMutationViewIsCurrent(view)) return { ok: false };
-			const message =
-				outcome.error instanceof Error ? outcome.error.message : m.settings_action_failed();
-			return { ok: false, message };
-		}
 		await loadSchedules(view.workspaceID);
 		if (!scheduleMutationViewIsCurrent(view)) return { ok: false };
+		if (failure) {
+			return {
+				ok: false,
+				message: failure instanceof Error ? failure.message : m.settings_action_failed()
+			};
+		}
 		return { ok: true, successMessage: m.settings_time_removed() };
 	}
 
@@ -576,12 +571,14 @@
 					<Button onclick={() => (showSuggestSchedule = false)} variant="outline" size="sm"
 						>{m.common_cancel()}</Button
 					>
-					<Button onclick={generateSuggestedSchedule} size="sm" disabled={generatingSchedule}>
-						{#if generatingSchedule}
-							<ProtectedIcon icon="loading" class="mr-2 h-4 w-4 animate-spin" />
-						{/if}
-						{m.settings_generate()}
-					</Button>
+					<AsyncActionButton
+						label={m.settings_generate()}
+						pendingLabel={m.settings_generate()}
+						size="sm"
+						state={generatingSchedule ? 'pending' : 'idle'}
+						disabled={generatingSchedule}
+						onclick={generateSuggestedSchedule}
+					/>
 				</div>
 			</div>
 		</div>
@@ -604,9 +601,13 @@
 	{#if loadingSchedules && !scheduleDataReady}
 		<PageLoading layout="list" label={m.common_loading()} items={3} />
 	{:else if scheduleDataReady && scheduleRows.length === 0}
-		<div class="rounded-xl border px-4 py-10 text-center text-sm text-muted-foreground">
-			{m.settings_no_posting_times()}
-		</div>
+		<EmptyState
+			themeIconRole="calendar"
+			title={m.settings_no_posting_times()}
+			variant="muted"
+			size="sm"
+			headingLevel={3}
+		/>
 	{:else if scheduleDataReady}
 		<div class="space-y-3 xl:hidden">
 			{#each scheduleRows as row (row.key)}
@@ -651,15 +652,11 @@
 		<div class="hidden overflow-x-auto rounded-xl border xl:block">
 			<div class="min-w-[680px]">
 				<div class="grid grid-cols-[120px_repeat(7,minmax(56px,1fr))_52px] border-b bg-muted/30">
-					<div
-						class="px-4 py-3 text-xs font-semibold tracking-wide text-muted-foreground uppercase"
-					>
+					<div class="px-4 py-3 text-xs font-semibold text-muted-foreground">
 						{m.settings_time()}
 					</div>
 					{#each dayOrder as dayIndex (dayIndex)}
-						<div
-							class="px-2 py-3 text-center text-xs font-semibold tracking-wide text-muted-foreground uppercase"
-						>
+						<div class="px-2 py-3 text-center text-xs font-semibold text-muted-foreground">
 							{localizedWeekday(dayIndex)}
 						</div>
 					{/each}
@@ -762,7 +759,12 @@
 					value={String(workspaceCtx.settings.slot_start_hour)}
 					onValueChange={(v) => (workspaceCtx.settings.slot_start_hour = Number(v))}
 				>
-					<Select.Trigger id="start-time" class="w-full">
+					<Select.Trigger
+						id="start-time"
+						class="w-full"
+						aria-invalid={timeRangeInvalid}
+						aria-describedby="time-range-error"
+					>
 						{workspaceCtx.settings.slot_start_hour.toString().padStart(2, '0')}:00
 					</Select.Trigger>
 					<Select.Content class="max-h-60 overflow-y-auto">
@@ -779,7 +781,12 @@
 					value={String(workspaceCtx.settings.slot_end_hour)}
 					onValueChange={(v) => (workspaceCtx.settings.slot_end_hour = Number(v))}
 				>
-					<Select.Trigger id="end-time" class="w-full">
+					<Select.Trigger
+						id="end-time"
+						class="w-full"
+						aria-invalid={timeRangeInvalid}
+						aria-describedby="time-range-error"
+					>
 						{workspaceCtx.settings.slot_end_hour.toString().padStart(2, '0')}:00
 					</Select.Trigger>
 					<Select.Content class="max-h-60 overflow-y-auto">
@@ -812,6 +819,11 @@
 				{/if}
 			</div>
 		</div>
+		<FieldFeedback
+			id="time-range-error"
+			error={timeRangeInvalid ? m.settings_time_range_invalid() : ''}
+			touched={true}
+		/>
 	</div>
 </section>
 
@@ -819,7 +831,7 @@
 	label={m.settings_save_changes()}
 	savingLabel={m.settings_save_changes()}
 	{saving}
-	disabled={!workspaceCtx.settingsDirty || Boolean(intervalError)}
+	disabled={!workspaceCtx.settingsDirty || Boolean(intervalError) || timeRangeInvalid}
 	onSave={saveSettings}
 />
 

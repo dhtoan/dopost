@@ -1,9 +1,10 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onDestroy, onMount } from 'svelte';
 	import { Button } from '$lib/components/ui/button';
 	import { Checkbox } from '$lib/components/ui/checkbox';
 	import { Input } from '$lib/components/ui/input';
 	import AppSelect from '$lib/components/app-select.svelte';
+	import EmptyState from '$lib/components/empty-state.svelte';
 	import InlineNotice from '$lib/components/inline-notice.svelte';
 	import { m } from '$lib/paraglide/messages';
 	import { stockMediaKindsForProviders } from '$lib/stock-media-kinds';
@@ -24,6 +25,9 @@
 		actionLabel?: string;
 		compact?: boolean;
 		onSelect: (file: File, asset: StockAsset) => void | Promise<void>;
+		onSelectStart?: () => void;
+		onDragStart?: (event: DragEvent, asset: StockAsset) => void;
+		onDragEnd?: () => void;
 		services?: StockMediaServices;
 	}
 	interface StockMediaServices {
@@ -42,6 +46,9 @@
 		actionLabel = m.stock_media_use(),
 		compact = false,
 		onSelect,
+		onSelectStart,
+		onDragStart,
+		onDragEnd,
 		services = {
 			listProviders: listStockProviders,
 			search: searchStockMedia,
@@ -56,6 +63,8 @@
 	let loading = $state(true);
 	let searching = $state(false);
 	let selecting = $state('');
+	let previewing = $state('');
+	let previewVideo = $state.raw<HTMLVideoElement>();
 	let error = $state('');
 	let searched = $state(false);
 	let filtersOpen = $state(false);
@@ -78,6 +87,33 @@
 	onMount(() => {
 		void initialize();
 	});
+
+	onDestroy(closePreview);
+
+	function closePreview(): void {
+		previewVideo?.pause();
+		previewing = '';
+	}
+
+	function togglePreview(asset: StockAsset): void {
+		const key = `${asset.provider}:${asset.external_id}`;
+		const closing = previewing === key;
+		closePreview();
+		if (!closing) previewing = key;
+	}
+
+	function handlePreviewKeydown(event: KeyboardEvent): void {
+		if (event.key !== 'Escape' || !previewing) return;
+		event.preventDefault();
+		event.stopPropagation();
+		closePreview();
+		if (event.currentTarget instanceof HTMLElement) {
+			event.currentTarget
+				.closest('article')
+				?.querySelector<HTMLButtonElement>('[data-stock-preview-toggle]')
+				?.focus();
+		}
+	}
 
 	const currentProvider = $derived(providers.find((item) => item.key === provider));
 	const availableFilters = $derived(
@@ -158,6 +194,7 @@
 	}
 
 	function changeProvider(value: string): void {
+		closePreview();
 		provider = value;
 		resetFilters();
 		results = [];
@@ -165,6 +202,7 @@
 	}
 
 	function changeKind(value: string): void {
+		closePreview();
 		kind = value === 'video' ? 'video' : 'photo';
 		if (!currentProvider || !supportsKind(currentProvider, kind)) {
 			provider = providers.find((item) => supportsKind(item, kind))?.key ?? '';
@@ -176,6 +214,7 @@
 
 	async function search(reset = true): Promise<void> {
 		if (!query.trim() || !provider || searching) return;
+		closePreview();
 		searching = true;
 		error = '';
 		searched = true;
@@ -239,6 +278,7 @@
 		selecting = asset.external_id;
 		error = '';
 		try {
+			onSelectStart?.();
 			const resolved = await services.resolve(asset.provider, asset.external_id);
 			const file = await downloadStockAsset(asset, resolved);
 			await onSelect(file, asset);
@@ -298,7 +338,7 @@
 			role="status"
 			aria-live="polite"
 		>
-			<ProtectedIcon icon="loading" class="size-4 animate-spin" />
+			<ProtectedIcon icon="loading" class="size-4 animate-spin motion-reduce:animate-none" />
 			{m.stock_media_downloading({
 				title: selectingAsset.title || selectingAsset.kind
 			})}
@@ -307,7 +347,7 @@
 
 	{#if loading}
 		<div class="flex items-center gap-2 py-6 text-sm text-muted-foreground" role="status">
-			<ProtectedIcon icon="loading" class="size-4 animate-spin" />
+			<ProtectedIcon icon="loading" class="size-4 animate-spin motion-reduce:animate-none" />
 			{m.common_loading()}
 		</div>
 	{:else if providers.length === 0}
@@ -354,7 +394,7 @@
 				<Button type="submit" disabled={!query.trim() || !provider || searching}>
 					{#if searching}<ProtectedIcon
 							icon="loading"
-							class="size-4 animate-spin"
+							class="size-4 animate-spin motion-reduce:animate-none"
 						/>{:else}<ThemeIcon role="search" class="size-4" />{/if}
 					{m.stock_media_search_action()}
 				</Button>
@@ -591,9 +631,26 @@
 					: 'grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4'}
 			>
 				{#each results as asset (`${asset.provider}:${asset.external_id}`)}
-					<article class="group min-w-0 overflow-hidden rounded-xl border bg-card">
+					<article
+						class="group min-w-0 cursor-grab overflow-hidden rounded-xl border bg-card active:cursor-grabbing"
+						draggable={onDragStart !== undefined && !selecting}
+						ondragstart={onDragStart ? (event) => onDragStart(event, asset) : undefined}
+						ondragend={onDragEnd}
+					>
 						<div class="relative aspect-[4/3] overflow-hidden bg-muted">
-							{#if asset.thumbnail_url}
+							{#if previewing === `${asset.provider}:${asset.external_id}` && asset.preview_url}
+								<video
+									bind:this={previewVideo}
+									src={asset.preview_url}
+									aria-label={asset.title || asset.kind}
+									class="size-full object-contain"
+									controls
+									muted
+									onkeydown={handlePreviewKeydown}
+									playsinline
+									preload="metadata"
+								></video>
+							{:else if asset.thumbnail_url}
 								<img
 									src={asset.thumbnail_url}
 									alt={asset.title}
@@ -606,7 +663,7 @@
 									<ProtectedIcon icon="media-image" class="size-5 text-muted-foreground" />
 								</div>
 							{/if}
-							{#if asset.kind === 'video'}
+							{#if asset.kind === 'video' && previewing !== `${asset.provider}:${asset.external_id}`}
 								<span
 									class="absolute bottom-2 left-2 flex size-7 items-center justify-center rounded-full bg-black/75 text-white"
 								>
@@ -640,6 +697,33 @@
 									{m.stock_media_by({ creator: asset.creator_name })}
 								</Button>
 							</p>
+							{#if asset.kind === 'video'}
+								<div class="flex flex-wrap gap-2">
+									{#if asset.preview_url}
+										<Button
+											data-stock-preview-toggle
+											onkeydown={handlePreviewKeydown}
+											variant="outline"
+											size="sm"
+											aria-expanded={previewing === `${asset.provider}:${asset.external_id}`}
+											onclick={() => togglePreview(asset)}
+										>
+											{previewing === `${asset.provider}:${asset.external_id}`
+												? m.common_close()
+												: m.stock_media_preview()}
+										</Button>
+									{/if}
+									{#if asset.source_url}
+										<Button
+											href={asset.source_url}
+											target="_blank"
+											rel="noreferrer"
+											variant="link"
+											size="sm">{m.stock_media_view_source()}</Button
+										>
+									{/if}
+								</div>
+							{/if}
 							<Button
 								variant="outline"
 								size="sm"
@@ -649,7 +733,7 @@
 							>
 								{#if selecting === asset.external_id}<ProtectedIcon
 										icon="loading"
-										class="size-4 animate-spin"
+										class="size-4 animate-spin motion-reduce:animate-none"
 									/>{/if}
 								{selecting === asset.external_id
 									? m.stock_media_downloading({
@@ -664,19 +748,30 @@
 			{#if hasMore}
 				<div class="flex justify-center pt-1">
 					<Button variant="outline" onclick={() => void search(false)} disabled={searching}>
-						{#if searching}<ProtectedIcon icon="loading" class="animate-spin" />{/if}
+						{#if searching}<ProtectedIcon
+								icon="loading"
+								class="animate-spin motion-reduce:animate-none"
+							/>{/if}
 						{m.stock_load_more()}
 					</Button>
 				</div>
 			{/if}
 		{:else if searched && !searching}
-			<div class="rounded-xl border border-dashed p-8 text-center text-sm text-muted-foreground">
-				{m.video_editor_no_results()}
-			</div>
+			<EmptyState
+				themeIconRole="search"
+				title={m.video_editor_no_results()}
+				variant="muted"
+				size="sm"
+				headingLevel={3}
+			/>
 		{:else}
-			<div class="rounded-xl border border-dashed p-8 text-center text-sm text-muted-foreground">
-				{emptyMessage}
-			</div>
+			<EmptyState
+				themeIconRole="search"
+				title={emptyMessage}
+				variant="muted"
+				size="sm"
+				headingLevel={3}
+			/>
 		{/if}
 	{/if}
 </div>

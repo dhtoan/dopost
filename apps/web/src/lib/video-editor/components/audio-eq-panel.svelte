@@ -1,7 +1,8 @@
 <script lang="ts">
 	/* oxlint-disable anti-slop/no-known-value-widening, anti-slop/no-unknown-parameters, anti-slop/require-safety-comment-for-type-assertion -- The six typed band definitions map resolved EQ keys to flat persisted timeline keys. */
 	import { Input } from '$lib/components/ui/input';
-	import { Button } from '$lib/components/ui/button';
+	import { untrack } from 'svelte';
+	import { Disclosure as EditorDisclosure } from '$lib/components/editor-density';
 	import { m } from '$lib/paraglide/messages';
 	import AppSelect, { type AppSelectOption } from '$lib/components/app-select.svelte';
 	import type { TimelineItem } from '$lib/video-editor/project/types';
@@ -37,6 +38,7 @@
 	} from '$lib/video-editor/audio/audio-eq-ui';
 	import type { AudioEqSettings, ResolvedAudioEqSettings } from '$lib/video-editor/audio/types';
 	import AudioEqCurveEditor from './audio-eq-curve-editor.svelte';
+	import ToggleStatePill from './toggle-state-pill.svelte';
 
 	let {
 		item,
@@ -45,7 +47,8 @@
 		onsettingschange,
 		onedit = () => {},
 		title,
-		open = false
+		open = false,
+		hideHeader = false
 	}: {
 		item?: TimelineItem;
 		items?: TimelineItem[];
@@ -54,7 +57,10 @@
 		onedit?: () => void;
 		title?: string;
 		open?: boolean;
+		hideHeader?: boolean;
 	} = $props();
+	// Settings refreshes must preserve the user's disclosure state.
+	let expanded = $state(untrack(() => open));
 
 	interface BandDefinition {
 		key: 'band1' | 'low' | 'lowMid' | 'highMid' | 'high' | 'band6';
@@ -250,6 +256,15 @@
 	const selectedPreset = $derived(
 		mixedSettings ? 'mixed' : (findAudioEqPresetId(resolved) ?? 'custom')
 	);
+	const headerSummary = $derived(
+		mixedSettings || enabledState === 'mixed'
+			? m.video_editor_property_mixed()
+			: bypassed
+				? m.video_editor_audio_eq_bypassed()
+				: selectedPreset === 'custom'
+					? m.video_editor_audio_eq_custom()
+					: (presetOptions.find((option) => option.value === selectedPreset)?.label ?? '')
+	);
 	let curveGesture = $state<{ before: TimelineSnapshot; changed: boolean } | null>(null);
 
 	function commit(patch: Partial<AudioEqSettings>): void {
@@ -342,27 +357,8 @@
 	}
 </script>
 
-<details
-	{open}
-	class="group rounded-md border border-[var(--video-editor-border)] bg-[var(--video-editor-control)]"
->
-	<summary
-		class="flex min-h-9 cursor-pointer list-none items-center justify-between gap-2 px-2 text-xs focus-visible:outline-2 focus-visible:outline-[var(--video-editor-focus)]"
-	>
-		<span class="font-medium text-[var(--video-editor-text)]"
-			>{title ?? m.video_editor_audio_eq_title()}</span
-		>
-		<span class="text-xs text-[var(--video-editor-muted)]"
-			>{mixedSettings || enabledState === 'mixed'
-				? m.video_editor_property_mixed()
-				: bypassed
-					? m.video_editor_audio_eq_bypassed()
-					: selectedPreset === 'custom'
-						? m.video_editor_audio_eq_custom()
-						: presetOptions.find((option) => option.value === selectedPreset)?.label}</span
-		>
-	</summary>
-	<div class="space-y-2 border-t border-[var(--video-editor-border)] p-2">
+{#snippet body()}
+	<div class="space-y-2 p-2 {hideHeader ? '' : 'border-t border-[var(--video-editor-border)]'}">
 		<div class="flex items-end gap-1">
 			<label class="min-w-0 flex-1 text-xs text-[var(--video-editor-muted)]">
 				{m.video_editor_audio_eq_preset()}
@@ -370,22 +366,18 @@
 					value={selectedPreset}
 					options={presetOptions}
 					ariaLabel={m.video_editor_audio_eq_preset_aria()}
-					class="mt-0.5 h-8 w-full text-xs"
+					class="mt-0.5 h-[25px] w-full text-xs"
 					onValueChange={applyPreset}
 				/>
 			</label>
-			<Button
-				type="button"
-				size="sm"
-				variant={enabledState === 'on' ? 'secondary' : 'outline'}
-				class="h-8 px-2 text-xs"
-				aria-pressed={enabledState === 'on'}
-				onclick={() => commit({ enabled: enabledState !== 'on' })}
-			>
-				{enabledState === 'on'
+			<ToggleStatePill
+				label={enabledState === 'on' ? m.video_editor_audio_eq_on() : m.video_editor_audio_eq_off()}
+				pressed={enabledState === 'on'}
+				ariaLabel={enabledState === 'on'
 					? m.video_editor_audio_eq_bypass()
 					: m.video_editor_audio_eq_enable()}
-			</Button>
+				onchange={() => commit({ enabled: enabledState !== 'on' })}
+			/>
 		</div>
 
 		<AudioEqCurveEditor
@@ -400,7 +392,7 @@
 		<label class="block text-xs text-[var(--video-editor-muted)]">
 			{m.video_editor_audio_eq_output_gain()}
 			<Input
-				class="mt-0.5 h-8 w-full bg-[var(--video-editor-control)] text-xs"
+				class="mt-0.5 h-[25px] w-full bg-[var(--video-editor-control)] text-xs"
 				type="number"
 				min={AUDIO_EQ_GAIN_DB_MIN}
 				max={AUDIO_EQ_GAIN_DB_MAX}
@@ -414,28 +406,19 @@
 		<div class="space-y-1">
 			{#each bands as band (band.key)}
 				{@const bandType = value(band, 'typeKey')}
-				<details
+				<EditorDisclosure
+					label={band.label()}
+					summary={`${typeLabel(String(bandType))} · ${Math.round(Number(value(band, 'frequencyKey')))} Hz`}
 					class="rounded border border-[var(--video-editor-border)] bg-[var(--video-editor-panel)]"
 				>
-					<summary class="flex min-h-8 cursor-pointer list-none items-center gap-2 px-2 text-xs">
-						<span class="w-14 font-medium text-[var(--video-editor-muted)]">{band.label()}</span>
-						<span class="min-w-0 flex-1 truncate text-[var(--video-editor-muted)]"
-							>{typeLabel(String(bandType))} · {Math.round(Number(value(band, 'frequencyKey')))} Hz</span
-						>
-						<button
-							type="button"
-							class={`rounded px-1.5 py-0.5 text-xs focus-visible:outline-2 focus-visible:outline-[var(--video-editor-focus)] ${enabled(band) ? 'bg-[var(--video-editor-primary)] text-[var(--video-editor-primary-text)]' : 'bg-[var(--video-editor-control-hover)]'}`}
-							aria-pressed={enabled(band)}
+					{#snippet actions()}
+						<ToggleStatePill
+							label={enabled(band) ? m.video_editor_audio_eq_on() : m.video_editor_audio_eq_off()}
+							pressed={enabled(band)}
 							disabled={controlsDisabled}
-							onclick={(event) => {
-								event.preventDefault();
-								setField(band.enabledField, !enabled(band));
-							}}
-							>{enabled(band)
-								? m.video_editor_audio_eq_on()
-								: m.video_editor_audio_eq_off()}</button
-						>
-					</summary>
+							onchange={() => setField(band.enabledField, !enabled(band))}
+						/>
+					{/snippet}
 					<div class="grid grid-cols-2 gap-1 border-t border-[var(--video-editor-border)] p-2">
 						<label class="text-xs text-[var(--video-editor-muted)]">
 							{m.video_editor_audio_eq_filter()}
@@ -447,14 +430,14 @@
 								}))}
 								ariaLabel={m.video_editor_audio_eq_filter_aria({ band: band.label() })}
 								disabled={controlsDisabled}
-								class="mt-0.5 h-8 w-full text-xs"
+								class="mt-0.5 h-[25px] w-full text-xs"
 								onValueChange={(next) => setField(band.typeField, next)}
 							/>
 						</label>
 						<label class="text-xs text-[var(--video-editor-muted)]">
 							{m.video_editor_audio_eq_frequency()}
 							<Input
-								class="mt-0.5 h-8 w-full bg-[var(--video-editor-control)] text-xs"
+								class="mt-0.5 h-[25px] w-full bg-[var(--video-editor-control)] text-xs"
 								type="number"
 								min="20"
 								max="22000"
@@ -473,7 +456,7 @@
 									options={slopeOptions}
 									ariaLabel={m.video_editor_audio_eq_slope_aria({ band: band.label() })}
 									disabled={controlsDisabled}
-									class="mt-0.5 h-8 w-full text-xs"
+									class="mt-0.5 h-[25px] w-full text-xs"
 									onValueChange={(next) => setField(band.slopeField!, Number(next))}
 								/>
 							</label>
@@ -481,7 +464,7 @@
 							<label class="text-xs text-[var(--video-editor-muted)]">
 								{m.video_editor_audio_eq_gain()}
 								<Input
-									class="mt-0.5 h-8 w-full bg-[var(--video-editor-control)] text-xs"
+									class="mt-0.5 h-[25px] w-full bg-[var(--video-editor-control)] text-xs"
 									type="number"
 									min={AUDIO_EQ_GAIN_DB_MIN}
 									max={AUDIO_EQ_GAIN_DB_MAX}
@@ -494,7 +477,7 @@
 							<label class="text-xs text-[var(--video-editor-muted)]">
 								Q
 								<Input
-									class="mt-0.5 h-8 w-full bg-[var(--video-editor-control)] text-xs"
+									class="mt-0.5 h-[25px] w-full bg-[var(--video-editor-control)] text-xs"
 									type="number"
 									min={AUDIO_EQ_Q_MIN}
 									max={AUDIO_EQ_Q_MAX}
@@ -506,8 +489,21 @@
 							</label>
 						{/if}
 					</div>
-				</details>
+				</EditorDisclosure>
 			{/each}
 		</div>
 	</div>
-</details>
+{/snippet}
+
+{#if hideHeader}
+	{@render body()}
+{:else}
+	<EditorDisclosure
+		label={title ?? m.video_editor_audio_eq_title()}
+		summary={headerSummary}
+		bind:open={expanded}
+		class="rounded-md border border-[var(--video-editor-border)] bg-[var(--video-editor-control)]"
+	>
+		{@render body()}
+	</EditorDisclosure>
+{/if}

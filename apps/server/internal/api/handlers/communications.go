@@ -38,6 +38,7 @@ func (h *EngagementMessagingHandler) SetFeatureGate(g EngagementMessagingFeature
 }
 
 type ListEngagementInput struct {
+	Kind          string `query:"kind" enum:"comment,mention,review" doc:"Filter account activity by kind; omit for all engagement"`
 	WorkspaceID   string `query:"workspace_id" required:"true"`
 	Platform      string `query:"platform"`
 	AccountID     string `query:"account_id"`
@@ -70,9 +71,10 @@ type SetEngagementStateInput struct {
 type EngagementActionInput struct {
 	ItemID string `path:"item_id"`
 	Body   struct {
-		WorkspaceID string `json:"workspace_id" required:"true"`
-		Action      string `json:"action" enum:"reply,hide,delete,like,unlike" required:"true"`
-		Message     string `json:"message,omitempty"`
+		WorkspaceID       string `json:"workspace_id" required:"true"`
+		Action            string `json:"action" enum:"reply,delete_reply,hide,delete,like,unlike" required:"true"`
+		Message           string `json:"message,omitempty"`
+		ClientOperationID string `json:"client_operation_id,omitempty" maxLength:"128"`
 	}
 }
 
@@ -80,6 +82,8 @@ type ListConversationsInput struct {
 	WorkspaceID string `query:"workspace_id" required:"true"`
 	Platform    string `query:"platform"`
 	AccountID   string `query:"account_id"`
+	Search      string `query:"search" maxLength:"200"`
+	UnreadOnly  bool   `query:"unread_only"`
 	Archived    bool   `query:"archived"`
 	Limit       int    `query:"limit" default:"50" minimum:"1" maximum:"100"`
 	Offset      int    `query:"offset" default:"0" minimum:"0"`
@@ -111,6 +115,7 @@ type MessageSyncState struct {
 // EngagementSyncState exposes durable, safe collection health without provider
 // cursors or raw response data.
 type EngagementSyncState struct {
+	Feed            string    `json:"feed,omitempty"`
 	ID              string    `json:"id"`
 	RenditionID     string    `json:"rendition_id"`
 	SocialAccountID string    `json:"social_account_id"`
@@ -131,8 +136,10 @@ type ListMessagesInput struct {
 }
 
 type MessagePage struct {
-	Items      []models.DirectMessage `json:"items"`
-	NextCursor string                 `json:"next_cursor,omitempty"`
+	Conversation     *models.Conversation   `json:"conversation,omitempty"`
+	HistoryAvailable bool                   `json:"history_available,omitempty"`
+	Items            []models.DirectMessage `json:"items"`
+	NextCursor       string                 `json:"next_cursor,omitempty"`
 }
 
 type ListMessagesOutput struct{ Body MessagePage }
@@ -140,8 +147,9 @@ type ListMessagesOutput struct{ Body MessagePage }
 type SendMessageInput struct {
 	ConversationID string `path:"conversation_id"`
 	Body           struct {
-		WorkspaceID string `json:"workspace_id" required:"true"`
-		Message     string `json:"message" required:"true" minLength:"1" maxLength:"10000"`
+		WorkspaceID       string `json:"workspace_id" required:"true"`
+		Message           string `json:"message" required:"true" minLength:"1" maxLength:"10000"`
+		ClientOperationID string `json:"client_operation_id,omitempty" maxLength:"128"`
 	}
 }
 
@@ -163,9 +171,10 @@ type RefreshCapabilitiesInput struct {
 }
 
 type RefreshCapabilityOutcome struct {
-	Status    string `json:"status" enum:"queued,failed,unavailable"`
-	Queued    int    `json:"queued"`
-	ErrorCode string `json:"error_code,omitempty"`
+	JobIDs    []string `json:"job_ids,omitempty" doc:"Durable collection jobs to observe before presenting upstream refresh completion"`
+	Status    string   `json:"status" enum:"queued,failed,unavailable"`
+	Queued    int      `json:"queued"`
+	ErrorCode string   `json:"error_code,omitempty"`
 }
 
 type RefreshCapabilitiesResult struct {
@@ -335,227 +344,316 @@ func parseMessageCursor(value string) (*messaging.MessageCursor, error) {
 
 //nolint:gocyclo // Each branch registers an independent, typed capability endpoint.
 func (h *EngagementMessagingHandler) RegisterRoutes(api huma.API) {
+	h.registerEngagementRoutes(api)
+	h.registerConversationRoutes(api)
+	h.registerRefreshRoutes(api)
+	h.registerInboxFreshnessRoutes(api)
+}
+
+func (h *EngagementMessagingHandler) registerEngagementRoutes(api huma.API) {
+	h.registerBulkEngagementRead(api)
+	h.registerAutomation(api)
 	huma.Register(api, huma.Operation{
 		OperationID: "list-engagement",
 		Method:      http.MethodGet, Path: "/engagement", Summary: "List stored replies and comments",
 		Tags: []string{tagEngagement}, Middlewares: huma.Middlewares{middleware.AuthMiddleware(api, h.auth)},
-	}, func(ctx context.Context, input *ListEngagementInput) (*ListEngagementOutput, error) {
-		if h.engagement == nil {
-			return nil, huma.Error503ServiceUnavailable("engagement service is unavailable")
-		}
-		cursor, err := parseEngagementCursor(input.Cursor)
-		if err != nil || (cursor != nil && input.Offset != 0) {
-			return nil, huma.Error400BadRequest("invalid engagement cursor")
-		}
-		page, err := h.engagement.ListEngagement(ctx, engagementActor(ctx), engagement.Query{
-			WorkspaceID: input.WorkspaceID, Platform: input.Platform, AccountID: input.AccountID,
-			PublicationID: input.PublicationID, UnreadOnly: input.UnreadOnly, Archived: input.Archived,
-			Limit: input.Limit, Offset: input.Offset, Cursor: cursor,
-		})
-		if err != nil {
-			return nil, engagementHTTPError(err, "failed to load engagement")
-		}
-		states, err := h.engagement.ListEngagementSyncStates(ctx, engagementActor(ctx), input.WorkspaceID)
-		if err != nil {
-			return nil, engagementHTTPError(err, "failed to load engagement sync state")
-		}
-		safeStates := make([]EngagementSyncState, 0, len(states))
-		for _, state := range states {
-			safeStates = append(safeStates, EngagementSyncState{
-				ID: state.ID, RenditionID: state.RenditionID, SocialAccountID: state.SocialAccountID,
-				Platform: state.Platform, Status: state.Status, ErrorCode: state.ErrorCode,
-				ErrorMessage: state.ErrorMessage, LastSuccessAt: state.LastSuccessAt, NextSyncAt: state.NextSyncAt,
-			})
-		}
-		return &ListEngagementOutput{Body: EngagementPage{
-			Items: page.Items, Total: page.Total, SyncStates: safeStates,
-			NextCursor: encodeEngagementCursor(page.NextCursor),
-		}}, nil
-	})
+	}, h.listEngagement)
 
 	huma.Register(api, huma.Operation{
 		OperationID: "set-engagement-state",
 		Method:      http.MethodPost, Path: "/engagement/state", Summary: "Mark engagement read or archived",
 		Tags: []string{tagEngagement}, Middlewares: huma.Middlewares{middleware.AuthMiddleware(api, h.auth)},
-	}, func(ctx context.Context, input *SetEngagementStateInput) (*struct{}, error) {
-		if h.engagement == nil {
-			return nil, huma.Error503ServiceUnavailable("engagement service is unavailable")
-		}
-		if input.Body.Read == nil && input.Body.Archived == nil {
-			return nil, huma.Error400BadRequest("read or archived is required")
-		}
-		if err := h.engagement.SetEngagementState(ctx, engagementActor(ctx), input.Body.WorkspaceID, input.Body.IDs, input.Body.Read, input.Body.Archived); err != nil {
-			return nil, engagementHTTPError(err, "failed to update engagement")
-		}
-		return nil, nil
-	})
+	}, h.setEngagementState)
 
 	huma.Register(api, huma.Operation{
 		OperationID: "queue-engagement-action",
 		Method:      http.MethodPost, Path: "/engagement/{item_id}/actions", Summary: "Queue a reply or moderation action",
 		Tags: []string{tagEngagement}, Middlewares: huma.Middlewares{middleware.AuthMiddleware(api, h.auth)},
-	}, func(ctx context.Context, input *EngagementActionInput) (*struct{}, error) {
-		if h.engagement == nil {
-			return nil, huma.Error503ServiceUnavailable("engagement service is unavailable")
-		}
-		if input.Body.Action == "reply" && strings.TrimSpace(input.Body.Message) == "" {
-			return nil, huma.Error400BadRequest("message is required for a reply")
-		}
-		if err := h.engagement.QueueEngagementAction(ctx, engagementActor(ctx), input.ItemID, input.Body.Action, input.Body.Message); err != nil {
-			if errors.Is(err, engagement.ErrAccessDenied) || errors.Is(err, engagement.ErrNotFound) {
-				return nil, engagementHTTPError(err, "failed to queue engagement action")
-			}
-			return nil, huma.Error400BadRequest(err.Error())
-		}
-		return nil, nil
-	})
+	}, h.queueEngagementAction)
+}
 
+func (h *EngagementMessagingHandler) registerConversationRoutes(api huma.API) {
 	huma.Register(api, huma.Operation{
 		OperationID: "list-conversations",
 		Method:      http.MethodGet, Path: "/messages", Summary: "List stored social conversations",
 		Tags: []string{tagMessaging}, Middlewares: huma.Middlewares{middleware.AuthMiddleware(api, h.auth)},
-	}, func(ctx context.Context, input *ListConversationsInput) (*ListConversationsOutput, error) {
-		if h.messaging == nil {
-			return nil, huma.Error503ServiceUnavailable("messaging service is unavailable")
-		}
-		cursor, err := parseConversationCursor(input.Cursor)
-		if err != nil || (cursor != nil && input.Offset != 0) {
-			return nil, huma.Error400BadRequest("invalid conversation cursor")
-		}
-		page, err := h.messaging.ListConversations(ctx, messagingActor(ctx), messaging.ConversationQuery{
-			WorkspaceID: input.WorkspaceID, Platform: input.Platform, AccountID: input.AccountID,
-			Archived: input.Archived, Limit: input.Limit, Offset: input.Offset, Cursor: cursor,
-		})
-		if err != nil {
-			return nil, messagingHTTPError(err, "failed to load messages")
-		}
-		states, err := h.messaging.ListSyncStates(ctx, messagingActor(ctx), input.WorkspaceID)
-		if err != nil {
-			return nil, huma.Error500InternalServerError("failed to load message sync state")
-		}
-		safeStates := make([]MessageSyncState, 0, len(states))
-		for _, state := range states {
-			safeStates = append(safeStates, MessageSyncState{
-				ID: state.ID, SocialAccountID: state.SocialAccountID, Platform: state.Platform,
-				Status: state.Status, ErrorCode: state.ErrorCode, ErrorMessage: state.ErrorMessage,
-				LastSuccessAt: state.LastSuccessAt, NextSyncAt: state.NextSyncAt,
-			})
-		}
-		return &ListConversationsOutput{Body: ConversationPage{
-			Items: page.Items, Total: page.Total, SyncStates: safeStates,
-			NextCursor: encodeConversationCursor(page.NextCursor),
-		}}, nil
-	})
+	}, h.listConversations)
 
 	huma.Register(api, huma.Operation{
 		OperationID: "list-conversation-messages",
 		Method:      http.MethodGet, Path: "/messages/{conversation_id}", Summary: "List messages in a stored conversation",
 		Tags: []string{tagMessaging}, Middlewares: huma.Middlewares{middleware.AuthMiddleware(api, h.auth)},
-	}, func(ctx context.Context, input *ListMessagesInput) (*ListMessagesOutput, error) {
-		if h.messaging == nil {
-			return nil, huma.Error503ServiceUnavailable("messaging service is unavailable")
-		}
-		cursor, err := parseMessageCursor(input.Cursor)
-		if err != nil || (cursor != nil && input.Offset != 0) {
-			return nil, huma.Error400BadRequest("invalid message cursor")
-		}
-		page, err := h.messaging.ListMessages(ctx, messagingActor(ctx), messaging.MessageQuery{
-			WorkspaceID: input.WorkspaceID, ConversationID: input.ConversationID,
-			Limit: input.Limit, Offset: input.Offset, Cursor: cursor,
-		})
-		if err != nil {
-			if errors.Is(err, messaging.ErrNotFound) {
-				return nil, huma.Error404NotFound("conversation not found")
-			}
-			log.Printf("failed to load conversation %s in workspace %s: %v", input.ConversationID, input.WorkspaceID, err)
-			return nil, huma.Error500InternalServerError("failed to load conversation")
-		}
-		return &ListMessagesOutput{Body: MessagePage{
-			Items: page.Items, NextCursor: encodeMessageCursor(page.NextCursor),
-		}}, nil
-	})
+	}, h.listConversationMessages)
 
 	huma.Register(api, huma.Operation{
 		OperationID: "send-conversation-message",
 		Method:      http.MethodPost, Path: "/messages/{conversation_id}/send", Summary: "Queue a social direct message",
 		Tags: []string{tagMessaging}, Middlewares: huma.Middlewares{middleware.AuthMiddleware(api, h.auth)},
-	}, func(ctx context.Context, input *SendMessageInput) (*SendMessageOutput, error) {
-		if h.messaging == nil {
-			return nil, huma.Error503ServiceUnavailable("messaging service is unavailable")
-		}
-		message, err := h.messaging.QueueMessage(ctx, messagingActor(ctx), input.ConversationID, input.Body.Message)
-		if err != nil {
-			if errors.Is(err, messaging.ErrAccessDenied) || errors.Is(err, messaging.ErrNotFound) {
-				return nil, messagingHTTPError(err, "failed to queue message")
-			}
-			return nil, huma.Error400BadRequest(err.Error())
-		}
-		return &SendMessageOutput{Body: *message}, nil
-	})
+	}, h.sendConversationMessage)
 
 	huma.Register(api, huma.Operation{
 		OperationID: "set-conversation-state",
 		Method:      http.MethodPost, Path: "/messages/{conversation_id}/state", Summary: "Mark a conversation read or archived",
 		Tags: []string{tagMessaging}, Middlewares: huma.Middlewares{middleware.AuthMiddleware(api, h.auth)},
-	}, func(ctx context.Context, input *SetConversationStateInput) (*struct{}, error) {
-		if h.messaging == nil {
-			return nil, huma.Error503ServiceUnavailable("messaging service is unavailable")
-		}
-		if input.Body.Read == nil && input.Body.Archived == nil {
-			return nil, huma.Error400BadRequest("read or archived is required")
-		}
-		if err := h.messaging.SetConversationState(ctx, messagingActor(ctx), input.Body.WorkspaceID, input.ConversationID, input.Body.Read, input.Body.Archived); err != nil {
-			return nil, messagingHTTPError(err, "failed to update conversation")
-		}
-		return nil, nil
-	})
+	}, h.setConversationState)
+}
 
+func (h *EngagementMessagingHandler) registerRefreshRoutes(api huma.API) {
 	huma.Register(api, huma.Operation{
 		OperationID: "refresh-engagement-and-messaging",
 		Method:      http.MethodPost, Path: "/engagement-and-messaging/refresh", Summary: "Queue engagement and message collection",
 		Tags: []string{tagCapabilities}, Middlewares: huma.Middlewares{middleware.AuthMiddleware(api, h.auth)},
-	}, func(ctx context.Context, input *RefreshCapabilitiesInput) (*RefreshCapabilitiesOutput, error) {
-		var engagementRefresh, messagingRefresh refreshCapability
-		if h.engagement != nil {
-			engagementRefresh = func(callCtx context.Context) (int, error) {
-				return h.engagement.RefreshWorkspace(callCtx, engagementActor(ctx), input.Body.WorkspaceID, true)
-			}
-		}
-		if h.messaging != nil {
-			messagingRefresh = func(callCtx context.Context) (int, error) {
-				return h.messaging.RefreshWorkspace(callCtx, messagingActor(ctx), input.Body.WorkspaceID, true)
-			}
-		}
-		return &RefreshCapabilitiesOutput{Body: coordinateCapabilityRefresh(ctx, engagementRefresh, messagingRefresh)}, nil
-	})
+	}, h.refreshEngagementAndMessaging)
 
 	huma.Register(api, huma.Operation{
 		OperationID: "refresh-engagement",
 		Method:      http.MethodPost, Path: "/engagement/refresh", Summary: "Queue engagement collection",
 		Tags: []string{tagEngagement}, Middlewares: huma.Middlewares{middleware.AuthMiddleware(api, h.auth)},
-	}, func(ctx context.Context, input *RefreshCapabilitiesInput) (*RefreshCapabilityOutput, error) {
-		if h.engagement == nil {
-			return &RefreshCapabilityOutput{Body: runCapabilityRefresh(ctx, nil)}, nil
-		}
-		return &RefreshCapabilityOutput{Body: runCapabilityRefresh(ctx, func(callCtx context.Context) (int, error) {
-			return h.engagement.RefreshWorkspace(callCtx, engagementActor(ctx), input.Body.WorkspaceID, true)
-		})}, nil
-	})
+	}, h.refreshEngagement)
 
 	huma.Register(api, huma.Operation{
 		OperationID: "refresh-messaging",
 		Method:      http.MethodPost, Path: "/messages/refresh", Summary: "Queue message collection",
 		Tags: []string{tagMessaging}, Middlewares: huma.Middlewares{middleware.AuthMiddleware(api, h.auth)},
-	}, func(ctx context.Context, input *RefreshCapabilitiesInput) (*RefreshCapabilityOutput, error) {
-		if h.messaging == nil {
-			return &RefreshCapabilityOutput{Body: runCapabilityRefresh(ctx, nil)}, nil
-		}
-		return &RefreshCapabilityOutput{Body: runCapabilityRefresh(ctx, func(callCtx context.Context) (int, error) {
-			return h.messaging.RefreshWorkspace(callCtx, messagingActor(ctx), input.Body.WorkspaceID, true)
-		})}, nil
-	})
+	}, h.refreshMessaging)
 }
 
+func (h *EngagementMessagingHandler) listEngagement(ctx context.Context, input *ListEngagementInput) (*ListEngagementOutput, error) {
+	if h.engagement == nil {
+		return nil, huma.Error503ServiceUnavailable("engagement service is unavailable")
+	}
+	cursor, err := parseEngagementCursor(input.Cursor)
+	if err != nil || (cursor != nil && input.Offset != 0) {
+		return nil, huma.Error400BadRequest("invalid engagement cursor")
+	}
+	page, err := h.engagement.ListEngagement(ctx, engagementActor(ctx), engagement.Query{
+		WorkspaceID: input.WorkspaceID, Platform: input.Platform, AccountID: input.AccountID,
+		PublicationID: input.PublicationID, Kind: input.Kind, UnreadOnly: input.UnreadOnly, Archived: input.Archived,
+		Limit: input.Limit, Offset: input.Offset, Cursor: cursor,
+	})
+	if err != nil {
+		return nil, engagementHTTPError(err, "failed to load engagement")
+	}
+	states, err := h.engagement.ListEngagementSyncStates(ctx, engagementActor(ctx), input.WorkspaceID)
+	if err != nil {
+		return nil, engagementHTTPError(err, "failed to load engagement sync state")
+	}
+	safeStates := make([]EngagementSyncState, 0, len(states))
+	for _, state := range states {
+		safeStates = append(safeStates, EngagementSyncState{
+			Feed: state.Feed,
+			ID:   state.ID, RenditionID: state.RenditionID, SocialAccountID: state.SocialAccountID,
+			Platform: state.Platform, Status: state.Status, ErrorCode: state.ErrorCode,
+			ErrorMessage: state.ErrorMessage, LastSuccessAt: state.LastSuccessAt, NextSyncAt: state.NextSyncAt,
+		})
+	}
+	return &ListEngagementOutput{Body: EngagementPage{
+		Items: page.Items, Total: page.Total, SyncStates: safeStates,
+		NextCursor: encodeEngagementCursor(page.NextCursor),
+	}}, nil
+}
+
+func (h *EngagementMessagingHandler) setEngagementState(ctx context.Context, input *SetEngagementStateInput) (*struct{}, error) {
+	if h.engagement == nil {
+		return nil, huma.Error503ServiceUnavailable("engagement service is unavailable")
+	}
+	if input.Body.Read == nil && input.Body.Archived == nil {
+		return nil, huma.Error400BadRequest("read or archived is required")
+	}
+	if err := h.engagement.SetEngagementState(ctx, engagementActor(ctx), input.Body.WorkspaceID, input.Body.IDs, input.Body.Read, input.Body.Archived); err != nil {
+		return nil, engagementHTTPError(err, "failed to update engagement")
+	}
+	return nil, nil
+}
+
+type EngagementActionOutput struct {
+	Body struct {
+		JobID string `json:"job_id"`
+	}
+}
+
+func (h *EngagementMessagingHandler) queueEngagementAction(ctx context.Context, input *EngagementActionInput) (*EngagementActionOutput, error) {
+	if h.engagement == nil {
+		return nil, huma.Error503ServiceUnavailable("engagement service is unavailable")
+	}
+	if input.Body.Action == "reply" && strings.TrimSpace(input.Body.Message) == "" {
+		return nil, huma.Error400BadRequest("message is required for a reply")
+	}
+	actor := engagementActor(ctx)
+	if actor.CredentialWorkspaceID != "" && actor.CredentialWorkspaceID != input.Body.WorkspaceID {
+		return nil, huma.Error403Forbidden("workspace access denied")
+	}
+	actor.CredentialWorkspaceID = input.Body.WorkspaceID
+	jobID, err := h.engagement.QueueEngagementActionReceipt(ctx, actor, input.ItemID, input.Body.Action, input.Body.Message, input.Body.ClientOperationID)
+	if err != nil {
+		if errors.Is(err, engagement.ErrOperationConflict) || errors.Is(err, engagement.ErrReviewReplyBusy) {
+			return nil, huma.Error409Conflict(err.Error())
+		}
+		if errors.Is(err, engagement.ErrAccessDenied) || errors.Is(err, engagement.ErrNotFound) {
+			return nil, engagementHTTPError(err, "failed to queue engagement action")
+		}
+		return nil, huma.Error400BadRequest(err.Error())
+	}
+	out := &EngagementActionOutput{}
+	out.Body.JobID = jobID
+	return out, nil
+}
+
+func (h *EngagementMessagingHandler) listConversations(ctx context.Context, input *ListConversationsInput) (*ListConversationsOutput, error) {
+	if h.messaging == nil {
+		return nil, huma.Error503ServiceUnavailable("messaging service is unavailable")
+	}
+	cursor, err := parseConversationCursor(input.Cursor)
+	if err != nil || (cursor != nil && input.Offset != 0) {
+		return nil, huma.Error400BadRequest("invalid conversation cursor")
+	}
+	page, err := h.messaging.ListConversations(ctx, messagingActor(ctx), messaging.ConversationQuery{
+		WorkspaceID: input.WorkspaceID, Platform: input.Platform, AccountID: input.AccountID,
+		Archived: input.Archived, Search: input.Search, UnreadOnly: input.UnreadOnly, Limit: input.Limit, Offset: input.Offset, Cursor: cursor,
+	})
+	if err != nil {
+		return nil, messagingHTTPError(err, "failed to load messages")
+	}
+	states, err := h.messaging.ListSyncStates(ctx, messagingActor(ctx), input.WorkspaceID)
+	if err != nil {
+		return nil, huma.Error500InternalServerError("failed to load message sync state")
+	}
+	safeStates := make([]MessageSyncState, 0, len(states))
+	for _, state := range states {
+		safeStates = append(safeStates, MessageSyncState{
+			ID: state.ID, SocialAccountID: state.SocialAccountID, Platform: state.Platform,
+			Status: state.Status, ErrorCode: state.ErrorCode, ErrorMessage: state.ErrorMessage,
+			LastSuccessAt: state.LastSuccessAt, NextSyncAt: state.NextSyncAt,
+		})
+	}
+	return &ListConversationsOutput{Body: ConversationPage{
+		Items: page.Items, Total: page.Total, SyncStates: safeStates,
+		NextCursor: encodeConversationCursor(page.NextCursor),
+	}}, nil
+}
+
+func (h *EngagementMessagingHandler) listConversationMessages(ctx context.Context, input *ListMessagesInput) (*ListMessagesOutput, error) {
+	if h.messaging == nil {
+		return nil, huma.Error503ServiceUnavailable("messaging service is unavailable")
+	}
+	cursor, err := parseMessageCursor(input.Cursor)
+	if err != nil || (cursor != nil && input.Offset != 0) {
+		return nil, huma.Error400BadRequest("invalid message cursor")
+	}
+	page, err := h.messaging.ListMessages(ctx, messagingActor(ctx), messaging.MessageQuery{
+		WorkspaceID: input.WorkspaceID, ConversationID: input.ConversationID,
+		Limit: input.Limit, Offset: input.Offset, Cursor: cursor,
+	})
+	if err != nil {
+		if errors.Is(err, messaging.ErrNotFound) {
+			return nil, huma.Error404NotFound("conversation not found")
+		}
+		log.Printf("failed to load conversation %s in workspace %s: %v", input.ConversationID, input.WorkspaceID, err)
+		return nil, huma.Error500InternalServerError("failed to load conversation")
+	}
+	return &ListMessagesOutput{Body: MessagePage{
+		Items: page.Items, NextCursor: encodeMessageCursor(page.NextCursor), HistoryAvailable: page.HistoryAvailable, Conversation: &page.Conversation,
+	}}, nil
+}
+
+func (h *EngagementMessagingHandler) sendConversationMessage(ctx context.Context, input *SendMessageInput) (*SendMessageOutput, error) {
+	if h.messaging == nil {
+		return nil, huma.Error503ServiceUnavailable("messaging service is unavailable")
+	}
+	actor := messagingActor(ctx)
+	if actor.CredentialWorkspaceID != "" && actor.CredentialWorkspaceID != input.Body.WorkspaceID {
+		return nil, huma.Error403Forbidden("workspace access denied")
+	}
+	actor.CredentialWorkspaceID = input.Body.WorkspaceID
+	message, err := h.messaging.QueueMessage(ctx, actor, input.ConversationID, input.Body.Message, input.Body.ClientOperationID)
+	if err != nil {
+		if errors.Is(err, messaging.ErrOperationConflict) {
+			return nil, huma.Error409Conflict(err.Error())
+		}
+		if errors.Is(err, messaging.ErrAccessDenied) || errors.Is(err, messaging.ErrNotFound) {
+			return nil, messagingHTTPError(err, "failed to queue message")
+		}
+		return nil, huma.Error400BadRequest(err.Error())
+	}
+	return &SendMessageOutput{Body: *message}, nil
+}
+
+func (h *EngagementMessagingHandler) setConversationState(ctx context.Context, input *SetConversationStateInput) (*struct{}, error) {
+	if h.messaging == nil {
+		return nil, huma.Error503ServiceUnavailable("messaging service is unavailable")
+	}
+	if input.Body.Read == nil && input.Body.Archived == nil {
+		return nil, huma.Error400BadRequest("read or archived is required")
+	}
+	if err := h.messaging.SetConversationState(ctx, messagingActor(ctx), input.Body.WorkspaceID, input.ConversationID, input.Body.Read, input.Body.Archived); err != nil {
+		return nil, messagingHTTPError(err, "failed to update conversation")
+	}
+	return nil, nil
+}
+
+func (h *EngagementMessagingHandler) refreshEngagementAndMessaging(ctx context.Context, input *RefreshCapabilitiesInput) (*RefreshCapabilitiesOutput, error) {
+	var engagementRefresh, messagingRefresh refreshCapability
+	if h.engagement != nil {
+		engagementRefresh = func(callCtx context.Context) (int, error) {
+			return h.engagement.RefreshWorkspace(callCtx, engagementActor(ctx), input.Body.WorkspaceID, true)
+		}
+	}
+	if h.messaging != nil {
+		messagingRefresh = func(callCtx context.Context) (int, error) {
+			return h.messaging.RefreshWorkspace(callCtx, messagingActor(ctx), input.Body.WorkspaceID, true)
+		}
+	}
+	outcome := coordinateCapabilityRefresh(ctx, engagementRefresh, messagingRefresh)
+	if h.engagement != nil && outcome.Engagement.Status == "queued" {
+		var err error
+		outcome.Engagement.JobIDs, err = h.engagement.ActiveRefreshJobIDs(ctx, engagementActor(ctx), input.Body.WorkspaceID)
+		if err != nil {
+			return nil, engagementHTTPError(err, "failed to inspect comment collection jobs")
+		}
+	}
+	if h.messaging != nil && outcome.Messaging.Status == "queued" {
+		var err error
+		outcome.Messaging.JobIDs, err = h.messaging.ActiveRefreshJobIDs(ctx, messagingActor(ctx), input.Body.WorkspaceID)
+		if err != nil {
+			return nil, messagingHTTPError(err, "failed to inspect message collection jobs")
+		}
+	}
+	return &RefreshCapabilitiesOutput{Body: outcome}, nil
+}
+
+func (h *EngagementMessagingHandler) refreshEngagement(ctx context.Context, input *RefreshCapabilitiesInput) (*RefreshCapabilityOutput, error) {
+	if h.engagement == nil {
+		return &RefreshCapabilityOutput{Body: runCapabilityRefresh(ctx, nil)}, nil
+	}
+	outcome := runCapabilityRefresh(ctx, func(callCtx context.Context) (int, error) {
+		return h.engagement.RefreshWorkspace(callCtx, engagementActor(ctx), input.Body.WorkspaceID, true)
+	})
+	if outcome.Status == "queued" {
+		var err error
+		outcome.JobIDs, err = h.engagement.ActiveRefreshJobIDs(ctx, engagementActor(ctx), input.Body.WorkspaceID)
+		if err != nil {
+			return nil, engagementHTTPError(err, "failed to inspect collection jobs")
+		}
+	}
+	return &RefreshCapabilityOutput{Body: outcome}, nil
+}
+
+func (h *EngagementMessagingHandler) refreshMessaging(ctx context.Context, input *RefreshCapabilitiesInput) (*RefreshCapabilityOutput, error) {
+	if h.messaging == nil {
+		return &RefreshCapabilityOutput{Body: runCapabilityRefresh(ctx, nil)}, nil
+	}
+	outcome := runCapabilityRefresh(ctx, func(callCtx context.Context) (int, error) {
+		return h.messaging.RefreshWorkspace(callCtx, messagingActor(ctx), input.Body.WorkspaceID, true)
+	})
+	if outcome.Status == "queued" {
+		var err error
+		outcome.JobIDs, err = h.messaging.ActiveRefreshJobIDs(ctx, messagingActor(ctx), input.Body.WorkspaceID)
+		if err != nil {
+			return nil, messagingHTTPError(err, "failed to inspect collection jobs")
+		}
+	}
+	return &RefreshCapabilityOutput{Body: outcome}, nil
+}
 func engagementActor(ctx context.Context) engagement.Actor {
 	return engagement.Actor{
 		UserID: middleware.GetUserID(ctx), SessionID: middleware.GetSessionID(ctx), TokenID: middleware.GetTokenID(ctx),

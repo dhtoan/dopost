@@ -14,7 +14,8 @@
 // ├── thread  (create)
 // ├── jobs    (list)
 // ├── billing (status, checkout, portal)
-// └── completion
+// ├── completion
+// └── doctor  (offline local configuration check)
 //
 // Each subcommand file owns its own RunE and flags. Global flags
 // (--profile, --instance, --workspace, --json, --quiet, --yes,
@@ -96,8 +97,10 @@ func NewRoot(version string) *cobra.Command {
 	root.AddCommand(newPublicationCmd())
 	root.AddCommand(newThreadCmd())
 	root.AddCommand(newJobsCmd())
+	root.AddCommand(newInboxCmd())
 	root.AddCommand(newBillingCmd())
 	root.AddCommand(newCompletionCmd())
+	root.AddCommand(newDoctorCmd())
 	root.AddCommand(newVersionCmd(version))
 
 	return root

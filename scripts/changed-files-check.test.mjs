@@ -35,7 +35,7 @@ function fixture() {
   fixtures.push(cwd);
   git(cwd, "init", "--initial-branch=main");
   git(cwd, "config", "user.email", "test@openpost.local");
-  git(cwd, "config", "user.name", "OpenPost test");
+  git(cwd, "config", "user.name", "dopost test");
   writeFileSync(join(cwd, "tracked.txt"), "base\n");
   writeFileSync(join(cwd, "staged.txt"), "base\n");
   git(cwd, "add", ".");
@@ -57,6 +57,27 @@ function formatterEnv(cwd) {
 }
 
 describe("changed-files-check", () => {
+  test("files0 checks committed paths and rejects incomplete path records", () => {
+    const cwd = fixture();
+    const file = "committed script\nname.sh";
+    writeFileSync(join(cwd, file), "if true; then\n");
+    git(cwd, "add", file);
+    git(cwd, "commit", "-m", "committed shell failure");
+
+    const failed = run("bash", [script, "--files0"], cwd, { input: `deleted.sh\0${file}\0` });
+    expect(failed.status).not.toBe(0);
+    expect(failed.stderr).toContain("syntax error");
+
+    writeFileSync(join(cwd, file), "if true; then true; fi\n");
+    const repaired = run("bash", [script, "--files0"], cwd, { input: `${file}\0` });
+    expect(repaired.status, repaired.stderr).toBe(0);
+    expect(repaired.stdout).toContain("OK (1 changed files)");
+
+    const incomplete = run("bash", [script, "--files0"], cwd, { input: file });
+    expect(incomplete.status).not.toBe(0);
+    expect(incomplete.stderr).toContain("terminating NUL");
+  });
+
   test("checks unstaged, staged, and untracked files in worktree mode", () => {
     const cwd = fixture();
     writeFileSync(join(cwd, "tracked.txt"), "changed\n");
@@ -215,5 +236,42 @@ describe("changed-files-check", () => {
     expect(sourceResult.stdout + sourceResult.stderr).toContain("unformatted.js");
     expect(svelteResult.status).not.toBe(0);
     expect(svelteResult.stderr).toContain("CompileError: Unexpected block closing tag");
+  });
+
+  test.each(["apps/mobile/src/app/publications/[id].tsx", "apps/docs/components/unformatted.jsx"])(
+    "checks React formatting before committing %s",
+    (file) => {
+      const cwd = fixture();
+      const env = formatterEnv(cwd);
+      mkdirSync(dirname(join(cwd, file)), { recursive: true });
+      writeFileSync(join(cwd, file), "const Example=()=> <div>Example</div>;\n");
+      git(cwd, "add", file);
+
+      const rejected = run("bash", [script, "--staged"], cwd, { env });
+      expect(rejected.status, rejected.stdout + rejected.stderr).not.toBe(0);
+      expect(rejected.stdout + rejected.stderr).toContain(file);
+
+      const formatted = run("bunx", ["oxfmt", file], cwd, { env });
+      expect(formatted.status, formatted.stderr).toBe(0);
+      git(cwd, "add", file);
+      const accepted = run("bash", [script, "--staged"], cwd, { env });
+      expect(accepted.status, accepted.stdout + accepted.stderr).toBe(0);
+    },
+  );
+
+  test("accepts a staged generated file excluded from formatting", () => {
+    const cwd = fixture();
+    mkdirSync(join(cwd, "packages/api-contract/src"), { recursive: true });
+    writeFileSync(join(cwd, ".prettierignore"), "packages/api-contract/src/schema.d.ts\n");
+    writeFileSync(
+      join(cwd, "packages/api-contract/src/schema.d.ts"),
+      "export type Generated={value:string}\n",
+    );
+    git(cwd, "add", "packages/api-contract/src/schema.d.ts");
+
+    const result = run("bash", [script, "--staged"], cwd, { env: formatterEnv(cwd) });
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain("changed-files-check: OK (1 changed files)");
   });
 });

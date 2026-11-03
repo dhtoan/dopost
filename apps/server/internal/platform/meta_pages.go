@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -42,6 +43,51 @@ type metaBusiness struct {
 
 type metaGraphBudget struct {
 	requests int
+}
+
+type metaGraphCollection[T any] struct {
+	Data   []T `json:"data"`
+	Paging struct {
+		Next string `json:"next"`
+	} `json:"paging"`
+	Error json.RawMessage `json:"error"`
+}
+
+func metaGraphEmbeddedError(raw json.RawMessage) error {
+	if len(raw) == 0 || string(raw) == "null" {
+		return nil
+	}
+	return NewHTTPError(http.StatusBadRequest, nil, []byte(`{"error":`+string(raw)+`}`))
+}
+
+func fetchMetaGraphRemaining[T any](ctx context.Context, origin string, page metaGraphCollection[T], label string, budget *metaGraphBudget) ([]T, error) {
+	if err := metaGraphEmbeddedError(page.Error); err != nil {
+		return nil, fmt.Errorf("%s: %w", label, err)
+	}
+	initial, err := url.Parse(origin)
+	if err != nil {
+		return nil, fmt.Errorf("%s URL is invalid", label)
+	}
+	next, err := validatedMetaNextURL(initial, page.Paging.Next)
+	if err != nil {
+		return nil, fmt.Errorf("%s pagination: %w", label, err)
+	}
+	if next == "" {
+		return page.Data, nil
+	}
+	// Continuation tokens are not part of page identity. Carry the original
+	// credential separately until fetchMetaGraphEdge moves it into the header.
+	nextPage, _ := url.Parse(next)
+	query := nextPage.Query()
+	if token := initial.Query().Get(oauthParamAccessToken); token != "" {
+		query.Set(oauthParamAccessToken, token)
+		nextPage.RawQuery = query.Encode()
+	}
+	remaining, err := fetchMetaGraphEdge[T](ctx, nextPage.String(), label, budget)
+	if err != nil {
+		return nil, err
+	}
+	return append(page.Data, remaining...), nil
 }
 
 func listMetaManagedPages(
@@ -109,6 +155,10 @@ func fetchMetaGraphEdge[T any](ctx context.Context, firstURL, label string, budg
 	if err != nil || initial.Scheme != "https" || initial.Host == "" {
 		return nil, fmt.Errorf("%s URL is invalid", label)
 	}
+	query := initial.Query()
+	accessToken := query.Get(oauthParamAccessToken)
+	query.Del(oauthParamAccessToken)
+	initial.RawQuery = query.Encode()
 	nextURL := initial.String()
 	seen := make(map[string]struct{})
 	var items []T
@@ -122,24 +172,20 @@ func fetchMetaGraphEdge[T any](ctx context.Context, firstURL, label string, budg
 		seen[nextURL] = struct{}{}
 		budget.requests++
 
-		body, requestErr := DoRequest(ctx, http.MethodGet, nextURL, nil, nil)
+		headers := map[string]string{}
+		if accessToken != "" {
+			headers[headerAuthorization] = bearerPrefix + accessToken
+		}
+		body, requestErr := doMetaRequest(ctx, http.MethodGet, nextURL, nil, headers)
 		if requestErr != nil {
 			return nil, fmt.Errorf("%s: %w", label, requestErr)
 		}
-		var response struct {
-			Data   []T `json:"data"`
-			Paging struct {
-				Next string `json:"next"`
-			} `json:"paging"`
-			Error struct {
-				Message string `json:"message"`
-			} `json:"error"`
-		}
+		var response metaGraphCollection[T]
 		if decodeErr := json.Unmarshal(body, &response); decodeErr != nil {
 			return nil, fmt.Errorf("decoding %s: %w", label, decodeErr)
 		}
-		if response.Error.Message != "" {
-			return nil, fmt.Errorf("%s returned an error", label)
+		if responseErr := metaGraphEmbeddedError(response.Error); responseErr != nil {
+			return nil, fmt.Errorf("%s returned an error: %w", label, responseErr)
 		}
 		items = append(items, response.Data...)
 		nextURL, err = validatedMetaNextURL(initial, response.Paging.Next)
@@ -163,6 +209,9 @@ func validatedMetaNextURL(initial *url.URL, rawNext string) (string, error) {
 	if next.Scheme != initial.Scheme || next.Host != initial.Host {
 		return "", fmt.Errorf("next URL changed host")
 	}
+	query := next.Query()
+	query.Del(oauthParamAccessToken)
+	next.RawQuery = query.Encode()
 	return next.String(), nil
 }
 
@@ -219,4 +268,27 @@ func mergeMetaPage(current, candidate metaPage) metaPage {
 		current.InstagramBusinessAccount = candidate.InstagramBusinessAccount
 	}
 	return current
+}
+
+// Meta access tokens travel in headers, including provider continuation URLs.
+// The Graph API does not require redirects for these credentialed operations.
+func doMetaRequest(ctx context.Context, method, rawURL string, body io.Reader, headers map[string]string) ([]byte, error) {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return nil, fmt.Errorf("invalid Meta request URL")
+	}
+	query := parsed.Query()
+	if token := query.Get(oauthParamAccessToken); token != "" {
+		query.Del(oauthParamAccessToken)
+		parsed.RawQuery = query.Encode()
+		copied := make(map[string]string, len(headers)+1)
+		for key, value := range headers {
+			copied[key] = value
+		}
+		if copied[headerAuthorization] == "" {
+			copied[headerAuthorization] = bearerPrefix + token
+		}
+		headers = copied
+	}
+	return DoRequestNoRedirect(ctx, method, parsed.String(), body, headers)
 }

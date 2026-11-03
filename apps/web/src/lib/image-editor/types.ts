@@ -1,13 +1,16 @@
 import type { EditorColorGrade } from '$lib/editor-color-grade/model';
 import type { StockMediaProvenance } from '$lib/stock-media';
 
-export const IMAGE_EDITOR_SCHEMA_VERSION = 1 as const;
+export const IMAGE_EDITOR_SCHEMA_VERSION = 2 as const;
 export const IMAGE_EDITOR_LIMITS = {
 	minDimension: 64,
 	maxDimension: 4096,
 	maxPixels: 25_000_000,
 	maxPages: 35,
 	maxLayersPerPage: 500,
+	maxEffectBlur: 100,
+	maxEffectDistance: 500,
+	maxEffectStroke: 500,
 	maxDocumentBytes: 10 * 1024 * 1024
 } as const;
 
@@ -17,6 +20,7 @@ export type ImageEditorSelectionTool =
 	| 'marquee'
 	| 'ellipse_marquee'
 	| 'lasso'
+	| 'polygonal_lasso'
 	| 'magic_wand';
 export type ImageEditorSelectionMode = 'replace' | 'add' | 'subtract' | 'intersect' | 'toggle';
 export type ImageEditorGradientType = 'linear' | 'radial' | 'angle' | 'reflected' | 'diamond';
@@ -83,6 +87,7 @@ export interface ImageEditorTextCurve {
 
 export interface ImageEditorTextValue {
 	text: string;
+	runs?: ImageEditorTextRun[];
 	font_family: string;
 	font_asset_id?: string;
 	font_weight: number;
@@ -100,6 +105,15 @@ export interface ImageEditorTextValue {
 	stroke_width: number;
 	shadow: ImageEditorTextShadow;
 	curve?: ImageEditorTextCurve;
+}
+
+export interface ImageEditorTextRun {
+	start: number;
+	end: number;
+	font_weight?: number;
+	font_style?: 'normal' | 'italic';
+	underline?: boolean;
+	color?: string;
 }
 
 export interface ImageEditorImageAdjustments extends EditorColorGrade {
@@ -123,6 +137,23 @@ export interface ImageEditorImageValue {
 	adjustments: ImageEditorImageAdjustments;
 	/** Missing means the legacy Fabric adjustment behavior. New images use the shared GPU grade. */
 	color_grade_version?: 1;
+	lens_effect?: ImageEditorLensEffect;
+	animation?: ImageEditorAnimation;
+}
+
+export interface ImageEditorAnimation {
+	source_frame_count: number;
+	repeat: number;
+	frames: Array<{ source_index: number; duration_ms: number }>;
+}
+
+export interface ImageEditorLensEffect {
+	kind: 'flare' | 'starburst' | 'mist' | 'prism' | 'bokeh';
+	amount: number;
+	threshold: number;
+	size: number;
+	angle: number;
+	blades: number;
 }
 
 export interface ImageEditorShapeValue {
@@ -252,6 +283,9 @@ export interface ImageEditorLayer {
 export interface ImageEditorPage {
 	id: string;
 	name: string;
+	/** Omitted in legacy documents; both dimensions then inherit the document defaults. */
+	width_px?: number;
+	height_px?: number;
 	background_color: string;
 	background?: ImageEditorPageBackground;
 	/** Versioned output grade applied after the complete page has been composited. */
@@ -267,7 +301,8 @@ export interface ImageEditorPage {
 }
 
 export interface ImageEditorDocument {
-	schema_version: typeof IMAGE_EDITOR_SCHEMA_VERSION;
+	template_slots?: Array<{ name: string; target_id: string; max_characters: number }>;
+	schema_version: 1 | typeof IMAGE_EDITOR_SCHEMA_VERSION;
 	title: string;
 	preset_key: string;
 	width_px: number;
@@ -275,7 +310,7 @@ export interface ImageEditorDocument {
 	brand_kit_id?: string;
 	brand_kit_revision: number;
 	export_defaults: {
-		format: 'png' | 'jpeg' | 'webp';
+		format: 'png' | 'jpeg' | 'webp' | 'gif';
 		quality: number;
 		matte_color: string;
 	};
@@ -381,7 +416,14 @@ export interface ImageEditorBrandFont {
 	license_acknowledged_at?: string;
 }
 
+export interface ImageEditorEffectPreset {
+	id: string;
+	name: string;
+	effects: ImageEditorLayerEffects;
+}
+
 export interface ImageEditorBrandKit {
+	effect_presets?: ImageEditorEffectPreset[];
 	id: string;
 	workspace_id: string;
 	name: string;

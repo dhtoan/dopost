@@ -6,6 +6,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { marketingSocialEntries } from "../packages/social-images/src/index.js";
 import { platforms } from "../apps/marketing/src/routes/_marketing.ts";
 import { publishedProviderAssetSlugs } from "./asset-surfaces.ts";
+import { reportProblems } from "./report-problems.mjs";
 
 export const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -38,7 +39,7 @@ const totalCountPatterns = [
   new RegExp(`\\b${countToken} publishing destinations\\b`, "giu"),
   new RegExp(`\\b${countToken} social networks\\b`, "giu"),
   new RegExp(`\\b${countToken} social network limits\\b`, "giu"),
-  new RegExp(`\\b${countToken} OpenPost platforms\\b`, "giu"),
+  new RegExp(`\\b${countToken} dopost platforms\\b`, "giu"),
   new RegExp(`\\b(?:compare|preview) ${countToken} (?:limits|platforms)\\b`, "giu"),
   new RegExp(`\\b${countToken} equivalent providers\\b`, "giu"),
 ];
@@ -184,12 +185,7 @@ export async function validateProviderCatalogFacts(root = repositoryRoot) {
 
 async function main() {
   const problems = await validateProviderCatalogFacts();
-  if (problems.length > 0) {
-    console.error(
-      `Provider catalogue fact check failed:\n${problems.map((problem) => `- ${problem}`).join("\n")}`,
-    );
-    process.exit(1);
-  }
+  reportProblems("Provider catalogue fact check failed", problems);
   const source = await readFile(
     path.join(repositoryRoot, "apps/server/internal/api/handlers/oauth.go"),
     "utf8",

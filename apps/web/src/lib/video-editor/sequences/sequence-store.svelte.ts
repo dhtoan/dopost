@@ -31,6 +31,7 @@ const state = $state<{
 	compositions: SubComposition[];
 	topLevelSequenceIds: string[];
 	activeSequenceId: string | null;
+	activeTimelineRevision: number;
 	rootTimeline: ProjectTimeline;
 	rootResolution: ProjectResolution;
 	sequenceViewById: Record<string, SequenceViewState>;
@@ -38,10 +39,24 @@ const state = $state<{
 	compositions: [],
 	topLevelSequenceIds: [],
 	activeSequenceId: null,
+	activeTimelineRevision: 0,
 	rootTimeline: createEmptyTimeline(),
 	rootResolution: { width: 1920, height: 1080, fps: 30 },
 	sequenceViewById: {}
 });
+
+let indexedCompositions: SubComposition[] | null = null;
+let compositionIndex = new Map<string, SubComposition>();
+
+function compositionsById(): Map<string, SubComposition> {
+	if (state.compositions !== indexedCompositions) {
+		indexedCompositions = state.compositions;
+		compositionIndex = new Map(
+			state.compositions.map((composition) => [composition.id, composition])
+		);
+	}
+	return compositionIndex;
+}
 
 function copy<T>(value: T): T {
 	return snapshotTimelineState(value);
@@ -159,21 +174,32 @@ function flushActive(): void {
 			snapshot.items.reduce((max, item) => Math.max(max, item.from + item.durationInFrames), 0)
 		)
 	};
-	if (!equal(current, nextComposition)) state.compositions[index] = nextComposition;
+	if (!equal(current, nextComposition)) {
+		state.compositions = state.compositions.map((composition, currentIndex) =>
+			currentIndex === index ? nextComposition : composition
+		);
+	}
 }
 
 export const sequenceStore = {
 	get compositions(): SubComposition[] {
 		return state.compositions;
 	},
-	get compositionById(): Map<string, SubComposition> {
-		return new Map(state.compositions.map((composition) => [composition.id, composition]));
+	get compositionById(): ReadonlyMap<string, SubComposition> {
+		return compositionsById();
 	},
 	get topLevelSequenceIds(): string[] {
 		return state.topLevelSequenceIds;
 	},
 	get activeSequenceId(): string | null {
 		return state.activeSequenceId;
+	},
+	/**
+	 * Identity for stateful views bound to the active timeline document.
+	 * A sequence switch is a session boundary even when item ids overlap.
+	 */
+	get activeTimelineKey(): string {
+		return `${state.activeSequenceId ?? 'root'}:${state.activeTimelineRevision}`;
 	},
 	get activeSequence(): SubComposition | undefined {
 		return state.activeSequenceId
@@ -188,6 +214,13 @@ export const sequenceStore = {
 	},
 	get activeHeight(): number {
 		return sequenceStore.activeSequence?.height ?? state.rootResolution.height;
+	},
+	get activeDurationInFrames(): number {
+		const sequence = sequenceStore.activeSequence;
+		return Math.max(
+			timelineStore.maxItemEndFrame,
+			sequence?.editorKind === 'composite-2d' ? sequence.durationInFrames : 0
+		);
 	},
 	_setRootResolution(resolution: ProjectResolution): void {
 		state.rootResolution = copy(resolution);
@@ -228,6 +261,7 @@ export const sequenceStore = {
 			topLevelSequenceIds: undefined
 		});
 		applyTimeline(state.rootTimeline, rootResolution.fps);
+		state.activeTimelineRevision += 1;
 	},
 	switchTo(sequenceId: string | null): boolean {
 		if (sequenceId === state.activeSequenceId) return true;
@@ -236,10 +270,11 @@ export const sequenceStore = {
 			: undefined;
 		if (sequenceId && !target) return false;
 		flushActive();
-		state.activeSequenceId = sequenceId;
 		if (target)
 			applyTimeline(sequenceTimeline(target, state.sequenceViewById[target.id]), target.fps);
 		else applyTimeline(state.rootTimeline, state.rootResolution.fps);
+		state.activeSequenceId = sequenceId;
+		state.activeTimelineRevision += 1;
 		return true;
 	},
 	flushActive,
@@ -260,7 +295,9 @@ export const sequenceStore = {
 	updateComposition(id: string, patch: Partial<Omit<SubComposition, 'id'>>): boolean {
 		const index = state.compositions.findIndex((composition) => composition.id === id);
 		if (index < 0) return false;
-		state.compositions[index] = { ...state.compositions[index]!, ...copy(patch) };
+		state.compositions = state.compositions.map((composition, currentIndex) =>
+			currentIndex === index ? { ...composition, ...copy(patch) } : composition
+		);
 		return true;
 	},
 	deleteCompositionAndReferences(id: string): boolean {
@@ -290,6 +327,7 @@ export const sequenceStore = {
 		} else {
 			applyTimeline(state.rootTimeline, state.rootResolution.fps);
 		}
+		state.activeTimelineRevision += 1;
 		return true;
 	},
 	promoteToTab(id: string): boolean {
@@ -416,6 +454,7 @@ export const sequenceStore = {
 		state.compositions = [];
 		state.topLevelSequenceIds = [];
 		state.activeSequenceId = null;
+		state.activeTimelineRevision = 0;
 		state.rootTimeline = createEmptyTimeline();
 		state.rootResolution = { width: 1920, height: 1080, fps: 30 };
 		state.sequenceViewById = {};

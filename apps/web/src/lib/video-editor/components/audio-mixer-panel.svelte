@@ -85,6 +85,13 @@
 		const readout = root.querySelector<HTMLElement>(`[data-fader-readout="${key}"]`);
 		if (knob) knob.style.bottom = `${mixerDbToFaderPercent(db)}%`;
 		if (readout) readout.textContent = formatMixerDb(db);
+		// Pointer drags bypass Svelte's reactive aria bindings, so keep the
+		// slider semantics in sync manually like the keyboard path does.
+		const slider = knob?.parentElement;
+		if (slider?.getAttribute('role') === 'slider') {
+			slider.setAttribute('aria-valuenow', String(db));
+			slider.setAttribute('aria-valuetext', `${formatMixerDb(db)} dB`);
+		}
 	}
 
 	function previewFader(target: FaderTarget, startDb: number, db: number): void {
@@ -238,12 +245,12 @@
 		let next: number | null = null;
 		const current = targetDb(target);
 		const step = event.shiftKey ? 0.1 : 1;
-		if (event.key === 'ArrowUp') next = current + step;
-		if (event.key === 'ArrowDown') next = current - step;
+		if (event.key === 'ArrowUp' || event.key === 'ArrowRight') next = current + step;
+		if (event.key === 'ArrowDown' || event.key === 'ArrowLeft') next = current - step;
 		if (event.key === 'PageUp') next = current + 6;
 		if (event.key === 'PageDown') next = current - 6;
-		if (event.key === 'Home') next = MIXER_MAX_DB;
-		if (event.key === 'End') next = MIXER_MIN_DB;
+		if (event.key === 'Home') next = MIXER_MIN_DB;
+		if (event.key === 'End') next = MIXER_MAX_DB;
 		if (event.key === '0') next = 0;
 		if (next === null) return;
 		event.preventDefault();
@@ -409,12 +416,15 @@
 					<span class="min-w-0 flex-1 truncate text-[10px] font-medium" title={track.name}
 						>{track.name}</span
 					>
-					{#if locked}<ThemeIcon role="lock" class="size-3 shrink-0 text-amber-300/80" />{/if}
+					{#if locked}<ThemeIcon
+							role="lock"
+							class="size-3 shrink-0 text-[var(--video-editor-muted)]"
+						/>{/if}
 				</div>
 				<div class="grid grid-cols-3 gap-1">
 					<button
 						type="button"
-						class="channel-button data-[active=true]:border-amber-300/60 data-[active=true]:bg-amber-400/20 data-[active=true]:text-amber-100"
+						class="channel-button"
 						data-active={track.solo}
 						aria-pressed={track.solo}
 						aria-label={track.solo
@@ -425,7 +435,7 @@
 					>
 					<button
 						type="button"
-						class="channel-button data-[active=true]:border-red-300/60 data-[active=true]:bg-red-500/25 data-[active=true]:text-red-100"
+						class="channel-button"
 						data-active={track.muted}
 						aria-pressed={track.muted}
 						aria-label={track.muted
@@ -436,7 +446,7 @@
 					>
 					<button
 						type="button"
-						class="channel-button px-1 data-[active=true]:border-sky-300/60 data-[active=true]:bg-sky-400/20 data-[active=true]:text-sky-100"
+						class="channel-button px-1"
 						data-active={eqIsActive(track.audioEq)}
 						aria-expanded={eqTarget?.kind === 'track' && eqTarget.trackId === track.id}
 						aria-controls="mixer-eq-panel"
@@ -458,12 +468,13 @@
 						class="fader disabled:cursor-not-allowed disabled:opacity-40"
 						class:pointer-events-none={locked}
 						role="slider"
+						aria-orientation="vertical"
 						tabindex={locked ? -1 : 0}
 						aria-label={m.video_editor_mixer_track_volume({ name: track.name })}
 						aria-valuemin={MIXER_MIN_DB}
 						aria-valuemax={MIXER_MAX_DB}
 						aria-valuenow={db}
-						aria-valuetext={formatMixerDb(db)}
+						aria-valuetext={`${formatMixerDb(db)} dB`}
 						onpointerdown={(event) => startFader(event, target)}
 						onpointermove={moveFader}
 						onpointerup={finishFader}
@@ -494,13 +505,13 @@
 		{/each}
 
 		<div class="channel-strip master-strip" data-mixer-master>
-			<div class="truncate text-[10px] font-semibold tracking-wide text-amber-100 uppercase">
+			<div class="truncate text-[10px] font-semibold tracking-wide uppercase">
 				{m.video_editor_mixer_master()}
 			</div>
 			<div class="grid grid-cols-2 gap-1">
 				<button
 					type="button"
-					class="channel-button data-[active=true]:border-red-300/60 data-[active=true]:bg-red-500/25 data-[active=true]:text-red-100"
+					class="channel-button"
 					data-active={timelineStore.masterMuted}
 					aria-pressed={timelineStore.masterMuted}
 					aria-label={timelineStore.masterMuted
@@ -510,7 +521,7 @@
 				>
 				<button
 					type="button"
-					class="channel-button px-1 data-[active=true]:border-sky-300/60 data-[active=true]:bg-sky-400/20 data-[active=true]:text-sky-100"
+					class="channel-button px-1"
 					data-active={eqIsActive(timelineStore.busAudioEq)}
 					aria-expanded={eqTarget?.kind === 'master'}
 					aria-controls="mixer-eq-panel"
@@ -530,12 +541,13 @@
 				<div
 					class="fader"
 					role="slider"
+					aria-orientation="vertical"
 					tabindex="0"
 					aria-label={m.video_editor_mixer_master_volume()}
 					aria-valuemin={MIXER_MIN_DB}
 					aria-valuemax={MIXER_MAX_DB}
 					aria-valuenow={timelineStore.masterVolumeDb}
-					aria-valuetext={formatMixerDb(timelineStore.masterVolumeDb)}
+					aria-valuetext={`${formatMixerDb(timelineStore.masterVolumeDb)} dB`}
 					onpointerdown={(event) => startFader(event, MASTER_TARGET)}
 					onpointermove={moveFader}
 					onpointerup={finishFader}
@@ -547,14 +559,14 @@
 					<div class="fader-rail"></div>
 					<div class="fader-unity" style:bottom={`${mixerDbToFaderPercent(0)}%`}></div>
 					<div
-						class="fader-knob bg-amber-100"
+						class="fader-knob"
 						data-fader-knob="master"
 						style:bottom={`${mixerDbToFaderPercent(timelineStore.masterVolumeDb)}%`}
 					></div>
 				</div>
 			</div>
 			<div class="flex items-center justify-center gap-1">
-				<span class="db-readout text-amber-100" data-fader-readout="master"
+				<span class="db-readout" data-fader-readout="master"
 					>{formatMixerDb(timelineStore.masterVolumeDb)}</span
 				>
 				<span
@@ -571,17 +583,17 @@
 		{@const target = eqTarget}
 		<aside
 			id="mixer-eq-panel"
-			class="absolute inset-y-0 right-0 z-20 w-full max-w-md overflow-y-auto border-l border-[var(--video-editor-border)] bg-[var(--video-editor-panel)] p-2 shadow-2xl"
+			class="absolute inset-y-0 right-0 z-20 w-full max-w-xs overflow-y-auto border-l border-[var(--video-editor-border)] bg-[var(--video-editor-panel)] p-2 shadow-2xl"
 			aria-label={eqTitle(target)}
 			data-mixer-eq-panel
 		>
-			<div class="mb-2 flex min-h-9 items-center justify-between gap-2">
+			<div class="mb-2 flex min-h-[25px] items-center justify-between gap-2">
 				<h3 class="truncate text-xs font-semibold text-[var(--video-editor-text)]">
 					{eqOwnerName(target)}
 				</h3>
 				<button
 					type="button"
-					class="grid size-9 shrink-0 place-items-center rounded-md border border-[var(--video-editor-border)] text-[var(--video-editor-muted)] hover:bg-[var(--video-editor-control-hover)] hover:text-[var(--video-editor-text)] focus-visible:outline-2 focus-visible:outline-[var(--video-editor-focus)]"
+					class="grid size-6 shrink-0 place-items-center rounded-md border border-[var(--video-editor-border)] text-[var(--video-editor-muted)] hover:bg-[var(--video-editor-control-hover)] hover:text-[var(--video-editor-text)] focus-visible:outline-2 focus-visible:outline-[var(--video-editor-focus)] [@media(pointer:coarse)]:size-9"
 					aria-label={m.common_close()}
 					onclick={() => (eqTarget = null)}
 				>
@@ -591,18 +603,16 @@
 			{#if target.kind === 'master'}
 				<AudioEqPanel
 					settings={timelineStore.busAudioEq}
-					title={eqTitle(target)}
 					onsettingschange={updateMasterEq}
-					open
+					hideHeader
 				/>
 			{:else}
 				{@const eqTrack = timelineStore.tracks.find((track) => track.id === target.trackId)}
 				{#if eqTrack}
 					<AudioEqPanel
 						settings={eqTrack.audioEq}
-						title={eqTitle(target)}
 						onsettingschange={(settings) => updateTrackEq(eqTrack.id, settings)}
-						open
+						hideHeader
 					/>
 				{/if}
 			{/if}
@@ -625,6 +635,7 @@
 		border-right: 0;
 		border-left: 1px solid var(--video-editor-focus-border);
 		background: var(--video-editor-selection);
+		color: var(--video-editor-selection-text);
 	}
 	.channel-button {
 		min-height: 1.75rem;
@@ -635,6 +646,11 @@
 		font-size: 0.625rem;
 		font-weight: 700;
 		color: var(--video-editor-muted);
+	}
+	.channel-button[data-active='true'] {
+		border-color: var(--video-editor-focus-border);
+		background: var(--video-editor-selection);
+		color: var(--video-editor-selection-text);
 	}
 	.channel-button:focus-visible,
 	.fader:focus-visible {

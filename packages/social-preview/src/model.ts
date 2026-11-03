@@ -6,6 +6,7 @@ export const previewPlatforms = [
   "lemmy",
   "piefed",
   "bluesky",
+  "devnull",
   "linkedin",
   "threads",
   "instagram",
@@ -14,10 +15,14 @@ export const previewPlatforms = [
   "tiktok",
   "discord",
   "telegram",
+  "pinterest",
+  "reddit",
+  "googlebusiness",
 ] as const;
 
 export type PreviewPlatform = (typeof previewPlatforms)[number];
 export type PreviewPlatformKey = PreviewPlatform | "unsupported";
+export type PreviewScheme = "light" | "dark" | "system";
 
 const previewFormats = [
   "post",
@@ -48,15 +53,21 @@ export interface PreviewMedia {
   poster?: string;
   aspectRatio?: number;
   durationLabel?: string;
+  previewFrameSeconds?: number;
+  focalPoint?: { x: number; y: number };
 }
 
 export interface PreviewSegment {
   id: string;
   text: string;
   media?: PreviewMedia[];
+  poll?: PreviewPoll;
+  card?: PreviewCard;
+  contentWarning?: string;
 }
 
 export interface PreviewPoll {
+  question?: string;
   options: string[];
   durationLabel?: string;
   allowMultiple?: boolean;
@@ -69,6 +80,18 @@ export interface PreviewCard {
   domain?: string;
   imageUrl?: string;
   author?: PreviewIdentity;
+}
+
+export interface PreviewBusinessPost {
+  topic: "standard" | "event" | "offer";
+  startDate?: string;
+  endDate?: string;
+  startTime?: string;
+  endTime?: string;
+  action?: "book" | "order" | "shop" | "learn_more" | "sign_up" | "call";
+  actionUrl?: string;
+  couponCode?: string;
+  terms?: string;
 }
 
 export interface PreviewModel {
@@ -86,6 +109,7 @@ export interface PreviewModel {
   subtitle?: string;
   createdAtLabel?: string;
   approximate?: boolean;
+  business?: PreviewBusinessPost;
 }
 
 interface PreviewCapability {
@@ -94,6 +118,8 @@ interface PreviewCapability {
   polls?: boolean;
   cards?: readonly PreviewCard["kind"][];
   contentWarning?: boolean;
+  maxImages?: number;
+  maxPollOptions?: number;
 }
 
 const commonMedia = ["image", "video"] as const;
@@ -104,6 +130,8 @@ export const previewCapabilities: Record<PreviewPlatform, PreviewCapability> = {
     media: commonMedia,
     polls: true,
     cards: ["link", "quote"],
+    maxImages: 4,
+    maxPollOptions: 4,
   },
   mastodon: {
     formats: ["post", "thread", "video"],
@@ -137,16 +165,26 @@ export const previewCapabilities: Record<PreviewPlatform, PreviewCapability> = {
     formats: ["post", "thread", "video"],
     media: commonMedia,
     cards: ["link", "quote"],
+    maxImages: 4,
+  },
+  devnull: {
+    formats: ["post", "thread"],
+    media: ["image"],
+    cards: ["link"],
+    maxImages: 3,
   },
   linkedin: {
     formats: ["post", "thread", "video", "document"],
     media: ["image", "video", "document"],
     polls: true,
     cards: ["link"],
+    maxImages: 20,
+    maxPollOptions: 4,
   },
   threads: {
     formats: ["post", "thread", "video"],
     media: commonMedia,
+    maxImages: 20,
     polls: true,
     cards: ["link", "quote"],
     contentWarning: true,
@@ -167,6 +205,7 @@ export const previewCapabilities: Record<PreviewPlatform, PreviewCapability> = {
   tiktok: {
     formats: ["video", "photo"],
     media: commonMedia,
+    maxImages: 35,
   },
   discord: {
     formats: ["post", "thread", "video"],
@@ -176,6 +215,26 @@ export const previewCapabilities: Record<PreviewPlatform, PreviewCapability> = {
   telegram: {
     formats: ["post", "video"],
     media: ["image", "video", "document"],
+    maxImages: 10,
+  },
+  pinterest: {
+    formats: ["photo", "video"],
+    media: commonMedia,
+    cards: ["link"],
+    maxImages: 1,
+  },
+  reddit: {
+    formats: ["post", "photo", "video"],
+    media: commonMedia,
+    cards: ["link"],
+    polls: true,
+    contentWarning: true,
+    maxImages: 20,
+    maxPollOptions: 6,
+  },
+  googlebusiness: {
+    formats: ["post"],
+    media: commonMedia,
   },
 };
 
@@ -187,6 +246,7 @@ export const platformNames: Record<PreviewPlatformKey, string> = {
   lemmy: "Lemmy",
   piefed: "PieFed",
   bluesky: "Bluesky",
+  devnull: "dev/null",
   linkedin: "LinkedIn",
   threads: "Threads",
   instagram: "Instagram",
@@ -195,11 +255,14 @@ export const platformNames: Record<PreviewPlatformKey, string> = {
   tiktok: "TikTok",
   discord: "Discord",
   telegram: "Telegram",
+  pinterest: "Pinterest",
+  reddit: "Reddit",
+  googlebusiness: "Google Business Profile",
   unsupported: "Unsupported account",
 };
 
 export function normalizePreviewPlatform(value: string): PreviewPlatformKey {
-  const normalized = value.toLowerCase().split(":")[0];
+  const normalized = value.trim().toLowerCase().split(":")[0];
   return previewPlatforms.includes(normalized as PreviewPlatform)
     ? (normalized as PreviewPlatform)
     : "unsupported";
@@ -214,7 +277,9 @@ export function createPreviewModel(
 ): PreviewModel {
   return {
     platform: input.platform,
-    format: input.format ?? "post",
+    format:
+      input.format ??
+      (input.platform === "unsupported" ? "post" : previewCapabilities[input.platform].formats[0]),
     identity: {
       displayName: input.identity?.displayName || "Your name",
       handle: input.identity?.handle?.replace(/^@/u, "") || "yourhandle",
@@ -232,5 +297,6 @@ export function createPreviewModel(
     subtitle: input.subtitle,
     createdAtLabel: input.createdAtLabel ?? "Now",
     approximate: input.approximate ?? true,
+    business: input.business,
   };
 }

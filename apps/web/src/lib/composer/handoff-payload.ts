@@ -1,9 +1,18 @@
+import { readSharedPoll } from '$lib/components/compose/polls';
 import type { components } from '$lib/api/types';
 import type { HandoffJSONValue } from '$lib/editor-handoff';
 import type { PostItem, VariantPost } from '$lib/components/compose/draft-utils';
 import type { ComposerSettings, ComposerSettingValue } from '$lib/components/compose/modes';
 
+export interface ComposerCoverTarget {
+	account_id: string;
+	post_key: string;
+	setting_key: 'thumbnail_media_id' | 'cover_media_id';
+	source_media_id: string;
+}
+
 export interface ComposerHandoffPayload {
+	cover_target?: ComposerCoverTarget;
 	posts: PostItem[];
 	variants: Array<[string, Record<string, VariantPost>]>;
 	active_post_index: number;
@@ -116,6 +125,8 @@ function parsePost(value: HandoffJSONValue): PostItem | null {
 	const mediaIds = stringArray(fields.get('mediaIds'));
 	if (!key || content === undefined || !mediaIds) return null;
 	const post: PostItem = { key, content, mediaIds };
+	const poll = readSharedPoll(Object.fromEntries(fields));
+	if (poll) post.poll = poll;
 	const id = stringValue(fields.get('id'));
 	if (id) post.id = id;
 	return post;
@@ -317,6 +328,26 @@ export function parseComposerHandoffPayload(
 		repost_override: repostOverride(fields.get('repost_override')),
 		revision
 	};
+	if (fields.has('cover_target')) {
+		const target = valueFields(fields.get('cover_target'));
+		const accountID = stringValue(target.get('account_id'));
+		const postKey = stringValue(target.get('post_key'));
+		const settingKey = stringValue(target.get('setting_key'));
+		const sourceMediaID = stringValue(target.get('source_media_id'));
+		if (
+			!accountID ||
+			!postKey ||
+			!sourceMediaID ||
+			(settingKey !== 'thumbnail_media_id' && settingKey !== 'cover_media_id')
+		)
+			return null;
+		payload.cover_target = {
+			account_id: accountID,
+			post_key: postKey,
+			setting_key: settingKey,
+			source_media_id: sourceMediaID
+		};
+	}
 	const selectedDate = stringValue(fields.get('selected_date'));
 	if (selectedDate) payload.selected_date = selectedDate;
 	return payload;

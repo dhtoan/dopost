@@ -141,7 +141,9 @@
 				<span class="inline-flex shrink-0 items-center" aria-hidden="true">
 					<PlatformIcon platform={platformKey} class="size-3.5" />
 				</span>
-				<span class="sr-only">{platformName}</span>
+				<span class={platformKey === 'youtube' ? 'text-xs text-muted-foreground' : 'sr-only'}
+					>{platformName}</span
+				>
 			</div>
 			<p class="truncate text-xs leading-4 text-muted-foreground" title={handle}>{handle}</p>
 		</div>
@@ -162,7 +164,7 @@
 							<Avatar.Image src={mu.AvatarURL} alt="" />
 						{/if}
 						<Avatar.Fallback
-							class="rounded-full bg-muted text-[10px] font-medium text-muted-foreground"
+							class="rounded-full bg-muted text-xs font-medium text-muted-foreground"
 						>
 							{(mu.DisplayName || mu.Handle || '?').slice(0, 1).toUpperCase()}
 						</Avatar.Fallback>
@@ -175,6 +177,7 @@
 
 	<div
 		class="flex items-center gap-2 text-xs leading-4 text-muted-foreground"
+		role="group"
 		aria-label={followersFollowersFollowingA11y}
 	>
 		<span class="tabular-nums"
@@ -191,7 +194,7 @@
 	</div>
 
 	{#if reasonChips.length > 0}
-		<div class="flex flex-wrap gap-1.5" aria-label={m.grow_reasons_label()}>
+		<div class="flex flex-wrap gap-1.5" role="group" aria-label={m.grow_reasons_label()}>
 			{#each reasonChips as chip (chip.key)}
 				<span
 					class="inline-flex items-center rounded-md border bg-muted px-2 py-1 text-xs leading-none font-medium text-muted-foreground"

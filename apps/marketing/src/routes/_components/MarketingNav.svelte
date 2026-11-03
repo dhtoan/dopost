@@ -2,20 +2,48 @@
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
 	import { onMount } from 'svelte';
-	import { ArrowRight, Menu, Moon, Sun, X } from '@lucide/svelte';
+	import {
+		ArrowRight,
+		BookOpen,
+		CircleHelp,
+		FileText,
+		Scale,
+		History,
+		Mail,
+		Menu,
+		Moon,
+		ShieldCheck,
+		Sun,
+		Users,
+		X
+	} from '@lucide/svelte';
 	import Clapperboard from '@lucide/svelte/icons/clapperboard';
 	import Images from '@lucide/svelte/icons/images';
 	import { mode, toggleMode } from 'mode-watcher';
+	import PostizSocialLogo from './PostizSocialLogo.svelte';
 	import PlatformIcon from '$lib/components/platform-icon.svelte';
-	import { Button } from '$lib/components/ui/button';
-	import * as NavigationMenu from '$lib/components/ui/navigation-menu';
+	import { Button } from '@openpost/ui/components/button';
+	import * as NavigationMenu from '@openpost/ui/components/navigation-menu';
 	import ThemeImage from './ThemeImage.svelte';
-	import { appUrl, managedSignupUrl, marketingNavigation, platforms } from '../_marketing';
+	import GitHubStarPill from './GitHubStarPill.svelte';
+	import { appUrl, docsUrl, managedSignupUrl, marketingNavigation, platforms } from '../_marketing';
 
 	type NavigationItem = { label: string; href: string };
 	type ResourceGroup = { label: string; items: readonly NavigationItem[] };
 
+	const resourceIcons = new Map([
+		[docsUrl, BookOpen],
+		['/guides', FileText],
+		['/comparisons', Scale],
+		['/faq', CircleHelp],
+		['/changelog', History],
+		['/contact', Mail],
+		['/about', Users],
+		['/security', ShieldCheck]
+	]);
+
 	let mobileOpen = $state(false);
+	let mobileTrigger = $state<HTMLButtonElement | null>(null);
 	let hydrated = $state(false);
 	onMount(() => {
 		hydrated = true;
@@ -44,24 +72,39 @@
 	}
 </script>
 
+<svelte:window
+	onkeydown={(event) => {
+		if (!mobileOpen || event.key !== 'Escape' || event.defaultPrevented) return;
+		const target = event.target;
+		if (!(target instanceof Element)) return;
+		if (target !== mobileTrigger && !target.closest('#mobile-navigation')) return;
+		event.preventDefault();
+		mobileOpen = false;
+		mobileTrigger?.focus();
+	}}
+/>
+
 <header class="marketing-nav sticky top-0 z-40">
 	<div class="marketing-shell flex min-h-16 items-center justify-between gap-4">
-		<a
-			class="focus-ring inline-flex min-h-11 items-center gap-2 rounded-md"
-			href={resolve('/')}
-			aria-label="OpenPost home"
-		>
-			<ThemeImage
-				lightSrc="/assets/brand/logo.svg"
-				darkSrc="/assets/brand/logo-dark.svg"
-				alt=""
-				width={28}
-				height={28}
-				loading="eager"
-				class="shrink-0"
-			/>
-			<span class="font-brand text-sm leading-none font-semibold tracking-[-0.02em]">OpenPost</span>
-		</a>
+		<div class="flex min-w-0 items-center gap-3">
+			<a
+				class="focus-ring inline-flex min-h-11 items-center gap-2 rounded-md"
+				href={resolve('/')}
+				aria-label="dopost home"
+			>
+				<ThemeImage
+					lightSrc="/assets/brand/logo.svg"
+					darkSrc="/assets/brand/logo-dark.svg"
+					alt=""
+					width={28}
+					height={28}
+					loading="eager"
+					class="shrink-0"
+				/>
+				<span class="font-brand text-sm leading-none font-semibold tracking-[-0.02em]">dopost</span>
+			</a>
+			<GitHubStarPill />
+		</div>
 
 		<NavigationMenu.Root
 			viewport={false}
@@ -109,9 +152,14 @@
 												class="group/platform-link focus-ring min-h-14 w-full gap-3 rounded-lg px-3 py-2.5"
 											>
 												<span
-													class="flex size-9 shrink-0 items-center justify-center rounded-lg border bg-background text-foreground"
+													class="flex h-12 w-14 shrink-0 items-center justify-center rounded-lg bg-background text-foreground"
+													class:border={platform.slug !== 'youtube'}
 												>
-													<PlatformIcon platform={platform.slug} class="size-[1.15rem]" />
+													{#if platform.slug === 'youtube'}
+														<PostizSocialLogo platform="youtube" />
+													{:else}
+														<PlatformIcon platform={platform.slug} class="size-6" />
+													{/if}
 												</span>
 												<span class="min-w-0 flex-1">
 													<span class="block text-sm font-semibold text-foreground"
@@ -238,22 +286,29 @@
 					>
 						Resources
 					</NavigationMenu.Trigger>
-					<NavigationMenu.Content class="resource-menu left-1/2 -translate-x-1/2 p-3">
-						<div class="grid grid-cols-2 gap-3">
+					<NavigationMenu.Content class="resource-menu right-0 left-auto p-2">
+						<div class="grid grid-cols-[1.15fr_1fr] divide-x">
 							{#each resourceGroups as group (group.label)}
-								<div>
-									<p class="px-3 pb-1.5 text-xs font-semibold text-foreground">
+								<div class="px-2 py-1">
+									<p class="px-3 pt-2 pb-2 text-xs font-medium text-muted-foreground">
 										{group.label}
 									</p>
-									<ul class="grid gap-0.5">
+									<ul class="grid">
 										{#each group.items as item (item.href)}
+											{@const Icon = resourceIcons.get(item.href)}
 											<li>
 												<NavigationMenu.Link
 													{...navigationHref(item.href)}
 													active={isActive(item.href)}
 													aria-current={isActive(item.href) ? 'page' : undefined}
-													class="focus-ring min-h-10 w-full rounded-md px-3 text-sm text-muted-foreground hover:text-foreground data-[active=true]:text-foreground"
+													class="focus-ring min-h-11 w-full gap-2.5 rounded-md px-3 text-sm font-medium text-foreground"
 												>
+													{#if Icon}
+														<Icon
+															class="size-4 shrink-0 text-muted-foreground"
+															aria-hidden="true"
+														/>
+													{/if}
 													{item.label}
 												</NavigationMenu.Link>
 											</li>
@@ -274,12 +329,13 @@
 				size="icon"
 				class="size-11"
 				aria-label={mode.current === 'dark' ? 'Use light theme' : 'Use dark theme'}
+				disabled={!hydrated}
 				onclick={toggleMode}
 			>
 				{#if mode.current === 'dark'}<Sun />{:else}<Moon />{/if}
 			</Button>
 			<Button href={`${appUrl}/login`} variant="ghost" size="sm">Sign in</Button>
-			<Button href={managedSignupUrl} size="sm" class="nav-cta">
+			<Button href={managedSignupUrl} size="sm">
 				Get started
 				<ArrowRight data-icon="inline-end" />
 			</Button>
@@ -293,6 +349,7 @@
 			aria-expanded={mobileOpen}
 			disabled={!hydrated}
 			aria-controls="mobile-navigation"
+			bind:ref={mobileTrigger}
 			onclick={() => (mobileOpen = !mobileOpen)}
 		>
 			{#if mobileOpen}<X />{:else}<Menu />{/if}
@@ -335,15 +392,16 @@
 				<div class="mt-4 grid grid-cols-[auto_1fr] gap-2 border-t pt-4">
 					<Button
 						type="button"
-						variant="outline"
+						variant="ghost"
 						size="icon"
 						class="size-11"
 						aria-label={mode.current === 'dark' ? 'Use light theme' : 'Use dark theme'}
+						disabled={!hydrated}
 						onclick={toggleMode}
 					>
 						{#if mode.current === 'dark'}<Sun />{:else}<Moon />{/if}
 					</Button>
-					<Button href={managedSignupUrl} size="sm" class="nav-cta">Get started</Button>
+					<Button href={managedSignupUrl} size="sm">Get started</Button>
 				</div>
 			</div>
 		</nav>
@@ -357,18 +415,15 @@
 		backdrop-filter: blur(18px) saturate(140%);
 	}
 
-	:global(.nav-cta) {
-		background-image: var(--marketing-dither-pattern);
-		background-size: 32px 32px;
-	}
-
 	/* The shadcn Content ships md:w-auto; the destinations panel needs a real width. */
 	:global(.platform-menu.platform-menu) {
 		width: min(46rem, calc(100vw - 2rem));
+		max-height: calc(100dvh - 7rem);
+		overflow-y: auto;
 	}
 
 	:global(.resource-menu.resource-menu) {
-		width: min(42rem, calc(100vw - 2rem));
+		width: min(28rem, calc(100vw - 2rem));
 	}
 
 	:global(.tool-menu.tool-menu) {

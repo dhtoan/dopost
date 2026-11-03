@@ -19,7 +19,7 @@ const getMock = vi.spyOn(client, 'GET');
 
 const config = {
 	enabled: true,
-	recipient: 'OpenPost team',
+	recipient: 'dopost team',
 	support_url: '',
 	app_version: 'test',
 	max_message_characters: 4000,
@@ -45,13 +45,6 @@ async function renderOpenDialog() {
 		{ wrapper: QueryClientProvider, wrapperProps: { client: queryClient } }
 	);
 }
-
-it('promises same-day reading with a fast fix', async () => {
-	const screen = await renderOpenDialog();
-	await expect
-		.element(screen.getByText('We read every report the same day', { exact: false }))
-		.toBeVisible();
-});
 
 it('keeps category radios out of the label layout without removing keyboard access', async () => {
 	const screen = await renderOpenDialog();

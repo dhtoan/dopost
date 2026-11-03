@@ -2,20 +2,20 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build Auno Auto Video as a durable project-generation pipeline that accepts approved source types, creates structured storyboards for Review/News/Guide/Compare/Top N, compiles them into native OpenPost Video Projects, preserves source provenance, and supports scoped regeneration without overwriting manual edits.
+**Goal:** Build dopost Auto Video as a durable project-generation pipeline that accepts approved source types, creates structured storyboards for Review/News/Guide/Compare/Top N, compiles them into native OpenPost Video Projects, preserves source provenance, and supports scoped regeneration without overwriting manual edits.
 
-**Architecture:** Add an Auno Auto Video domain beside OpenPost rather than inside the editor core. The Go backend owns durable source extraction, AI planning, resumable job state, sidecar persistence, and headless native-project compilation. The Svelte frontend owns the creation wizard, storyboard review, progress UI, and editor handoff. OpenPost Video Projects remain authoritative for editing/history; the Auno sidecar stores generation metadata and ownership fingerprints only.
+**Architecture:** Add an dopost Auto Video domain beside OpenPost rather than inside the editor core. The Go backend owns durable source extraction, AI planning, resumable job state, sidecar persistence, and headless native-project compilation. The Svelte frontend owns the creation wizard, storyboard review, progress UI, and editor handoff. OpenPost Video Projects remain authoritative for editing/history; the dopost sidecar stores generation metadata and ownership fingerprints only.
 
 **Tech Stack:** Go 1.26.6, Echo/Huma, Bun ORM, OpenPost `ai.Generator`, OpenPost DB-backed job worker, OpenPost `videoprojects.Service`, Svelte 5/SvelteKit, TypeScript, Zod, Vitest, Go test, Playwright.
 
-**Spec:** `docs/superpowers/specs/2026-09-15-auno-studio-web-2-design.md`
+**Spec:** `docs/superpowers/specs/2026-09-15-dopost-web-2-design.md`
 
 ## Global Constraints
 
 - Phase 1 must be merged and green before this plan starts.
 - Auto Video is a project generator, not a separate editor.
 - Native OpenPost Video Project document is the authoring/rendering source of truth.
-- Auno Auto Video metadata is an optional sidecar; deleting/disableing the sidecar must never prevent the native project from opening.
+- dopost Auto Video metadata is an optional sidecar; deleting/disableing the sidecar must never prevent the native project from opening.
 - V1 formats: Review, News, Guide, Compare, Top N.
 - V1 inputs: text, URL, Markdown/TXT/PDF/document media, images, video clips, and existing Workspace Media.
 - Binary files use the existing OpenPost Media upload path and enter Auto Video by `media_id`; do not build a second blob-upload system.
@@ -26,14 +26,14 @@
 - Manual edits are preserved by default during regeneration.
 - AI/provider failures are normalized and must not corrupt native project state.
 - Phase 2 uses the existing `ai.Generator` injection seam. Gemini/provider expansion belongs to Phase 3.
-- Phase 2 uses a single `standard` motion style. Bang Motion/Auno Motion Styles are added in Phase 4 without changing the storyboard version contract.
+- Phase 2 uses a single `standard` motion style. Bang Motion/dopost Motion Styles are added in Phase 4 without changing the storyboard version contract.
 - All behavior changes follow test-first red → green → refactor with small commits.
 
 ## Target File Structure
 
 ```text
 packages/
-└── auno-auto-video/
+└── dopost-auto-video/
     └── src/
         ├── schema.ts
         ├── formats.ts
@@ -42,7 +42,7 @@ packages/
 
 apps/server/internal/
 ├── models/
-│   └── auno_auto_video.go
+│   └── dopost_auto_video.go
 ├── services/autovideo/
 │   ├── service.go
 │   ├── repository.go
@@ -53,27 +53,27 @@ apps/server/internal/
 │   ├── ownership.go
 │   └── *_test.go
 ├── api/handlers/
-│   ├── auno_auto_video.go
-│   └── auno_auto_video_test.go
+│   ├── dopost_auto_video.go
+│   └── dopost_auto_video_test.go
 ├── database/migrations/
-│   └── 9000_auno_auto_video.sql
+│   └── 9000_dopost_auto_video.sql
 └── jobregistry/
     └── existing files modified
 
 apps/web/src/
-├── lib/auno-auto-video/
+├── lib/dopost-auto-video/
 │   ├── api.ts
 │   ├── wizard-state.svelte.ts
 │   ├── storyboard.ts
 │   ├── project-link.ts
 │   └── *.test.ts
-├── lib/components/auno-auto-video/
+├── lib/components/dopost-auto-video/
 │   ├── source-step.svelte
 │   ├── setup-step.svelte
 │   ├── storyboard-step.svelte
 │   ├── progress-step.svelte
 │   └── scene-card.svelte
-├── lib/video-editor/auno/
+├── lib/video-editor/dopost/
 │   ├── auto-video-panel.svelte
 │   └── auto-video-panel-data.ts
 └── routes/auto-video/
@@ -86,11 +86,11 @@ apps/web/src/
 ## Task 1: Define the versioned Auto Video contract
 
 **Files:**
-- Create: `packages/auno-auto-video/package.json`
-- Create: `packages/auno-auto-video/tsconfig.json`
-- Create: `packages/auno-auto-video/src/schema.ts`
-- Create: `packages/auno-auto-video/src/formats.ts`
-- Create: `packages/auno-auto-video/src/schema.test.ts`
+- Create: `packages/dopost-auto-video/package.json`
+- Create: `packages/dopost-auto-video/tsconfig.json`
+- Create: `packages/dopost-auto-video/src/schema.ts`
+- Create: `packages/dopost-auto-video/src/formats.ts`
+- Create: `packages/dopost-auto-video/src/schema.test.ts`
 - Modify: `apps/web/package.json`
 
 **Interfaces:**
@@ -159,7 +159,7 @@ describe('Auto Video storyboard schema', () => {
 - [ ] **Step 2: Run to confirm red**
 
 ```bash
-bun test packages/auno-auto-video/src/schema.test.ts
+bun test packages/dopost-auto-video/src/schema.test.ts
 ```
 
 Expected: fail because package/files do not exist.
@@ -208,14 +208,14 @@ For `top-n`, `ranking` is repeated by the planner according to requested count; 
 
 ```bash
 bun install
-bun test packages/auno-auto-video/src/schema.test.ts
+bun test packages/dopost-auto-video/src/schema.test.ts
 bun --cwd apps/web run check
 ```
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add packages/auno-auto-video apps/web/package.json bun.lock
+git add packages/dopost-auto-video apps/web/package.json bun.lock
 git commit -m "feat: define Auto Video storyboard contract"
 ```
 
@@ -224,8 +224,8 @@ git commit -m "feat: define Auto Video storyboard contract"
 ## Task 2: Persist the Auto Video sidecar and source ledger
 
 **Files:**
-- Create: `apps/server/internal/database/migrations/9000_auno_auto_video.sql`
-- Create: `apps/server/internal/models/auno_auto_video.go`
+- Create: `apps/server/internal/database/migrations/9000_dopost_auto_video.sql`
+- Create: `apps/server/internal/models/dopost_auto_video.go`
 - Create: `apps/server/internal/services/autovideo/repository.go`
 - Create: `apps/server/internal/services/autovideo/repository_test.go`
 - Modify: `apps/server/internal/database/migrations/migration_chain_test.go`
@@ -233,8 +233,8 @@ git commit -m "feat: define Auto Video storyboard contract"
 **Interfaces:**
 - Consumes: Phase 1 migration reservation `9000–9099`; OpenPost Bun DB.
 - Produces:
-  - `models.AunoAutoVideoProject`
-  - `models.AunoAutoVideoSource`
+  - `models.DopostAutoVideoProject`
+  - `models.DopostAutoVideoSource`
   - `autovideo.Repository`
   - `CreateProject(ctx, project)` / `GetProject(ctx, workspaceID, id)` / `UpdateState(...)`
   - source ledger CRUD methods.
@@ -248,7 +248,7 @@ func TestRepositoryPersistsSidecarAndSources(t *testing.T) {
     repo := newAutoVideoRepositoryTestRepo(t)
     ctx := t.Context()
 
-    project := &models.AunoAutoVideoProject{
+    project := &models.DopostAutoVideoProject{
         ID: "auto-1", WorkspaceID: "ws-1", CreatedByUserID: "user-1",
         Format: "review", Language: "en-US", AspectRatio: "9:16",
         TargetDurationSeconds: 30, Status: "draft", CurrentStep: "created",
@@ -256,7 +256,7 @@ func TestRepositoryPersistsSidecarAndSources(t *testing.T) {
         ProviderManifestJSON: `{}`,
     }
     require.NoError(t, repo.CreateProject(ctx, project))
-    require.NoError(t, repo.CreateSource(ctx, &models.AunoAutoVideoSource{
+    require.NoError(t, repo.CreateSource(ctx, &models.DopostAutoVideoSource{
         ID: "source-1", AutoVideoID: "auto-1", WorkspaceID: "ws-1",
         Kind: "text", Label: "Brief", RawText: "Hello",
     }))
@@ -278,7 +278,7 @@ cd apps/server
 go test ./internal/services/autovideo -run TestRepositoryPersistsSidecarAndSources -v
 ```
 
-- [ ] **Step 3: Add migration `9000_auno_auto_video.sql`**
+- [ ] **Step 3: Add migration `9000_dopost_auto_video.sql`**
 
 Create tables:
 
@@ -338,7 +338,7 @@ Repository uses only Bun queries and validates workspace scoping on every read/u
 
 - [ ] **Step 5: Extend migration chain test table list**
 
-Add both Auno tables to `TestMigrationChainAppliesCleanlyAndIsIdempotent` expected tables.
+Add both dopost tables to `TestMigrationChainAppliesCleanlyAndIsIdempotent` expected tables.
 
 - [ ] **Step 6: Run SQLite and PostgreSQL migration/repository tests**
 
@@ -356,7 +356,7 @@ go test ./internal/database/migrations -run TestMigrationChainAppliesCleanlyOnPo
 - [ ] **Step 7: Commit**
 
 ```bash
-git add apps/server/internal/database/migrations apps/server/internal/models/auno_auto_video.go apps/server/internal/services/autovideo
+git add apps/server/internal/database/migrations apps/server/internal/models/dopost_auto_video.go apps/server/internal/services/autovideo
 git commit -m "feat: persist Auto Video sidecar and sources"
 ```
 
@@ -371,7 +371,7 @@ git commit -m "feat: persist Auto Video sidecar and sources"
 - Create: `apps/server/internal/services/autovideo/source_extract_test.go`
 
 **Interfaces:**
-- Consumes: `models.AunoAutoVideoSource`; `codeberg.org/readeck/go-readability/v2` already present in the server module.
+- Consumes: `models.DopostAutoVideoSource`; `codeberg.org/readeck/go-readability/v2` already present in the server module.
 - Produces:
   - `type URLFetcher interface { Fetch(context.Context, string) (FetchedURL, error) }`
   - `type FetchedURL struct { FinalURL, ContentType string; Body []byte }`
@@ -522,7 +522,7 @@ go test ./internal/services/autovideo -run TestPlanner -v
 
 - [ ] **Step 3: Implement Go schema mirror and validator**
 
-Define exact enums matching `@auno/auto-video` and validate:
+Define exact enums matching `@dopost/auto-video` and validate:
 
 - schema version = 1;
 - requested format matches output format;
@@ -573,8 +573,8 @@ git commit -m "feat: add structured Auto Video planner"
 **Interfaces:**
 - Consumes: Repository Task 2, extractor Task 3, planner Task 4.
 - Produces:
-  - `jobregistry.TypeAunoAutoVideoGenerate = "auno_auto_video_generate"`
-  - `jobregistry.ExecuteAunoAutoVideo`
+  - `jobregistry.TypeDopostAutoVideoGenerate = "auno_auto_video_generate"`
+  - `jobregistry.ExecuteDopostAutoVideo`
   - `autovideo.Service.HandleJob(ctx, payload)`
   - `queue.BackgroundWorker.SetAutoVideoService(service)`
   - resumable step names: `extract_content`, `generate_storyboard`, `resolve_assets`, `compile_timeline`, `ready`.
@@ -599,7 +599,7 @@ func TestServiceResumesFromPersistedStep(t *testing.T) {
 
 ```bash
 cd apps/server
-go test ./internal/services/autovideo ./internal/jobregistry ./internal/queue -run 'AutoVideo|AunoAutoVideo' -v
+go test ./internal/services/autovideo ./internal/jobregistry ./internal/queue -run 'AutoVideo|DopostAutoVideo' -v
 ```
 
 - [ ] **Step 3: Register the durable job definition**
@@ -607,8 +607,8 @@ go test ./internal/services/autovideo ./internal/jobregistry ./internal/queue -r
 Use:
 
 ```go
-const TypeAunoAutoVideoGenerate = "auno_auto_video_generate"
-const ExecuteAunoAutoVideo ExecutionKind = "auno_auto_video"
+const TypeDopostAutoVideoGenerate = "auno_auto_video_generate"
+const ExecuteDopostAutoVideo ExecutionKind = "dopost_auto_video"
 ```
 
 Policy:
@@ -721,7 +721,7 @@ git commit -m "feat: resolve Auto Video scene assets"
 - Create: `apps/server/internal/services/autovideo/compiler.go`
 - Create: `apps/server/internal/services/autovideo/compiler_test.go`
 - Create: `apps/server/internal/services/autovideo/testdata/native_project_review.json`
-- Create: `apps/web/src/lib/auno-auto-video/compiler-contract.test.ts`
+- Create: `apps/web/src/lib/dopost-auto-video/compiler-contract.test.ts`
 
 **Interfaces:**
 - Consumes: `Storyboard`, `ResolvedSceneAsset`.
@@ -806,9 +806,9 @@ Source image/video becomes native media item plus native text/overlay items. Do 
 Set deterministic item IDs:
 
 ```text
-auno-<scene-id>-main
-auno-<scene-id>-text
-auno-<scene-id>-overlay-1
+dopost-<scene-id>-main
+dopost-<scene-id>-text
+dopost-<scene-id>-overlay-1
 ```
 
 This makes ownership/regeneration stable and testable.
@@ -829,7 +829,7 @@ Do not store a second full timeline in the sidecar.
 
 - [ ] **Step 6: Add a frontend contract test over the Go fixture**
 
-`compiler-contract.test.ts` loads `testdata/native_project_review.json` via a copied fixture under `apps/web/src/lib/auno-auto-video/testdata/` generated by the test setup or by a checked-in identical fixture and asserts native OpenPost assumptions used by the editor:
+`compiler-contract.test.ts` loads `testdata/native_project_review.json` via a copied fixture under `apps/web/src/lib/dopost-auto-video/testdata/` generated by the test setup or by a checked-in identical fixture and asserts native OpenPost assumptions used by the editor:
 
 ```ts
 expect(project.schemaFamily).toBe('openpost');
@@ -843,8 +843,8 @@ The goal is cross-language shape drift detection, not a second compiler.
 
 ```bash
 cd apps/server && go test ./internal/services/autovideo -run CompileNativeProject -v && cd ../..
-bun --cwd apps/web x vitest run src/lib/auno-auto-video/compiler-contract.test.ts
-git add apps/server/internal/services/autovideo apps/web/src/lib/auno-auto-video
+bun --cwd apps/web x vitest run src/lib/dopost-auto-video/compiler-contract.test.ts
+git add apps/server/internal/services/autovideo apps/web/src/lib/dopost-auto-video
 git commit -m "feat: compile Auto Video into native OpenPost timeline"
 ```
 
@@ -940,7 +940,7 @@ go test ./internal/services/autovideo -run 'ManualEdit|RegenerateScene' -v
 
 - [ ] **Step 3: Implement canonical authored-item hashing**
 
-Canonical fields include only fields Auno generated/owns:
+Canonical fields include only fields dopost generated/owns:
 
 ```text
 id
@@ -987,19 +987,19 @@ git commit -m "feat: preserve manual edits during Auto Video regeneration"
 ## Task 10: Expose Auto Video API endpoints and authorization
 
 **Files:**
-- Create: `apps/server/internal/api/handlers/auno_auto_video.go`
-- Create: `apps/server/internal/api/handlers/auno_auto_video_test.go`
+- Create: `apps/server/internal/api/handlers/dopost_auto_video.go`
+- Create: `apps/server/internal/api/handlers/dopost_auto_video_test.go`
 - Modify: `apps/server/internal/api/routes.go`
 - Modify: application dependency wiring where `RouteDeps` is constructed.
 
 **Interfaces:**
 - Consumes: `autovideo.Service`; OpenPost auth/workspace authorization; job enqueue registry.
 - Produces endpoints:
-  - `POST /api/v1/auno/auto-video`
-  - `GET /api/v1/auno/auto-video/{id}`
-  - `GET /api/v1/auno/auto-video/{id}/sources`
-  - `POST /api/v1/auno/auto-video/{id}/generate`
-  - `POST /api/v1/auno/auto-video/{id}/regenerate-scene`
+  - `POST /api/v1/dopost/auto-video`
+  - `GET /api/v1/dopost/auto-video/{id}`
+  - `GET /api/v1/dopost/auto-video/{id}/sources`
+  - `POST /api/v1/dopost/auto-video/{id}/generate`
+  - `POST /api/v1/dopost/auto-video/{id}/regenerate-scene`
 
 - [ ] **Step 1: Write handler tests first**
 
@@ -1035,7 +1035,7 @@ Authorization tests: viewer may GET but may not create/generate/regenerate; edit
 
 ```bash
 cd apps/server
-go test ./internal/api/handlers -run AunoAutoVideo -v
+go test ./internal/api/handlers -run DopostAutoVideo -v
 ```
 
 - [ ] **Step 3: Implement Huma handler**
@@ -1057,13 +1057,13 @@ Create endpoint stores sidecar/source ledger only. `generate` endpoint enqueues 
 
 - [ ] **Step 4: Wire route/service dependencies explicitly**
 
-Add `AutoVideoService *autovideo.Service` to `api.RouteDeps`; only register Auno Auto Video routes when non-nil. Construct the service in the main application bootstrap and inject the same instance into the background worker.
+Add `AutoVideoService *autovideo.Service` to `api.RouteDeps`; only register dopost Auto Video routes when non-nil. Construct the service in the main application bootstrap and inject the same instance into the background worker.
 
 - [ ] **Step 5: Run handler and API tests**
 
 ```bash
 cd apps/server
-go test ./internal/api/handlers ./internal/api ./internal/services/autovideo -run 'AunoAutoVideo|AutoVideo' -v
+go test ./internal/api/handlers ./internal/api ./internal/services/autovideo -run 'DopostAutoVideo|AutoVideo' -v
 ```
 
 - [ ] **Step 6: Regenerate OpenAPI/types if required by upstream workflow**
@@ -1087,19 +1087,19 @@ git commit -m "feat: expose Auto Video generation API"
 ## Task 11: Build the `/auto-video` wizard and storyboard review
 
 **Files:**
-- Create: `apps/web/src/lib/auno-auto-video/api.ts`
-- Create: `apps/web/src/lib/auno-auto-video/wizard-state.svelte.ts`
-- Create: `apps/web/src/lib/auno-auto-video/wizard-state.test.ts`
-- Create: `apps/web/src/lib/components/auno-auto-video/source-step.svelte`
-- Create: `apps/web/src/lib/components/auno-auto-video/setup-step.svelte`
-- Create: `apps/web/src/lib/components/auno-auto-video/storyboard-step.svelte`
-- Create: `apps/web/src/lib/components/auno-auto-video/progress-step.svelte`
-- Create: `apps/web/src/lib/components/auno-auto-video/scene-card.svelte`
+- Create: `apps/web/src/lib/dopost-auto-video/api.ts`
+- Create: `apps/web/src/lib/dopost-auto-video/wizard-state.svelte.ts`
+- Create: `apps/web/src/lib/dopost-auto-video/wizard-state.test.ts`
+- Create: `apps/web/src/lib/components/dopost-auto-video/source-step.svelte`
+- Create: `apps/web/src/lib/components/dopost-auto-video/setup-step.svelte`
+- Create: `apps/web/src/lib/components/dopost-auto-video/storyboard-step.svelte`
+- Create: `apps/web/src/lib/components/dopost-auto-video/progress-step.svelte`
+- Create: `apps/web/src/lib/components/dopost-auto-video/scene-card.svelte`
 - Create: `apps/web/src/routes/auto-video/+page.svelte`
 - Create: `apps/web/src/routes/auto-video/[id]/+page.svelte`
 
 **Interfaces:**
-- Consumes: generated API client types and `@auno/auto-video` schema.
+- Consumes: generated API client types and `@dopost/auto-video` schema.
 - Produces: complete Create → Setup → Storyboard → Generate → Ready flow and editor deep-link.
 
 - [ ] **Step 1: Write wizard state tests first**
@@ -1125,7 +1125,7 @@ it('defaults to a 9:16 30-second English standard-motion project', () => {
 - [ ] **Step 2: Confirm red**
 
 ```bash
-bun --cwd apps/web x vitest run src/lib/auno-auto-video/wizard-state.test.ts
+bun --cwd apps/web x vitest run src/lib/dopost-auto-video/wizard-state.test.ts
 ```
 
 - [ ] **Step 3: Implement API adapter and wizard store**
@@ -1172,7 +1172,7 @@ Do not show provider/model choices in the wizard.
 
 - [ ] **Step 6: Implement storyboard review**
 
-Scene card renders role, narration, visual intent, source references, estimated duration. Phase 2 supports reorder/delete/edit narration client-side only before generation if the API exposes an update endpoint; if not, add `PUT /api/v1/auno/auto-video/{id}/storyboard` with schema validation and sidecar update before implementing the UI. Do not persist edits only in browser state.
+Scene card renders role, narration, visual intent, source references, estimated duration. Phase 2 supports reorder/delete/edit narration client-side only before generation if the API exposes an update endpoint; if not, add `PUT /api/v1/dopost/auto-video/{id}/storyboard` with schema validation and sidecar update before implementing the UI. Do not persist edits only in browser state.
 
 - [ ] **Step 7: Implement progress polling with real pipeline states**
 
@@ -1201,26 +1201,26 @@ Use the actual route shape confirmed in the imported editor. If cloud projects a
 - [ ] **Step 9: Run frontend tests/checks**
 
 ```bash
-bun --cwd apps/web x vitest run src/lib/auno-auto-video
+bun --cwd apps/web x vitest run src/lib/dopost-auto-video
 bun --cwd apps/web run check
 ```
 
 - [ ] **Step 10: Commit**
 
 ```bash
-git add apps/web/src/lib/auno-auto-video apps/web/src/lib/components/auno-auto-video apps/web/src/routes/auto-video
+git add apps/web/src/lib/dopost-auto-video apps/web/src/lib/components/dopost-auto-video apps/web/src/routes/auto-video
 git commit -m "feat: add Auto Video creation wizard"
 ```
 
 ---
 
-## Task 12: Add Auto Video to Auno Create surfaces
+## Task 12: Add Auto Video to dopost Create surfaces
 
 **Files:**
-- Modify: `apps/web/src/lib/auno/create-actions.ts`
-- Modify: `apps/web/src/lib/auno/create-actions.test.ts`
-- Modify: `apps/web/src/lib/auno/home-actions.ts`
-- Modify: `apps/web/src/lib/auno/home-actions.test.ts`
+- Modify: `apps/web/src/lib/dopost/create-actions.ts`
+- Modify: `apps/web/src/lib/dopost/create-actions.test.ts`
+- Modify: `apps/web/src/lib/dopost/home-actions.ts`
+- Modify: `apps/web/src/lib/dopost/home-actions.test.ts`
 - Modify: desktop/mobile Create menu consumers from Phase 1
 
 **Interfaces:**
@@ -1244,7 +1244,7 @@ Expected order:
 - [ ] **Step 2: Run and confirm red**
 
 ```bash
-bun --cwd apps/web x vitest run src/lib/auno/create-actions.test.ts src/lib/auno/home-actions.test.ts
+bun --cwd apps/web x vitest run src/lib/dopost/create-actions.test.ts src/lib/dopost/home-actions.test.ts
 ```
 
 - [ ] **Step 3: Update shared action models**
@@ -1254,9 +1254,9 @@ All menus/home cards render the shared model; do not add one-off menu markup.
 - [ ] **Step 4: Run and commit**
 
 ```bash
-bun --cwd apps/web x vitest run src/lib/auno/create-actions.test.ts src/lib/auno/home-actions.test.ts
+bun --cwd apps/web x vitest run src/lib/dopost/create-actions.test.ts src/lib/dopost/home-actions.test.ts
 bun --cwd apps/web run check
-git add apps/web/src/lib/auno apps/web/src/lib/components
+git add apps/web/src/lib/dopost apps/web/src/lib/components
 git commit -m "feat: expose AI Auto Video from Create"
 ```
 
@@ -1265,9 +1265,9 @@ git commit -m "feat: expose AI Auto Video from Create"
 ## Task 13: Add the Video Editor Auto Video side panel seam
 
 **Files:**
-- Create: `apps/web/src/lib/video-editor/auno/auto-video-panel-data.ts`
-- Create: `apps/web/src/lib/video-editor/auno/auto-video-panel-data.test.ts`
-- Create: `apps/web/src/lib/video-editor/auno/auto-video-panel.svelte`
+- Create: `apps/web/src/lib/video-editor/dopost/auto-video-panel-data.ts`
+- Create: `apps/web/src/lib/video-editor/dopost/auto-video-panel-data.test.ts`
+- Create: `apps/web/src/lib/video-editor/dopost/auto-video-panel.svelte`
 - Modify: the imported Video Editor side-panel/tool registry file identified by the editor's current panel architecture
 - Modify: `apps/web/src/routes/video-editor/[id]/+page.svelte` only if project-sidecar lookup must be passed from the route
 
@@ -1280,7 +1280,7 @@ git commit -m "feat: expose AI Auto Video from Create"
 Extend Task 10 handler with:
 
 ```text
-GET /api/v1/auno/auto-video/by-video-project/{videoProjectId}
+GET /api/v1/dopost/auto-video/by-video-project/{videoProjectId}
 ```
 
 It returns 404 when the project has no sidecar. Add permission tests matching the native project's workspace.
@@ -1308,7 +1308,7 @@ Panel model fields:
 - [ ] **Step 3: Confirm red and implement data adapter**
 
 ```bash
-bun --cwd apps/web x vitest run src/lib/video-editor/auno/auto-video-panel-data.test.ts
+bun --cwd apps/web x vitest run src/lib/video-editor/dopost/auto-video-panel-data.test.ts
 ```
 
 - [ ] **Step 4: Integrate one conditional `AI` editor panel**
@@ -1323,7 +1323,7 @@ Regenerate scene
 Keep manual edits = ON
 ```
 
-Do not build voice/music/motion controls in Phase 2; Phase 3/4 add them into this same Auno panel.
+Do not build voice/music/motion controls in Phase 2; Phase 3/4 add them into this same dopost panel.
 
 - [ ] **Step 5: Regeneration action calls backend, then reloads/merges cloud project revision through the editor's existing cloud repository path**
 
@@ -1332,9 +1332,9 @@ Do not mutate timeline stores directly with a second regeneration implementation
 - [ ] **Step 6: Run editor tests/checks and commit**
 
 ```bash
-bun --cwd apps/web x vitest run src/lib/video-editor/auno
+bun --cwd apps/web x vitest run src/lib/video-editor/dopost
 bun --cwd apps/web run check
-git add apps/server/internal/api/handlers/auno_auto_video* apps/web/src/lib/video-editor/auno apps/web/src/lib/video-editor apps/web/src/routes/video-editor
+git add apps/server/internal/api/handlers/dopost_auto_video* apps/web/src/lib/video-editor/dopost apps/web/src/lib/video-editor apps/web/src/routes/video-editor
 git commit -m "feat: add Auto Video controls to Video Editor"
 ```
 
@@ -1343,7 +1343,7 @@ git commit -m "feat: add Auto Video controls to Video Editor"
 ## Task 14: Add Phase 2 end-to-end and restart-recovery tests
 
 **Files:**
-- Create: `tests/auno/auto-video.spec.ts`
+- Create: `tests/dopost/auto-video.spec.ts`
 - Create: `apps/server/internal/services/autovideo/recovery_integration_test.go`
 - Modify: `.github/workflows/ci.yml`
 
@@ -1391,11 +1391,11 @@ For each format, fake planner returns a valid matching storyboard; assert the jo
 - [ ] **Step 4: Run the Phase 2 gate**
 
 ```bash
-cd apps/server && go test ./internal/services/autovideo ./internal/api/handlers ./internal/jobregistry ./internal/queue -run 'AutoVideo|AunoAutoVideo' -v && cd ../..
-bun test packages/auno-auto-video/src
-bun --cwd apps/web x vitest run src/lib/auno-auto-video src/lib/video-editor/auno
+cd apps/server && go test ./internal/services/autovideo ./internal/api/handlers ./internal/jobregistry ./internal/queue -run 'AutoVideo|DopostAutoVideo' -v && cd ../..
+bun test packages/dopost-auto-video/src
+bun --cwd apps/web x vitest run src/lib/dopost-auto-video src/lib/video-editor/dopost
 bun --cwd apps/web run check
-bunx playwright test tests/auno/auto-video.spec.ts
+bunx playwright test tests/dopost/auto-video.spec.ts
 ```
 
 - [ ] **Step 5: Add CI reachability for new paths**
@@ -1403,18 +1403,18 @@ bunx playwright test tests/auno/auto-video.spec.ts
 Ensure changes to these directories trigger backend/frontend/browser checks:
 
 ```text
-packages/auno-auto-video/**
+packages/dopost-auto-video/**
 apps/server/internal/services/autovideo/**
-apps/server/internal/api/handlers/auno_auto_video*
-apps/web/src/lib/auno-auto-video/**
+apps/server/internal/api/handlers/dopost_auto_video*
+apps/web/src/lib/dopost-auto-video/**
 apps/web/src/routes/auto-video/**
-apps/web/src/lib/video-editor/auno/**
+apps/web/src/lib/video-editor/dopost/**
 ```
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add tests/auno/auto-video.spec.ts apps/server/internal/services/autovideo/recovery_integration_test.go .github/workflows/ci.yml
+git add tests/dopost/auto-video.spec.ts apps/server/internal/services/autovideo/recovery_integration_test.go .github/workflows/ci.yml
 git commit -m "test: gate native Auto Video generation"
 ```
 
@@ -1437,7 +1437,7 @@ bun run format:check
 bun run check
 bun run test
 cd apps/server && go test ./... && cd ../..
-bunx playwright test tests/auno/phase1-foundation.spec.ts tests/auno/auto-video.spec.ts
+bunx playwright test tests/dopost/phase1-foundation.spec.ts tests/dopost/auto-video.spec.ts
 ```
 
 - [ ] **Step 2: Re-run SQLite + PostgreSQL migration matrix**
@@ -1479,7 +1479,7 @@ Invoke `superpowers:requesting-code-review`. Address blocking findings and re-ru
 - Manual edits are detected and preserved by default during scene regeneration.
 - Regeneration creates normal project history and respects conflicts.
 - `/auto-video` wizard shows real pipeline state and opens the native Video Editor.
-- AI Auto Video appears in all Auno Create entry points.
+- AI Auto Video appears in all dopost Create entry points.
 - Video Editor conditionally exposes Auto Video scene regeneration controls.
 - Native project still opens after Auto Video sidecar removal/AI disablement.
 - Phase 1 tests remain green and Phase 2 E2E/recovery tests pass before Phase 3 begins.

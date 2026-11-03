@@ -6,6 +6,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
+	"image"
+	"image/png"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -25,6 +28,7 @@ import (
 	"github.com/openpost/backend/internal/services/apitokens"
 	"github.com/openpost/backend/internal/services/entitlements"
 	"github.com/openpost/backend/internal/services/mediaanalysis"
+	"github.com/openpost/backend/internal/services/medialifecycle"
 	"github.com/openpost/backend/internal/services/mediastore"
 	"github.com/openpost/backend/internal/services/usage"
 	"github.com/openpost/backend/internal/services/videoprocessing"
@@ -32,99 +36,117 @@ import (
 	"github.com/uptrace/bun"
 )
 
-func TestMicrophoneProjectAssetUploadsFinishAsAudio(t *testing.T) {
-	filename := filepath.Join(t.TempDir(), "microphone.webm")
-	output, err := exec.CommandContext(t.Context(), "ffmpeg", "-v", "error", "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000", "-t", "0.2", "-c:a", "libopus", "-live", "1", filename).CombinedOutput()
-	require.NoError(t, err, string(output))
-	content, err := os.ReadFile(filename)
-	require.NoError(t, err)
-	storage := newFakeDirectUploadStorage()
-	srv := newMediaDirectUploadTestServer(t, storage, entitlements.NewSelfHostedService())
-	for _, model := range []any{(*models.Organization)(nil), (*models.Job)(nil)} {
-		_, err := srv.db.NewCreateTable().Model(model).IfNotExists().Exec(t.Context())
-		require.NoError(t, err)
-	}
-	_, err = srv.db.NewInsert().Model(&models.Organization{ID: "recording-org", Name: "Recording"}).Exec(t.Context())
-	require.NoError(t, err)
-	_, err = srv.db.NewUpdate().Model((*models.Workspace)(nil)).Set("organization_id = ?", "recording-org").Where("id = ?", "ws-1").Exec(t.Context())
-	require.NoError(t, err)
-	processor := videoprocessing.NewService(srv.db, storage, mediaanalysis.FFmpegAnalyzer{})
-	srv.handler.SetVideoProcessor(processor)
-	assertProcessedAudio := func(result MediaUploadResult) {
-		t.Helper()
-		require.Equal(t, "processing", result.ProcessingStatus)
-		var jobs []models.Job
-		require.NoError(t, srv.db.NewSelect().Model(&jobs).Where("type = ?", videoprocessing.JobTypeAnalyze).Scan(t.Context()))
-		require.NotEmpty(t, jobs)
-		for _, job := range jobs {
-			require.NoError(t, processor.HandleJob(t.Context(), job.Type, job.Payload))
-		}
-		var stored models.MediaAttachment
-		require.NoError(t, srv.db.NewSelect().Model(&stored).Where("id = ?", result.ID).Scan(t.Context()))
-		require.Equal(t, "audio/webm", stored.MimeType)
-		require.Equal(t, "ready", stored.ProcessingStatus)
-		require.Equal(t, "ready", stored.AnalysisStatus)
-		require.Equal(t, "audio", stored.DominantType)
-		require.Equal(t, "opus", stored.AudioCodec)
-		require.Greater(t, stored.DurationMS, int64(100))
-	}
-	create := srv.postJSON(t, "/api/v1/video-projects", map[string]any{
-		"workspace_id": "ws-1", "name": "Microphone capture", "device_id": "desktop",
-		"document": map[string]any{"id": "capture", "timeline": map[string]any{"tracks": []any{}, "items": []any{}}},
-	})
-	require.Equal(t, http.StatusOK, create.Code, create.Body.String())
-	var project VideoProjectResponse
-	require.NoError(t, json.Unmarshal(create.Body.Bytes(), &project))
-	reserve := func(stableID string) string {
-		t.Helper()
-		response := srv.postJSON(t, "/api/v1/video-projects/"+project.ID+"/assets", map[string]any{
-			"workspace_id": "ws-1", "stable_media_id": stableID, "original_filename": "microphone.webm",
-			"mime_type": "audio/webm;codecs=opus", "size": len(content),
-			"preparation": map[string]any{},
-		})
-		require.Equal(t, http.StatusOK, response.Code, response.Body.String())
-		var asset ProjectAssetResponse
-		require.NoError(t, json.Unmarshal(response.Body.Bytes(), &asset))
-		return asset.ID
-	}
-	assetID := reserve("direct-mic")
-	sessionResponse := srv.postJSON(t, "/api/v1/media/upload-session", map[string]any{
-		"workspace_id": "ws-1", "filename": "microphone.webm", "mime_type": "audio/webm;codecs=opus",
-		"size": len(content), "source": "video_editor_source", "asset_kind": "project_asset", "project_asset_id": assetID,
-	})
-	require.Equal(t, http.StatusOK, sessionResponse.Code, sessionResponse.Body.String())
-	var session CreateMediaUploadSessionResponse
-	require.NoError(t, json.Unmarshal(sessionResponse.Body.Bytes(), &session))
-	mediaID := session.MediaID
-	storage.objects[mediaID+".webm"] = content
-	complete := srv.postJSON(t, "/api/v1/media/upload-session/"+mediaID+"/complete", map[string]any{"workspace_id": "ws-1"})
-	require.Equal(t, http.StatusOK, complete.Code, complete.Body.String())
-	var result MediaUploadResult
-	require.NoError(t, json.Unmarshal(complete.Body.Bytes(), &result))
-	assertProcessedAudio(result)
+func TestAudioProjectAssetUploadsPersistMetadata(t *testing.T) {
+	for _, tc := range []struct{ extension, mimeType, encoder, codec string }{
+		{"webm", "audio/webm", "libopus", "opus"},
+		{"wav", "audio/wave", "pcm_s16le", "pcm_s16le"},
+	} {
+		t.Run(tc.extension, func(t *testing.T) {
+			filename := filepath.Join(t.TempDir(), "microphone."+tc.extension)
+			output, err := exec.CommandContext(t.Context(), "ffmpeg", "-v", "error", "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000", "-t", "0.2", "-c:a", tc.encoder, filename).CombinedOutput()
+			require.NoError(t, err, string(output))
+			content, err := os.ReadFile(filename)
+			require.NoError(t, err)
+			storage := newFakeDirectUploadStorage()
+			srv := newMediaDirectUploadTestServer(t, storage, entitlements.NewSelfHostedService())
+			for _, model := range []any{(*models.Organization)(nil), (*models.Job)(nil)} {
+				_, err := srv.db.NewCreateTable().Model(model).IfNotExists().Exec(t.Context())
+				require.NoError(t, err)
+			}
+			_, err = srv.db.NewInsert().Model(&models.Organization{ID: "recording-org", Name: "Recording"}).Exec(t.Context())
+			require.NoError(t, err)
+			_, err = srv.db.NewUpdate().Model((*models.Workspace)(nil)).Set("organization_id = ?", "recording-org").Where("id = ?", "ws-1").Exec(t.Context())
+			require.NoError(t, err)
+			processor := videoprocessing.NewService(srv.db, storage, mediaanalysis.FFmpegAnalyzer{})
+			srv.handler.SetVideoProcessor(processor)
+			assertProcessedAudio := func(result MediaUploadResult) {
+				t.Helper()
+				require.Equal(t, "processing", result.ProcessingStatus)
+				var jobs []models.Job
+				require.NoError(t, srv.db.NewSelect().Model(&jobs).Where("type = ?", videoprocessing.JobTypeAnalyze).Scan(t.Context()))
+				require.NotEmpty(t, jobs)
+				for _, job := range jobs {
+					require.NoError(t, processor.HandleJob(t.Context(), job.Type, job.Payload))
+				}
+				var stored models.MediaAttachment
+				require.NoError(t, srv.db.NewSelect().Model(&stored).Where("id = ?", result.ID).Scan(t.Context()))
+				require.Equal(t, tc.mimeType, stored.MimeType)
+				require.Equal(t, "ready", stored.ProcessingStatus)
+				require.Equal(t, "ready", stored.AnalysisStatus)
+				require.Equal(t, "audio", stored.DominantType)
+				require.Equal(t, tc.codec, stored.AudioCodec)
+				require.Greater(t, stored.DurationMS, int64(100))
+				req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/v1/media/metadata?workspace_id=ws-1&media_ids="+result.ID, nil)
+				req.Header.Set("Authorization", "Bearer web-token")
+				response := httptest.NewRecorder()
+				srv.echo.ServeHTTP(response, req)
+				require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+				var metadata struct {
+					Media []MediaMetadataItem `json:"media"`
+				}
+				require.NoError(t, json.Unmarshal(response.Body.Bytes(), &metadata))
+				require.Len(t, metadata.Media, 1)
+				require.Equal(t, "microphone."+tc.extension, metadata.Media[0].OriginalFilename)
+			}
+			create := srv.postJSON(t, "/api/v1/video-projects", map[string]any{
+				"workspace_id": "ws-1", "name": "Microphone capture", "device_id": "desktop",
+				"document": map[string]any{"id": "capture", "timeline": map[string]any{"tracks": []any{}, "items": []any{}}},
+			})
+			require.Equal(t, http.StatusOK, create.Code, create.Body.String())
+			var project VideoProjectResponse
+			require.NoError(t, json.Unmarshal(create.Body.Bytes(), &project))
+			reserve := func(stableID string) string {
+				t.Helper()
+				response := srv.postJSON(t, "/api/v1/video-projects/"+project.ID+"/assets", map[string]any{
+					"workspace_id": "ws-1", "stable_media_id": stableID, "original_filename": "microphone." + tc.extension,
+					"mime_type": tc.mimeType, "size": len(content),
+					"preparation": map[string]any{},
+				})
+				require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+				var asset ProjectAssetResponse
+				require.NoError(t, json.Unmarshal(response.Body.Bytes(), &asset))
+				return asset.ID
+			}
+			assetID := reserve("direct-mic")
+			sessionResponse := srv.postJSON(t, "/api/v1/media/upload-session", map[string]any{
+				"workspace_id": "ws-1", "filename": "microphone." + tc.extension, "mime_type": tc.mimeType,
+				"size": len(content), "source": "video_editor_source", "asset_kind": "project_asset", "project_asset_id": assetID,
+			})
+			require.Equal(t, http.StatusOK, sessionResponse.Code, sessionResponse.Body.String())
+			var session CreateMediaUploadSessionResponse
+			require.NoError(t, json.Unmarshal(sessionResponse.Body.Bytes(), &session))
+			mediaID := session.MediaID
+			storage.objects[mediaID+"."+tc.extension] = content
+			complete := srv.postJSON(t, "/api/v1/media/upload-session/"+mediaID+"/complete", map[string]any{"workspace_id": "ws-1"})
+			require.Equal(t, http.StatusOK, complete.Code, complete.Body.String())
+			var result MediaUploadResult
+			require.NoError(t, json.Unmarshal(complete.Body.Bytes(), &result))
+			assertProcessedAudio(result)
 
-	var body bytes.Buffer
-	writer := multipart.NewWriter(&body)
-	require.NoError(t, writer.WriteField("workspace_id", "ws-1"))
-	require.NoError(t, writer.WriteField("source", "video_editor_source"))
-	require.NoError(t, writer.WriteField("asset_kind", "project_asset"))
-	require.NoError(t, writer.WriteField("project_asset_id", reserve("multipart-mic")))
-	part, err := writer.CreatePart(textproto.MIMEHeader{
-		"Content-Disposition": {`form-data; name="file"; filename="microphone.webm"`},
-		"Content-Type":        {"audio/webm;codecs=opus"},
-	})
-	require.NoError(t, err)
-	_, err = part.Write(content)
-	require.NoError(t, err)
-	require.NoError(t, writer.Close())
-	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/media/upload", &body)
-	req.Header.Set("Content-Type", writer.FormDataContentType())
-	req.Header.Set("Authorization", "Bearer web-token")
-	response := httptest.NewRecorder()
-	srv.echo.ServeHTTP(response, req)
-	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
-	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &result))
-	assertProcessedAudio(result)
+			var body bytes.Buffer
+			writer := multipart.NewWriter(&body)
+			require.NoError(t, writer.WriteField("workspace_id", "ws-1"))
+			require.NoError(t, writer.WriteField("source", "video_editor_source"))
+			require.NoError(t, writer.WriteField("asset_kind", "project_asset"))
+			require.NoError(t, writer.WriteField("project_asset_id", reserve("multipart-mic")))
+			part, err := writer.CreatePart(textproto.MIMEHeader{
+				"Content-Disposition": {`form-data; name="file"; filename="microphone.` + tc.extension + `"`},
+				"Content-Type":        {tc.mimeType},
+			})
+			require.NoError(t, err)
+			_, err = part.Write(content)
+			require.NoError(t, err)
+			require.NoError(t, writer.Close())
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/v1/media/upload", &body)
+			req.Header.Set("Content-Type", writer.FormDataContentType())
+			req.Header.Set("Authorization", "Bearer web-token")
+			response := httptest.NewRecorder()
+			srv.echo.ServeHTTP(response, req)
+			require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+			require.NoError(t, json.Unmarshal(response.Body.Bytes(), &result))
+			assertProcessedAudio(result)
+		})
+	}
 }
 
 type mediaDirectUploadTestServer struct {
@@ -145,14 +167,18 @@ type fakeDirectUploadStorage struct {
 type cancelingUploadStorage struct {
 	cancel           context.CancelFunc
 	deleteContextErr error
+	saveCalls        int
+	deleteCalls      int
 }
 
 func (*cancelingUploadStorage) Driver() string { return "canceling" }
 func (s *cancelingUploadStorage) Save(ctx context.Context, _ string, _ io.Reader) (string, error) {
+	s.saveCalls++
 	s.cancel()
 	return "", ctx.Err()
 }
 func (s *cancelingUploadStorage) Delete(ctx context.Context, _ string) error {
+	s.deleteCalls++
 	s.deleteContextErr = ctx.Err()
 	return nil
 }
@@ -259,7 +285,7 @@ func newMediaDirectUploadTestServerWithAuthenticator(
 	handler.SetEntitlement(entitlement)
 	handler.RegisterRoutes(api)
 	handler.RegisterLegacyRoutes(e)
-	NewVideoProjectHandler(db, authenticator).RegisterRoutes(api)
+	NewVideoProjectHandler(db, authenticator, storage).RegisterRoutes(api)
 
 	fakeStorage, _ := storage.(*fakeDirectUploadStorage)
 	return &mediaDirectUploadTestServer{echo: e, db: db, storage: fakeStorage, usage: usageSvc, handler: handler}
@@ -320,6 +346,8 @@ func TestCanceledStreamingUploadReturnsSessionToPending(t *testing.T) {
 	srv.echo.ServeHTTP(recorder, req)
 
 	require.Equal(t, http.StatusBadRequest, recorder.Code, recorder.Body.String())
+	require.Equal(t, 1, storage.saveCalls, "the canceled write must be attempted exactly once")
+	require.Equal(t, 1, storage.deleteCalls, "a rejected streaming write must clean up its partial object")
 	require.NoError(t, storage.deleteContextErr)
 	var stored models.MediaAttachment
 	require.NoError(t, srv.db.NewSelect().Model(&stored).Where("id = ?", media.ID).Scan(t.Context()))
@@ -496,15 +524,94 @@ func TestAPIWriteScopeRejectsUncataloguedLegacyMediaRoutes(t *testing.T) {
 	}
 }
 
+func TestValidateMediaUploadDeclaration(t *testing.T) {
+	t.Parallel()
+
+	require.NoError(t, validateMediaUploadDeclaration("cover.png", "image/png"))
+	require.NoError(t, validateMediaUploadDeclaration("cover.png", "image/png; charset=binary"))
+	require.NoError(t, validateMediaUploadDeclaration("cover.png", ""))
+	require.NoError(t, validateMediaUploadDeclaration("cover.png", defaultMediaMimeType))
+	require.NoError(t, validateMediaUploadDeclaration("cover.png", ";charset=utf-8"))
+	require.ErrorContains(t, validateMediaUploadDeclaration("", "image/png"), "filename is required")
+	for _, mimeType := range []string{"not-a-mime", "image/", "/png", "image png"} {
+		require.ErrorContains(
+			t,
+			validateMediaUploadDeclaration("cover.png", mimeType),
+			"MIME type",
+		)
+	}
+}
+
+func TestValidateMediaAssetContentRejectsTopLevelMimeMismatch(t *testing.T) {
+	t.Parallel()
+
+	jpeg := append([]byte{0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10}, make([]byte, 64)...)
+	require.NoError(t, validateMediaAssetContent("library", "cover.jpg", "image/jpeg", jpeg))
+	require.NoError(t, validateMediaAssetContent("library", "cover.png", "image/png", jpeg))
+	require.NoError(t, validateMediaAssetContent("library", "capture.webm", "audio/webm", []byte{0x1a, 0x45, 0xdf, 0xa3}))
+	require.NoError(t, validateMediaAssetContent("library", "notes.txt", "text/plain", []byte("notes")))
+	require.ErrorContains(
+		t,
+		validateMediaAssetContent("library", "cover.mp4", "video/mp4", jpeg),
+		"does not match",
+	)
+	require.ErrorContains(
+		t,
+		validateMediaAssetContent("library", "cover.png", "image/png", []byte("<html><body>hi</body></html>")),
+		"HTML and XML documents are not supported media",
+	)
+	require.NoError(t, validateMediaAssetContent("library", "capture.mp4", "video/mp4", []byte("video bytes!")))
+	require.NoError(t, validateMediaAssetContent("library", "empty.png", "image/png", nil))
+	require.NoError(t, validateMediaAssetContent("library", "cover.jpg", defaultMediaMimeType, jpeg))
+}
+
+func TestValidateMediaAssetContentAcceptsSnifferContainerNames(t *testing.T) {
+	t.Parallel()
+
+	// Go sniffs every Ogg page as application/ogg and every ISO BMFF brand
+	// containing "mp4" as video/mp4; browsers declare these files as
+	// audio/ogg, video/ogg and audio/x-m4a.
+	ogg := append([]byte("OggS\x00\x02"), make([]byte, 64)...)
+	m4a := append([]byte("\x00\x00\x00\x20ftypM4A \x00\x00\x00\x00M4A mp42isom"), make([]byte, 64)...)
+	require.Equal(t, "application/ogg", http.DetectContentType(ogg))
+	require.Equal(t, "video/mp4", http.DetectContentType(m4a))
+
+	require.NoError(t, validateMediaAssetContent("library", "voice.ogg", "audio/ogg", ogg))
+	require.NoError(t, validateMediaAssetContent("library", "clip.ogv", "video/ogg", ogg))
+	require.NoError(t, validateMediaAssetContent("library", "voice.m4a", "audio/x-m4a", m4a))
+	require.NoError(t, validateMediaAssetContent("library", "voice.m4a", "audio/m4a", m4a))
+	require.NoError(t, validateMediaAssetContent("library", "voice.m4a", "audio/mp4", m4a))
+	require.ErrorContains(
+		t,
+		validateMediaAssetContent("library", "cover.png", "image/png", ogg),
+		"does not match",
+	)
+	require.ErrorContains(
+		t,
+		validateMediaAssetContent("library", "voice.ogg", "audio/ogg", m4a),
+		"does not match",
+	)
+}
+
 func TestValidateBrandFontContent(t *testing.T) {
 	t.Parallel()
 
-	validWOFF2 := append([]byte{'w', 'O', 'F', '2'}, make([]byte, 24)...)
-	validTTF := append([]byte{0x00, 0x01, 0x00, 0x00}, make([]byte, 24)...)
-	validOTF := append([]byte{'O', 'T', 'T', 'O'}, make([]byte, 24)...)
+	validWOFF2, err := os.ReadFile("../../services/themes/testdata/roboto-latin-400-normal.woff2")
+	require.NoError(t, err)
+	validTTF, err := os.ReadFile("../../memes/catalog/fonts/NotoSans-Bold.ttf")
+	require.NoError(t, err)
 	require.NoError(t, validateMediaAssetContent("brand_font", "brand.woff2", "font/woff2", validWOFF2))
 	require.NoError(t, validateMediaAssetContent("brand_font", "brand.ttf", "font/ttf", validTTF))
-	require.NoError(t, validateMediaAssetContent("brand_font", "brand.otf", "font/otf", validOTF))
+	for _, forged := range []struct {
+		name, mime string
+		bytes      []byte
+	}{
+		{"brand.woff2", "font/woff2", append([]byte("wOF2"), make([]byte, 48)...)},
+		{"brand.ttf", "font/ttf", append([]byte{0, 1, 0, 0}, make([]byte, 48)...)},
+		{"brand.otf", "font/otf", append([]byte("OTTO"), make([]byte, 48)...)},
+	} {
+		require.Error(t, validateMediaAssetContent("brand_font", forged.name, forged.mime, forged.bytes), "magic bytes alone do not make a usable font")
+	}
 	require.ErrorContains(
 		t,
 		validateMediaAssetContent("brand_font", "brand.woff2", "font/woff2", []byte("not-a-font")),
@@ -547,45 +654,18 @@ func TestValidateMediaAssetContentRejectsSVG(t *testing.T) {
 	}
 }
 
-func TestCreateMediaUploadSessionAppliesTypeSpecificSizeLimits(t *testing.T) {
+func TestCreateMediaUploadSessionRejectsMalformedMimeType(t *testing.T) {
 	t.Parallel()
 
 	storage := newFakeDirectUploadStorage()
 	srv := newMediaDirectUploadTestServer(t, storage, entitlements.NewSelfHostedService())
-
-	videoResp := srv.postJSON(t, "/api/v1/media/upload-session", map[string]any{
+	resp := srv.postJSON(t, "/api/v1/media/upload-session", map[string]any{
 		"workspace_id": "ws-1",
-		"filename":     "launch.mp4",
-		"mime_type":    "video/mp4",
-		"size":         MaxMediaUploadBytes,
+		"filename":     "cover.png",
+		"mime_type":    "not-a-mime",
+		"size":         12,
 	})
-	require.Equal(t, http.StatusOK, videoResp.Code, videoResp.Body.String())
-	var videoSession map[string]any
-	require.NoError(t, json.Unmarshal(videoResp.Body.Bytes(), &videoSession))
-	videoID := videoSession["media_id"].(string)
-	require.Equal(
-		t,
-		"/api/v1/media/upload-session/"+videoID+"/content",
-		videoSession["upload"].(map[string]any)["url"],
-	)
-
-	oversizeVideoResp := srv.postJSON(t, "/api/v1/media/upload-session", map[string]any{
-		"workspace_id": "ws-1",
-		"filename":     "launch.mp4",
-		"mime_type":    "video/mp4",
-		"size":         MaxMediaUploadBytes + 1,
-	})
-	require.Equal(t, http.StatusBadRequest, oversizeVideoResp.Code, oversizeVideoResp.Body.String())
-	require.Contains(t, oversizeVideoResp.Body.String(), "16 GiB")
-
-	oversizeImageResp := srv.postJSON(t, "/api/v1/media/upload-session", map[string]any{
-		"workspace_id": "ws-1",
-		"filename":     "launch.png",
-		"mime_type":    "image/png",
-		"size":         MaxBufferedMediaUploadBytes + 1,
-	})
-	require.Equal(t, http.StatusBadRequest, oversizeImageResp.Code, oversizeImageResp.Body.String())
-	require.Contains(t, oversizeImageResp.Body.String(), "50MB")
+	require.Equal(t, http.StatusBadRequest, resp.Code, resp.Body.String())
 }
 
 func TestMediaUploadSessionTTLScalesForLargeVideos(t *testing.T) {
@@ -628,6 +708,71 @@ func TestCompleteMediaUploadSessionFinalizesUploadedObject(t *testing.T) {
 	current, err := srv.usage.CurrentMonthly(context.Background(), "ws-1", entitlements.LimitMediaBytesUploadedMonthly, time.Now())
 	require.NoError(t, err)
 	require.Equal(t, int64(12), current)
+}
+
+func TestCompleteMediaUploadSessionKeepsDeclaredContainerKind(t *testing.T) {
+	t.Parallel()
+
+	storage := newFakeDirectUploadStorage()
+	srv := newMediaDirectUploadTestServer(t, storage, entitlements.NewSelfHostedService())
+	ogg := func(page byte) []byte {
+		return append([]byte{'O', 'g', 'g', 'S', 0x00, page}, make([]byte, 64)...)
+	}
+	m4a := append([]byte("\x00\x00\x00\x20ftypM4A \x00\x00\x00\x00M4A mp42isom"), make([]byte, 64)...)
+	for _, tc := range []struct {
+		filename string
+		declared string
+		dominant string
+		content  []byte
+	}{
+		{filename: "voice.ogg", declared: "audio/ogg", dominant: "audio", content: ogg(0x02)},
+		{filename: "clip.ogv", declared: "video/ogg", dominant: "video", content: ogg(0x04)},
+		{filename: "voice.m4a", declared: "audio/x-m4a", dominant: "audio", content: m4a},
+	} {
+		mediaID := srv.createUploadSession(t, tc.filename, tc.declared, int64(len(tc.content)))
+		storage.objects[mediaID+filepath.Ext(tc.filename)] = tc.content
+
+		resp := srv.postJSON(t, "/api/v1/media/upload-session/"+mediaID+"/complete", map[string]any{
+			"workspace_id": "ws-1",
+		})
+		require.Equal(t, http.StatusOK, resp.Code, resp.Body.String())
+
+		var media models.MediaAttachment
+		require.NoError(t, srv.db.NewSelect().Model(&media).Where("id = ?", mediaID).Scan(context.Background()))
+		require.Equal(t, tc.declared, media.MimeType)
+		require.Equal(t, tc.dominant, media.DominantType)
+		require.Equal(t, mediaReadyStatus, media.ProcessingStatus)
+	}
+}
+
+func TestDetectedMediaMimeTypeKeepsDeclaredContainerKinds(t *testing.T) {
+	t.Parallel()
+
+	ogg := append([]byte("OggS\x00\x02"), make([]byte, 64)...)
+	require.Equal(t, "audio/ogg", detectedMediaMimeType(ogg, "audio/ogg; codecs=opus"))
+	require.Equal(t, "video/ogg", detectedMediaMimeType(ogg, "Video/Ogg"))
+	require.Equal(t, "application/ogg", detectedMediaMimeType(ogg, ""))
+	require.Equal(t, "application/ogg", detectedMediaMimeType(ogg, "audio/opus"))
+
+	// An M4A brand is sniffed as video/mp4; the declared audio type is kept,
+	// but not for another declaration and not for an mp4 video brand.
+	m4a := append([]byte("\x00\x00\x00\x20ftypM4A \x00\x00\x00\x00M4A mp42isom"), make([]byte, 64)...)
+	require.Equal(t, "audio/x-m4a", detectedMediaMimeType(m4a, "audio/x-m4a"))
+	require.Equal(t, "audio/m4a", detectedMediaMimeType(m4a, "Audio/M4A"))
+	require.Equal(t, "audio/mp4", detectedMediaMimeType(m4a, "audio/mp4; codecs=mp4a.40.2"))
+	require.Equal(t, "video/mp4", detectedMediaMimeType(m4a, ""))
+	require.Equal(t, "video/mp4", detectedMediaMimeType(m4a, "video/mp4"))
+	require.Equal(t, "video/mp4", detectedMediaMimeType(m4a, "audio/aac"))
+	mp4 := append([]byte("\x00\x00\x00\x20ftypisom\x00\x00\x02\x00isomiso2mp41"), make([]byte, 64)...)
+	require.Equal(t, "video/mp4", http.DetectContentType(mp4))
+	require.Equal(t, "video/mp4", detectedMediaMimeType(mp4, "audio/mp4"))
+
+	png := append([]byte("\x89PNG\x0D\x0A\x1A\x0A"), make([]byte, 64)...)
+	require.Equal(t, "image/png", detectedMediaMimeType(png, "audio/ogg"))
+
+	unknown := []byte{0x00, 0x01, 0x02, 0x03}
+	require.Equal(t, "audio/flac", detectedMediaMimeType(unknown, "audio/flac"))
+	require.Equal(t, defaultMediaMimeType, detectedMediaMimeType(unknown, ""))
 }
 
 func TestProjectAssetUploadStaysOutOfMediaLibraryAndCompletesProject(t *testing.T) {
@@ -798,38 +943,20 @@ func TestCompleteMediaUploadSessionDedupesExistingMedia(t *testing.T) {
 		Where("id = ?", mediaID).
 		Count(context.Background())
 	require.NoError(t, err)
-	require.Equal(t, 0, pendingCount)
+	require.Equal(t, 1, pendingCount, "dedup cleanup ownership must outlive the signed PUT capability")
+	var retired models.MediaAttachment
+	require.NoError(t, srv.db.NewSelect().Model(&retired).Where("id = ?", mediaID).Scan(t.Context()))
+	require.Equal(t, mediaFailedStatus, retired.ProcessingStatus)
+	stored, err := medialifecycle.StoredBytes(t.Context(), srv.db, "ws-1", "")
+	require.NoError(t, err)
+	require.Equal(t, int64(2*len(content)), stored)
+	// Reusing the outstanding PUT must not revive the retired reservation.
+	storage.objects[mediaID+".txt"] = content
+	response := srv.postJSON(t, "/api/v1/media/upload-session/"+mediaID+"/complete", map[string]any{"workspace_id": "ws-1"})
+	require.Equal(t, http.StatusBadRequest, response.Code)
 	current, err := srv.usage.CurrentMonthly(context.Background(), "ws-1", entitlements.LimitMediaBytesUploadedMonthly, time.Now())
 	require.NoError(t, err)
 	require.Equal(t, int64(0), current)
-}
-
-func TestMediaRollbackCompletesAfterRequestCancellation(t *testing.T) {
-	storage := newFakeDirectUploadStorage()
-	srv := newMediaDirectUploadTestServer(t, storage, entitlements.NewSelfHostedService())
-	media := &models.MediaAttachment{
-		ID:               "rollback-media",
-		WorkspaceID:      "ws-1",
-		FilePath:         "rollback-media.txt",
-		StorageType:      "s3",
-		MimeType:         "text/plain",
-		ProcessingStatus: mediaReadyStatus,
-		Size:             7,
-		OriginalFilename: "rollback-media.txt",
-		CreatedAt:        time.Now().UTC(),
-	}
-	_, err := srv.db.NewInsert().Model(media).Exec(t.Context())
-	require.NoError(t, err)
-	storage.objects[media.FilePath] = []byte("content")
-	ctx, cancel := context.WithCancel(t.Context())
-	cancel()
-	handler := NewMediaHandler(srv.db, storage, nil, testAuthenticator{}, nil)
-
-	require.NoError(t, handler.rollbackMediaRecord(ctx, media))
-	count, err := srv.db.NewSelect().Model((*models.MediaAttachment)(nil)).Where("id = ?", media.ID).Count(t.Context())
-	require.NoError(t, err)
-	require.Zero(t, count)
-	require.NotContains(t, storage.objects, media.FilePath)
 }
 
 func TestFailedMediaInsertReconcilesCommittedRowBeforeDeletingFiles(t *testing.T) {
@@ -919,4 +1046,211 @@ func (s *mediaDirectUploadTestServer) createUploadSessionWithAlt(t *testing.T, f
 	var out map[string]any
 	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &out))
 	return out["media_id"].(string)
+}
+
+func TestValidateMediaAssetContentKeepsSVGTextInsideBinaryAudio(t *testing.T) {
+	t.Parallel()
+	// A RIFF sample or metadata chunk can contain these bytes without being an SVG document.
+	wav := append([]byte("RIFF\x24\x00\x00\x00WAVEfmt \x10\x00\x00\x00"), []byte("<svg")...)
+	require.NoError(t, validateMediaAssetContent("project_asset", "voice.wav", "audio/wave", wav))
+}
+
+func TestCompleteMediaUploadSessionConcurrentRetryMetersOnce(t *testing.T) {
+	storage := newFakeDirectUploadStorage()
+	srv := newMediaDirectUploadTestServer(t, storage, entitlements.NewSelfHostedService())
+	mediaID := srv.createUploadSession(t, "copy.txt", "text/plain", 12)
+	storage.objects[mediaID+".txt"] = []byte("hello direct")
+	quota := &synchronizedMediaQuota{Service: entitlements.NewSelfHostedService(), arrived: make(chan struct{}, 2), release: make(chan struct{})}
+	quota.remaining.Store(2)
+	srv.handler.SetEntitlement(quota)
+	srv.db.SetMaxOpenConns(1)
+	responses := make(chan *httptest.ResponseRecorder, 2)
+	for range 2 {
+		go func() {
+			responses <- srv.postJSON(t, "/api/v1/media/upload-session/"+mediaID+"/complete", map[string]any{"workspace_id": "ws-1"})
+		}()
+	}
+	<-quota.arrived
+	<-quota.arrived
+	close(quota.release)
+	for range 2 {
+		resp := <-responses
+		require.Equal(t, http.StatusOK, resp.Code, resp.Body.String())
+	}
+	current, err := srv.usage.CurrentMonthly(t.Context(), "ws-1", entitlements.LimitMediaBytesUploadedMonthly, time.Now())
+	require.NoError(t, err)
+	require.Equal(t, int64(12), current)
+}
+
+type inspectionFailureStorage struct {
+	*fakeDirectUploadStorage
+	failRead bool
+}
+type failedInspectionReader struct{ io.ReadCloser }
+
+func (r failedInspectionReader) Read([]byte) (int, error) {
+	return 0, errors.New("temporary storage read failure")
+}
+func (s *inspectionFailureStorage) Open(ctx context.Context, key string) (io.ReadCloser, error) {
+	reader, err := s.fakeDirectUploadStorage.Open(ctx, key)
+	if err == nil && s.failRead {
+		return failedInspectionReader{reader}, nil
+	}
+	return reader, err
+}
+func TestDirectUploadCompletionRetriesAfterStorageInspectionFailure(t *testing.T) {
+	for _, failure := range []string{"object unavailable", "read failure"} {
+		t.Run(failure, func(t *testing.T) {
+			storage := &inspectionFailureStorage{fakeDirectUploadStorage: newFakeDirectUploadStorage()}
+			srv := newMediaDirectUploadTestServer(t, storage, entitlements.NewSelfHostedService())
+			mediaID := srv.createUploadSession(t, "copy.txt", "text/plain", 12)
+			var before models.MediaAttachment
+			require.NoError(t, srv.db.NewSelect().Model(&before).Where("id = ?", mediaID).Scan(t.Context()))
+			if failure == "read failure" {
+				storage.objects[mediaID+".txt"] = []byte("hello direct")
+				storage.failRead = true
+			}
+			response := srv.postJSON(t, "/api/v1/media/upload-session/"+mediaID+"/complete", map[string]any{"workspace_id": "ws-1"})
+			require.GreaterOrEqual(t, response.Code, 400)
+			var pending models.MediaAttachment
+			require.NoError(t, srv.db.NewSelect().Model(&pending).Where("id = ?", mediaID).Scan(t.Context()))
+			require.Equal(t, before.ProcessingStatus, pending.ProcessingStatus)
+			require.Equal(t, before.FileHash, pending.FileHash)
+			require.Empty(t, storage.deleted)
+			storage.objects[mediaID+".txt"] = []byte("hello direct")
+			storage.failRead = false
+			response = srv.postJSON(t, "/api/v1/media/upload-session/"+mediaID+"/complete", map[string]any{"workspace_id": "ws-1"})
+			require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+		})
+	}
+}
+
+func TestDirectUploadAdmissionHidesDatabaseFailures(t *testing.T) {
+	for _, operation := range []string{"reserve", "complete"} {
+		t.Run(operation, func(t *testing.T) {
+			storage := newFakeDirectUploadStorage()
+			srv := newMediaDirectUploadTestServer(t, storage, entitlements.NewSelfHostedService())
+			mediaID := ""
+			if operation == "complete" {
+				mediaID = srv.createUploadSession(t, "copy.txt", "text/plain", 12)
+				storage.objects[mediaID+".txt"] = []byte("hello direct")
+			}
+			_, err := srv.db.ExecContext(t.Context(), "CREATE TRIGGER fail_media_admission BEFORE UPDATE OF name ON workspaces BEGIN SELECT RAISE(ABORT, 'private media admission database detail'); END")
+			require.NoError(t, err)
+			var response *httptest.ResponseRecorder
+			if operation == "reserve" {
+				response = srv.postJSON(t, "/api/v1/media/upload-session", map[string]any{"workspace_id": "ws-1", "filename": "copy.txt", "mime_type": "text/plain", "size": 12})
+			} else {
+				response = srv.postJSON(t, "/api/v1/media/upload-session/"+mediaID+"/complete", map[string]any{"workspace_id": "ws-1"})
+			}
+			require.Equal(t, http.StatusInternalServerError, response.Code, response.Body.String())
+			require.NotContains(t, response.Body.String(), "private media admission database detail")
+		})
+	}
+}
+
+type inspectionRaceStorage struct {
+	*fakeDirectUploadStorage
+	onRead func()
+}
+type inspectionRaceReader struct {
+	io.ReadCloser
+	callback func()
+}
+
+func (r *inspectionRaceReader) Read(p []byte) (int, error) {
+	if r.callback != nil {
+		callback := r.callback
+		r.callback = nil
+		callback()
+	}
+	return r.ReadCloser.Read(p)
+}
+func (s *inspectionRaceStorage) Open(ctx context.Context, key string) (io.ReadCloser, error) {
+	reader, err := s.fakeDirectUploadStorage.Open(ctx, key)
+	if err != nil {
+		return nil, err
+	}
+	callback := s.onRead
+	s.onRead = nil
+	return &inspectionRaceReader{ReadCloser: reader, callback: callback}, nil
+}
+func TestStaleInvalidInspectionCannotDiscardFinalizedUpload(t *testing.T) {
+	storage := &inspectionRaceStorage{fakeDirectUploadStorage: newFakeDirectUploadStorage()}
+	srv := newMediaDirectUploadTestServer(t, storage, entitlements.NewSelfHostedService())
+	var encoded bytes.Buffer
+	require.NoError(t, png.Encode(&encoded, image.NewRGBA(image.Rect(0, 0, 2, 2))))
+	imageBytes := encoded.Bytes()
+	mediaID := srv.createUploadSession(t, "image.png", "image/png", int64(len(imageBytes)))
+	invalid := append([]byte(nil), imageBytes...)
+	invalid[0] = 0
+	key := mediaID + ".png"
+	storage.objects[key] = invalid
+	storage.onRead = func() {
+		storage.objects[key] = imageBytes
+		_, err := srv.handler.completeDirectMediaUpload(t.Context(), "user-1", "ws-1", mediaID)
+		require.NoError(t, err)
+	}
+	response := srv.postJSON(t, "/api/v1/media/upload-session/"+mediaID+"/complete", map[string]any{"workspace_id": "ws-1"})
+	require.Equal(t, http.StatusBadRequest, response.Code)
+	var media models.MediaAttachment
+	require.NoError(t, srv.db.NewSelect().Model(&media).Where("id = ?", mediaID).Scan(t.Context()))
+	require.Equal(t, mediaReadyStatus, media.ProcessingStatus)
+	require.Equal(t, imageBytes, storage.objects[key])
+	require.NotContains(t, storage.deleted, key)
+}
+
+func TestInvalidSignedUploadRetainsAccountingUntilCapabilityExpiry(t *testing.T) {
+	base := newMCPTestServer(t)
+	for _, model := range []any{(*models.VideoProjectRevision)(nil), (*models.VideoProjectMutation)(nil), (*models.VideoProjectCheckpoint)(nil), (*models.VideoProjectConflict)(nil)} {
+		_, err := base.db.NewCreateTable().Model(model).IfNotExists().Exec(t.Context())
+		require.NoError(t, err)
+	}
+	storage := newFakeDirectUploadStorage()
+	handler := NewMediaHandler(base.db, storage, nil, testAuthenticator{}, nil)
+	handler.SetEntitlement(entitlements.NewStaticService(entitlements.PlanSnapshot{Limits: map[entitlements.LimitKey]int64{entitlements.LimitMediaBytesStored: 13}}))
+	e := echo.New()
+	api := humaecho.NewWithGroup(e, e.Group("/api/v1"), huma.DefaultConfig("Tombstone", "1"))
+	handler.RegisterRoutes(api)
+	srv := &mediaDirectUploadTestServer{echo: e, db: base.db, storage: storage, handler: handler, usage: usage.NewService(base.db)}
+	mediaID := srv.createUploadSession(t, "copy.png", "image/png", 12)
+	key := mediaID + ".png"
+	storage.objects[key] = []byte("<svg></svg>!")
+	response := srv.postJSON(t, "/api/v1/media/upload-session/"+mediaID+"/complete", map[string]any{"workspace_id": "ws-1"})
+	require.Equal(t, http.StatusBadRequest, response.Code, response.Body.String())
+	var failed models.MediaAttachment
+	require.NoError(t, base.db.NewSelect().Model(&failed).Where("id = ?", mediaID).Scan(t.Context()))
+	require.Equal(t, mediaFailedStatus, failed.ProcessingStatus)
+	stored, err := medialifecycle.StoredBytes(t.Context(), base.db, "ws-1", "")
+	require.NoError(t, err)
+	require.Equal(t, int64(12), stored)
+	sessionsBefore := storage.sessions
+	response = srv.postJSON(t, "/api/v1/media/upload-session", map[string]any{"workspace_id": "ws-1", "filename": "more.txt", "mime_type": "text/plain", "size": 2})
+	require.Equal(t, http.StatusBadRequest, response.Code)
+	require.Equal(t, sessionsBefore, storage.sessions)
+	response = srv.postJSON(t, "/api/v1/media/upload-session/"+mediaID+"/complete", map[string]any{"workspace_id": "ws-1"})
+	require.Equal(t, http.StatusBadRequest, response.Code)
+	// The already issued S3 capability can PUT again despite the application failure.
+	storage.objects[key] = []byte("hello direct")
+	lifecycle := medialifecycle.NewService(base.db, nil)
+	require.NoError(t, lifecycle.Sweep(t.Context(), "ws-1", failed.CreatedAt.Add(time.Hour)))
+	exists, err := base.db.NewSelect().Model((*models.MediaAttachment)(nil)).Where("id = ?", mediaID).Exists(t.Context())
+	require.NoError(t, err)
+	require.True(t, exists)
+	require.NoError(t, lifecycle.Sweep(t.Context(), "ws-1", failed.CreatedAt.Add(25*time.Hour)))
+	exists, err = base.db.NewSelect().Model((*models.MediaAttachment)(nil)).Where("id = ?", mediaID).Exists(t.Context())
+	require.NoError(t, err)
+	require.False(t, exists)
+	var jobs []models.Job
+	require.NoError(t, base.db.NewSelect().Model(&jobs).Where("type = ?", "storage_delete").Scan(t.Context()))
+	durableKeys := make([]string, 0, len(jobs))
+	for _, job := range jobs {
+		var payload struct {
+			Keys []string `json:"keys"`
+		}
+		require.NoError(t, json.Unmarshal([]byte(job.Payload), &payload))
+		durableKeys = append(durableKeys, payload.Keys...)
+		require.Greater(t, job.MaxAttempts, 1)
+	}
+	require.Contains(t, durableKeys, key, "late PUT must retain a retryable object cleanup receipt")
 }

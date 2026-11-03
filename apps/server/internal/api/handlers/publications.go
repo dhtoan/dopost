@@ -9,11 +9,13 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"maps"
 	"net/http"
 	"net/url"
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -25,14 +27,20 @@ import (
 	"github.com/openpost/backend/internal/jobregistry"
 	"github.com/openpost/backend/internal/models"
 	"github.com/openpost/backend/internal/platform"
+	"github.com/openpost/backend/internal/posttext"
 	"github.com/openpost/backend/internal/services/drafts"
 	"github.com/openpost/backend/internal/services/entitlements"
 	"github.com/openpost/backend/internal/services/lifecycle"
 	"github.com/openpost/backend/internal/services/medialifecycle"
+	"github.com/openpost/backend/internal/services/notifications"
 	"github.com/openpost/backend/internal/services/providerreadiness"
 	"github.com/openpost/backend/internal/services/providerwrite"
 	"github.com/openpost/backend/internal/services/publicationauth"
+	"github.com/openpost/backend/internal/services/publicationcards"
+	"github.com/openpost/backend/internal/services/publicationlink"
+	"github.com/openpost/backend/internal/services/publicationpoll"
 	publicationservice "github.com/openpost/backend/internal/services/publications"
+	"github.com/openpost/backend/internal/services/publicationsource"
 	"github.com/openpost/backend/internal/services/publicurl"
 	renditionservice "github.com/openpost/backend/internal/services/renditions"
 	repostservice "github.com/openpost/backend/internal/services/reposts"
@@ -61,25 +69,39 @@ var (
 )
 
 type PublicationHandler struct {
-	db          *bun.DB
-	auth        middleware.Authenticator
-	entitlement entitlements.Service
-	usage       *usage.Service
-	providers   map[string]platform.Adapter
-	tokenSource AccessTokenSource
-	publicMedia *publicurl.MediaVerifier
-	reposts     *repostservice.Service
-	readiness   *providerreadiness.Service
-	connectors  *connectors.Registry
-	telemetry   telemetry.Recorder
+	notifications *notifications.Service
+	db            *bun.DB
+	auth          middleware.Authenticator
+	entitlement   entitlements.Service
+	usage         *usage.Service
+	providers     map[string]platform.Adapter
+	providersMu   sync.RWMutex
+	tokenSource   AccessTokenSource
+	publicMedia   *publicurl.MediaVerifier
+	reposts       *repostservice.Service
+	readiness     *providerreadiness.Service
+	connectors    *connectors.Registry
+	telemetry     telemetry.Recorder
+	textCards     *publicationcards.Service
 	// beforeQueueTransaction is a deterministic concurrency seam for tests.
 	// Production constructors leave it nil.
 	beforeQueueTransaction func(context.Context) error
 }
 
 func (h *PublicationHandler) SetCapabilityDependencies(providers map[string]platform.Adapter, tokenSource AccessTokenSource) {
-	h.providers = providers
+	h.providersMu.Lock()
+	defer h.providersMu.Unlock()
+	h.providers = cloneProviderAdapters(providers)
 	h.tokenSource = tokenSource
+}
+
+func (h *PublicationHandler) SetProvider(name string, adapter platform.Adapter) {
+	h.providersMu.Lock()
+	defer h.providersMu.Unlock()
+	if h.providers == nil {
+		h.providers = map[string]platform.Adapter{}
+	}
+	h.providers[name] = adapter
 }
 
 func (h *PublicationHandler) SetConnectorRegistry(registry *connectors.Registry) {
@@ -257,6 +279,7 @@ type ActionOutput struct {
 type PublicationResponse = publicationservice.PublicationResponse
 type PublicationSegmentResponse = publicationservice.PublicationSegmentResponse
 type RenditionResponse = publicationservice.RenditionResponse
+type RenditionAccountIdentity = publicationservice.RenditionAccountIdentity
 type ProviderDeliveryResponse = publicationservice.ProviderDeliveryResponse
 type RenditionActionOutcome = publicationservice.RenditionActionOutcome
 type RenditionSegmentResponse = publicationservice.RenditionSegmentResponse
@@ -267,6 +290,9 @@ type PublicationLifecycleActor = publicationservice.PublicationLifecycleActor
 type PublicationLifecycleError = publicationservice.PublicationLifecycleError
 
 func (h *PublicationHandler) RegisterRoutes(api huma.API) {
+	h.registerPublicationReviews(api)
+	h.registerBatchScheduling(api)
+	h.previewTextCard(api)
 	h.createPublication(api)
 	h.listPublications(api)
 	h.getPublication(api)
@@ -404,6 +430,10 @@ func (h *PublicationHandler) deleteRenditionTx(
 	if len(renditions) > 1 {
 		return false, huma.Error409Conflict("target_key is required when an account has multiple publication destinations")
 	}
+	before, err := h.loadPublicationRevisionResponseTx(ctx, tx, current)
+	if err != nil {
+		return false, err
+	}
 	renditionIDs := []string{renditions[0].ID}
 	if err := h.cancelPendingReplyJobsForDeletedTargetsTx(ctx, tx, publicationID, renditionIDs); err != nil {
 		return false, err
@@ -416,14 +446,14 @@ func (h *PublicationHandler) deleteRenditionTx(
 	if err != nil || count == 0 {
 		return false, err
 	}
-	return true, h.recordRenditionDeletionTx(ctx, tx, current, input.ExpectedRevision, userID)
+	return true, h.recordRenditionDeletionTx(ctx, tx, current, before, userID)
 }
 
 func (h *PublicationHandler) recordRenditionDeletionTx(
 	ctx context.Context,
 	tx bun.Tx,
 	current *models.Publication,
-	expectedRevision int,
+	before publicationRevisionSnapshot,
 	userID string,
 ) error {
 	now := time.Now().UTC()
@@ -435,8 +465,12 @@ func (h *PublicationHandler) recordRenditionDeletionTx(
 	}
 	current.Revision = nextRevision
 	current.UpdatedAt = now
-	fields := []string{"destinations", "destination overrides", "media"}
-	if err := h.syncTextPostRevisionsTx(ctx, tx, current.ID, expectedRevision, nextRevision, fields, userID, now); err != nil {
+	after, err := h.loadPublicationRevisionResponseTx(ctx, tx, current)
+	if err != nil {
+		return err
+	}
+	fields := publicationservice.ChangedAuthoredDomains(before.authored, after.authored)
+	if _, err := h.invalidatePublicationReviewTx(ctx, tx, current, fields); err != nil {
 		return err
 	}
 	return drafts.RecordChange(ctx, tx, drafts.AggregatePublication, current.ID, nextRevision, fields, userID, now)
@@ -561,7 +595,7 @@ func (h *PublicationHandler) deletePublication(api huma.API) {
 		Method:      http.MethodDelete,
 		Path:        publicationPathByID,
 		Summary:     "Delete a publication",
-		Description: "Permanently deletes an editable publication, its destinations, and any linked draft post.",
+		Description: "Permanently removes a publication and its destinations from dopost. Published posts remain on the social networks. Publications with active delivery cannot be removed.",
 		Tags:        []string{tagPublications},
 		Middlewares: huma.Middlewares{middleware.AuthMiddleware(api, h.auth)},
 		Errors:      []int{400, 403, 404, 409},
@@ -617,6 +651,9 @@ func (h *PublicationHandler) updatePublication(api huma.API) {
 		Tags:        []string{tagPublications},
 		Middlewares: huma.Middlewares{middleware.RequestMetadataMiddleware(), middleware.AuthMiddleware(api, h.auth)},
 	}, func(ctx context.Context, input *UpdatePublicationInput) (*PublicationOutput, error) {
+		if err := h.requireExternalPublicationAccounts(ctx, input.PathID); err != nil {
+			return nil, err
+		}
 		if err := drafts.RequireExpectedRevision(input.Body.ExpectedRevision); err != nil {
 			return nil, err
 		}
@@ -732,38 +769,6 @@ func applyPublicationFieldUpdates(publication *models.Publication, input Publica
 	}
 }
 
-//nolint:gocyclo
-func publicationChangedDomains(input PublicationUpdateBody) []string {
-	var domains []string
-	if input.Title != nil || input.Intent != nil || input.CreationPreset != nil || input.ContentProfile != nil ||
-		input.SourceText != nil || input.SourceURL != nil || input.Goal != nil ||
-		input.Audience != nil || input.Segments != nil {
-		domains = append(domains, "content")
-	}
-	if input.Segments != nil {
-		domains = append(domains, "segments", "media")
-	}
-	if input.Renditions != nil {
-		domains = append(domains, "destinations", "destination overrides", "media")
-	}
-	if input.SocialSetID != nil {
-		domains = append(domains, "destinations")
-	}
-	if input.ScheduledAt != nil || input.ClearSchedule || input.RandomDelayMinutes != nil || input.InheritRandomDelay {
-		domains = append(domains, "schedule")
-	}
-	if input.Metadata != nil {
-		domains = append(domains, "settings")
-	}
-	if input.RepostOverride != nil {
-		domains = append(domains, "repost automation")
-	}
-	if len(domains) == 0 {
-		domains = append(domains, "draft")
-	}
-	return drafts.UniqueDomains(domains)
-}
-
 func (h *PublicationHandler) publicationRevisionConflict(
 	ctx context.Context,
 	db bun.IDB,
@@ -800,22 +805,6 @@ func (h *PublicationHandler) publicationRevisionConflict(
 	})
 }
 
-func (h *PublicationHandler) syncTextPostRevisionsTx(
-	_ context.Context,
-	_ bun.Tx,
-	_ string,
-	_ int,
-	_ int,
-	_ []string,
-	_ string,
-	_ time.Time,
-) error {
-	// The Post compatibility projection is retired. Publication revisions are
-	// the only authoring revision source; historical upgrade migrations keep
-	// reading legacy rows, but no active write depends on a Post row.
-	return nil
-}
-
 func validateFuturePublicationSchedule(scheduledAt, now time.Time) error {
 	if !scheduledAt.After(now.UTC()) {
 		return errPublicationScheduleFuture
@@ -831,6 +820,12 @@ func (h *PublicationHandler) replaceAllPublicationRenditions(
 	renditionInputs []RenditionInput,
 	accounts map[string]models.SocialAccount,
 ) error {
+	if err := preserveRenditionMentionInputs(ctx, tx, publication.ID, renditionInputs, accounts); err != nil {
+		return err
+	}
+	if err := h.defaultNewTextCardDestinations(ctx, tx, publication.ID, renditionInputs, accounts); err != nil {
+		return err
+	}
 	var renditionIDs []string
 	if err := tx.NewSelect().
 		Model((*models.Rendition)(nil)).
@@ -863,7 +858,7 @@ func (h *PublicationHandler) replaceAllPublicationRenditions(
 	if segmentInputs == nil {
 		segmentInputs = loadedInputs
 	}
-	return h.insertRenditions(ctx, tx, publication, segments, segmentInputs, renditionInputs, nil, accounts)
+	return h.insertRenditions(ctx, tx, publication, segments, segmentInputs, renditionInputs, nil, accounts, nil)
 }
 
 //nolint:gocyclo // The transaction preserves revision checks and both replacement and upsert semantics across renditions.
@@ -876,6 +871,11 @@ func (h *PublicationHandler) upsertRenditions(api huma.API) {
 		Tags:        []string{tagPublications},
 		Middlewares: huma.Middlewares{middleware.AuthMiddleware(api, h.auth)},
 	}, func(ctx context.Context, input *UpsertRenditionsInput) (*PublicationOutput, error) {
+		ctx, cleanupTextCards := h.textCards.Mutation(ctx)
+		defer cleanupTextCards()
+		if err := h.requireExternalPublicationAccounts(ctx, input.PathID); err != nil {
+			return nil, err
+		}
 		if err := drafts.RequireExpectedRevision(input.Body.ExpectedRevision); err != nil {
 			return nil, err
 		}
@@ -941,7 +941,22 @@ func (h *PublicationHandler) upsertRenditionsTx(
 	if publication.Revision != expectedRevision {
 		return PublicationResponse{}, h.publicationRevisionConflict(ctx, tx, publication, expectedRevision)
 	}
+	response, err := h.loadPublicationRevisionResponseTx(ctx, tx, publication)
+	if err != nil {
+		return PublicationResponse{}, err
+	}
+	before := response
+	if err := h.defaultNewTextCardDestinations(ctx, tx, publication.ID, renditions, accountMap); err != nil {
+		return PublicationResponse{}, err
+	}
 	if len(renditions) > 0 {
+		if err := preserveRenditionMentionInputs(ctx, tx, publication.ID, renditions, accountMap); err != nil {
+			return PublicationResponse{}, err
+		}
+		positions, err := renditionUpsertPositionsTx(ctx, tx, publication.ID, renditions, accountMap)
+		if err != nil {
+			return PublicationResponse{}, err
+		}
 		targets := make(map[renditionservice.TargetIdentity]struct{}, len(renditions))
 		for _, input := range renditions {
 			account := accountMap[input.SocialAccountID]
@@ -965,7 +980,10 @@ func (h *PublicationHandler) upsertRenditionsTx(
 		if err != nil {
 			return PublicationResponse{}, err
 		}
-		if err := h.insertRenditions(ctx, tx, publication, segments, segmentInputs, renditions, nil, accountMap); err != nil {
+		if err := h.insertRenditions(ctx, tx, publication, segments, segmentInputs, renditions, nil, accountMap, positions); err != nil {
+			return PublicationResponse{}, err
+		}
+		if err := h.refreshPublicationTextCards(ctx, tx, publication.ID, false, publicationTextCardIDs(before.response)...); err != nil {
 			return PublicationResponse{}, err
 		}
 		now := time.Now().UTC()
@@ -981,22 +999,23 @@ func (h *PublicationHandler) upsertRenditionsTx(
 		}
 		publication.Revision = nextRevision
 		publication.UpdatedAt = now
-		changedDomains := []string{"destinations", "destination overrides", "media"}
-		if err := h.syncTextPostRevisionsTx(ctx, tx, publication.ID, expectedRevision, nextRevision, changedDomains, userID, now); err != nil {
+		response, err = h.loadPublicationRevisionResponseTx(ctx, tx, publication)
+		if err != nil {
+			return PublicationResponse{}, err
+		}
+		changedDomains := publicationservice.ChangedAuthoredDomains(before.authored, response.authored)
+		if _, err := h.invalidatePublicationReviewTx(ctx, tx, publication, changedDomains); err != nil {
 			return PublicationResponse{}, err
 		}
 		if err := drafts.RecordChange(ctx, tx, drafts.AggregatePublication, publication.ID, nextRevision, changedDomains, userID, now); err != nil {
 			return PublicationResponse{}, err
 		}
 	}
-	responses, err := h.loadPublicationResponsesWithDB(ctx, tx, []models.Publication{*publication})
+	response, err = h.loadPublicationRevisionResponseTx(ctx, tx, publication)
 	if err != nil {
 		return PublicationResponse{}, err
 	}
-	if len(responses) != 1 {
-		return PublicationResponse{}, errors.New("failed to load updated publication")
-	}
-	return responses[0], nil
+	return response.response, nil
 }
 
 func (h *PublicationHandler) validatePublication(api huma.API) {
@@ -1067,21 +1086,25 @@ func (h *PublicationHandler) schedulePublication(api huma.API) {
 	})
 }
 
-func (h *PublicationHandler) checkScheduledPublicationQuota(ctx context.Context, workspaceID string, scheduledAt time.Time) (bool, error) {
+func (h *PublicationHandler) checkScheduledPublicationQuota(ctx context.Context, workspaceID string, scheduledAt time.Time) error {
+	return h.checkScheduledPublicationQuotaAmount(ctx, workspaceID, scheduledAt, 1)
+}
+
+func (h *PublicationHandler) checkScheduledPublicationQuotaAmount(ctx context.Context, workspaceID string, scheduledAt time.Time, amount int64) error {
 	if h.usage == nil || h.entitlement == nil {
-		return false, publicationservice.NewError(publicationservice.ErrorTemporaryUnavailable, errors.New("scheduled publication usage is unavailable"))
+		return publicationservice.NewError(publicationservice.ErrorTemporaryUnavailable, errors.New("scheduled publication usage is unavailable"))
 	}
 	request := entitlements.Request{
 		WorkspaceID: workspaceID,
 		Limit:       entitlements.LimitScheduledPostsMonthly,
-		Amount:      1,
+		Amount:      amount,
 	}
 	decision, err := h.entitlement.Check(ctx, request)
 	if err != nil {
-		return false, publicationservice.NewError(publicationservice.ErrorTemporaryUnavailable, errors.New("failed to check scheduled publication limit"))
+		return publicationservice.NewError(publicationservice.ErrorTemporaryUnavailable, errors.New("failed to check scheduled publication limit"))
 	}
 	if !decision.Allowed {
-		return false, scheduledPublicationQuotaError(decision)
+		return scheduledPublicationQuotaError(decision)
 	}
 	current, err := h.usage.CurrentMonthly(ctx, workspaceID, entitlements.LimitScheduledPostsMonthly, scheduledAt)
 	if err != nil {
@@ -1089,22 +1112,22 @@ func (h *PublicationHandler) checkScheduledPublicationQuota(ctx context.Context,
 			// Unlimited deployments do not depend on quota storage to publish.
 			// Record usage when the counter schema is present, but keep sparse
 			// self-hosted upgrades and application fixtures operational.
-			return false, nil
+			return nil
 		}
-		return false, publicationservice.NewError(publicationservice.ErrorTemporaryUnavailable, errors.New("failed to load scheduled publication usage"))
+		return publicationservice.NewError(publicationservice.ErrorTemporaryUnavailable, errors.New("failed to load scheduled publication usage"))
 	}
 	if decision.Unlimited {
-		return true, nil
+		return nil
 	}
 	request.Current = current
 	decision, err = h.entitlement.Check(ctx, request)
 	if err != nil {
-		return false, publicationservice.NewError(publicationservice.ErrorTemporaryUnavailable, errors.New("failed to check scheduled publication limit"))
+		return publicationservice.NewError(publicationservice.ErrorTemporaryUnavailable, errors.New("failed to check scheduled publication limit"))
 	}
 	if !decision.Allowed {
-		return false, scheduledPublicationQuotaError(decision)
+		return scheduledPublicationQuotaError(decision)
 	}
-	return true, nil
+	return nil
 }
 
 func scheduledPublicationQuotaError(decision entitlements.Decision) error {
@@ -1115,11 +1138,25 @@ func scheduledPublicationQuotaError(decision entitlements.Decision) error {
 	return huma.NewError(http.StatusPaymentRequired, reason)
 }
 
-func (h *PublicationHandler) recordScheduledPublicationUsage(ctx context.Context, workspaceID string, scheduledAt time.Time) error {
-	if h.usage == nil {
+func (h *PublicationHandler) recordScheduledPublicationUsageWithDB(ctx context.Context, db bun.IDB, workspaceID string, scheduledAt time.Time) error {
+	if h.usage == nil || h.entitlement == nil {
 		return publicationservice.NewError(publicationservice.ErrorTemporaryUnavailable, errors.New("scheduled publication usage is unavailable"))
 	}
-	if _, err := h.usage.IncrementMonthly(ctx, workspaceID, entitlements.LimitScheduledPostsMonthly, 1, scheduledAt); err != nil {
+	decision, err := entitlements.CheckWithDB(ctx, h.entitlement, db, entitlements.Request{WorkspaceID: workspaceID, Limit: entitlements.LimitScheduledPostsMonthly, Amount: 1})
+	if err != nil {
+		return publicationservice.NewError(publicationservice.ErrorTemporaryUnavailable, errors.New("failed to check scheduled publication limit"))
+	}
+	if !decision.Allowed {
+		return scheduledPublicationQuotaError(decision)
+	}
+	_, err = usage.IncrementMonthlyLimitedInTransaction(ctx, db, workspaceID, entitlements.LimitScheduledPostsMonthly, 1, scheduledAt, decision)
+	if errors.Is(err, usage.ErrQuotaExceeded) {
+		return scheduledPublicationQuotaError(decision)
+	}
+	if err != nil {
+		if decision.Unlimited && strings.Contains(err.Error(), "no such table: usage_counters") {
+			return nil
+		}
 		return publicationservice.NewError(publicationservice.ErrorTemporaryUnavailable, errors.New("failed to record scheduled publication usage"))
 	}
 	return nil
@@ -1352,6 +1389,19 @@ func (h *PublicationHandler) queueRenditionReply(
 	media any,
 	runAt time.Time,
 ) (string, error) {
+	return h.queueRenditionReplyCommand(ctx, rendition, publication, body, parentID, settings, media, runAt, nil)
+}
+
+func (h *PublicationHandler) queueRenditionReplyCommand(
+	ctx context.Context,
+	rendition *models.Rendition,
+	publication *models.Publication,
+	body, parentID string,
+	settings map[string]interface{},
+	media any,
+	runAt time.Time,
+	request *idempotency.Request,
+) (string, error) {
 	confirmedAt := time.Now().UTC()
 	runAt = runAt.UTC()
 	if runAt.IsZero() {
@@ -1380,7 +1430,7 @@ func (h *PublicationHandler) queueRenditionReply(
 			return "", err
 		}
 	}
-	err = h.db.RunInTx(ctx, &sql.TxOptions{}, func(txCtx context.Context, tx bun.Tx) error {
+	persist := func(txCtx context.Context, tx bun.Tx) error {
 		if err := lockOrganizationForPublicationMutationTx(txCtx, tx, publication.ID); err != nil {
 			return err
 		}
@@ -1413,8 +1463,29 @@ func (h *PublicationHandler) queueRenditionReply(
 			Settings: map[string]any{"parent_id": parentID, "settings": settings},
 		})
 		return err
+	}
+	if request == nil {
+		err = h.db.RunInTx(ctx, &sql.TxOptions{}, persist)
+		return jobID, err
+	}
+	request.RequestHash, err = idempotency.Hash(struct {
+		RenditionID string
+		Body        string
+		ParentID    string
+		Settings    map[string]interface{}
+		Media       any
+		RunAt       time.Time
+	}{rendition.ID, body, parentID, settings, media, runAt})
+	if err != nil {
+		return "", err
+	}
+	result, err := idempotency.Execute(ctx, h.db, *request, func(txCtx context.Context, tx bun.Tx) (string, error) {
+		if err := persist(txCtx, tx); err != nil {
+			return "", err
+		}
+		return jobID, nil
 	})
-	return jobID, err
+	return result.Value, err
 }
 
 func (h *PublicationHandler) activePublicationReplyJobsTx(
@@ -1539,9 +1610,17 @@ func (h *PublicationHandler) insertPublicationSegments(
 	publication *models.Publication,
 	inputs []PublicationSegmentInput,
 ) ([]models.PublicationSegment, error) {
+	var mentionErr error
+	inputs, mentionErr = preparePublicationMentions(inputs, nil)
+	if mentionErr != nil {
+		return nil, mentionErr
+	}
 	now := time.Now().UTC()
 	segments := make([]models.PublicationSegment, 0, len(inputs))
 	for position, input := range inputs {
+		if err := validateAuthoredMediaRoles(input.Media); err != nil {
+			return nil, err
+		}
 		segment := models.PublicationSegment{
 			ID:            uuid.New().String(),
 			PublicationID: publication.ID,
@@ -1584,7 +1663,7 @@ func (h *PublicationHandler) insertPublicationSegments(
 				DisplayOrder:         order,
 				AltText:              media.AltText,
 				ThumbnailTimestampMS: media.ThumbnailTimestampMS,
-				SettingsJSON:         mustJSON(media.Settings),
+				SettingsJSON:         publicationMediaSettingsJSON(media.Settings),
 			}
 			if _, err := tx.NewInsert().Model(&row).Exec(ctx); err != nil {
 				return nil, err
@@ -1626,6 +1705,11 @@ func (h *PublicationHandler) replacePublicationSegments(
 			return nil
 		}
 		return err
+	}
+	var mentionErr error
+	inputs, mentionErr = preparePublicationMentions(inputs, existing)
+	if mentionErr != nil {
+		return mentionErr
 	}
 	existingByID := make(map[string]models.PublicationSegment, len(existing))
 	for _, segment := range existing {
@@ -1694,7 +1778,7 @@ func (h *PublicationHandler) replacePublicationSegments(
 				DisplayOrder:         order,
 				AltText:              media.AltText,
 				ThumbnailTimestampMS: media.ThumbnailTimestampMS,
-				SettingsJSON:         mustJSON(media.Settings),
+				SettingsJSON:         publicationMediaSettingsJSON(media.Settings),
 			}
 			if _, err := tx.NewInsert().Model(row).Exec(ctx); err != nil {
 				return err
@@ -1716,6 +1800,9 @@ func (h *PublicationHandler) replacePublicationSegments(
 			Exec(ctx); err != nil {
 			return err
 		}
+	}
+	if err := refreshPublicationText(ctx, tx, publication.ID, existing); err != nil {
+		return err
 	}
 	previousMediaIDs = append(previousMediaIDs, allPublicationMediaIDs(nil, inputs, nil)...)
 	return medialifecycle.TouchWithDB(ctx, tx, previousMediaIDs, now)
@@ -1740,14 +1827,27 @@ func syncPublicationFirstSegmentBodyTx(
 		}
 		return err
 	}
+	previous := segment
+	var oldSettings map[string]any
+	_ = json.Unmarshal([]byte(segment.SettingsJSON), &oldSettings)
+	nextSettings := maps.Clone(oldSettings)
+	delete(nextSettings, posttext.SettingsKey)
+	nextSettings, mentionErr := posttext.PreserveSettings(segment.Body, body, oldSettings, nextSettings)
+	if mentionErr != nil {
+		return huma.Error400BadRequest(mentionErr.Error())
+	}
+	segment.SettingsJSON = mustJSON(nextSettings)
 	segment.Body = body
 	segment.UpdatedAt = updatedAt
 	_, err := tx.NewUpdate().
 		Model(&segment).
-		Column("body", "updated_at").
+		Column("body", "settings_json", "updated_at").
 		Where("id = ?", segment.ID).
 		Exec(ctx)
-	return err
+	if err != nil {
+		return err
+	}
+	return refreshPublicationText(ctx, tx, publicationID, []models.PublicationSegment{previous})
 }
 
 //nolint:gocyclo
@@ -1760,6 +1860,7 @@ func (h *PublicationHandler) insertRenditions(
 	inputs []RenditionInput,
 	defaultMedia []PublicationMediaInput,
 	accounts map[string]models.SocialAccount,
+	positions map[renditionservice.TargetIdentity]int,
 ) error {
 	now := time.Now().UTC()
 	if len(canonicalSegments) == 0 {
@@ -1782,7 +1883,20 @@ func (h *PublicationHandler) insertRenditions(
 		}}
 	}
 	seenTargets := make(map[renditionservice.TargetIdentity]struct{}, len(inputs))
-	for _, input := range inputs {
+	for position, input := range inputs {
+		if err := validateAuthoredMediaRoles(input.Media); err != nil {
+			return err
+		}
+		for _, segment := range input.Segments {
+			if err := validateAuthoredMediaRoles(segment.Media); err != nil {
+				return err
+			}
+			for _, source := range segment.SourceOverrides {
+				if err := validateAuthoredMediaRoles(source.Media); err != nil {
+					return err
+				}
+			}
+		}
 		account, ok := accounts[input.SocialAccountID]
 		if !ok {
 			return huma.Error400BadRequest("one or more social accounts are invalid, disconnected, or outside this workspace")
@@ -1796,6 +1910,9 @@ func (h *PublicationHandler) insertRenditions(
 			return huma.Error400BadRequest("each social account target may appear only once")
 		}
 		seenTargets[identity] = struct{}{}
+		if assigned, exists := positions[identity]; exists {
+			position = assigned
+		}
 		resolved := h.resolveRenditionCapability(ctx, tx, publication, account, input, canonicalInputs)
 		// Unlocked formats follow the current source shape. Requested output profiles
 		// are preserved by the resolver, including when their source becomes invalid.
@@ -1818,6 +1935,7 @@ func (h *PublicationHandler) insertRenditions(
 		rendition := &models.Rendition{
 			ID:              uuid.New().String(),
 			PublicationID:   publication.ID,
+			Position:        position,
 			SocialAccountID: input.SocialAccountID,
 			TargetKey:       targetKey,
 			Platform:        account.Platform,
@@ -1840,6 +1958,13 @@ func (h *PublicationHandler) insertRenditions(
 		}
 
 		segmentInputs := input.Segments
+		if resolved.SegmentStrategy == "join" && textCardSettingsEnabled(rendition.SettingsJSON) && len(segmentInputs) > 1 && len(canonicalSegments) > 1 {
+			joined, err := joinTextCardSources(input, canonicalSegments, canonicalInputs)
+			if err != nil {
+				return err
+			}
+			segmentInputs = []RenditionSegmentInput{joined}
+		}
 		if len(segmentInputs) == 0 {
 			if resolved.SegmentStrategy == "join" && len(canonicalSegments) > 1 {
 				segmentInputs = []RenditionSegmentInput{joinedRenditionSegmentInput(canonicalSegments, canonicalInputs, input)}
@@ -1868,6 +1993,11 @@ func (h *PublicationHandler) insertRenditions(
 					}
 					segmentInputs = append(segmentInputs, segmentInput)
 				}
+			}
+		}
+		for position, segment := range segmentInputs {
+			if len(segment.SourceOverrides) > 0 && (position != 0 || resolved.SegmentStrategy != "join") {
+				return huma.Error400BadRequest("source overrides belong to the first joined destination output")
 			}
 		}
 		if err := h.insertRenditionSegments(ctx, tx, rendition, canonicalSegments, canonicalInputs, segmentInputs); err != nil {
@@ -1900,14 +2030,75 @@ func (h *PublicationHandler) insertRenditionSegments(
 			canonicalSegments,
 			canonicalInputs,
 		)
+		if len(input.SourceOverrides) > 0 {
+			var err error
+			input, err = normalizeJoinedSourceOverrides(input, canonicalSegments, canonicalInputs)
+			if err != nil {
+				return err
+			}
+		}
 		bodyOverride, effectiveBody := renditionTextOverride(input.BodyOverride, input.Body, canonical.Body)
 		titleOverride, effectiveTitle := renditionTextOverride(input.TitleOverride, input.Title, canonical.Title)
 		descriptionOverride, effectiveDescription := renditionTextOverride(input.DescriptionOverride, input.Description, canonical.Description)
 		urlOverride, effectiveURL := renditionTextOverride(input.URLOverride, input.URL, canonical.URL)
+		sourceSettings := map[string]any{}
+		_ = json.Unmarshal([]byte(canonical.SettingsJSON), &sourceSettings)
+		// Drafts keep incomplete poll choices. Validation and delivery reject them.
+		effectiveBody, effectiveSettings, _ := publicationpoll.Resolve(sourceSettings, rendition.SocialAccountID, rendition.Platform, rendition.OutputProfile, effectiveBody, input.Settings)
+		if (len(inputs) == 1 || len(input.SourceOverrides) > 0) && len(canonicalSegments) > 1 {
+			baseBody := joinedPublicationBody(canonicalSegments)
+			bodyOverride, baseBody = renditionTextOverride(input.BodyOverride, input.Body, baseBody)
+			effectiveBody, effectiveSettings, _ = publicationpoll.ResolveJoined(publicationPollSources(canonicalSegments), rendition.SocialAccountID, rendition.Platform, rendition.OutputProfile, baseBody, input.Settings)
+		}
+
+		authoredMentionsBody := publicationsource.AuthoredBody(canonical, canonicalSegments, mustJSON(input.SourceOverrides), bodyOverride, len(canonicalSegments) > 1 && len(inputs) == 1)
+		var mentionErr error
+		input, mentionErr = snapshotCanonicalMentionOverride(input, canonicalSegments, canonical.ID, bodyOverride, len(canonicalSegments) > 1 && len(inputs) == 1)
+		if mentionErr != nil {
+			return huma.Error400BadRequest(mentionErr.Error())
+		}
+		input, bodyOverride, mentionErr = prepareDestinationMentions(input, authoredMentionsBody, bodyOverride)
+		if mentionErr != nil {
+			return mentionErr
+		}
+		// Poll resolution may clone settings. Retain only the authored mention value.
+		if mentions, ok := input.Settings[posttext.SettingsKey]; ok {
+			if effectiveSettings == nil {
+				effectiveSettings = map[string]any{}
+			}
+			effectiveSettings[posttext.SettingsKey] = mentions
+		}
+
+		linkBody := publicationsource.AuthoredBody(canonical, canonicalSegments, mustJSON(input.SourceOverrides), bodyOverride, len(canonicalSegments) > 1 && len(inputs) == 1)
+		linkMediaCount := len(input.Media)
+		if input.MediaInherited != nil && *input.MediaInherited && position < len(canonicalInputs) {
+			linkMediaCount = len(canonicalInputs[position].Media)
+		}
+		var linkDestinationSettings map[string]any
+		_ = json.Unmarshal([]byte(rendition.SettingsJSON), &linkDestinationSettings)
+		if caption, err := publicationsource.ReadCaptionMentions(input.Settings); err != nil {
+			return huma.Error400BadRequest(err.Error())
+		} else if caption != nil {
+			if _, _, err := publicationsource.DeliveryCaption(input.Settings, rendition.Platform, ""); err != nil {
+				return huma.Error400BadRequest(err.Error())
+			}
+			if actual, ok := linkDestinationSettings[caption.Field].(string); !ok || actual != caption.Body {
+				return huma.Error400BadRequest("caption annotations must match the authored native caption setting")
+			}
+		}
+		effectiveSettings, _ = publicationlink.ResolveEffective(sourceSettings, rendition.SocialAccountID, rendition.Platform, linkBody, linkDestinationSettings, effectiveSettings, linkMediaCount)
+
+		if position == 0 {
+			rendition.Body = effectiveBody
+			if _, err := tx.NewUpdate().Model(rendition).Column("body").Where("id = ?", rendition.ID).Exec(ctx); err != nil {
+				return err
+			}
+		}
 		segment := &models.RenditionSegment{
 			ID:                   uuid.New().String(),
 			RenditionID:          rendition.ID,
 			PublicationSegmentID: canonical.ID,
+			SourceOverridesJSON:  mustJSON(input.SourceOverrides),
 			Position:             position,
 			Body:                 effectiveBody,
 			Title:                effectiveTitle,
@@ -1917,7 +2108,7 @@ func (h *PublicationHandler) insertRenditionSegments(
 			TitleOverride:        titleOverride,
 			DescriptionOverride:  descriptionOverride,
 			URLOverride:          urlOverride,
-			SettingsJSON:         mustJSON(input.Settings),
+			SettingsJSON:         mustJSON(effectiveSettings),
 			Status:               rendition.Status,
 			CreatedAt:            now,
 			UpdatedAt:            now,
@@ -1935,6 +2126,9 @@ func (h *PublicationHandler) insertRenditionSegments(
 		canonicalMedia := []PublicationMediaInput{}
 		if position < len(canonicalInputs) {
 			canonicalMedia = canonicalInputs[position].Media
+		}
+		if len(input.SourceOverrides) > 0 {
+			canonicalMedia = input.Media
 		}
 		mediaInherited := input.MediaInherited == nil && (len(mediaInputs) == 0 || publicationMediaInputsEqual(mediaInputs, canonicalMedia))
 		if input.MediaInherited != nil {
@@ -1958,7 +2152,7 @@ func (h *PublicationHandler) insertRenditionSegments(
 				DisplayOrder:         order,
 				AltText:              media.AltText,
 				ThumbnailTimestampMS: media.ThumbnailTimestampMS,
-				SettingsJSON:         mustJSON(media.Settings),
+				SettingsJSON:         publicationMediaSettingsJSON(media.Settings),
 			}
 			if _, err := tx.NewInsert().Model(&row).Exec(ctx); err != nil {
 				return err
@@ -1990,7 +2184,7 @@ func canonicalPublicationSegment(
 	inputs []PublicationSegmentInput,
 ) models.PublicationSegment {
 	canonical := models.PublicationSegment{}
-	if position < len(segments) {
+	if position >= 0 && position < len(segments) {
 		canonical = segments[position]
 	}
 	if requestedID == "" {
@@ -2052,27 +2246,33 @@ func (h *PublicationHandler) resolveRenditionCapability(
 	input RenditionInput,
 	segments []PublicationSegmentInput,
 ) capabilities.ResolvedCapability {
-	resolveSegments := make([]capabilities.ResolveSegment, 0, len(segments))
-	for position, segment := range segments {
-		renditionSegment := RenditionSegmentInput{}
-		if position < len(input.Segments) {
-			renditionSegment = input.Segments[position]
+	canonical := make([]models.PublicationSegment, len(segments))
+	for i, source := range segments {
+		canonical[i] = models.PublicationSegment{ID: source.ID, Body: source.Body, Title: source.Title, URL: source.URL}
+	}
+	inputs := input.Segments
+	if len(inputs) == 0 {
+		inputs = make([]RenditionSegmentInput, len(segments))
+		if len(inputs) > 0 {
+			inputs[0] = RenditionSegmentInput{Body: input.Body, Title: input.Title, Media: input.Media}
 		}
-		mediaInputs := renditionSegment.Media
-		if len(mediaInputs) == 0 {
-			mediaInputs = segment.Media
+	}
+	resolveSegments := make([]capabilities.ResolveSegment, 0, len(inputs))
+	for position, variant := range inputs {
+		source := canonicalPublicationSegment(position, variant.PublicationSegmentID, canonical, segments)
+		if len(variant.SourceOverrides) > 0 {
+			variant = projectJoinedSourceOverrides(variant, canonical, segments)
 		}
-		if position == 0 && len(input.Media) > 0 {
-			mediaInputs = input.Media
+		body := source.Body
+		joined := len(inputs) == 1 && len(segments) > 1
+		if joined {
+			body = joinedPublicationBody(canonical)
 		}
-		resolveSegment := capabilities.ResolveSegment{
-			ID:    publicationFirstNonEmpty(segment.ID, fmt.Sprintf("segment-%d", position+1)),
-			Body:  publicationFirstNonEmpty(renditionSegment.Body, segment.Body),
-			Title: publicationFirstNonEmpty(renditionSegment.Title, segment.Title),
-			URL:   publicationFirstNonEmpty(renditionSegment.URL, segment.URL),
-			Media: h.capabilityMediaItems(ctx, db, mediaInputs),
-		}
-		resolveSegments = append(resolveSegments, resolveSegment)
+		mediaInputs := effectiveRenditionMedia(variant, source.ID, segments, joined)
+		_, body = renditionTextOverride(variant.BodyOverride, variant.Body, body)
+		_, title := renditionTextOverride(variant.TitleOverride, variant.Title, source.Title)
+		_, uri := renditionTextOverride(variant.URLOverride, variant.URL, source.URL)
+		resolveSegments = append(resolveSegments, capabilities.ResolveSegment{ID: publicationFirstNonEmpty(source.ID, fmt.Sprintf("segment-%d", position+1)), Body: body, Title: title, URL: uri, Media: h.capabilityMediaItems(ctx, db, mediaInputs)})
 	}
 	resolveInput := capabilities.ResolveInput{
 		Intent:                 publication.Intent,
@@ -2080,11 +2280,36 @@ func (h *PublicationHandler) resolveRenditionCapability(
 		RequestedOutputProfile: input.OutputProfile,
 		SourceURL:              publication.SourceURL,
 		Segments:               resolveSegments,
+		Settings:               input.Settings,
+	}
+	// Source overrides still describe a joined authored inventory, even though
+	// their effective text and media have already been projected above.
+	if len(input.Segments) == 1 && len(input.Segments[0].SourceOverrides) > 0 {
+		for i := 1; i < len(segments); i++ {
+			resolveInput.Segments = append(resolveInput.Segments, capabilities.ResolveSegment{ID: segments[i].ID})
+		}
 	}
 	if connectorCapabilities, connectorBacked, err := h.connectorCapabilitiesWithDB(ctx, db, account); err == nil && connectorBacked {
 		return capabilities.ResolveCatalog(account.Platform, connectorCapabilities, resolveInput)
 	}
 	return capabilities.Resolve(account.Platform, resolveInput)
+}
+
+func effectiveRenditionMedia(variant RenditionSegmentInput, sourceID string, sources []PublicationSegmentInput, joined bool) []PublicationMediaInput {
+	inherited := len(variant.Media) == 0
+	if variant.MediaInherited != nil {
+		inherited = *variant.MediaInherited
+	}
+	if !inherited || len(variant.SourceOverrides) > 0 {
+		return variant.Media
+	}
+	var media []PublicationMediaInput
+	for _, source := range sources {
+		if joined || source.ID == sourceID {
+			media = append(media, source.Media...)
+		}
+	}
+	return uniqueJoinedMedia(media)
 }
 
 func (h *PublicationHandler) connectorCapabilitiesWithDB(
@@ -2149,7 +2374,7 @@ func joinedRenditionSegmentInput(
 		Title:                canonicalSegments[0].Title,
 		Description:          canonicalSegments[0].Description,
 		URL:                  canonicalSegments[0].URL,
-		Media:                media,
+		Media:                uniqueJoinedMedia(media),
 	}
 	if input.Body != "" {
 		segment.Body = input.Body
@@ -2369,6 +2594,7 @@ func (h *PublicationHandler) loadRenditionSegmentResponsesWithDB(
 		out = append(out, RenditionSegmentResponse{
 			ID:                   segment.ID,
 			PublicationSegmentID: segment.PublicationSegmentID,
+			SourceOverrides:      readRenditionSourceOverrides(segment.SourceOverridesJSON),
 			Position:             segment.Position,
 			Body:                 segment.Body,
 			Title:                segment.Title,
@@ -2390,7 +2616,8 @@ func (h *PublicationHandler) loadRenditionSegmentResponsesWithDB(
 			ErrorRetryable:       segment.ErrorRetryable,
 			ErrorRetryAt:         formatOptionalTime(segment.ErrorRetryAt),
 			ErrorAction:          segment.ErrorAction,
-			Media:                mediaBySegment[segment.ID],
+			Media:                authoredPublicationMedia(mediaBySegment[segment.ID]),
+			OutputMedia:          mediaBySegment[segment.ID],
 		})
 	}
 	return out, nil
@@ -2433,6 +2660,9 @@ func (h *PublicationHandler) loadRenditionSegmentMediaWithDB(
 			row.ThumbnailTimestampMS,
 		)
 		_ = json.Unmarshal([]byte(row.SettingsJSON), &item.Settings)
+		if row.Role == "text_card" {
+			item.Settings = nil
+		}
 		out[row.RenditionSegmentID] = append(out[row.RenditionSegmentID], item)
 	}
 	return out, nil
@@ -2465,6 +2695,10 @@ func (h *PublicationHandler) loadPublicationForEdit(ctx context.Context, publica
 }
 
 func (h *PublicationHandler) loadEditablePublicationTx(ctx context.Context, tx bun.Tx, publicationID string) (*models.Publication, error) {
+	return h.loadPublicationForMutationTx(ctx, tx, publicationID)
+}
+
+func (h *PublicationHandler) loadPublicationForMutationTx(ctx context.Context, tx bun.Tx, publicationID string, additionalStatuses ...string) (*models.Publication, error) {
 	publicationID = publicationPathID(publicationID)
 	if err := lockPublicationMutationTx(ctx, tx, publicationID); err != nil {
 		return nil, err
@@ -2476,7 +2710,7 @@ func (h *PublicationHandler) loadEditablePublicationTx(ctx context.Context, tx b
 		}
 		return nil, err
 	}
-	if !isPublicationEditable(publication.Status) {
+	if !isPublicationEditable(publication.Status) && !slices.Contains(additionalStatuses, publication.Status) {
 		return nil, errPublicationNotEditable
 	}
 	if err := h.lockActivePrimaryPublicationJobsTx(ctx, tx, publicationID); err != nil {
@@ -2538,6 +2772,10 @@ func lockPublicationMutationTx(ctx context.Context, tx bun.Tx, publicationID str
 }
 
 func publicationMutationHTTPError(err error, fallback string) error {
+	var conflict *drafts.ConflictError
+	if errors.As(err, &conflict) {
+		return conflict
+	}
 	if category, ok := publicationservice.CategoryOf(err); ok {
 		switch category {
 		case publicationservice.ErrorInvalidInput:
@@ -2559,6 +2797,8 @@ func publicationMutationHTTPError(err error, fallback string) error {
 	}
 	switch {
 	case errors.As(err, new(*providerreadiness.NotReadyError)):
+		return huma.Error409Conflict(err.Error())
+	case errors.Is(err, publicationauth.ErrReviewRequired):
 		return huma.Error409Conflict(err.Error())
 	case errors.Is(err, errPublicationNotFound):
 		return huma.Error404NotFound(errPublicationNotFound.Error())
@@ -2658,6 +2898,9 @@ func (h *PublicationHandler) loadRenditionMediaWithDB(ctx context.Context, db bu
 	seenPublicationMedia := map[string]struct{}{}
 	for _, row := range rows {
 		item := mediaSummary(row.MediaAttachment, row.Role, row.DisplayOrder, row.AltText, row.ThumbnailTimestampMS)
+		if item.Role == "text_card" {
+			continue
+		}
 		out[row.RenditionID] = append(out[row.RenditionID], item)
 		if _, ok := seenPublicationMedia[item.ID]; !ok {
 			seenPublicationMedia[item.ID] = struct{}{}
@@ -2725,7 +2968,10 @@ func (h *PublicationHandler) validateDynamicPublicationCapabilities(ctx context.
 		if !ok {
 			continue
 		}
-		adapter := h.providers[platform.AccountProviderKey(account.Platform, account.InstanceURL, account.CapabilityState)]
+		key := platform.AccountProviderKey(account.Platform, account.InstanceURL, account.CapabilityState)
+		h.providersMu.RLock()
+		adapter := h.providers[key]
+		h.providersMu.RUnlock()
 		result := platform.AccountCapabilityResult{}
 		hasResult := false
 		if account.Platform == capabilities.ProviderX {
@@ -2865,12 +3111,13 @@ func validateDynamicConstraints(rendition models.Rendition, segment RenditionSeg
 	if limit, ok := dynamicInt(constraints["text_limit"]); ok && limit > 0 && capabilities.TextLength(rendition.Platform, segment.Body) > limit {
 		appendIssue("dynamic_text_limit", fmt.Sprintf("Text is over the current %d character limit.", limit), "body")
 	}
-	if limit, ok := dynamicInt(constraints["media_max_count"]); ok && limit > 0 && len(segment.Media) > limit {
+	outputMedia := deliveredSegmentMedia(segment)
+	if limit, ok := dynamicInt(constraints["media_max_count"]); ok && limit > 0 && len(outputMedia) > limit {
 		appendIssue("dynamic_media_limit", fmt.Sprintf("This account currently supports at most %d media items.", limit), "media")
 	}
 	issues = append(issues, validateDynamicVideoConstraints(rendition, segment, position, constraints)...)
 	if limit, ok := dynamicInt(constraints["poll_max_options"]); ok && limit > 0 {
-		if count := len(separatedCapabilityValues(strings.TrimSpace(fmt.Sprint(settings["poll_options"])))); count > limit {
+		if count := len(strings.Split(strings.TrimSpace(fmt.Sprint(settings["poll_options"])), "\n")); count > limit {
 			appendIssue("dynamic_poll_limit", fmt.Sprintf("This account currently supports at most %d poll options.", limit), "poll_options")
 		}
 	}
@@ -2947,17 +3194,6 @@ func dynamicOptionSettingKey(source string) string {
 	}
 }
 
-func separatedCapabilityValues(raw string) []string {
-	values := strings.FieldsFunc(raw, func(r rune) bool { return r == ',' || r == '\n' })
-	result := make([]string, 0, len(values))
-	for _, value := range values {
-		if value = strings.TrimSpace(value); value != "" {
-			result = append(result, value)
-		}
-	}
-	return result
-}
-
 func (h *PublicationHandler) validatePublicationByIDWithDB(ctx context.Context, db bun.IDB, publicationID string) ([]capabilities.ValidationIssue, error) {
 	var renditions []models.Rendition
 	if err := db.NewSelect().Model(&renditions).Where("publication_id = ?", publicationID).Scan(ctx); err != nil {
@@ -2971,6 +3207,10 @@ func (h *PublicationHandler) validatePublicationByIDWithDB(ctx context.Context, 
 	if err != nil {
 		return nil, err
 	}
+	canonicalSegments, _, err := h.loadCanonicalSegmentInputsWithDB(ctx, db, publicationID)
+	if err != nil {
+		return nil, err
+	}
 	issues := []capabilities.ValidationIssue{}
 	for _, rendition := range renditions {
 		destinationSettings := map[string]interface{}{}
@@ -2980,8 +3220,12 @@ func (h *PublicationHandler) validatePublicationByIDWithDB(ctx context.Context, 
 			return nil, loadErr
 		}
 		for segmentIndex, segment := range segments {
+			issues = append(issues, validatePublicationPoll(rendition, segment, canonicalSegments, len(segments))...)
+			issues = append(issues, validatePublicationMentions(rendition, accountsByID[rendition.SocialAccountID], segment, canonicalSegments, len(segments))...)
+			segment = projectSegmentMentionText(segment, rendition, accountsByID[rendition.SocialAccountID], canonicalSegments, len(segments))
 			segmentSettings := mergePublicationSettings(destinationSettings, segment.Settings)
-			segmentMedia := segment.Media
+			issues = append(issues, validateTextCardOutput(rendition, segment, segmentSettings)...)
+			segmentMedia := deliveredSegmentMedia(segment)
 			if strings.HasPrefix(segment.ID, "legacy:") {
 				segmentMedia = mediaByRendition[rendition.ID]
 			}
@@ -2996,6 +3240,7 @@ func (h *PublicationHandler) validatePublicationByIDWithDB(ctx context.Context, 
 				mediaItems,
 				segmentSettings,
 			)
+			segmentIssues = append(segmentIssues, instagramLoginSettingsIssues(accountsByID[rendition.SocialAccountID], rendition, segmentSettings)...)
 			for index := range segmentIssues {
 				segmentIssues[index].SegmentID = segment.ID
 				segmentIssues[index].Scope = capabilities.SettingScopeSegment
@@ -3016,6 +3261,7 @@ func (h *PublicationHandler) validatePublicationByIDWithDB(ctx context.Context, 
 					capabilityMediaFromSummary(media),
 					media.Settings,
 				)
+				mediaIssues = append(mediaIssues, instagramLoginMediaSettingsIssues(accountsByID[rendition.SocialAccountID], rendition, media)...)
 				for index := range mediaIssues {
 					mediaIssues[index].SegmentID = segment.ID
 					mediaIssues[index].Parameters = mergeIssueParameters(mediaIssues[index].Parameters, map[string]any{
@@ -3037,6 +3283,24 @@ func (h *PublicationHandler) validatePublicationByIDWithDB(ctx context.Context, 
 	return issues, nil
 }
 
+func instagramLoginSettingsIssues(account models.SocialAccount, rendition models.Rendition, settings map[string]any) []capabilities.ValidationIssue {
+	if !isInstagramLoginAccount(account) {
+		return nil
+	}
+	return capabilities.InstagramLoginSettingsIssues(capabilities.Capability{
+		Provider: rendition.Platform, Profile: rendition.Profile, OutputProfile: rendition.OutputProfile,
+	}, settings)
+}
+
+func instagramLoginMediaSettingsIssues(account models.SocialAccount, rendition models.Rendition, media MediaSummary) []capabilities.ValidationIssue {
+	issues := instagramLoginSettingsIssues(account, rendition, media.Settings)
+	for index := range issues {
+		issues[index].MediaID = media.ID
+		issues[index].ScopeID = media.ID
+	}
+	return issues
+}
+
 func capabilityMediaFromSummary(item MediaSummary) capabilities.MediaItem {
 	return capabilities.MediaItem{
 		ID:              item.ID,
@@ -3051,6 +3315,7 @@ func capabilityMediaFromSummary(item MediaSummary) capabilities.MediaItem {
 		PublicURLStatus: item.PublicURLStatus,
 		PublicURLError:  item.PublicURLError,
 		URL:             item.URL,
+		AltText:         item.AltText,
 	}
 }
 
@@ -3361,40 +3626,6 @@ func secureRandomInt(n int) int {
 	return int(time.Now().UnixNano() % int64(n))
 }
 
-func (h *PublicationHandler) queuePublication(ctx context.Context, publicationID string, runAt time.Time) (string, error) {
-	result, err := h.queuePublicationWithRunAt(ctx, publicationID, 0, publicationauth.PolicyScheduled, providerreadiness.ExecutionIntentProduction, func(_ *models.Publication, _ time.Time) (time.Time, error) {
-		return runAt, nil
-	})
-	return result.JobID, err
-}
-
-func (h *PublicationHandler) queueScheduledPublication(ctx context.Context, publicationID string) (string, error) {
-	result, err := h.queueScheduledPublicationExpected(ctx, publicationID, 0)
-	return result.JobID, err
-}
-
-func (h *PublicationHandler) queueScheduledPublicationExpected(
-	ctx context.Context,
-	publicationID string,
-	expectedRevision int,
-	intents ...providerreadiness.ExecutionIntent,
-) (publicationEnqueueResult, error) {
-	return h.queuePublicationWithRunAt(ctx, publicationID, expectedRevision, publicationauth.PolicyScheduled, normalizedReadinessIntent(intents), func(publication *models.Publication, now time.Time) (time.Time, error) {
-		if publication.ScheduledAt.IsZero() {
-			return time.Time{}, errPublicationScheduleRequired
-		}
-		if err := validateFuturePublicationSchedule(publication.ScheduledAt, now); err != nil {
-			return time.Time{}, err
-		}
-		return publication.ScheduledAt, nil
-	})
-}
-
-func (h *PublicationHandler) queuePublicationNow(ctx context.Context, publicationID string) error {
-	_, err := h.queuePublicationNowExpected(ctx, publicationID, 0)
-	return err
-}
-
 func (h *PublicationHandler) queuePublicationNowExpected(
 	ctx context.Context,
 	publicationID string,
@@ -3459,8 +3690,8 @@ func (h *PublicationHandler) queuePublicationWithRunAtTx(
 	if err != nil {
 		return publicationEnqueueResult{}, err
 	}
-	if hasBlockingIssues(issues) {
-		return publicationEnqueueResult{}, errPublicationValidationBlocked
+	if err := publicationValidationError(issues); err != nil {
+		return publicationEnqueueResult{}, err
 	}
 	if err := h.requirePublicationReadinessWithDB(ctx, tx, publication, operation, intent, true); err != nil {
 		return publicationEnqueueResult{}, err
@@ -3482,6 +3713,9 @@ func (h *PublicationHandler) queuePublicationWithRunAtTx(
 	}
 	result := publicationEnqueueResult{}
 	if policyMode == publicationauth.PolicyScheduled {
+		if err := h.recordScheduledPublicationUsageWithDB(ctx, tx, publication.WorkspaceID, publication.ScheduledAt); err != nil {
+			return publicationEnqueueResult{}, err
+		}
 		result.JobID, err = h.replacePublicationJobWithIntentTx(ctx, tx, publicationID, runAt, intent)
 	} else {
 		result.JobID, err = h.replaceImmediatePublicationJobWithIntentTx(ctx, tx, publicationID, runAt, intent)
@@ -3550,7 +3784,7 @@ func (h *PublicationHandler) loadRenditionActionOutcomes(
 	var renditions []models.Rendition
 	if err := db.NewSelect().Model(&renditions).
 		Where("publication_id = ?", publicationID).
-		Order("created_at ASC", "id ASC").
+		Order("position ASC", "id ASC").
 		Scan(ctx); err != nil {
 		return nil, err
 	}
@@ -3787,7 +4021,7 @@ func (h *PublicationHandler) replacePublicationJobsTx(
 		var renditions []models.Rendition
 		if err := tx.NewSelect().Model(&renditions).
 			Where("publication_id = ?", publicationID).
-			Order("created_at ASC").Scan(ctx); err != nil {
+			Order("position ASC", "id ASC").Scan(ctx); err != nil {
 			return "", err
 		}
 		hasOverride := false
@@ -4151,20 +4385,22 @@ func publicationResponse(publication *models.Publication, media []MediaSummary) 
 	metadata := map[string]any{}
 	_ = json.Unmarshal([]byte(publication.MetadataJSON), &metadata)
 	return PublicationResponse{
-		ID:                   publication.ID,
-		WorkspaceID:          publication.WorkspaceID,
-		CreatedByID:          publication.CreatedByID,
-		Title:                publication.Title,
-		Intent:               publicationFirstNonEmpty(publication.Intent, publishingIntentForProfile(publication.ContentProfile)),
-		CreationPreset:       publicationFirstNonEmpty(publication.CreationPreset, publication.Intent, publishingIntentForProfile(publication.ContentProfile)),
-		SocialSetID:          publication.SocialSetID,
-		ContentProfile:       publication.ContentProfile,
-		SourceText:           publication.SourceText,
-		SourceURL:            publication.SourceURL,
-		Goal:                 publication.Goal,
-		Audience:             publication.Audience,
-		Status:               publication.Status,
-		Revision:             publication.Revision,
+		ID:             publication.ID,
+		WorkspaceID:    publication.WorkspaceID,
+		CreatedByID:    publication.CreatedByID,
+		Title:          publication.Title,
+		Intent:         publicationFirstNonEmpty(publication.Intent, publishingIntentForProfile(publication.ContentProfile)),
+		CreationPreset: publicationFirstNonEmpty(publication.CreationPreset, publication.Intent, publishingIntentForProfile(publication.ContentProfile)),
+		CreationSource: publicationFirstNonEmpty(publication.CreationSource, publicationCreationSourceUnknown),
+		SocialSetID:    publication.SocialSetID,
+		ContentProfile: publication.ContentProfile,
+		SourceText:     publication.SourceText,
+		SourceURL:      publication.SourceURL,
+		Goal:           publication.Goal,
+		Audience:       publication.Audience,
+		Status:         publication.Status,
+		Revision:       publication.Revision,
+		ReviewID:       publication.ReviewID, ReviewEpoch: publication.ReviewEpoch, ReviewState: publication.ReviewState,
 		ScheduledAt:          formatOptionalTime(publication.ScheduledAt),
 		ActualRunAt:          formatOptionalTime(publication.ActualRunAt),
 		FailureDismissedAt:   formatOptionalTime(publication.FailureDismissedAt),
@@ -4303,6 +4539,11 @@ func allPublicationMediaIDs(
 			out = append(out, item.MediaID)
 		}
 		for _, segment := range rendition.Segments {
+			for _, source := range segment.SourceOverrides {
+				for _, item := range source.Media {
+					out = append(out, item.MediaID)
+				}
+			}
 			for _, item := range segment.Media {
 				out = append(out, item.MediaID)
 			}
@@ -4383,6 +4624,13 @@ func isMissingPublicationSegmentTable(err error) bool {
 		(strings.Contains(message, "relation") && strings.Contains(message, "does not exist"))
 }
 
+func publicationMediaSettingsJSON(settings map[string]interface{}) string {
+	if settings == nil {
+		return "{}"
+	}
+	return mustJSON(settings)
+}
+
 func mustJSON(value interface{}) string {
 	if value == nil {
 		return "{}"
@@ -4419,6 +4667,31 @@ func formatOptionalTime(value time.Time) string {
 	return value.UTC().Format(time.RFC3339)
 }
 
+// All enqueue callers retain the same actionable validation details, including
+// workers that cannot make a separate interactive validation request.
+func publicationValidationError(issues []capabilities.ValidationIssue) error {
+	var messages []string
+	for _, issue := range issues {
+		if issue.Severity != "error" {
+			continue
+		}
+		message := issue.FallbackMessage
+		if message == "" {
+			message = issue.Message
+		}
+		if issue.Provider != "" {
+			message = issue.Provider + ": " + message
+		}
+		if !slices.Contains(messages, message) {
+			messages = append(messages, message)
+		}
+	}
+	if len(messages) == 0 {
+		return nil
+	}
+	return fmt.Errorf("%w: %s", errPublicationValidationBlocked, strings.Join(messages, "; "))
+}
+
 func hasBlockingIssues(issues []capabilities.ValidationIssue) bool {
 	for _, issue := range issues {
 		if issue.Severity == "error" {
@@ -4448,4 +4721,8 @@ func enqueueActionMessage(
 		resp.Body.ActivationPublicationID = result.ActivationPublicationID
 	}
 	return resp
+}
+
+func (h *PublicationHandler) SetNotificationService(service *notifications.Service) {
+	h.notifications = service
 }

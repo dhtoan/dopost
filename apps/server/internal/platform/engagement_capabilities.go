@@ -3,7 +3,7 @@ package platform
 func (f *FacebookAdapter) EngagementSupport() EngagementSupport {
 	return EngagementSupport{
 		Enabled:        true,
-		RequiredScopes: []string{"pages_read_engagement", "pages_manage_engagement"},
+		RequiredScopes: []string{"pages_read_engagement", "pages_read_user_content", "pages_manage_engagement"},
 		CanReply:       true,
 		CanHide:        true,
 		CanDelete:      true,
@@ -11,6 +11,9 @@ func (f *FacebookAdapter) EngagementSupport() EngagementSupport {
 }
 
 func (i *InstagramAdapter) EngagementSupport() EngagementSupport {
+	if i.instagramLogin {
+		return EngagementSupport{Enabled: true, RequiredScopes: []string{"instagram_business_manage_comments"}, CanReply: true, CanHide: true, CanDelete: true}
+	}
 	return EngagementSupport{
 		Enabled:        true,
 		RequiredScopes: []string{"instagram_manage_comments", "pages_read_engagement"},
@@ -33,7 +36,7 @@ func (l *LinkedInAdapter) EngagementSupport() EngagementSupport {
 func (t *ThreadsAdapter) EngagementSupport() EngagementSupport {
 	return EngagementSupport{
 		Enabled:        true,
-		RequiredScopes: []string{"threads_manage_replies"},
+		RequiredScopes: []string{threadsReadRepliesScope, "threads_manage_replies"},
 		CanReply:       true,
 		CanHide:        true,
 	}

@@ -1,12 +1,24 @@
 import {
   activityPublicationsQueryOptions,
+  analyticsOverviewQueryOptions,
+  type AnalyticsFilters,
   calendarPublicationsQueryOptions,
+  failedJobsQueryOptions,
   publicationDetailQueryOptions,
   workspaceAccountsQueryOptions,
   workspaceListQueryOptions,
+  workspaceSetupQueryOptions,
   workspaceSocialSetsQueryOptions,
+  type SocialAccount,
+  type Workspace,
 } from "@openpost/query-catalog";
-import { queryOptions, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
+import {
+  queryOptions,
+  useInfiniteQuery,
+  useQuery,
+  useQueryClient,
+  type QueryClient,
+} from "@tanstack/react-query";
 import { useSyncExternalStore } from "react";
 
 import { getWorkspaceId, subscribeWorkspaceId } from "./api/token-store";
@@ -18,35 +30,41 @@ import {
   type PublicationFreshness,
 } from "./query-policy";
 
-export type WorkspaceSummary = {
-  id: string;
-  name?: string | null;
-};
-
 export type PublicationListItem = Publication;
 
-export type AccountSummary = {
-  id: string;
-  platform: string;
-  slug?: string | null;
-  account_username?: string | null;
-  is_active: boolean;
-};
+export function useAnalytics(filters: AnalyticsFilters) {
+  const workspaceId = useWorkspaceId();
+  return useInfiniteQuery(
+    analyticsOverviewQueryOptions(mobileQueryAPI, workspaceId ?? "", filters),
+  );
+}
 
-export type SocialSetSummary = {
-  id: string;
-  name?: string | null;
-  is_default?: boolean | null;
-  accounts?: { social_account_id: string }[] | null;
-};
+export type MobileWorkspace = Pick<Workspace, "id" | "name" | "avatar_url" | "color">;
+
+export type MobileAccount = Pick<
+  SocialAccount,
+  | "id"
+  | "platform"
+  | "slug"
+  | "account_username"
+  | "alias"
+  | "account_avatar_url"
+  | "instance_url"
+  | "is_active"
+>;
 
 export function workspacesOptions() {
   return queryOptions({
     ...workspaceListQueryOptions(mobileQueryAPI),
-    select: (data) =>
+    select: (data): MobileWorkspace[] =>
       data
         .filter((workspace): workspace is NonNullable<typeof workspace> => Boolean(workspace))
-        .map((workspace) => ({ id: workspace.id, name: workspace.name })),
+        .map((workspace) => ({
+          id: workspace.id,
+          name: workspace.name,
+          avatar_url: workspace.avatar_url,
+          color: workspace.color,
+        })),
   });
 }
 
@@ -87,17 +105,23 @@ export function publicationOptions(
 }
 
 export function accountsOptions(workspaceId: string) {
+  // GET /accounts already returns only is_active rows server-side, so there is
+  // no client-side filter here. is_active is passed through (not hardcoded)
+  // because the onboarding gate in lib/first-use.ts routes on it.
   return queryOptions({
     ...workspaceAccountsQueryOptions(mobileQueryAPI, workspaceId),
-    select: (data) =>
+    select: (data): MobileAccount[] =>
       data
-        .filter((account) => Boolean(account && account.is_active))
+        .filter((account): account is NonNullable<typeof account> => Boolean(account))
         .map((account) => ({
           id: account.id,
           platform: account.platform,
           slug: account.slug,
           account_username: account.account_username,
-          is_active: true,
+          alias: account.alias,
+          account_avatar_url: account.account_avatar_url,
+          instance_url: account.instance_url,
+          is_active: account.is_active,
         })),
   });
 }
@@ -159,6 +183,21 @@ export function useAccounts(enabled = true) {
   });
 }
 
+export function useFailedJobs(limit: number) {
+  const workspaceId = useWorkspaceId();
+  return useQuery(failedJobsQueryOptions(mobileQueryAPI, workspaceId ?? "", { limit }));
+}
+
+export function useWorkspaceSetup() {
+  const workspaceId = useWorkspaceId();
+  return useQuery(workspaceSetupQueryOptions(mobileQueryAPI, workspaceId ?? ""));
+}
+
+export function useDisconnectedAccounts() {
+  const accounts = useAccounts();
+  return (accounts.data ?? []).filter((account) => !account.is_active).length;
+}
+
 export function useSocialSets(enabled = true) {
   const workspaceId = useWorkspaceId();
   return useQuery({
@@ -187,4 +226,10 @@ export function currentWorkspaceId(): string {
 
 export function useWorkspaceId(): string | null {
   return useSyncExternalStore(subscribeWorkspaceId, getWorkspaceId);
+}
+
+export function useWorkspaceCapabilities() {
+  const workspaceId = useWorkspaceId();
+  const workspaces = useQuery(workspaceListQueryOptions(mobileQueryAPI));
+  return workspaces.data?.find((workspace) => workspace.id === workspaceId);
 }

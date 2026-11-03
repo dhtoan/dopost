@@ -1,14 +1,13 @@
 import { expect, test } from "@playwright/test";
-import { authenticatePage, createWorkspace, registerUser } from "./helpers";
+import { authenticatePage, createWorkspace, registerUser, expectPostText } from "./helpers";
 
-// BUG (filed 2026-09-03, test-prune audit): workspace selection silently fails to
-// apply after workspace mutations in E2E. Mechanism, proven with instrumented
-// runs: the create/switch dialog unmounts mid-flight (onDestroy fires with the
-// dialog still open), which flips its stale-request guard (active=false,
-// requestSequence mismatch), so setWorkspace() aborts and the UI keeps the old
-// workspace with no error. Skipped, not deleted: re-enable after the
-// dialog/store handshake is fixed to survive remounts.
-test.skip("workspace switcher creates and selects a workspace", async ({ page, request }) => {
+// The create-flow half of this selection race was fixed by decoupling workspace
+// selection from dialog mount state in create-workspace-dialog.svelte (the
+// selection guard now checks only the actor identity, so bootstrap-invalidation
+// remounts mid-flight no longer abort selection). Re-enabled to prove it end to end.
+test("workspace switcher creates and selects a workspace", async ({ page, request }, testInfo) => {
+  const pageErrors: string[] = [];
+  page.on("pageerror", (error) => pageErrors.push(error.message));
   const unique = Date.now().toString(36);
   const email = `workspace-create-${unique}@example.com`;
   const firstName = `Personal ${unique}`;
@@ -24,6 +23,8 @@ test.skip("workspace switcher creates and selects a workspace", async ({ page, r
     .getByRole("button", { name: new RegExp(`${firstName}|${newName}`) })
     .first();
   await expect(workspaceButton).toBeVisible();
+  await page.reload();
+  await expect(workspaceButton).toContainText(firstName);
 
   await workspaceButton.click();
   await page.getByRole("menuitem", { name: "Create workspace" }).click();
@@ -44,6 +45,67 @@ test.skip("workspace switcher creates and selects a workspace", async ({ page, r
 
   await workspaceButton.click();
   await expect(page.getByRole("menuitem", { name: new RegExp(newName) })).toBeVisible();
+  await page.getByRole("menuitem", { name: new RegExp(firstName) }).click();
+  await expect(workspaceButton).toContainText(firstName);
+  await page
+    .getByTestId("sidebar-workspace-navigation")
+    .getByRole("button", { name: "Inbox", exact: true })
+    .click();
+  await expect(page).toHaveURL(/\/inbox\/engagement/);
+  await expect(page.getByRole("heading", { name: "No engagement yet", exact: true })).toBeVisible();
+  await workspaceButton.click();
+  await expect(page.getByRole("menuitem", { name: new RegExp(newName) })).toBeVisible();
+  await page.getByRole("menuitem", { name: new RegExp(newName) }).click();
+  await expect(workspaceButton).toContainText(newName);
+  await page.reload();
+  await expect(workspaceButton).toContainText(newName);
+  await workspaceButton.click();
+  await expect(page.getByRole("menuitem", { name: new RegExp(firstName) })).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: new RegExp(newName) })).toBeVisible();
+  await page.keyboard.press("Escape");
+
+  for (const scheme of ["light", "dark"] as const) {
+    await page.evaluate((value) => localStorage.setItem("mode-watcher-mode", value), scheme);
+    await page.emulateMedia({ colorScheme: scheme, reducedMotion: "reduce" });
+    for (const width of [1440, 390, 320]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.reload();
+      if (scheme === "dark") await expect(page.locator("html")).toHaveClass(/dark/);
+      else await expect(page.locator("html")).not.toHaveClass(/dark/);
+      const trigger =
+        width === 1440
+          ? workspaceButton
+          : page
+              .locator('[data-slot="mobile-bottom-nav"]')
+              .getByRole("button", { name: "More", exact: true });
+      await expect(trigger).toBeVisible();
+      await trigger.focus();
+      await page.keyboard.press("Enter");
+      if (width !== 1440) {
+        const workspaceItem = page.getByRole("menuitem", { name: "Workspace", exact: true });
+        await workspaceItem.focus();
+        await page.keyboard.press("Enter");
+      }
+      await expect(page.getByRole("menuitem", { name: new RegExp(firstName) })).toBeVisible();
+      const createdItem = page.getByRole("menuitem", { name: new RegExp(newName) });
+      await expect(createdItem).toBeVisible();
+      await page.keyboard.press("Home");
+      await page.keyboard.press("ArrowDown");
+      if (width !== 1440) await page.keyboard.press("ArrowDown");
+      await expect(createdItem).toBeFocused();
+      const screenshotPath = testInfo.outputPath(`workspace-list-${width}-${scheme}.png`);
+      await page.screenshot({ path: screenshotPath });
+      await expect(createdItem).toBeFocused();
+      await testInfo.attach(`workspace-list-${width}-${scheme}`, {
+        path: screenshotPath,
+        contentType: "image/png",
+      });
+      await page.keyboard.press("Escape");
+      await expect(page.getByRole("menu")).toBeHidden();
+      await expect(trigger).toBeFocused();
+    }
+  }
+  expect(pageErrors).toEqual([]);
 });
 
 test("workspace-scoped pages reload when the sidebar workspace changes", async ({
@@ -187,7 +249,7 @@ test("dirty composer workspace switches can stay, save to the origin, or discard
   await switchDialog.getByRole("button", { name: "Stay here" }).click();
   await expect(switchDialog).toBeHidden();
   await expect(workspaceButton).toContainText(first.name);
-  await expect(textarea).toHaveValue("Keep this exact draft");
+  await expectPostText(textarea, "Keep this exact draft");
   await textarea.fill("Keep this exact draft after staying");
 
   await workspaceButton.click();
@@ -197,11 +259,11 @@ test("dirty composer workspace switches can stay, save to the origin, or discard
   await expect(switchDialog).toBeVisible();
   await expect(switchDialog.getByRole("alert")).toContainText("Temporary save failure");
   await expect(workspaceButton).toContainText(first.name);
-  await expect(textarea).toHaveValue("Keep this exact draft after staying");
+  await expectPostText(textarea, "Keep this exact draft after staying");
   await switchDialog.getByRole("button", { name: "Save draft" }).click();
   await expect(switchDialog).toBeHidden();
   await expect(workspaceButton).toContainText(second.name);
-  await expect(textarea).toHaveValue("");
+  await expectPostText(textarea, "");
   expect(draftWrites).toHaveLength(2);
   for (const draftWrite of draftWrites) {
     expect(draftWrite).toEqual(
@@ -220,15 +282,13 @@ test("dirty composer workspace switches can stay, save to the origin, or discard
   await switchDialog.getByRole("button", { name: "Discard and switch" }).click();
   await expect(switchDialog).toBeHidden();
   await expect(workspaceButton).toContainText(first.name);
-  await expect(textarea).toHaveValue("");
+  await expectPostText(textarea, "");
   expect(draftWrites).toHaveLength(2);
 });
 
-// BUG (filed 2026-09-03, test-prune audit): switching workspaces while the
-// previous workspace has an in-flight request never applies the selection
-// (second workspace's accounts render hidden), same selection-application race
-// family as the create-flow failure above. Skipped, not deleted.
-test.skip("a slow previous-workspace response cannot replace current account data", async ({
+// Regression: switching workspaces while the previous workspace has an
+// in-flight request must keep the newly selected workspace's account data.
+test("a slow previous-workspace response cannot replace current account data", async ({
   page,
   request,
 }) => {

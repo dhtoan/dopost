@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { captureTelemetryEvent } from '@openpost/telemetry';
 	import ArrowRight from '@lucide/svelte/icons/arrow-right';
-	import { Button } from '$lib/components/ui/button';
+	import { Button } from '@openpost/ui/components/button';
 	import { appUrl } from '../../_marketing';
 	let { editor }: { editor: 'image' | 'video' } = $props();
 	const isVideo = $derived(editor === 'video');
@@ -23,7 +23,7 @@
 			size="lg"
 			onclick={() =>
 				captureTelemetryEvent('public editor opened', { editor, source: 'marketing_tool' })}
-			>{isVideo ? 'Open OpenPost Video Editor' : 'Open the free editor'}<ArrowRight
+			>{isVideo ? 'Open dopost Video Editor' : 'Open the free editor'}<ArrowRight
 				data-icon="inline-end"
 			/></Button
 		><small
@@ -37,8 +37,8 @@
 			? '/assets/screenshots/video-editor-dark.webp'
 			: '/assets/screenshots/image-editor-dark.webp'}
 		alt={isVideo
-			? 'OpenPost Video Editor with a preview and timeline'
-			: 'OpenPost Image Editor with editable photos and text'}
+			? 'dopost Video Editor with a preview and timeline'
+			: 'dopost Image Editor with editable photos and text'}
 		width="2880"
 		height="1920"
 	/>

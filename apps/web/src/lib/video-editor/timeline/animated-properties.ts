@@ -3,7 +3,7 @@
  *
  * Ported from FreeCut (MIT) - features/keyframes/utils/animatable-properties.ts,
  * animated-transform-resolver.ts, animated-crop-resolver.ts, and
- * animated-text-item.ts. Adapted to OpenPost's item model.
+ * animated-text-item.ts. Adapted to dopost's item model.
  */
 import type {
 	KeyframeProperty,
@@ -45,6 +45,8 @@ export interface AnimatedItemMotionContext {
 	frameHeight: number;
 	/** Items in the active sequence, used by links and expression references. */
 	items?: readonly TimelineItem[];
+	/** The owning sequence's index, kept in sync with items by its store or renderer. */
+	itemById?: ReadonlyMap<string, TimelineItem>;
 }
 
 const VISUAL_PROPERTIES: KeyframeProperty[] = [
@@ -160,7 +162,9 @@ export function resolveAnimatedItemAt(
 ): TimelineItem {
 	const resolved = resolveAnimatedItemLocalAt(item, absoluteFrame, motionContext);
 	if (!motionContext?.items || !item.transformParent) return resolved;
-	const itemsById = new Map(motionContext.items.map((candidate) => [candidate.id, candidate]));
+	const itemsById =
+		motionContext.itemById ??
+		new Map(motionContext.items.map((candidate) => [candidate.id, candidate]));
 	const world = resolveTransformHierarchy(item, {
 		getItem: (itemId) => itemsById.get(itemId),
 		resolveLocal: (candidate) =>
@@ -170,8 +174,19 @@ export function resolveAnimatedItemAt(
 				motionContext.frameHeight
 			)
 	});
+	const local = resolvedTransformForItem(
+		resolved,
+		motionContext.frameWidth,
+		motionContext.frameHeight
+	);
 	return {
 		...resolved,
+		...(resolved.type === 'text' && {
+			textLayoutSize: {
+				width: local.width,
+				height: local.height
+			}
+		}),
 		transform: {
 			...resolved.transform,
 			x: world.x,
@@ -198,6 +213,7 @@ export function resolveAnimatedItemLocalAt(
 			absoluteFrame,
 			fps: motionContext.fps,
 			items: motionContext.items,
+			itemById: motionContext.itemById,
 			resolvePreExpressionItem: resolvePreExpressionItemAt
 		});
 	}

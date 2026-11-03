@@ -1,13 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import {
 	blankImageEditorDocument,
+	cloneImageEditorDocument,
 	cloneImageEditorPage,
 	defaultTransform,
 	migrateImageEditorDocument,
 	imageEditorPageHasTransparency,
+	imageEditorPageBackground,
 	validateImageEditorDocument
 } from './document';
 import { IMAGE_EDITOR_LIMITS, type ImageEditorLayer, type ImageEditorPreset } from './types';
+import { imageEditorPageDimensions } from './page-dimensions';
 
 const preset: ImageEditorPreset = {
 	key: 'instagram-square',
@@ -31,13 +34,53 @@ function group(id: string, parentID?: string): ImageEditorLayer {
 	};
 }
 
-describe('OpenPost Image Editor document contracts', () => {
+describe('dopost Image Editor document contracts', () => {
+	it('opens and snapshots reactive template documents without sharing authored state', () => {
+		const original = blankImageEditorDocument(preset);
+		const reactive = new Proxy(original, {});
+		original.pages[0].background = new Proxy(
+			{ type: 'solid' as const, color: '#ffffff', opacity: 1 },
+			{}
+		);
+		expect(imageEditorPageBackground(original.pages[0])).toEqual({
+			type: 'solid',
+			color: '#ffffff',
+			opacity: 1
+		});
+		const copy = cloneImageEditorDocument(reactive);
+		copy.pages[0].name = 'Edited copy';
+		expect(original.pages[0].name).not.toBe('Edited copy');
+		expect(migrateImageEditorDocument(reactive).readOnly).toBe(false);
+	});
 	it('creates a valid document for a preset', () => {
 		const document = blankImageEditorDocument(preset);
 		expect(validateImageEditorDocument(document)).toEqual([]);
 		expect(document.pages).toHaveLength(1);
 		expect(document.width_px).toBe(1080);
 		expect(document.export_defaults.matte_color).toBe('#ffffff');
+	});
+
+	it('migrates legacy uniform pages and validates mixed page dimensions independently', () => {
+		const legacy = blankImageEditorDocument(preset);
+		legacy.schema_version = 1;
+		const migrated = migrateImageEditorDocument(legacy).document!;
+		expect(migrated.schema_version).toBe(2);
+		expect(imageEditorPageDimensions(migrated, migrated.pages[0])).toEqual({
+			width: 1080,
+			height: 1080
+		});
+
+		const second = cloneImageEditorPage(migrated.pages[0], 'Portrait');
+		second.width_px = 720;
+		second.height_px = 1280;
+		second.guides = { horizontal: [1200], vertical: [700] };
+		migrated.pages.push(second);
+		expect(validateImageEditorDocument(migrated)).toEqual([]);
+		expect(imageEditorPageDimensions(migrated, second)).toEqual({ width: 720, height: 1280 });
+		second.width_px = 600;
+		expect(validateImageEditorDocument(migrated)).toContain('Portrait has invalid guides.');
+		delete second.height_px;
+		expect(validateImageEditorDocument(migrated)).toContain('Portrait has invalid dimensions.');
 	});
 
 	it('normalizes and validates page-specific non-exporting guides', () => {
@@ -105,7 +148,7 @@ describe('OpenPost Image Editor document contracts', () => {
 		expect(imageEditorPageHasTransparency(document.pages[0])).toBe(true);
 	});
 
-	it('enforces page, pixel, and layer limits', () => {
+	it('enforces document dimension and page-count limits', () => {
 		const document = blankImageEditorDocument(preset);
 		document.width_px = IMAGE_EDITOR_LIMITS.maxDimension + 1;
 		document.height_px = 4096;
@@ -146,7 +189,7 @@ describe('OpenPost Image Editor document contracts', () => {
 		});
 		expect(result.readOnly).toBe(true);
 		expect(result.document?.schema_version).toBe(99);
-		expect(result.error).toContain('newer OpenPost version');
+		expect(result.error).toContain('newer dopost version');
 	});
 
 	it('fills new image-adjustment defaults when opening an existing document', () => {
@@ -241,7 +284,7 @@ describe('OpenPost Image Editor document contracts', () => {
 				opacity: 1,
 				transform: defaultTransform(600, 180),
 				text: {
-					text: 'OpenPost',
+					text: 'dopost',
 					font_family: 'Geist Variable',
 					font_weight: 700,
 					font_style: 'normal',

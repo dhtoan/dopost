@@ -32,9 +32,9 @@ func TestGenerateScriptCalculatesWordCountAndFingerprintServerSide(t *testing.T)
 	require.NoError(t, err)
 
 	result, err := service.GenerateScript(t.Context(), ScriptInput{
-		RunID:                "run-1",
-		Language:             "en-US",
-		Idea:                 &Idea{ID: "idea-01", Title: "A factual history", Hook: "An archival record"},
+		RunID:                 "run-1",
+		Language:              "en-US",
+		Idea:                  &Idea{ID: "idea-01", Title: "A factual history", Hook: "An archival record"},
 		TargetDurationSeconds: 30,
 	})
 	require.NoError(t, err)
@@ -52,9 +52,9 @@ func TestGenerateScriptRejectsSectionHeadings(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = service.GenerateScript(t.Context(), ScriptInput{
-		RunID:                "run-1",
-		Language:             "en-US",
-		CustomTopic:          "A factual topic",
+		RunID:                 "run-1",
+		Language:              "en-US",
+		CustomTopic:           "A factual topic",
 		TargetDurationSeconds: 60,
 	})
 	require.ErrorIs(t, err, ErrInvalidResponse)

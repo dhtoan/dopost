@@ -13,6 +13,7 @@ describe('publicationDraftCopy', () => {
 			title: 'Launch update',
 			intent: 'thread',
 			creation_preset: 'thread',
+			creation_source: 'web',
 			social_set_id: 'set-1',
 			content_profile: 'thread',
 			source_text: 'First post',
@@ -56,7 +57,7 @@ describe('publicationDraftCopy', () => {
 							public_url_status: 200,
 							url: '/media/media-1',
 							role: 'attachment',
-							alt_text: 'OpenPost launch image',
+							alt_text: 'dopost launch image',
 							settings: { made_with_ai: false }
 						}
 					]
@@ -126,7 +127,7 @@ describe('publicationDraftCopy', () => {
 						{
 							media_id: 'media-1',
 							role: 'attachment',
-							alt_text: 'OpenPost launch image',
+							alt_text: 'dopost launch image',
 							settings: { made_with_ai: false }
 						}
 					]

@@ -1,81 +1,50 @@
 <script lang="ts">
 	import { page } from '$app/state';
 	import { m } from '$lib/paraglide/messages';
-	import { onMount } from 'svelte';
-	import type { TextVoiceRequest } from '$lib/video-editor/local-ai/types';
-	import AgentChatPanel from './agent-chat-panel.svelte';
+	import HostedChatPanel from '$lib/editor-agent/hosted-chat-panel.svelte';
 	import LocalAiPanel from './local-ai-panel.svelte';
-	import AunoAutoVideoPanel from './auno-auto-video-panel.svelte';
-	import { agentStore } from '$lib/video-editor/agent/store.svelte';
-	import { setClipRefSelectionProvider } from '$lib/video-editor/agent/clip-refs';
-	import {
-		setAgentSelectionHandler,
-		setAgentHandoffHandlers
-	} from '$lib/video-editor/agent/tools/definitions';
-	import {
-		AGENT_EXPECTED_BYTES,
-		inspectAgentStorage,
-		type AgentStorageStatus
-	} from '$lib/video-editor/agent/storage';
+	import DopostAutoVideoPanel from './dopost-auto-video-panel.svelte';
+	import type { TextVoiceRequest } from '$lib/video-editor/local-ai/types';
+	import type { ProjectAssetImporter } from '$lib/video-editor/media/types';
+	import { workspaceCtx } from '$lib/stores/workspace.svelte';
 
-	type AssistantMode = 'assistant' | 'generate' | 'auno';
+	type AssistantMode = 'assistant' | 'generate' | 'dopost';
 
 	let {
 		projectId,
+		sessionId,
 		oninserted,
-		onselectitems,
-		onopensilence,
-		onopenfillers,
-		selectedIds = [],
-		onautosave,
-		textVoiceRequest = null
+		textVoiceRequest = null,
+		importProjectAsset,
+		onautosave
 	}: {
 		projectId: string;
+		sessionId: string | null;
 		oninserted: (itemId: string) => void;
-		onselectitems: (ids: string[]) => void;
-		onopensilence: (itemIds: string[]) => void;
-		onopenfillers: (itemIds: string[]) => void;
-		selectedIds?: string[];
-		onautosave: () => void;
 		textVoiceRequest?: TextVoiceRequest | null;
+		importProjectAsset?: ProjectAssetImporter;
+		onautosave: () => void;
 	} = $props();
 
-	let mode = $state<AssistantMode>(page.url.searchParams.get('auno') === 'auto-video' ? 'auno' : 'assistant');
+	let mode = $state<AssistantMode>(
+		page.url.searchParams.get('dopost') === 'auto-video' ? 'dopost' : 'assistant'
+	);
+	let generatePanelMounted = $state(false);
+	let handledTextVoiceRequestId = $state<string | null>(null);
 	let assistantTab: HTMLButtonElement | undefined = $state(undefined);
 	let generateTab: HTMLButtonElement | undefined = $state(undefined);
-	let aunoTab: HTMLButtonElement | undefined = $state(undefined);
-	let storage = $state<AgentStorageStatus | null>(null);
-	let checkingStorage = $state(false);
-	let storageCheckFailed = $state(false);
-	let handledTextVoiceRequestId = $state<string | null>(null);
+	let dopostTab: HTMLButtonElement | undefined = $state(undefined);
+	const modes: readonly AssistantMode[] = ['assistant', 'generate', 'dopost'];
 
-	const agentSupported = $derived(agentStore.supported);
-	const modes: readonly AssistantMode[] = ['assistant', 'generate', 'auno'];
+	$effect(() => {
+		if (!textVoiceRequest || textVoiceRequest.id === handledTextVoiceRequestId) return;
+		handledTextVoiceRequestId = textVoiceRequest.id;
+		mode = 'generate';
+	});
 
-	function formatBytes(bytes: number): string {
-		if (bytes >= 1_000_000_000) return `${(bytes / 1_000_000_000).toFixed(2)} GB`;
-		return `${Math.round(bytes / 1_000_000)} MB`;
-	}
-
-	async function refreshStorage(): Promise<void> {
-		if (!agentSupported) return;
-		checkingStorage = true;
-		storageCheckFailed = false;
-		try {
-			storage = await inspectAgentStorage();
-		} catch {
-			storageCheckFailed = true;
-			storage = null;
-		} finally {
-			checkingStorage = false;
-		}
-	}
-
-	function tabFor(next: AssistantMode): HTMLButtonElement | undefined {
-		if (next === 'assistant') return assistantTab;
-		if (next === 'generate') return generateTab;
-		return aunoTab;
-	}
+	$effect(() => {
+		if (mode === 'generate') generatePanelMounted = true;
+	});
 
 	function handleSwitcherKeydown(event: KeyboardEvent): void {
 		if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
@@ -90,58 +59,18 @@
 		queueMicrotask(() => tabFor(next)?.focus());
 	}
 
-	$effect(() => {
-		if (!textVoiceRequest || textVoiceRequest.id === handledTextVoiceRequestId) return;
-		handledTextVoiceRequestId = textVoiceRequest.id;
-		mode = 'generate';
-	});
-
-	$effect(() => {
-		const ids = selectedIds;
-		setClipRefSelectionProvider(() => ids);
-		agentStore.setSelectionProvider(() => ids);
-	});
-
-	$effect(() => {
-		agentStore.setAutosave(onautosave);
-	});
-
-	onMount(() => {
-		setAgentSelectionHandler((ids) => onselectitems(ids));
-		setAgentHandoffHandlers({
-			openSilenceReview: (ids) => onopensilence(ids),
-			openFillerReview: (ids) => onopenfillers(ids)
-		});
-		if (agentSupported) void refreshStorage();
-		return () => {
-			setClipRefSelectionProvider(null);
-			setAgentSelectionHandler(null);
-			setAgentHandoffHandlers({});
-			agentStore.setSelectionProvider(null);
-			agentStore.setAutosave(undefined);
-		};
-	});
-
-	$effect(() => {
-		void mode;
-		void agentSupported;
-		if (
-			mode === 'assistant' &&
-			agentSupported &&
-			!storage &&
-			!checkingStorage &&
-			!storageCheckFailed
-		) {
-			void refreshStorage();
-		}
-	});
+	function tabFor(next: AssistantMode): HTMLButtonElement | undefined {
+		if (next === 'assistant') return assistantTab;
+		if (next === 'generate') return generateTab;
+		return dopostTab;
+	}
 </script>
 
 <div class="flex h-full min-h-0 flex-col" data-testid="editor-assistant-panel">
 	<div class="shrink-0 border-b border-[var(--video-editor-border)] p-2">
-		<!-- svelte-ignore a11y_interactive_supports_focus -->
 		<div
 			role="tablist"
+			tabindex="-1"
 			aria-label={m.video_editor_agent_mode_label()}
 			class="grid grid-cols-3 gap-1 rounded-md bg-[var(--video-editor-control)] p-1"
 			onkeydown={handleSwitcherKeydown}
@@ -179,110 +108,58 @@
 				{m.video_editor_agent_generate()}
 			</button>
 			<button
-				bind:this={aunoTab}
+				bind:this={dopostTab}
 				role="tab"
-				id="auno-tab"
-				aria-selected={mode === 'auno'}
-				aria-controls="auno-panel"
-				tabindex={mode === 'auno' ? 0 : -1}
+				id="dopost-tab"
+				aria-selected={mode === 'dopost'}
+				aria-controls="dopost-panel"
+				tabindex={mode === 'dopost' ? 0 : -1}
 				type="button"
 				class="min-h-11 rounded px-2 py-1.5 text-xs font-medium focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--video-editor-focus)] md:min-h-9 {mode ===
-				'auno'
+				'dopost'
 					? 'bg-[var(--video-editor-selection)] text-[var(--video-editor-selection-text)]'
 					: 'text-[var(--video-editor-muted)] hover:text-[var(--video-editor-text)]'}"
-				onclick={() => (mode = 'auno')}
+				onclick={() => (mode = 'dopost')}
 			>
-				Auno AI
+				dopost AI
 			</button>
 		</div>
-		<p class="mt-1.5 text-[11px] leading-relaxed text-[var(--video-editor-muted)]">
-			{#if mode === 'assistant'}
-				{m.video_editor_agent_assistant_hint()}
-			{:else if mode === 'generate'}
-				{m.video_editor_agent_generate_hint()}
-			{:else}
+		{#if mode === 'dopost'}
+			<p class="mt-1.5 text-[11px] leading-relaxed text-[var(--video-editor-muted)]">
 				Regenerate Auto Video scenes while preserving native timeline edits.
-			{/if}
-		</p>
-		{#if mode === 'assistant'}
-			{#if !agentSupported}
-				<p class="mt-1 text-[11px] text-[var(--video-editor-danger)]">
-					{m.video_editor_agent_webgpu_required()}
-				</p>
-			{:else if checkingStorage}
-				<p class="mt-1 text-[11px] text-[var(--video-editor-muted)]">
-					{m.video_editor_agent_storage_checking()}
-				</p>
-			{:else if storageCheckFailed}
-				<p class="mt-1 text-[11px] text-[var(--video-editor-muted)]">
-					{m.video_editor_agent_storage_unknown({ size: formatBytes(AGENT_EXPECTED_BYTES) })}
-				</p>
-			{:else if storage}
-				{#if !storage.sufficient}
-					<p
-						class="mt-1 rounded bg-[var(--video-editor-control)] px-1.5 py-1 text-[11px] text-[var(--video-editor-danger)]"
-					>
-						{m.video_editor_agent_storage_insufficient({
-							need: formatBytes(storage.missingBytes + storage.headroomBytes),
-							have: formatBytes(storage.effectiveAvailableBytes ?? storage.availableBytes ?? 0)
-						})}
-					</p>
-				{:else if storage.sizeStatus === 'unknown' && storage.missingBytes > 0}
-					<p class="mt-1 text-[11px] text-[var(--video-editor-muted)]">
-						{m.video_editor_agent_storage_unknown({ size: formatBytes(storage.expectedBytes) })}
-					</p>
-				{:else if storage.readyBytes > 0 && storage.missingBytes > 0}
-					<p class="mt-1 text-[11px] text-[var(--video-editor-muted)]">
-						{m.video_editor_agent_storage_partial({
-							ready: formatBytes(storage.readyBytes),
-							total: formatBytes(storage.expectedBytes),
-							missing: formatBytes(storage.missingBytes)
-						})}
-					</p>
-				{:else if storage.missingBytes > 0}
-					<p class="mt-1 text-[11px] text-[var(--video-editor-muted)]">
-						{m.video_editor_agent_storage_first_run({ size: formatBytes(storage.expectedBytes) })}
-					</p>
-				{:else}
-					<p class="mt-1 text-[11px] text-success">
-						{m.video_editor_agent_storage_ready({ size: formatBytes(storage.readyBytes) })}
-					</p>
-				{/if}
-			{/if}
+			</p>
 		{/if}
 	</div>
-
 	<div class="min-h-0 flex-1 overflow-hidden">
-		{#if mode === 'assistant'}
-			<div
-				role="tabpanel"
-				id="assistant-panel"
-				aria-labelledby="assistant-tab"
-				class="h-full min-h-0"
-			>
-				<AgentChatPanel
-					{projectId}
-					storageSufficient={storage ? storage.sufficient : true}
-					storageUnknown={storage ? storage.sizeStatus === 'unknown' : false}
-				/>
-			</div>
-		{:else if mode === 'generate'}
+		<div
+			role="tabpanel"
+			id="assistant-panel"
+			aria-labelledby="assistant-tab"
+			class="h-full min-h-0"
+			hidden={mode !== 'assistant'}
+			inert={mode !== 'assistant'}
+		>
+			<HostedChatPanel
+				workspaceId={workspaceCtx.currentWorkspace?.id ?? ''}
+				{projectId}
+				{sessionId}
+			/>
+		</div>
+		{#if generatePanelMounted}
 			<div
 				role="tabpanel"
 				id="generate-panel"
 				aria-labelledby="generate-tab"
 				class="h-full min-h-0 overflow-y-auto"
+				hidden={mode !== 'generate'}
+				inert={mode !== 'generate'}
 			>
-				<LocalAiPanel {projectId} {oninserted} {textVoiceRequest} />
+				<LocalAiPanel {projectId} {oninserted} {textVoiceRequest} {importProjectAsset} />
 			</div>
-		{:else}
-			<div
-				role="tabpanel"
-				id="auno-panel"
-				aria-labelledby="auno-tab"
-				class="h-full min-h-0"
-			>
-				<AunoAutoVideoPanel {projectId} {onautosave} />
+		{/if}
+		{#if mode === 'dopost'}
+			<div role="tabpanel" id="dopost-panel" aria-labelledby="dopost-tab" class="h-full min-h-0">
+				<DopostAutoVideoPanel {projectId} {onautosave} />
 			</div>
 		{/if}
 	</div>

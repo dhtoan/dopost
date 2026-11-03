@@ -1,3 +1,4 @@
+import { m } from '$lib/paraglide/messages';
 import { MODEL_IDS, type MainThreadMessage, type TranscriptionEngine } from './types';
 import type {
 	TranscribeProgress,
@@ -46,7 +47,8 @@ export class TranscriptionBridge {
 		quantization: TranscriptionQuantization,
 		engine: TranscriptionEngine,
 		sourceStartSeconds = 0,
-		sourceEndSeconds?: number
+		sourceEndSeconds?: number,
+		audioTrackIndex?: number
 	): void {
 		if (this.decoder || this.engineWorker) throw new Error('Transcription job already started');
 		this.activeEngine = engine;
@@ -60,7 +62,8 @@ export class TranscriptionBridge {
 		const handleEngineMessage = (event: MessageEvent<MainThreadMessage>): void => {
 			if (this.ended) return;
 			const message = event.data;
-			if (message.type === 'segment') this.callbacks.onSegment(message.segment);
+			if (message.type === 'ready') decoder.postMessage({ type: 'decode' });
+			else if (message.type === 'segment') this.callbacks.onSegment(message.segment);
 			else if (message.type === 'progress') this.callbacks.onProgress(message.event);
 			else if (message.type === 'runtime') this.callbacks.onRuntimeInfo(message.info);
 			else if (message.type === 'done') {
@@ -89,9 +92,20 @@ export class TranscriptionBridge {
 
 		decoder.onmessage = (event: MessageEvent<MainThreadMessage>): void => {
 			if (this.ended) return;
-			if (event.data.type === 'progress') this.callbacks.onProgress(event.data.event);
+			if (event.data.type === 'audio-ready') {
+				engineWorker.postMessage({
+					type: 'init',
+					modelId: MODEL_IDS[model],
+					language: language || undefined,
+					quantization
+				});
+			} else if (event.data.type === 'progress') this.callbacks.onProgress(event.data.event);
 			else if (event.data.type === 'error') {
-				this.callbacks.onError(`Audio decoder: ${event.data.message}`);
+				this.callbacks.onError(
+					event.data.code === 'no-audio'
+						? m.video_editor_transcribe_no_audio()
+						: `Audio decoder: ${event.data.message}`
+				);
 				this.finish(true);
 			}
 		};
@@ -107,17 +121,12 @@ export class TranscriptionBridge {
 		};
 		decoder.postMessage({ type: 'port', port: port1 }, [port1]);
 		engineWorker.postMessage({ type: 'port', port: port2 }, [port2]);
-		engineWorker.postMessage({
-			type: 'init',
-			modelId: MODEL_IDS[model],
-			language: language || undefined,
-			quantization
-		});
 		decoder.postMessage({
 			type: 'init',
 			file,
 			sourceStartSeconds,
-			sourceEndSeconds
+			sourceEndSeconds,
+			audioTrackIndex
 		});
 	}
 

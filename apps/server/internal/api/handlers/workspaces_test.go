@@ -19,14 +19,41 @@ import (
 	"github.com/openpost/backend/internal/services/apitokens"
 	"github.com/openpost/backend/internal/services/entitlements"
 	"github.com/openpost/backend/internal/services/workspaceteam"
+	"github.com/openpost/backend/internal/telemetry"
 	"github.com/stretchr/testify/require"
 	"github.com/uptrace/bun"
 )
 
 type workspaceTestServer struct {
-	echo *echo.Echo
-	db   *bun.DB
-	api  huma.API
+	echo     *echo.Echo
+	db       *bun.DB
+	api      huma.API
+	handler  *WorkspaceHandler
+	recorder *telemetry.MemoryRecorder
+}
+
+func TestWorkspaceSettingsRejectInvertedComposerRangeWithoutSaving(t *testing.T) {
+	for _, body := range []map[string]any{
+		{"slot_start_hour": 23, "slot_end_hour": 22},
+		{"slot_start_hour": 23},
+		{"slot_end_hour": 4},
+	} {
+		t.Run(fmt.Sprint(body), func(t *testing.T) {
+			srv := newWorkspaceTestServer(t, entitlements.NewSelfHostedService())
+			srv.handler.UpdateWorkspaceSettings(srv.api)
+			seedWorkspaceUserAndMember(t, srv.db, "user-1", "user@example.com", models.WorkspaceRoleAdmin)
+			_, err := srv.db.NewUpdate().Model((*models.Workspace)(nil)).Set("slot_start_hour = 5").Set("slot_end_hour = 22").Where("id = ?", "ws-1").Exec(context.Background())
+			require.NoError(t, err)
+			response := srv.patchJSON(t, "/api/v1/workspaces/ws-1/settings", body, "web-token")
+			require.Equal(t, http.StatusBadRequest, response.Code, response.Body.String())
+			var saved models.Workspace
+			require.NoError(t, srv.db.NewSelect().Model(&saved).Where("id = ?", "ws-1").Scan(context.Background()))
+			require.Equal(t, 5, saved.SlotStartHour)
+			require.Equal(t, 22, saved.SlotEndHour)
+			valid := srv.patchJSON(t, "/api/v1/workspaces/ws-1/settings", map[string]any{"slot_start_hour": 23, "slot_end_hour": 23}, "web-token")
+			require.Equal(t, http.StatusOK, valid.Code, valid.Body.String())
+		})
+	}
 }
 
 func newWorkspaceTestServer(t *testing.T, entitlement entitlements.Service) *workspaceTestServer {
@@ -71,6 +98,8 @@ func newWorkspaceTestServerWithAuthenticator(t *testing.T, entitlement entitleme
 	api := humaecho.NewWithGroup(e, e.Group("/api/v1"), huma.DefaultConfig("Test", "1.0.0"))
 	handler := NewWorkspaceHandler(db, authenticator, entitlement)
 	handler.SetFrontendURL("https://app.openpost.test")
+	recorder := &telemetry.MemoryRecorder{}
+	handler.SetTelemetry(recorder)
 	handler.CreateWorkspace(api)
 	handler.ListWorkspaceTeam(api)
 	handler.CreateWorkspaceInvitation(api)
@@ -87,36 +116,138 @@ func newWorkspaceTestServerWithAuthenticator(t *testing.T, entitlement entitleme
 	handler.GetWorkspaceSetup(api)
 	handler.StartWorkspaceComposition(api)
 
-	return &workspaceTestServer{echo: e, db: db, api: api}
+	return &workspaceTestServer{echo: e, db: db, api: api, handler: handler, recorder: recorder}
 }
 
-func TestWorkspaceCompositionStartsOnceForMeaningfulSignals(t *testing.T) {
+func TestWorkspaceCompositionCapturesServerObservationOnce(t *testing.T) {
 	t.Parallel()
 
-	for _, signal := range []string{"text"} {
-		t.Run(signal, func(t *testing.T) {
-			srv := newWorkspaceTestServer(t, entitlements.NewSelfHostedService())
-			seedWorkspaceUserAndMember(t, srv.db, "user-1", "user@example.com", models.WorkspaceRoleAdmin)
+	srv := newWorkspaceTestServer(t, entitlements.NewSelfHostedService())
+	seedWorkspaceUserAndMember(t, srv.db, "user-1", "user@example.com", models.WorkspaceRoleAdmin)
 
-			first := srv.postJSON(t, "/api/v1/workspaces/ws-1/setup/composition", map[string]any{"signal": signal, "origin_key": "origin-signal-0001"}, "web-token")
-			require.Equal(t, http.StatusOK, first.Code, first.Body.String())
-			var firstClaim StartWorkspaceCompositionResponse
-			require.NoError(t, json.Unmarshal(first.Body.Bytes(), &firstClaim))
-			require.True(t, firstClaim.Claimed)
+	first := srv.postJSON(t, "/api/v1/workspaces/ws-1/setup/composition", map[string]any{"signal": "text", "origin_key": "origin-signal-0001"}, "web-token")
+	require.Equal(t, http.StatusOK, first.Code, first.Body.String())
+	var firstClaim StartWorkspaceCompositionResponse
+	require.NoError(t, json.Unmarshal(first.Body.Bytes(), &firstClaim))
+	require.True(t, firstClaim.Claimed)
+	var stored models.WorkspaceFirstComposition
+	require.NoError(t, srv.db.NewSelect().Model(&stored).Where("workspace_id = ?", "ws-1").Scan(t.Context()))
+	require.Equal(t, "text", stored.Signal)
+	require.Equal(t, "origin-signal-0001", stored.OriginKey)
+	require.Len(t, srv.recorder.Events, 1)
+	event := srv.recorder.Events[0]
+	require.Equal(t, telemetry.EventFirstCompositionStarted, event.Name)
+	require.Equal(t, "user-1", event.DistinctID)
+	require.Equal(t, "ws-1", event.WorkspaceID)
+	require.Equal(t, "composition:ws-1", event.UUID)
+	require.Equal(t, map[string]any{"signal": "text"}, event.Properties)
 
-			reconciled := srv.postJSON(t, "/api/v1/workspaces/ws-1/setup/composition", map[string]any{"signal": signal, "origin_key": "origin-signal-0001"}, "web-token")
-			require.Equal(t, http.StatusOK, reconciled.Code, reconciled.Body.String())
-			var reconciledClaim StartWorkspaceCompositionResponse
-			require.NoError(t, json.Unmarshal(reconciled.Body.Bytes(), &reconciledClaim))
-			require.True(t, reconciledClaim.Claimed)
+	// Same-origin reconciliation still claims without a duplicate capture.
+	reconciled := srv.postJSON(t, "/api/v1/workspaces/ws-1/setup/composition", map[string]any{"signal": "text", "origin_key": "origin-signal-0001"}, "web-token")
+	require.Equal(t, http.StatusOK, reconciled.Code, reconciled.Body.String())
+	var reconciledClaim StartWorkspaceCompositionResponse
+	require.NoError(t, json.Unmarshal(reconciled.Body.Bytes(), &reconciledClaim))
+	require.True(t, reconciledClaim.Claimed)
+	require.Len(t, srv.recorder.Events, 1)
 
-			repeat := srv.postJSON(t, "/api/v1/workspaces/ws-1/setup/composition", map[string]any{"signal": signal, "origin_key": "origin-repeat-0001"}, "web-token")
-			require.Equal(t, http.StatusOK, repeat.Code, repeat.Body.String())
-			var repeatClaim StartWorkspaceCompositionResponse
-			require.NoError(t, json.Unmarshal(repeat.Body.Bytes(), &repeatClaim))
-			require.False(t, repeatClaim.Claimed)
-		})
+	// A different origin key is rejected without a duplicate capture.
+	repeat := srv.postJSON(t, "/api/v1/workspaces/ws-1/setup/composition", map[string]any{"signal": "media", "origin_key": "origin-repeat-0001"}, "web-token")
+	require.Equal(t, http.StatusOK, repeat.Code, repeat.Body.String())
+	var repeatClaim StartWorkspaceCompositionResponse
+	require.NoError(t, json.Unmarshal(repeat.Body.Bytes(), &repeatClaim))
+	require.False(t, repeatClaim.Claimed)
+	require.Len(t, srv.recorder.Events, 1)
+}
+
+func TestWorkspaceCompositionTelemetryStaysWorkspaceScoped(t *testing.T) {
+	t.Parallel()
+
+	srv := newWorkspaceTestServer(t, entitlements.NewSelfHostedService())
+	seedWorkspaceUserAndMember(t, srv.db, "user-1", "user@example.com", models.WorkspaceRoleAdmin)
+	ctx := context.Background()
+	_, err := srv.db.NewInsert().Model(&models.Workspace{ID: "ws-2", OrganizationID: "org-1", Name: "Second"}).Exec(ctx)
+	require.NoError(t, err)
+	_, err = srv.db.NewInsert().Model(&models.WorkspaceMember{WorkspaceID: "ws-2", UserID: "user-1", Role: models.WorkspaceRoleAdmin}).Exec(ctx)
+	require.NoError(t, err)
+
+	first := srv.postJSON(t, "/api/v1/workspaces/ws-1/setup/composition", map[string]any{"signal": "text", "origin_key": "origin-signal-0001"}, "web-token")
+	require.Equal(t, http.StatusOK, first.Code, first.Body.String())
+	second := srv.postJSON(t, "/api/v1/workspaces/ws-2/setup/composition", map[string]any{"signal": "media", "origin_key": "origin-signal-0002"}, "web-token")
+	require.Equal(t, http.StatusOK, second.Code, second.Body.String())
+	require.Len(t, srv.recorder.Events, 2)
+	require.Equal(t, "ws-1", srv.recorder.Events[0].WorkspaceID)
+	require.Equal(t, "composition:ws-1", srv.recorder.Events[0].UUID)
+	require.Equal(t, "ws-2", srv.recorder.Events[1].WorkspaceID)
+	require.Equal(t, "composition:ws-2", srv.recorder.Events[1].UUID)
+
+	denied := srv.postJSON(t, "/api/v1/workspaces/ws-1/setup/composition", map[string]any{"signal": "text", "origin_key": "origin-signal-0001"}, "other-workspace-token")
+	require.Equal(t, http.StatusForbidden, denied.Code, denied.Body.String())
+	require.Len(t, srv.recorder.Events, 2)
+}
+
+func TestWorkspaceCompositionConcurrentMembersClaimOnce(t *testing.T) {
+	t.Parallel()
+
+	authenticator := workspaceTestAuthenticator{
+		"web-token":      {UserID: "user-1", Email: "user@example.com"},
+		"member-2-token": {UserID: "user-2", Email: "member2@example.com"},
 	}
+	srv := newWorkspaceTestServerWithAuthenticator(t, entitlements.NewSelfHostedService(), authenticator)
+	seedWorkspaceUserAndMember(t, srv.db, "user-1", "user@example.com", models.WorkspaceRoleAdmin)
+	ctx := context.Background()
+	_, err := srv.db.NewInsert().Model(&models.User{
+		ID:           "user-2",
+		Email:        "member2@example.com",
+		PasswordHash: "hash",
+		CreatedAt:    time.Now().UTC(),
+	}).Exec(ctx)
+	require.NoError(t, err)
+	_, err = srv.db.NewInsert().Model(&models.WorkspaceMember{
+		WorkspaceID: "ws-1",
+		UserID:      "user-2",
+		Role:        models.WorkspaceRoleEditor,
+	}).Exec(ctx)
+	require.NoError(t, err)
+
+	first := srv.postJSON(t, "/api/v1/workspaces/ws-1/setup/composition", map[string]any{"signal": "text", "origin_key": "origin-signal-0001"}, "web-token")
+	require.Equal(t, http.StatusOK, first.Code, first.Body.String())
+	var firstClaim StartWorkspaceCompositionResponse
+	require.NoError(t, json.Unmarshal(first.Body.Bytes(), &firstClaim))
+	require.True(t, firstClaim.Claimed)
+	require.Len(t, srv.recorder.Events, 1)
+
+	// A later claim from a second member loses the durable claim
+	// and must not emit a duplicate observation.
+	second := srv.postJSON(t, "/api/v1/workspaces/ws-1/setup/composition", map[string]any{"signal": "media", "origin_key": "origin-member-2-0001"}, "member-2-token")
+	require.Equal(t, http.StatusOK, second.Code, second.Body.String())
+	var secondClaim StartWorkspaceCompositionResponse
+	require.NoError(t, json.Unmarshal(second.Body.Bytes(), &secondClaim))
+	require.False(t, secondClaim.Claimed)
+	require.Len(t, srv.recorder.Events, 1)
+	require.Equal(t, "user-1", srv.recorder.Events[0].DistinctID)
+	require.Equal(t, "composition:ws-1", srv.recorder.Events[0].UUID)
+}
+
+func TestWorkspaceCompositionClaimSurvivesTelemetryFailure(t *testing.T) {
+	t.Parallel()
+
+	srv := newWorkspaceTestServer(t, entitlements.NewSelfHostedService())
+	seedWorkspaceUserAndMember(t, srv.db, "user-1", "user@example.com", models.WorkspaceRoleAdmin)
+	srv.handler.SetTelemetry(&failingCompositionRecorder{})
+
+	first := srv.postJSON(t, "/api/v1/workspaces/ws-1/setup/composition", map[string]any{"signal": "text", "origin_key": "origin-signal-0001"}, "web-token")
+	require.Equal(t, http.StatusOK, first.Code, first.Body.String())
+	var firstClaim StartWorkspaceCompositionResponse
+	require.NoError(t, json.Unmarshal(first.Body.Bytes(), &firstClaim))
+	require.True(t, firstClaim.Claimed)
+}
+
+type failingCompositionRecorder struct {
+	telemetry.MemoryRecorder
+}
+
+func (r *failingCompositionRecorder) Capture(_ context.Context, _ telemetry.Event) error {
+	return context.DeadlineExceeded
 }
 
 func TestWorkspaceSetupHidesActionsFromViewersAndRejectsScopedTokens(t *testing.T) {
@@ -203,6 +334,9 @@ func TestWorkspaceSetupRetiresAfterActivation(t *testing.T) {
 
 func (s *workspaceTestServer) createWorkspace(t *testing.T, name string) *httptest.ResponseRecorder {
 	t.Helper()
+	// The authenticated principal must have a stored User for creation locking.
+	_, err := s.db.NewInsert().Model(&models.User{ID: "user-1", Email: "user@example.com", PasswordHash: "hash", CreatedAt: time.Now().UTC()}).On("CONFLICT DO NOTHING").Exec(t.Context())
+	require.NoError(t, err)
 
 	var payload bytes.Buffer
 	require.NoError(t, json.NewEncoder(&payload).Encode(map[string]string{"name": name}))
@@ -475,7 +609,7 @@ func TestAcceptWorkspaceInvitationAddsWorkspaceMember(t *testing.T) {
 		Email:           "teammate@example.com",
 		Role:            models.WorkspaceRoleViewer,
 		InvitedByUserID: "admin-1",
-		TokenHash:       hashWorkspaceInvitationToken(rawInviteToken),
+		TokenHash:       workspaceteam.HashInvitationToken(rawInviteToken),
 		ExpiresAt:       time.Now().UTC().Add(24 * time.Hour),
 		CreatedAt:       time.Now().UTC(),
 	}).Exec(ctx)
@@ -487,7 +621,7 @@ func TestAcceptWorkspaceInvitationAddsWorkspaceMember(t *testing.T) {
 		Email:           "former-address@example.com",
 		Role:            models.WorkspaceRoleViewer,
 		InvitedByUserID: "admin-1",
-		TokenHash:       hashWorkspaceInvitationToken(oldAddressInviteToken),
+		TokenHash:       workspaceteam.HashInvitationToken(oldAddressInviteToken),
 		ExpiresAt:       time.Now().UTC().Add(24 * time.Hour),
 		CreatedAt:       time.Now().UTC(),
 	}).Exec(ctx)
@@ -532,9 +666,9 @@ func TestInvalidInvitationAcceptanceUsesOneSafeResponse(t *testing.T) {
 	require.NoError(t, err)
 	now := time.Now().UTC()
 	rows := []models.WorkspaceInvitation{
-		{ID: "wrong-email", WorkspaceID: "ws-1", Email: "other@example.com", Role: "viewer", InvitedByUserID: "admin-1", TokenHash: hashWorkspaceInvitationToken("op_inv_wrong_email"), ExpiresAt: now.Add(time.Hour), CreatedAt: now},
-		{ID: "expired", WorkspaceID: "ws-1", Email: "invitee@example.com", Role: "viewer", InvitedByUserID: "admin-1", TokenHash: hashWorkspaceInvitationToken("op_inv_expired_link"), ExpiresAt: now.Add(-time.Hour), CreatedAt: now},
-		{ID: "revoked", WorkspaceID: "ws-1", Email: "invitee@example.com", Role: "viewer", InvitedByUserID: "admin-1", TokenHash: hashWorkspaceInvitationToken("op_inv_revoked_link"), ExpiresAt: now.Add(time.Hour), RevokedAt: now, CreatedAt: now},
+		{ID: "wrong-email", WorkspaceID: "ws-1", Email: "other@example.com", Role: "viewer", InvitedByUserID: "admin-1", TokenHash: workspaceteam.HashInvitationToken("op_inv_wrong_email"), ExpiresAt: now.Add(time.Hour), CreatedAt: now},
+		{ID: "expired", WorkspaceID: "ws-1", Email: "invitee@example.com", Role: "viewer", InvitedByUserID: "admin-1", TokenHash: workspaceteam.HashInvitationToken("op_inv_expired_link"), ExpiresAt: now.Add(-time.Hour), CreatedAt: now},
+		{ID: "revoked", WorkspaceID: "ws-1", Email: "invitee@example.com", Role: "viewer", InvitedByUserID: "admin-1", TokenHash: workspaceteam.HashInvitationToken("op_inv_revoked_link"), ExpiresAt: now.Add(time.Hour), RevokedAt: now, CreatedAt: now},
 	}
 	_, err = srv.db.NewInsert().Model(&rows).Exec(t.Context())
 	require.NoError(t, err)
@@ -706,4 +840,31 @@ func TestCreateInvitationAppliesPerWorkspaceAbuseControl(t *testing.T) {
 	}, "web-token")
 	require.Equal(t, http.StatusTooManyRequests, limited.Code, limited.Body.String())
 	require.Contains(t, limited.Body.String(), "invitation limit reached")
+}
+
+type workspaceInterleavedEntitlement struct {
+	entitlements.Service
+	beforeCheck func()
+}
+
+func (s *workspaceInterleavedEntitlement) Check(ctx context.Context, req entitlements.Request) (entitlements.Decision, error) {
+	if s.beforeCheck != nil {
+		fn := s.beforeCheck
+		s.beforeCheck = nil
+		fn()
+	}
+	return s.Service.Check(ctx, req)
+}
+func TestCreateWorkspaceRechecksLimitAfterCompetingCreation(t *testing.T) {
+	policy := &workspaceInterleavedEntitlement{Service: entitlements.NewStaticService(entitlements.PlanSnapshot{PlanID: "limited", Limits: map[entitlements.LimitKey]int64{entitlements.LimitWorkspaces: 1}})}
+	srv := newWorkspaceTestServer(t, policy)
+	policy.beforeCheck = func() {
+		resp := srv.createWorkspace(t, "Competing")
+		require.Equal(t, http.StatusOK, resp.Code, resp.Body.String())
+	}
+	resp := srv.createWorkspace(t, "Late")
+	require.Equal(t, http.StatusPaymentRequired, resp.Code, resp.Body.String())
+	count, err := srv.db.NewSelect().Model((*models.Workspace)(nil)).Count(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, 1, count)
 }

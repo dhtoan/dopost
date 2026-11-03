@@ -6,6 +6,7 @@
 	import * as Dialog from '$lib/components/ui/dialog';
 	import * as RadioGroup from '$lib/components/ui/radio-group';
 	import { m } from '$lib/paraglide/messages';
+	import { formatBytes as formatByteSize } from '$lib/byte-size';
 	import type { MediaMetadata } from '$lib/video-editor/media/types';
 	import { resolveMediaBlob } from '$lib/video-editor/media/import.svelte';
 	import {
@@ -58,10 +59,7 @@
 	);
 
 	function formatBytes(value: number): string {
-		if (value < 1024) return `${value} B`;
-		if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
-		if (value < 1024 * 1024 * 1024) return `${(value / (1024 * 1024)).toFixed(1)} MB`;
-		return `${(value / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+		return formatByteSize(value, { base: 'iec' }) ?? '—';
 	}
 
 	function resetScan(): void {
@@ -157,7 +155,7 @@
 
 		{#if pickerState === 'scanning'}
 			<div
-				class="space-y-3 rounded-lg border border-[var(--video-editor-border)] bg-[var(--video-editor-control)] p-4"
+				class="space-y-2 rounded-lg border border-[var(--video-editor-border)] bg-[var(--video-editor-control)] p-2.5"
 				aria-live="polite"
 			>
 				<div class="flex items-center justify-between gap-3 text-xs">
@@ -193,13 +191,13 @@
 				<RadioGroup.Root
 					value={selectedTrackNumber}
 					onValueChange={(value) => (selectedTrackNumber = value)}
-					class="max-h-72 space-y-2 overflow-y-auto pr-1"
+					class="max-h-72 space-y-1 overflow-y-auto pr-1"
 					aria-label={m.video_editor_subtitle_choose_track()}
 				>
 					{#each result.tracks as track (track.trackNumber)}
 						<label
 							class={[
-								'flex min-h-14 cursor-pointer items-start gap-3 rounded-lg border p-3 transition-colors',
+								'flex min-h-10 cursor-pointer items-start gap-2.5 rounded-lg border p-2 transition-colors [@media(pointer:coarse)]:min-h-11',
 								selectedTrackNumber === String(track.trackNumber)
 									? 'border-[var(--video-editor-focus)] bg-[color-mix(in_oklch,var(--video-editor-focus)_10%,transparent)]'
 									: 'border-[var(--video-editor-border)] bg-[var(--video-editor-control)] hover:bg-[var(--video-editor-control-hover)]'
@@ -230,7 +228,7 @@
 			</div>
 		{:else if pickerState === 'empty'}
 			<div
-				class="rounded-lg border border-[var(--video-editor-border)] bg-[var(--video-editor-control)] p-5 text-center"
+				class="rounded-lg border border-[var(--video-editor-border)] bg-[var(--video-editor-control)] p-3 text-center"
 			>
 				<ProtectedIcon
 					icon="editor-captions"
@@ -242,7 +240,7 @@
 				</p>
 			</div>
 		{:else if pickerState === 'error'}
-			<div class="rounded-lg border border-red-400/40 bg-red-500/10 p-4" role="alert">
+			<div class="rounded-lg border border-red-400/40 bg-red-500/10 p-3" role="alert">
 				<p class="font-medium text-red-200">{m.video_editor_subtitle_scan_failed()}</p>
 				<p class="mt-1 text-[11px] break-words text-red-200/80">{errorMessage}</p>
 				<Button class="mt-3" variant="outline" size="sm" onclick={retry}>

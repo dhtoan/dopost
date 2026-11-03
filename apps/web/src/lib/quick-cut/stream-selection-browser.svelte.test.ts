@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
 	ALL_FORMATS,
+	AudioBufferSink,
 	BlobSource,
 	BufferTarget,
 	CanvasSource,
@@ -11,6 +12,7 @@ import {
 import { probeSourceFile } from './source';
 import { preflightExport, exportSegments, discardScratchFile } from './export';
 import { createSegment } from './model';
+import { prepareRepurposePreview } from './repurpose-preview';
 
 async function createAvWebM(): Promise<File> {
 	const canvas = document.createElement('canvas');
@@ -129,7 +131,7 @@ async function createMetadataWebM(): Promise<File> {
 	const audio = new AudioSampleSource({ codec: 'opus', bitrate: 64_000 });
 	output.setMetadataTags({
 		title: 'Field Interview',
-		artist: 'OpenPost Test',
+		artist: 'dopost Test',
 		raw: { WORKFLOW: 'quick-cut' }
 	});
 	output.addVideoTrack(video, {
@@ -282,7 +284,7 @@ describe('quick-cut stream selection browser', () => {
 			input.getPrimaryAudioTrack()
 		]);
 		expect(tags.title).toBe('Field Interview');
-		expect(tags.artist).toBe('OpenPost Test');
+		expect(tags.artist).toBe('dopost Test');
 		expect(tags.raw?.WORKFLOW).toBe('quick-cut');
 		expect(await videoTrack?.getName()).toBe('Camera A');
 		expect(await videoTrack?.getLanguageCode()).toBe('eng');
@@ -316,7 +318,7 @@ describe('quick-cut stream selection browser', () => {
 			input.getPrimaryAudioTrack()
 		]);
 		expect(tags.title).toBe('Field Interview');
-		expect(tags.artist).toBe('OpenPost Test');
+		expect(tags.artist).toBe('dopost Test');
 		expect(tags.raw?.WORKFLOW).toBe('quick-cut');
 		expect(await videoTrack?.getName()).toBe('Camera A');
 		expect(await videoTrack?.getLanguageCode()).toBe('eng');
@@ -328,3 +330,47 @@ describe('quick-cut stream selection browser', () => {
 		await discardScratchFile(artifact!.scratchPath);
 	}, 30000);
 });
+
+it('Repurpose audition trims exact bounds and plays only the transcript audio track', async () => {
+	const file = await createInterleavedMultiTrackWebM();
+	const source = await probeSourceFile(file);
+	source.selectedAudioTrackIndices = [0, 1];
+	const preview = await prepareRepurposePreview(
+		source,
+		{ start: 0.073, end: 0.237 },
+		1,
+		new AbortController().signal,
+		() => {}
+	);
+	const input = new Input({
+		formats: ALL_FORMATS,
+		source: new BlobSource(await (await fetch(preview.url)).blob())
+	});
+	try {
+		const tracks = await input.getAudioTracks();
+		expect(tracks).toHaveLength(1);
+		expect(await input.computeDuration()).toBeGreaterThan(0.14);
+		expect(await input.computeDuration()).toBeLessThan(0.2);
+		const samples: number[] = [];
+		let sampleRate = 0;
+		for await (const { buffer } of new AudioBufferSink(tracks[0]!).buffers()) {
+			sampleRate = buffer.sampleRate;
+			samples.push(...buffer.getChannelData(0));
+		}
+		function toneAmplitude(frequency: number) {
+			let sine = 0;
+			let cosine = 0;
+			for (let index = 0; index < samples.length; index++) {
+				const angle = (2 * Math.PI * frequency * index) / sampleRate;
+				sine += samples[index]! * Math.sin(angle);
+				cosine += samples[index]! * Math.cos(angle);
+			}
+			return Math.hypot(sine, cosine) / samples.length;
+		}
+		expect(toneAmplitude(440)).toBeGreaterThan(0.05);
+		expect(toneAmplitude(440)).toBeGreaterThan(toneAmplitude(220) * 4);
+	} finally {
+		input.dispose();
+		await preview.dispose();
+	}
+}, 30_000);

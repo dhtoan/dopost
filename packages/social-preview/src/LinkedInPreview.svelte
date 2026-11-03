@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { previewEditing } from "./editing";
   import Globe2 from "@lucide/svelte/icons/globe-2";
   import MoreHorizontal from "@lucide/svelte/icons/ellipsis";
   import type { PreviewModel, PreviewSegment } from "./model";
@@ -8,6 +9,9 @@
   import PreviewMedia from "./PreviewMedia.svelte";
   import PreviewPoll from "./PreviewPoll.svelte";
   import VerifiedBadge from "./VerifiedBadge.svelte";
+  import PreviewText from "./PreviewText.svelte";
+
+  const editing = previewEditing();
 
   interface Props {
     model: PreviewModel;
@@ -16,9 +20,7 @@
 
   let { model, compact = false }: Props = $props();
   const primary = $derived(model.segments[0] ?? { id: "primary", text: "" });
-  const primaryMedia = $derived(
-    primary.media?.length ? primary.media : model.media,
-  );
+  const primaryMedia = $derived(primary.media ?? model.media);
   const displayMedia = $derived(
     model.format === "document" && model.title
       ? primaryMedia.map((item) =>
@@ -32,7 +34,9 @@
 </script>
 
 {#snippet postText(segment: PreviewSegment)}
-  <p class="post-text">{segment.text || "Your post will appear here."}</p>
+  <div class="post-text">
+    {#if editing()?.text}{@render editing()!.text(segment)}{:else}<PreviewText text={segment.text || "Your post will appear here."} lines={2} buttonLabel="… more" />{/if}
+  </div>
 {/snippet}
 
 <article class={["linkedin-preview", compact && "compact"]}>
@@ -44,7 +48,7 @@
         {#if model.identity.verified}<VerifiedBadge platform="linkedin" />{/if}
         <span>· You</span>
       </div>
-      <span>@{model.identity.handle.replace(/^@/u, "")}</span>
+      {#if model.subtitle}<span>{model.subtitle}</span>{/if}
       <span class="timestamp"
         >{model.createdAtLabel} · <Globe2 aria-label="Public" /></span
       >
@@ -53,17 +57,17 @@
   </header>
 
   <div class="post-body">
-    {#if model.title && model.format !== "document"}<h3>{model.title}</h3>{/if}
+    {#if model.title && model.format !== "document"}<h3 dir="auto">{model.title}</h3>{/if}
     {@render postText(primary)}
   </div>
 
-  {#if model.card}<PreviewAttachment
-      card={model.card}
+  {#if primary.card ?? model.card}<PreviewAttachment segment={primary}
+      card={(primary.card ?? model.card)!}
       platform="linkedin"
     />{/if}
-  {#if model.poll}
+  {#if primary.poll ?? model.poll}
     <div class="poll-wrap">
-      <PreviewPoll poll={model.poll} platform="linkedin" />
+      <PreviewPoll segment={primary} poll={(primary.poll ?? model.poll)!} platform="linkedin" />
     </div>
   {/if}
 
@@ -73,7 +77,9 @@
       layout={model.format === "document" ||
       displayMedia[0]?.kind === "document"
         ? "document"
-        : "single"}
+        : displayMedia.length > 1
+          ? "facebook"
+          : "single"}
     />
   {:else if model.format === "video"}
     <PreviewMedia media={[]} layout="single" emptyLabel="Video preview" />
@@ -85,25 +91,38 @@
     </div>
   {/if}
 
-  <div class="engagement-summary">
-    <span class="reaction-cluster" aria-hidden="true"
-      ><i>👍</i><i>♥</i><i>👏</i></span
-    >
-    <span>0 reactions</span>
-    <span class="engagement-right">0 comments · 0 reposts</span>
+  <div class="engagement" aria-hidden="true">
+    <span class="reaction-cluster"><i>👍</i><i>♥</i><i>👏</i></span>
+    <span>0</span>
+    <span class="right">0 comments · 0 reposts</span>
   </div>
-  <div class="action-row"><PreviewActions platform="linkedin" {compact} /></div>
+  <div class="action-row">
+    <div class="actions"><PreviewActions platform="linkedin" {compact} /></div>
+  </div>
 
   {#if replies.length > 0}
     <div class="comment-thread">
       {#each replies as reply (reply.id)}
         <div class="comment">
-          <PreviewAvatar identity={model.identity} size={34} />
+          <PreviewAvatar identity={model.identity} size={32} />
           <div>
             <div class="comment-bubble">
               <strong>{model.identity.displayName}</strong>
               <span>Author</span>
               {@render postText(reply)}
+              {#if reply.card}<PreviewAttachment segment={reply}
+                  card={reply.card}
+                  platform="linkedin"
+                />{/if}
+              {#if reply.poll}<PreviewPoll segment={reply}
+                  poll={reply.poll}
+                  platform="linkedin"
+                />{/if}
+              {#if reply.media?.length}<PreviewMedia
+                  media={reply.media}
+                segment={reply}
+                  layout="grid"
+                />{/if}
             </div>
             <small>Like · Reply · {model.createdAtLabel}</small>
           </div>
@@ -115,13 +134,13 @@
 
 <style>
   .linkedin-preview {
-    --native-bg: #f4f2ee;
-    --native-surface: #fff;
-    --native-fg: rgb(0 0 0 / 90%);
-    --native-muted: rgb(0 0 0 / 60%);
-    --native-border: #e0dfdc;
-    --native-soft: #edf3f8;
-    width: min(100%, 34.75rem);
+    --native-bg: light-dark(#f4f2ee, #000);
+    --native-surface: light-dark(#fff, #1b1f23);
+    --native-fg: light-dark(rgb(0 0 0 / 90%), rgb(255 255 255 / 90%));
+    --native-muted: light-dark(rgb(0 0 0 / 60%), rgb(255 255 255 / 60%));
+    --native-border: light-dark(#e0dfdc, #38434f);
+    --native-soft: light-dark(#eef3f8, #2a2e33);
+    width: min(100%, 34.5rem);
     overflow: hidden;
     border: 1px solid var(--native-border);
     border-radius: 0.5rem;
@@ -150,12 +169,13 @@
     min-width: 0;
     align-items: center;
     gap: 0.25rem;
-    font-size: 0.88rem;
+    font-size: 0.875rem;
     line-height: 1.25;
   }
 
   .name strong {
     overflow: hidden;
+    font-weight: 600;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
@@ -163,7 +183,7 @@
   .name span,
   .identity > span {
     color: var(--native-muted);
-    font-size: 0.73rem;
+    font-size: 0.75rem;
     line-height: 1.35;
   }
 
@@ -179,12 +199,12 @@
   }
 
   .more {
-    color: var(--native-fg);
+    color: var(--native-muted);
   }
 
   .more :global(svg) {
-    width: 1.35rem;
-    height: 1.35rem;
+    width: 1.25rem;
+    height: 1.25rem;
   }
 
   .post-body {
@@ -200,7 +220,7 @@
   .post-text {
     margin: 0;
     color: var(--native-fg);
-    font-size: 0.88rem;
+    font-size: 0.875rem;
     line-height: 1.45;
     overflow-wrap: anywhere;
     white-space: pre-wrap;
@@ -208,6 +228,17 @@
 
   .poll-wrap {
     padding: 0 1rem 0.75rem;
+  }
+
+  .poll-wrap :global(.poll-option) {
+    min-height: 3rem;
+    border-radius: 0.15rem;
+    font-size: 0.875rem;
+    font-weight: 600;
+  }
+
+  .poll-wrap :global(small) {
+    font-size: 0.75rem;
   }
 
   .empty-document {
@@ -247,32 +278,21 @@
     font-weight: 700;
   }
 
-  .engagement-summary {
-    display: flex;
-    min-height: 2.3rem;
-    align-items: center;
-    gap: 0.4rem;
-    margin-inline: 1rem;
-    border-bottom: 1px solid var(--native-border);
-    color: var(--native-muted);
-    font-size: 0.72rem;
-  }
-
   .reaction-cluster {
     display: flex;
   }
 
   .reaction-cluster i {
     display: grid;
-    width: 1rem;
-    height: 1rem;
+    width: 1.125rem;
+    height: 1.125rem;
     place-items: center;
-    margin-right: -0.16rem;
-    border: 1px solid white;
+    margin-right: -0.25rem;
+    border: 2px solid var(--native-surface);
     border-radius: 50%;
-    background: #0a66c2;
+    background: #378fe9;
     color: white;
-    font-size: 0.54rem;
+    font-size: 0.55rem;
     font-style: normal;
   }
 
@@ -284,12 +304,37 @@
     background: #6dae4f;
   }
 
-  .engagement-right {
+  .engagement {
+    display: flex;
+    min-height: 2.2rem;
+    align-items: center;
+    gap: 0.35rem;
+    margin-inline: 1rem;
+    padding: 0.1rem 0 0.3rem;
+    border-bottom: 1px solid var(--native-border);
+    color: var(--native-muted);
+    font-size: 0.78rem;
+  }
+
+  .engagement .right {
     margin-left: auto;
   }
 
   .action-row {
-    padding: 0.15rem 0.6rem;
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    min-height: 2.5rem;
+    padding: 0 0.85rem;
+  }
+
+  .actions {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .actions :global(.action) {
+    font-size: 0.875rem;
   }
 
   .comment-thread {
@@ -309,23 +354,35 @@
     display: grid;
     gap: 0.15rem;
     border-radius: 0 0.7rem 0.7rem;
-    background: #f2f2f2;
+    background: light-dark(#f2f2f2, #2a2e33);
     padding: 0.55rem 0.7rem;
   }
 
   .comment-bubble > strong {
-    font-size: 0.76rem;
+    font-size: 0.75rem;
+    font-weight: 600;
   }
 
-  .comment-bubble > span,
+  .comment-bubble > span {
+    justify-self: start;
+    border-radius: 0.125rem;
+    background: #13707e;
+    color: #fff;
+    padding: 0.05rem 0.3rem;
+    font-size: 0.6rem;
+    font-weight: 600;
+    line-height: 1.4;
+  }
+
   .comment > div > small {
     color: var(--native-muted);
-    font-size: 0.66rem;
+    font-size: 0.75rem;
+    line-height: 1.35;
   }
 
   .comment-bubble .post-text {
     margin-top: 0.2rem;
-    font-size: 0.8rem;
+    font-size: 0.75rem;
   }
 
   .comment > div > small {
@@ -339,35 +396,7 @@
     padding-inline: 0.75rem;
   }
 
-  @media (prefers-color-scheme: dark) {
-    .linkedin-preview {
-      --native-bg: #000;
-      --native-surface: #1b1f23;
-      --native-fg: rgb(255 255 255 / 90%);
-      --native-muted: rgb(255 255 255 / 60%);
-      --native-border: #38434f;
-      --native-soft: #293138;
-    }
-
-    .comment-bubble {
-      background: #293138;
-    }
-  }
-
-  :global(.dark) .linkedin-preview {
-    --native-bg: #000;
-    --native-surface: #1b1f23;
-    --native-fg: rgb(255 255 255 / 90%);
-    --native-muted: rgb(255 255 255 / 60%);
-    --native-border: #38434f;
-    --native-soft: #293138;
-  }
-
-  :global(.dark) .comment-bubble {
-    background: #293138;
-  }
-
-  @media (max-width: 32rem) {
+  @container (max-width: 32rem) {
     .linkedin-preview {
       border-inline: 0;
       border-radius: 0;

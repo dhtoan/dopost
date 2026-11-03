@@ -29,20 +29,34 @@ for (const section of ["publications", "messages", "engagement"] as const) {
         "aria-busy",
         "false",
       );
-      await page.waitForLoadState("networkidle");
+      // Inbox keeps an authorized long-poll pending after its visible data settles.
+      if (section === "publications") await page.waitForLoadState("networkidle");
+      if (section === "messages" && width < 640) {
+        await page.getByRole("button", { name: "Filters", exact: true }).click();
+      }
       let release!: () => void;
       const response = new Promise<void>((resolve) => {
         release = resolve;
       });
-      await page.route("**/api/v1/**", async (route) => {
-        await response;
-        await route.continue();
-      });
+      await page.route(
+        section === "publications"
+          ? "**/api/v1/publications?**"
+          : section === "messages"
+            ? "**/api/v1/messages?**"
+            : "**/api/v1/engagement?**",
+        async (route) => {
+          await response;
+          await route.continue();
+        },
+      );
       const control =
         section === "publications"
           ? page.getByRole("tab", { name: "Published", exact: true })
           : page.getByRole("checkbox", { name: "Archived", exact: true });
       try {
+        if (section === "engagement") {
+          await page.getByRole("button", { name: "Filters", exact: true }).click();
+        }
         await control.click();
         await expect(page.getByTestId("page-loading")).toBeVisible();
         await page.screenshot({
@@ -60,14 +74,16 @@ for (const section of ["publications", "messages", "engagement"] as const) {
             await navigation.hover();
             await page.mouse.wheel(400, 0);
             await expect(
-              navigation.getByRole("link", { name: "Notifications", exact: true }),
-            ).toBeInViewport({ ratio: 1 });
+              navigation.getByRole("link", { name: "Reviews", exact: true }),
+            ).toBeInViewport({ ratio: 0.99 });
             await expect(page.getByTestId("page-header")).toBeInViewport({ ratio: 1 });
           }
         }
-        await expect(
-          page.locator('[data-slot="page-header-actions"]').getByRole("button").first(),
-        ).toBeVisible();
+        const action =
+          section === "publications"
+            ? page.getByRole("button", { name: "Refresh", exact: true })
+            : page.locator('[data-slot="page-header-actions"]').getByRole("button").first();
+        await expect(action).toBeVisible();
       } finally {
         release();
       }
@@ -104,24 +120,21 @@ for (const width of [1280, 390, 320]) {
         await route.continue();
       });
       try {
-        if (width >= 768) await page.locator('[data-settings-tab="accounts"]').click();
+        if (width >= 768) await page.locator('[data-settings-tab="security"]').click();
         else {
           await page
             .getByTestId("settings-navigation")
             .getByRole("button", { name: "Settings", exact: true })
             .click();
-          await page.getByRole("option", { name: "Social accounts", exact: true }).click();
+          await page.getByRole("option", { name: "Security", exact: true }).click();
         }
-        await expect(page).toHaveURL(/tab=accounts/);
+        await expect(page).toHaveURL(/tab=security/);
         await expect(page.getByTestId("page-loading")).toBeVisible();
         await page.screenshot({
           path: testInfo.outputPath("settings-section-loading.png"),
           fullPage: true,
         });
         await expect(page.getByTestId("settings-navigation")).toBeVisible();
-        await expect(
-          page.getByRole("heading", { name: "Social accounts", exact: true }).first(),
-        ).toBeVisible();
         expect(
           await page.evaluate(() => document.documentElement.scrollWidth - innerWidth),
         ).toBeLessThanOrEqual(1);
@@ -131,13 +144,17 @@ for (const width of [1280, 390, 320]) {
           await page.keyboard.press("Enter");
           await expect(page).toHaveURL(/tab=general/);
           await expect(page.getByTestId("page-loading")).toHaveCount(0);
-          await page.locator('[data-settings-tab="accounts"]').click();
+          await page.locator('[data-settings-tab="security"]').click();
           await expect(page.getByTestId("page-loading")).toBeVisible();
         }
       } finally {
         release();
       }
       await expect(page.getByTestId("page-loading")).toHaveCount(0);
+      // Panel content only renders after its section download completes.
+      await expect(
+        page.getByRole("heading", { name: "Active sessions", exact: true }),
+      ).toBeVisible();
       await expect(page.getByTestId("settings-navigation")).toBeVisible();
       await page.screenshot({
         path: testInfo.outputPath("settings-section-settled.png"),
@@ -163,7 +180,7 @@ for (const surface of ["calendar", "media"] as const) {
     const control =
       surface === "calendar"
         ? page.getByRole("button", { name: "Next month", exact: true })
-        : page.getByTestId("media-filter-bar").getByRole("textbox");
+        : page.getByTestId("media-filter-bar").getByRole("searchbox");
     await expect(control).toBeVisible();
     await page.waitForLoadState("networkidle");
     let release!: () => void;

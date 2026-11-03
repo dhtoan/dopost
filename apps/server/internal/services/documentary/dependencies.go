@@ -18,17 +18,17 @@ func Fingerprint(parts ...string) string {
 }
 
 var directDependents = map[Step][]Step{
-	StepSource:    {StepIdeas, StepScript},
-	StepTopic:     {StepIdeas, StepScript, StepThumbnails},
-	StepIdeas:     {StepScript},
-	StepDuration:  {StepScript},
-	StepScript:    {StepVoice, StepBeats, StepThumbnails},
-	StepVoice:     {StepBeats},
-	StepBeats:     {StepVisuals},
-	StepVisuals:   {StepAnimation},
-	StepAnimation: nil,
+	StepSource:     {StepIdeas, StepScript},
+	StepTopic:      {StepIdeas, StepScript, StepThumbnails},
+	StepIdeas:      {StepScript},
+	StepDuration:   {StepScript},
+	StepScript:     {StepVoice, StepBeats, StepThumbnails},
+	StepVoice:      {StepBeats},
+	StepBeats:      {StepVisuals},
+	StepVisuals:    {StepAnimation},
+	StepAnimation:  nil,
 	StepThumbnails: nil,
-	StepProject:   nil,
+	StepProject:    nil,
 }
 
 func DownstreamSteps(changed Step) []Step {

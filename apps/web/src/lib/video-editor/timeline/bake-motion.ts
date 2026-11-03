@@ -54,7 +54,7 @@ function activeProperties(
 			properties.add(property);
 		}
 	}
-	// Position is one coupled vector lane in OpenPost. Baking either axis must
+	// Position is one coupled vector lane in dopost. Baking either axis must
 	// sample both so an existing authored path stays visually unchanged.
 	if (properties.has('x') || properties.has('y')) {
 		properties.add('x');

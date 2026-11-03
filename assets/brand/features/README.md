@@ -2,7 +2,7 @@
 
 These transparent SVG icons are public artwork for the README feature list, public feature sections, and customer guides. Each pictogram fills a 24px grid, with a few transparent square cuts along one edge. The artwork is identical in light and dark themes, using deeper silhouettes and pale badge colors for details. Accounts uses linked chains, Find people uses a person and magnifier, and Workspaces uses a team.
 
-Use icons beside visible feature names. App controls, navigation, provider marks, status glyphs, and the protected OpenPost Converge mark keep their own icon systems. Do not use these feature icons in authenticated app chrome.
+Use icons beside visible feature names. App controls, navigation, provider marks, status glyphs, and the protected dopost Converge mark keep their own icon systems. Do not use these feature icons in authenticated app chrome.
 
 | Feature      | Icon                                                       | Palette              |
 | ------------ | ---------------------------------------------------------- | -------------------- |
@@ -16,6 +16,7 @@ Use icons beside visible feature names. App controls, navigation, provider marks
 | Accounts     | <img src="accounts.svg" alt="" width="24" height="24">     | `#4770a0`, `#9fc3e4` |
 | Recorder     | <img src="recorder.svg" alt="" width="24" height="24">     | `#ad4e42`, `#ffad66` |
 | Ideas        | <img src="ideas.svg" alt="" width="24" height="24">        | `#a97925`, `#ffd45c` |
+| Workflows    | <img src="workflows.svg" alt="" width="24" height="24">    | `#477d62`, `#c96d32` |
 | Automation   | <img src="automation.svg" alt="" width="24" height="24">   | `#4770a0`, `#9fc3e4` |
 | Grow         | <img src="grow.svg" alt="" width="24" height="24">         | `#477d62`, `#72d18d` |
 | Repost       | <img src="repost.svg" alt="" width="24" height="24">       | `#667633`, `#ffd45c` |

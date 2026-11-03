@@ -5,7 +5,7 @@ import AsyncActionButton from './async-action-button.svelte';
 import '../../routes/layout.css';
 
 describe('async actions', () => {
-	it('keeps focus and geometry through pending, rejection, and retry without duplicate requests', async () => {
+	it('keeps focus and geometry through pending, controlled error, and retry without duplicate requests', async () => {
 		let finish!: () => void;
 		const onclick = vi.fn(
 			() =>
@@ -28,6 +28,8 @@ describe('async actions', () => {
 		await screen.getByRole('button', { name: 'Save' }).click();
 		button.click();
 		expect(onclick).toHaveBeenCalledOnce();
+		// The shared pending contract: busy while the handler is in flight.
+		expect(button.getAttribute('aria-busy')).toBe('true');
 		expect(document.activeElement).toBe(button);
 		expect(button.getBoundingClientRect().width).toBe(width);
 		await screen.rerender({ ...props, state: 'error' });

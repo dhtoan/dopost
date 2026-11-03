@@ -84,8 +84,6 @@ export function editorColorGradeAdjustmentsToEffects(
 	return effects;
 }
 
-export const imageAdjustmentsToGradeEffects = editorColorGradeAdjustmentsToEffects;
-
 export type ImageGradeBackend = 'gpu' | 'cpu';
 
 export interface ImageGradeRenderResult {
@@ -133,20 +131,6 @@ export class ImageGradeRenderer {
 		this.compositor?.dispose();
 		this.compositor = null;
 	}
-}
-
-/** Compatibility helper for one-shot callers and tests. */
-export function renderVersionedImageGrade(
-	source: TexImageSource,
-	width: number,
-	height: number,
-	adjustments: EditorColorGrade,
-	createCompositor?: EditorColorCompositorFactory
-): HTMLCanvasElement | null {
-	const renderer = new ImageGradeRenderer(createCompositor);
-	const result = renderer.render(source, width, height, adjustments);
-	renderer.dispose();
-	return result?.canvas ?? null;
 }
 
 export function applyImageGradePixels(

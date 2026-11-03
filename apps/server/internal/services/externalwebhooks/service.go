@@ -1,4 +1,4 @@
-// Package externalwebhooks owns durable, signed delivery of OpenPost events to
+// Package externalwebhooks owns durable, signed delivery of dopost events to
 // external applications. Authorization grants and delivery retries deliberately
 // have separate lifecycles.
 package externalwebhooks
@@ -68,12 +68,6 @@ func NewService(db *bun.DB, encryptor *servicecrypto.TokenEncryptor) *Service {
 	return &Service{db: db, encryptor: encryptor, httpClient: netguard.NewHTTPClient(15*time.Second, webhookURLPolicy), now: func() time.Time { return time.Now().UTC() }, validateURL: func(ctx context.Context, value *url.URL) error {
 		return netguard.ValidateURL(ctx, value, webhookURLPolicy)
 	}}
-}
-
-func (s *Service) SetURLValidator(validate func(context.Context, *url.URL) error) {
-	if validate != nil {
-		s.validateURL = validate
-	}
 }
 
 func (s *Service) SetHTTPClient(client *http.Client) {
@@ -280,7 +274,7 @@ func (s *Service) HandleJob(ctx context.Context, payload string) error {
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", "OpenPost-Webhooks/1.0")
+	req.Header.Set("User-Agent", "dopost-Webhooks/1.0")
 	req.Header.Set("X-OpenPost-Delivery", delivery.ID)
 	req.Header.Set("X-OpenPost-Event", delivery.EventType)
 	req.Header.Set("X-OpenPost-Timestamp", timestamp)

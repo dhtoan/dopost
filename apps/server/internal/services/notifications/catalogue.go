@@ -22,9 +22,11 @@ type topicPolicy struct {
 }
 
 var topicCatalogue = []topicPolicy{
+	newOptionalTopic(TypePostReview, "publishing", false, EmailFrequencyImmediate, materializePostReview),
 	newOptionalTopic(TypePostPublished, "publishing", false, EmailFrequencyOff, materializePublicationOutcome),
 	newOptionalTopic(TypePublishFailed, "publishing", true, EmailFrequencyImmediate, materializePublicationOutcome),
 	newOptionalTopic(TypeAccountNeedsAttention, "publishing", true, EmailFrequencyOff, materializeAccountAttentionOutcome),
+	newOptionalTopic(TypeWorkflowApproval, "publishing", false, EmailFrequencyOff, materializeWorkflowApproval),
 	newOptionalTopic(TypeNewEngagement, "conversations", false, EmailFrequencyOff, materializeEngagementOutcome),
 	newOptionalTopic(TypeNewMessage, "conversations", false, EmailFrequencyOff, materializeMessageOutcome),
 	newOptionalTopic(TypeReplyFailed, "conversations", true, EmailFrequencyImmediate, materializeReplyFailedOutcome),

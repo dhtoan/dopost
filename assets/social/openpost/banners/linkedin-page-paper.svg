@@ -9,7 +9,7 @@
     <path d="M4 68h28l28 28v28H24a20 20 0 0 1-20-20Z" />
     <path d="m68 96 28-28h28v36a20 20 0 0 1-20 20H68Z" />
   </g>
-    <text x="560.364" y="154" fill="#2c2825" font-family="Geist" font-size="46.2" font-weight="690" letter-spacing="-1.155">OpenPost</text>
+    <text x="560.364" y="154" fill="#2c2825" font-family="Geist" font-size="46.2" font-weight="690" letter-spacing="-1.155">dopost</text>
       <rect x="504" y="222.19999999999996" width="14.756" height="14.756" rx="4.284" fill="#b74c05" />
     <text x="531.37" y="244.99999999999997" fill="#b74c05" font-family="Geist" font-size="23.8" font-weight="700" letter-spacing="2.3800000000000003">THE CONTENT TEAM FOR COMPANIES OF ONE</text>
       <text x="504" y="343" fill="#2c2825" font-family="Geist" font-size="70" font-weight="650" letter-spacing="-1.75"><tspan x="504" dy="0">Turn what you’re building into content.</tspan></text>

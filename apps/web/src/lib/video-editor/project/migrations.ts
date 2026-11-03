@@ -1,6 +1,6 @@
 import type { Project, ProjectTimeline, TimelineItem, TimelineTrack } from './types';
 
-export const CURRENT_SCHEMA_VERSION = 9;
+export const CURRENT_SCHEMA_VERSION = 11;
 
 export interface ProjectMigration {
 	version: number;
@@ -20,6 +20,23 @@ function renumberTracks(tracks: TimelineTrack[]): TimelineTrack[] {
 
 function backfillOriginIds(items: TimelineItem[]): TimelineItem[] {
 	return items.map((item) => (item.originId ? item : { ...item, originId: item.id }));
+}
+
+// Freeze the legacy pairing rule before clips can be independently moved or removed.
+function persistCompositionAudioOwnership(items: TimelineItem[]): TimelineItem[] {
+	return items.map((item) => {
+		if (item.type !== 'composition' || !item.compositionId || item.audioDetached !== undefined)
+			return item;
+		const companion = items.some(
+			(candidate) =>
+				candidate.type === 'audio' &&
+				candidate.compositionId === item.compositionId &&
+				candidate.from === item.from &&
+				candidate.durationInFrames === item.durationInFrames &&
+				(!item.linkedGroupId || candidate.linkedGroupId === item.linkedGroupId)
+		);
+		return { ...item, audioDetached: companion };
+	});
 }
 
 function migrateTimelineIdentity(timeline: ProjectTimeline): ProjectTimeline {
@@ -50,6 +67,21 @@ const CROP_KEYFRAME_PROPERTIES = [
 	'cropBottom',
 	'cropSoftness'
 ] as const;
+
+function recoverGeneratedMotionFill(item: TimelineItem): TimelineItem {
+	if (item.type !== 'video' || item.mediaId || item.compositionId) return item;
+	const solid =
+		item.shapeType === 'rectangle' &&
+		Boolean(item.fillColor) &&
+		(item.fillType === undefined || item.fillType === 'solid');
+	const gradient =
+		item.fillType === 'linear' &&
+		Boolean(item.gradientStartColor) &&
+		Boolean(item.gradientEndColor) &&
+		(item.shapeType === undefined || item.shapeType === 'rectangle');
+	if (!solid && !gradient) return item;
+	return { ...item, type: 'shape', shapeType: 'rectangle' };
+}
 
 function migrateCropKeyframesToPixels(
 	items: TimelineItem[],
@@ -157,7 +189,7 @@ const PROJECT_MIGRATIONS: ReadonlyMap<number, ProjectMigration> = new Map([
 		5,
 		{
 			version: 5,
-			description: 'Identify the OpenPost project schema family',
+			description: 'Identify the dopost project schema family',
 			migrate: (project) => ({ ...project, schemaFamily: 'openpost' })
 		}
 	],
@@ -212,6 +244,48 @@ const PROJECT_MIGRATIONS: ReadonlyMap<number, ProjectMigration> = new Map([
 			version: 9,
 			description: 'Support the complete Paper shader catalogue and authored parameters',
 			migrate: (project) => project
+		}
+	],
+	[
+		10,
+		{
+			version: 10,
+			description: 'Recover source-less generated Motion solid and gradient layers',
+			migrate: (project) => {
+				if (!project.timeline?.compositions) return project;
+				return {
+					...project,
+					timeline: {
+						...project.timeline,
+						compositions: project.timeline.compositions.map((composition) =>
+							composition.editorKind === 'composite-2d'
+								? { ...composition, items: composition.items.map(recoverGeneratedMotionFill) }
+								: composition
+						)
+					}
+				};
+			}
+		}
+	],
+	[
+		11,
+		{
+			version: 11,
+			description: 'Persist separate audio ownership for nested sequence clips',
+			migrate: (project) => {
+				if (!project.timeline) return project;
+				return {
+					...project,
+					timeline: {
+						...project.timeline,
+						items: persistCompositionAudioOwnership(project.timeline.items),
+						compositions: project.timeline.compositions?.map((composition) => ({
+							...composition,
+							items: persistCompositionAudioOwnership(composition.items)
+						}))
+					}
+				};
+			}
 		}
 	]
 ]);

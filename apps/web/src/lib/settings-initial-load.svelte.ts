@@ -9,6 +9,7 @@ export const SETTINGS_INITIAL_LOAD_PARTICIPANT = {
 	apiTokens: 'developer.tokens',
 	mcpActivity: 'developer.mcp-activity',
 	brand: 'workspace.brand',
+	appBranding: 'workspace.app-branding',
 	accounts: 'workspace.accounts',
 	accountProviders: 'workspace.account-providers',
 	reposts: 'workspace.reposts',
@@ -20,6 +21,7 @@ export const SETTINGS_INITIAL_LOAD_PARTICIPANT = {
 	ownership: 'organization.ownership',
 	instanceOverview: 'instance.overview',
 	instanceStatus: 'instance.status',
+	instanceBackup: 'instance.backup',
 	instanceConfiguration: 'instance.configuration',
 	instancePrompts: 'instance.prompts',
 	instanceUsers: 'instance.users',
@@ -71,6 +73,8 @@ export function getSettingsInitialLoadPlan(
 				SETTINGS_INITIAL_LOAD_PARTICIPANT.apiTokens,
 				SETTINGS_INITIAL_LOAD_PARTICIPANT.mcpActivity
 			]);
+		case 'app-branding':
+			return scopedPlan(tab, scope.workspaceID, [SETTINGS_INITIAL_LOAD_PARTICIPANT.appBranding]);
 		case 'brand':
 			return scopedPlan(tab, scope.workspaceID, [SETTINGS_INITIAL_LOAD_PARTICIPANT.brand]);
 		case 'accounts':
@@ -105,7 +109,8 @@ export function getSettingsInitialLoadPlan(
 		case 'instance':
 			return scopedPlan(tab, scope.userID, [
 				SETTINGS_INITIAL_LOAD_PARTICIPANT.instanceOverview,
-				SETTINGS_INITIAL_LOAD_PARTICIPANT.instanceStatus
+				SETTINGS_INITIAL_LOAD_PARTICIPANT.instanceStatus,
+				SETTINGS_INITIAL_LOAD_PARTICIPANT.instanceBackup
 			]);
 		case 'configuration':
 			return scopedPlan(tab, scope.userID, [

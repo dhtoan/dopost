@@ -584,8 +584,16 @@
 	}
 </script>
 
-{#if loading && loadedKey !== organizationID}
+{#if (loading || !error) && (loadedKey !== organizationID || !policy)}
 	<PageLoading layout="settings" label={m.common_loading()} items={6} />
+{:else if loadedKey !== organizationID || !policy}
+	<InlineNotice tone="error" message={error}>
+		{#snippet actions()}
+			<Button variant="outline" size="sm" onclick={() => void load(organizationID)}>
+				{m.common_retry()}
+			</Button>
+		{/snippet}
+	</InlineNotice>
 {:else}
 	<div class="space-y-10">
 		{#if error}
@@ -747,7 +755,7 @@
 				<Button type="submit" disabled={busy === 'provider'} class="gap-2">
 					{#if busy === 'provider'}<ProtectedIcon
 							icon="loading"
-							class="size-4 animate-spin"
+							class="size-4 animate-spin motion-reduce:animate-none"
 						/>{:else}<ThemeIcon role="add" class="size-4" />{/if}
 					{m.common_save()}
 				</Button>
@@ -841,7 +849,10 @@
 					<InlineNotice tone="warning" message={m.settings_sso_required_warning()} />
 				{/if}
 				<Button type="submit" disabled={busy === 'policy'} class="gap-2">
-					{#if busy === 'policy'}<ProtectedIcon icon="loading" class="size-4 animate-spin" />{/if}
+					{#if busy === 'policy'}<ProtectedIcon
+							icon="loading"
+							class="size-4 animate-spin motion-reduce:animate-none"
+						/>{/if}
 					{m.common_save()}
 				</Button>
 			</form>

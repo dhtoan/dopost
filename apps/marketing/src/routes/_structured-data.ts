@@ -1,4 +1,5 @@
-import type { MarketingRouteEntry } from '@openpost/social-images';
+import brand from '../../../../config/public-brand.json';
+import { browserExtensions, type MarketingRouteEntry } from '@openpost/social-images';
 import {
 	agentPublishingDocsUrl,
 	developerDocsUrl,
@@ -12,6 +13,7 @@ import {
 
 const websiteId = `${siteUrl}/#website`;
 const softwareId = `${siteUrl}/#software`;
+const organizationId = `${siteUrl}/#organization`;
 const operatorId = `${siteUrl}/#operator`;
 
 function pageType(path: string) {
@@ -31,7 +33,7 @@ function pageData(entry: MarketingRouteEntry) {
 		inLanguage: 'en',
 		isPartOf: { '@id': websiteId },
 		about: { '@id': softwareId },
-		publisher: { '@id': operatorId }
+		publisher: { '@id': organizationId }
 	};
 	if (entry.path === '/faq') {
 		return {
@@ -50,24 +52,41 @@ function pageData(entry: MarketingRouteEntry) {
 }
 
 export function structuredDataForMarketingPage(entry: MarketingRouteEntry) {
+	const extension = browserExtensions.find((item) => `/tools/${item.slug}` === entry.path);
 	return {
 		'@context': 'https://schema.org',
 		'@graph': [
+			...(entry.kind === 'tool'
+				? [
+						{
+							'@id': `${entry.canonical}#tool`,
+							'@type': extension ? 'SoftwareApplication' : 'WebApplication',
+							name: entry.socialTitle,
+							url: entry.canonical,
+							description: entry.description,
+							applicationCategory: 'MultimediaApplication',
+							operatingSystem: extension ? 'Chrome, Brave, Edge, Firefox' : 'Web',
+							isAccessibleForFree: true,
+							offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' },
+							publisher: { '@id': organizationId }
+						}
+					]
+				: []),
 			{
 				'@id': websiteId,
 				'@type': 'WebSite',
-				name: 'OpenPost',
+				name: 'dopost',
 				url: siteUrl,
 				description:
-					'OpenPost helps solo founders create, adapt, schedule, publish, and track social content from one workspace.',
+					'dopost helps solo founders create, adapt, schedule, publish, and track social content from one workspace.',
 				inLanguage: 'en',
-				publisher: { '@id': operatorId },
+				publisher: { '@id': organizationId },
 				about: { '@id': softwareId }
 			},
 			{
 				'@id': softwareId,
 				'@type': ['SoftwareApplication', 'WebApplication'],
-				name: 'OpenPost',
+				name: 'dopost',
 				url: siteUrl,
 				applicationCategory: 'BusinessApplication',
 				operatingSystem: 'Web, Android',
@@ -82,12 +101,15 @@ export function structuredDataForMarketingPage(entry: MarketingRouteEntry) {
 				featureList: [
 					'Destination-specific social content',
 					'Scheduling and durable publishing jobs',
+					'Visual workflows with GitHub, RSS, AI, and post review',
 					'Media library and editors',
 					'Analytics and supported conversations',
 					'HTTP API, CLI, and MCP automation',
 					'Self-hosted deployment'
 				],
-				sameAs: [githubUrl],
+				sameAs: brand.sameAs,
+				publisher: { '@id': organizationId },
+				image: brand.logo,
 				subjectOf: [developerDocsUrl, agentPublishingDocsUrl, discordCommunityUrl].map((url) => ({
 					'@type': 'WebPage',
 					url
@@ -96,12 +118,30 @@ export function structuredDataForMarketingPage(entry: MarketingRouteEntry) {
 			{
 				'@id': `${siteUrl}/#source`,
 				'@type': 'SoftwareSourceCode',
-				name: 'OpenPost source code',
+				name: 'dopost source code',
 				codeRepository: githubUrl,
 				programmingLanguage: ['Go', 'TypeScript', 'Svelte'],
 				license: `${githubUrl}/blob/main/LICENSE`,
 				runtimePlatform: ['Web', 'Linux', 'Android'],
 				about: { '@id': softwareId }
+			},
+			{
+				'@id': organizationId,
+				'@type': 'Organization',
+				name: brand.name,
+				url: brand.url,
+				description: brand.shortDescription,
+				logo: { '@type': 'ImageObject', url: brand.logo, width: 512, height: 512 },
+				email: brand.email,
+				sameAs: brand.sameAs,
+				founder: { '@id': operatorId },
+				contactPoint: {
+					'@type': 'ContactPoint',
+					contactType: 'customer support',
+					email: brand.email,
+					url: `${siteUrl}/contact`,
+					availableLanguage: ['English', 'Portuguese']
+				}
 			},
 			{
 				'@id': operatorId,

@@ -1,25 +1,43 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { imageEditorErrorMessage } from '$lib/image-editor/animation-error-message';
+	import { onMount, tick, untrack } from 'svelte';
+	import { MediaQuery } from 'svelte/reactivity';
+	import { replaceEqualDeep } from '@tanstack/svelte-query';
 	import { captureTelemetryEvent } from '@openpost/telemetry';
 	import { goto } from '$app/navigation';
 	import { resolveAppPath } from '$lib/app-path';
-	import { ContextMenu } from 'bits-ui';
 	import * as Dialog from '$lib/components/ui/dialog';
 	import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
 	import * as Menubar from '$lib/components/ui/menubar';
 	import * as Sheet from '$lib/components/ui/sheet';
 	import * as Tooltip from '$lib/components/ui/tooltip';
 	import { Button } from '$lib/components/ui/button';
-	import PanelResizeHandle from '$lib/components/panel-resize-handle.svelte';
 	import AppToast from '$lib/components/app-toast.svelte';
-	import SaveIndicator from '$lib/components/save-indicator.svelte';
+	import InlineNotice from '$lib/components/inline-notice.svelte';
+	import EmptyState from '$lib/components/empty-state.svelte';
+	import PageLoading from '$lib/components/page-loading.svelte';
+	import {
+		prepareRasterOperation,
+		rasterRenderDocument,
+		type ImageEditorRasterOperation
+	} from '../raster-operations';
+	import { renderImageEditorPage } from '../static-renderer';
+	import { cropRasterResult } from '../raster-result';
 	import EditorMenubar from '$lib/components/editor-menubar.svelte';
 	import EditorHeader from '$lib/components/editor-header.svelte';
 	import EditorTitleInput from '$lib/components/editor-title-input.svelte';
 	import EditorWorkspaceTabs from '$lib/components/editor-workspace-tabs.svelte';
 	import { Checkbox } from '$lib/components/ui/checkbox';
 	import FeedbackDialog from '$lib/components/feedback-dialog.svelte';
+	import ImageEditorGuideDialog from './image-editor-guide-dialog.svelte';
+	import ImageEditorAssistant from './image-editor-assistant.svelte';
+	import ImageAIStudio from './image-ai-studio.svelte';
+	let imageAIStudioOpen = $state(false);
+	let imageAIStudio = $state<{ openFor: (operation: 'generate' | 'edit' | 'fill') => void }>();
+	import CheckpointRemove from './checkpoint-remove.svelte';
+	import ImageEditorResizeDialog from './image-editor-resize-dialog.svelte';
 	import { ui } from '$lib/stores/ui.svelte';
+	import { auth } from '$lib/stores/auth';
 	import { Input } from '$lib/components/ui/input';
 	import * as RadioGroup from '$lib/components/ui/radio-group';
 	import { Slider } from '$lib/components/ui/slider';
@@ -29,15 +47,19 @@
 	import LayerTree from './layer-tree.svelte';
 	import PropertiesPanel from './properties-panel.svelte';
 	import PageStrip from './page-strip.svelte';
+	import ToolFamilyButton from './tool-family-button.svelte';
 	import TemplatePreview from './template-preview.svelte';
 	import ColorPicker from '$lib/components/color-picker.svelte';
 	import { provideImageEditor, ImageEditorController } from '../editor.svelte';
+	import { connectEditorAgent } from '$lib/editor-agent/browser-relay';
+	import { handleImageAgentRequest } from '$lib/editor-agent/image-executor';
 	import {
 		completeImageEditorReturnToken,
 		createImageEditorDesign,
 		createImageEditorCheckpoint,
 		createImageEditorTemplate,
 		restoreImageEditorRevision,
+		deleteImageEditorCheckpoint,
 		saveImageEditorDesign,
 		updateImageEditorTemplate
 	} from '../api';
@@ -58,7 +80,15 @@
 		loadLocalImageEditorRecovery,
 		storeLocalImageEditorRecovery
 	} from '../recovery';
-	import { saveGuestImageEditorDesign, storeGuestImageEditorMedia } from '../local-persistence';
+	import {
+		saveGuestImageEditorDesign,
+		storeGuestImageEditorMedia,
+		storeGuestImageEditorProjectMedia
+	} from '../local-persistence';
+	import {
+		releaseLocalImageEditorMediaForDesign,
+		retainLocalImageEditorMediaForDesign
+	} from '../local-media-url';
 	import {
 		createGuestImageEditorDesignFromDocument,
 		getGuestImageEditorMediaForMigration,
@@ -69,6 +99,7 @@
 		trackPublicImageEditorEvent
 	} from '../public-telemetry';
 	import {
+		cloneImageEditorDocument,
 		cloneImageEditorLayer,
 		imageEditorPageHasTransparency,
 		validateImageEditorDocument
@@ -76,9 +107,12 @@
 	import {
 		downloadRenderedPages,
 		renderImageEditorPages,
-		renderImageEditorPreview
+		renderImageEditorPreview,
+		type ImageEditorRenderedPage
 	} from '../static-renderer';
 	import { imageEditorExportBudget } from '../export-budget';
+	import { imageEditorPageAnimations } from '../animation';
+	import { imageEditorPageDimensions } from '../page-dimensions';
 	import {
 		imageEditorPageExportFingerprint,
 		reusableImageEditorExports,
@@ -98,6 +132,7 @@
 	import { ImageEditorBackgroundRemoval } from '../background-removal';
 	import type {
 		ImageEditorBrandKit,
+		ImageEditorDocument,
 		ImageEditorDocumentResponse,
 		ImageEditorLayer,
 		ImageEditorRevisionResponse,
@@ -113,22 +148,28 @@
 		queryMutationSessionIsCurrent,
 		type QueryMutationSession
 	} from '$lib/query/authorization-boundary';
-	import { editorHandoffReturnURL } from '$lib/editor-handoff';
+	import { editorHandoffReturnURL, loadEditorHandoff } from '$lib/editor-handoff';
 	import { ProtectedIcon, ThemeIcon } from '$lib/themes/icons';
 	import type { ThemeIconRole } from '$lib/themes/contracts.js';
 	import type { ProtectedIconRole } from '$lib/themes/icons/protected-icon.js';
 	import { m } from '$lib/paraglide/messages';
+	import { getLocaleTag } from '$lib/i18n';
 	import { startImageEditorMetric } from '../telemetry';
 	import {
 		imageEditorCommand,
 		imageEditorCommandForKeyboardEvent,
 		imageEditorCommandsForCategory,
+		imageEditorCommandsForCompactMenu,
 		imageEditorCommandsForMobileGroup,
 		imageEditorCommandsForRail,
+		imageEditorCommandsForRailSlot,
 		imageEditorShortcutLabel,
+		IMAGE_EDITOR_COMPACT_MENU_CATEGORIES,
 		IMAGE_EDITOR_COMMANDS,
+		type ImageEditorCompactMenuCategory,
 		type ImageEditorCommandDescriptor,
-		type ImageEditorCommandID
+		type ImageEditorCommandID,
+		type ImageEditorCommandRailSlot
 	} from '../commands';
 	import {
 		createImageEditorProjectArchive,
@@ -162,15 +203,45 @@
 		onSaveToOpenPost?: () => void | Promise<void>;
 	} = $props();
 
-	const editor = provideImageEditor(new ImageEditorController());
+	const coverHandoff = $derived(
+		Boolean(returnToken && loadEditorHandoff(returnToken, 'image')?.purpose === 'destination_cover')
+	);
+	const attachLabel = $derived(
+		coverHandoff ? m.compose_cover_use_design() : m.image_editor_attach()
+	);
+
+	const editor = provideImageEditor(
+		new ImageEditorController({
+			textAppearance: () => (coverHandoff ? 'over-image' : 'standard')
+		})
+	);
+	let agentConnectionStatus = $state<'connected' | 'disconnected' | 'working'>('disconnected');
+	let agentSessionID = $state<string | null>(null);
+	$effect(() => {
+		const workspaceID = editor.workspaceID;
+		const projectID = editor.id;
+		if (guestMode || !editor.canEdit || !workspaceID || !projectID) return;
+		return connectEditorAgent({
+			workspaceID,
+			projectID,
+			kind: 'image',
+			handle: (request) => handleImageAgentRequest(editor, request),
+			onStatus: (status) => (agentConnectionStatus = status),
+			onSession: (session) => (agentSessionID = session)
+		});
+	});
+	$effect(() => {
+		editor.setBrandKit(initialBrandKit);
+	});
 	const backgroundRemoval = new ImageEditorBackgroundRemoval();
 	const editorTabID = crypto.randomUUID();
-	const DESKTOP_TOOL_RAIL_WIDTH = 44;
+	const DESKTOP_TOOL_RAIL_WIDTH = 56;
 	const MINIMUM_CANVAS_WIDTH = 320;
-	const TOOL_CONTEXT_MENU_CLASS =
-		'z-50 min-w-44 rounded-lg bg-popover/95 p-1 text-sm text-popover-foreground shadow-md ring-1 ring-foreground/10 backdrop-blur outline-none';
-	const TOOL_CONTEXT_MENU_ITEM_CLASS =
-		'flex min-h-8 cursor-default items-center gap-2 rounded-md px-2 outline-none data-highlighted:bg-muted [&>svg]:size-4 [@media(pointer:coarse)]:min-h-11';
+	const LEGACY_DEFAULT_LAYERS_HEIGHT = 280;
+	const EDIT_LAYERS_USER_SIZED_KEY = 'openpost-image-editor-edit-layers-user-sized-v2';
+	const COLOR_LAYERS_HEIGHT_KEY = 'openpost-image-editor-color-layers-height-v1';
+	const EXPORT_PREVIEW_DEBOUNCE_MS = 250;
+	const EXPORT_QUALITY_DECIMAL_PLACES = 2;
 	type SaveRequest = {
 		coverPreviewMediaID?: string;
 		recoveryReason: 'idle' | 'export' | 'close';
@@ -185,6 +256,7 @@
 		copy(): ImageEditorLayer[];
 		begin(mode: 'promote' | 'cut'): boolean;
 		delete(): boolean;
+		loadLayerAlpha(): boolean;
 	};
 	type ExternalImportRequest = {
 		id: string;
@@ -211,9 +283,41 @@
 	let coverPreviewMediaID = '';
 	let exportDialogOpen = $state(false);
 	let exportToastVisible = $state(false);
-	let firstEditHintVisible = $state(false);
-	let firstEditActionLabel = $state<string | undefined>();
 	let helpDialogOpen = $state(false);
+	type CompactMenuSection = ImageEditorCompactMenuCategory | 'file' | 'view' | 'help';
+	const compactMenuSections: readonly CompactMenuSection[] = [
+		'file',
+		...IMAGE_EDITOR_COMPACT_MENU_CATEGORIES,
+		'view',
+		'help'
+	];
+	let compactMenuSection = $state<CompactMenuSection | null>(null);
+	let compactMenuBack = $state<HTMLDivElement | null>(null);
+	let compactMenuItems = $state<Record<CompactMenuSection, HTMLDivElement | null>>({
+		file: null,
+		edit: null,
+		layer: null,
+		select: null,
+		tools: null,
+		view: null,
+		help: null
+	});
+	let compactMenuContent = $state<HTMLDivElement | null>(null);
+
+	async function openCompactMenuSection(section: CompactMenuSection): Promise<void> {
+		compactMenuSection = section;
+		await tick();
+		compactMenuContent?.scrollTo(0, 0);
+		compactMenuBack?.focus();
+	}
+
+	async function backToCompactMenu(): Promise<void> {
+		const section = compactMenuSection;
+		compactMenuSection = null;
+		await tick();
+		compactMenuContent?.scrollTo(0, 0);
+		if (section) compactMenuItems[section]?.focus();
+	}
 	let conflictDialogOpen = $state(false);
 	let conflictBusy = $state(false);
 	let conflictOperationSequence = 0;
@@ -221,6 +325,7 @@
 	let conflictServerRevision = $state<number | null>(null);
 	let conflictPreservedCopy = $state.raw<ImageEditorDocumentResponse | null>(null);
 	let recoveryError = $state('');
+	let recoveredDocument: ImageEditorDocumentResponse['document'] | null = null;
 	let concurrentTabWarning = $state('');
 	let missingMedia = $state.raw<Array<{ mediaID: string; layerID?: string }>>([]);
 	let initialMissingMediaLoaded = false;
@@ -237,6 +342,20 @@
 	let exportSuccessfulByPage = $state.raw<Record<string, string>>({});
 	let exportResumeLedger = $state.raw<ImageEditorExportResumeLedger>({});
 	let exportAbort: AbortController | null = null;
+	let exportPreview = $state.raw<{
+		document: ImageEditorDocument;
+		pageIDsKey: string;
+		pages: ImageEditorRenderedPage[];
+		objectURL: string;
+		totalBytes: number;
+	} | null>(null);
+	let exportPreviewBusy = $state(false);
+	let exportPreviewError = $state('');
+	let exportPreviewProgress = $state('');
+	let exportPreviewGeneration = 0;
+	let exportPreviewTimer: ReturnType<typeof setTimeout> | undefined;
+	let exportPreviewTask: Promise<void> | null = null;
+	let exportPreviewAbort: AbortController | null = null;
 	let externalDropBusy = $state(false);
 	let externalDropProgress = $state('');
 	let externalDropError = $state('');
@@ -280,7 +399,6 @@
 	let projectFileInput = $state<HTMLInputElement | null>(null);
 	let toolPreferencesReady = $state(false);
 	let guideDialogOpen = $state(false);
-	let guideAxis = $state<'horizontal' | 'vertical'>('vertical');
 	let overlayWasOpen = false;
 	let overlayReturnFocus: HTMLElement | null = null;
 
@@ -310,14 +428,39 @@
 		}
 		overlayWasOpen = overlayOpen;
 	});
-	let guidePosition = $state(0);
 	let backgroundBusy = $state(false);
 	let backgroundProgress = $state('');
 	let backgroundError = $state('');
+	let rasterBusy = $state(false);
+	let rasterError = $state('');
+	let rasterAbort: AbortController | null = null;
 	let backgroundOptimizeDialogOpen = $state(false);
 	let mobileSheet = $state<'assets' | 'layers' | 'properties' | null>(null);
+	let assetOverlayOpen = $state(false);
+	let assetOverlayTrigger = $state<HTMLButtonElement | null>(null);
+
+	function closeAssetOverlay(): void {
+		assetOverlayOpen = false;
+		editor.backgroundImagePickerActive = false;
+		assetOverlayTrigger?.focus();
+	}
 	let activeEditorWorkspace = $state<'edit' | 'color'>('edit');
+	const desktopViewport = new MediaQuery('(min-width: 1024px)');
+	const shortViewport = new MediaQuery('(max-width: 1023px) and (max-height: 520px)');
+	const compactPages = $derived(activeEditorWorkspace === 'color' && shortViewport.current);
+	const pagesExpanded = $derived(editor.pagesExpanded && !compactPages);
 	let focusedCanvas = $state(false);
+	$effect(() => {
+		if (
+			activeEditorWorkspace === 'color' &&
+			!focusedCanvas &&
+			(!desktopViewport.current || editor.rightPanelVisible)
+		)
+			return;
+		editor.colorComparisonBefore = false;
+		editor.colorComparisonPage = false;
+		editor.colorComparisonLayerIDs = [];
+	});
 	let copiedLayers = $state.raw<ImageEditorLayer[]>([]);
 	let pixelSelectionActions = $state.raw<PixelSelectionActions | null>(null);
 	let statusAnnouncement = $state('');
@@ -346,29 +489,51 @@
 	let templateCategory = $state<string>(m.image_editor_workspace_category());
 	let templateTargetID = $state('new');
 	let workspaceTemplates = $state<ImageEditorTemplate[]>([]);
-	let resizeWidth = $state(1080);
-	let resizeHeight = $state(1080);
-	let resizeMode = $state<'scale' | 'preserve'>('scale');
-	let resizeError = $state('');
-	let marqueeSlotTool = $state<'marquee' | 'ellipse_marquee'>('marquee');
-	let fillSlotTool = $state<'bucket' | 'gradient'>('bucket');
-	let eraserSlotTool = $state<'eraser' | 'magic_eraser'>('eraser');
+	type SelectSlotTool = Extract<
+		ImageEditorTool,
+		'select' | 'marquee' | 'ellipse_marquee' | 'lasso' | 'polygonal_lasso' | 'magic_wand'
+	>;
+	type DrawSlotTool = Extract<
+		ImageEditorTool,
+		'pencil' | 'eraser' | 'magic_eraser' | 'bucket' | 'gradient'
+	>;
+	type ViewSlotTool = Extract<ImageEditorTool, 'hand' | 'zoom'>;
+	let selectSlotTool = $state<SelectSlotTool>('select');
+	let drawSlotTool = $state<DrawSlotTool>('pencil');
+	let viewSlotTool = $state<ViewSlotTool>('hand');
 	let shapeSlotKind = $state<'rectangle' | 'rounded_rectangle' | 'ellipse' | 'line'>('rectangle');
 	let mobileSelectTool = $state<ImageEditorTool>('select');
 	let mobileDrawTool = $state<ImageEditorTool>('pencil');
 	let mobileRetouchTool = $state<ImageEditorTool>('eraser');
-	let assetPanelWidth = $state(260);
 	let inspectorPanelWidth = $state(320);
-	let layersPanelHeight = $state(280);
+	let layersPanelHeight = $state(160);
+	let layersPanelUserSized = $state(false);
+	let colorLayersPanelHeight = $state(120);
+	let colorLayersPanelUserSized = $state(false);
 	let pagesPanelHeight = $state(132);
 	let inspectorElement = $state<HTMLElement>();
 	let desktopViewportWidth = $state(1280);
 	let inspectorPanelHeight = $state(680);
+	let naturalLayersPanelHeight = $derived(
+		Math.min(
+			layersPanelMaximum(),
+			Math.max(120, Math.min(280, 48 + (editor.activePage?.layers.length ?? 0) * 32))
+		)
+	);
+	let effectiveLayersPanelHeight = $derived(
+		activeEditorWorkspace === 'color'
+			? colorLayersPanelUserSized
+				? colorLayersPanelHeight
+				: 120
+			: layersPanelUserSized
+				? layersPanelHeight
+				: naturalLayersPanelHeight
+	);
 	let shortcutModifier = $state('Ctrl');
 	let meaningfulEditTracked = false;
 	let panelResize:
 		| {
-				panel: 'assets' | 'inspector' | 'layers';
+				panel: 'inspector' | 'layers' | 'pages';
 				startX: number;
 				startY: number;
 				startSize: number;
@@ -376,7 +541,7 @@
 		| undefined;
 	let exportPages = $derived.by(() => {
 		if (!editor.document) return [];
-		return exportAllPages
+		return exportAllPages && !(coverHandoff && exportMode === 'attach')
 			? editor.document.pages
 			: editor.document.pages.filter((page) => page.id === editor.activePageID);
 	});
@@ -384,8 +549,23 @@
 	let exportFormat = $derived(editor.document?.export_defaults.format ?? 'png');
 	let exportSupportsTransparency = $derived(exportFormat !== 'jpeg');
 	let exportPixelCount = $derived(
-		(editor.document?.width_px ?? 0) * (editor.document?.height_px ?? 0) * exportPages.length
+		editor.document
+			? exportPages.reduce((total, page) => {
+					const size = imageEditorPageDimensions(editor.document!, page);
+					return total + size.width * size.height;
+				}, 0)
+			: 0
 	);
+	let exportSizeLabel = $derived.by(() => {
+		if (!editor.document || exportPages.length === 0) return '';
+		const first = imageEditorPageDimensions(editor.document, exportPages[0]);
+		return exportPages.every((page) => {
+			const size = imageEditorPageDimensions(editor.document!, page);
+			return size.width === first.width && size.height === first.height;
+		})
+			? `${first.width} × ${first.height}`
+			: m.image_editor_mixed_sizes();
+	});
 	let exportBudget = $derived(
 		editor.document
 			? imageEditorExportBudget(
@@ -394,6 +574,138 @@
 				)
 			: null
 	);
+
+	function exportPageIDsKey(pageIDs: readonly string[]): string {
+		return pageIDs.join('\u0000');
+	}
+
+	function clearEncodedExportPreview(): void {
+		if (exportPreview) URL.revokeObjectURL(exportPreview.objectURL);
+		exportPreview = null;
+	}
+
+	async function prepareEncodedExportPreview(
+		document: ImageEditorDocument,
+		pageIDs: string[],
+		pageIDsKey: string,
+		generation: number,
+		controller: AbortController
+	): Promise<void> {
+		try {
+			const pages = await renderImageEditorPages(
+				document,
+				pageIDs,
+				(done, total) => {
+					if (generation !== exportPreviewGeneration) return;
+					exportPreviewProgress = m.image_editor_export_preview_encoding_progress({
+						done,
+						total
+					});
+				},
+				controller.signal
+			);
+			controller.signal.throwIfAborted();
+			if (generation !== exportPreviewGeneration || pages.length === 0) return;
+			const objectURL = URL.createObjectURL(pages[0].blob);
+			if (generation !== exportPreviewGeneration || controller.signal.aborted) {
+				URL.revokeObjectURL(objectURL);
+				return;
+			}
+			clearEncodedExportPreview();
+			exportPreview = {
+				document,
+				pageIDsKey,
+				pages,
+				objectURL,
+				totalBytes: pages.reduce((total, page) => total + page.blob.size, 0)
+			};
+		} catch (cause) {
+			if (
+				generation !== exportPreviewGeneration ||
+				(cause instanceof DOMException && cause.name === 'AbortError')
+			)
+				return;
+			exportPreviewError = imageEditorErrorMessage(cause) || m.image_editor_export_preview_failed();
+		} finally {
+			if (generation === exportPreviewGeneration) {
+				exportPreviewBusy = false;
+				exportPreviewProgress = '';
+			}
+		}
+	}
+
+	async function queueEncodedExportPreview(
+		document: ImageEditorDocument,
+		pageIDs: string[],
+		pageIDsKey: string,
+		generation: number
+	): Promise<void> {
+		if (exportPreviewTask) await exportPreviewTask.catch(() => undefined);
+		if (generation !== exportPreviewGeneration || !editorViewActive) return;
+		const controller = new AbortController();
+		exportPreviewAbort = controller;
+		const task = prepareEncodedExportPreview(document, pageIDs, pageIDsKey, generation, controller);
+		exportPreviewTask = task;
+		try {
+			await task;
+		} finally {
+			if (exportPreviewTask === task) exportPreviewTask = null;
+			if (exportPreviewAbort === controller) exportPreviewAbort = null;
+		}
+	}
+
+	function restartEncodedExportPreview(
+		document: ImageEditorDocument | null,
+		pageIDs: string[],
+		allowed: boolean
+	): void {
+		exportPreviewGeneration++;
+		const generation = exportPreviewGeneration;
+		if (exportPreviewTimer) clearTimeout(exportPreviewTimer);
+		exportPreviewTimer = undefined;
+		exportPreviewAbort?.abort();
+		clearEncodedExportPreview();
+		exportPreviewError = '';
+		exportPreviewProgress = '';
+		exportPreviewBusy = false;
+		if (!exportDialogOpen || !document || !allowed || pageIDs.length === 0) return;
+
+		exportPreviewBusy = true;
+		exportPreviewProgress = m.image_editor_export_preview_encoding();
+		const pageIDsKey = exportPageIDsKey(pageIDs);
+		exportPreviewTimer = setTimeout(() => {
+			exportPreviewTimer = undefined;
+			void queueEncodedExportPreview(document, pageIDs, pageIDsKey, generation);
+		}, EXPORT_PREVIEW_DEBOUNCE_MS);
+	}
+
+	$effect(() => {
+		const document = editor.document;
+		const pageIDs = exportPages.map((page) => page.id);
+		const allowed = exportBudget?.allowed ?? false;
+		const open = exportDialogOpen;
+		untrack(() => restartEncodedExportPreview(open ? document : null, pageIDs, allowed));
+	});
+
+	function retryEncodedExportPreview(): void {
+		const document = editor.document;
+		const pageIDs = exportPages.map((page) => page.id);
+		restartEncodedExportPreview(document, pageIDs, exportBudget?.allowed ?? false);
+	}
+
+	function preparedExportPages(
+		document: ImageEditorDocument,
+		pageIDs: readonly string[]
+	): ImageEditorRenderedPage[] | null {
+		return exportPreview?.document === document &&
+			exportPreview.pageIDsKey === exportPageIDsKey(pageIDs)
+			? exportPreview.pages
+			: null;
+	}
+
+	function formattedExportBytes(bytes: number): string {
+		return new Intl.NumberFormat(getLocaleTag()).format(bytes);
+	}
 
 	$effect(() => {
 		if (!toolPreferencesReady) return;
@@ -430,10 +742,22 @@
 		}
 		if (!editor.document) {
 			editor.load(initial);
-			editor.setBrandKit(initialBrandKit);
+			editor.pagesExpanded = initial.document.pages.length > 1;
 			coverPreviewMediaID = initial.cover_preview_media_id ?? '';
 		}
 	}
+
+	$effect(() => {
+		if (
+			coverHandoff &&
+			exportMode === 'attach' &&
+			['webp', 'gif'].includes(editor.document?.export_defaults.format ?? '')
+		) {
+			editor.mutate('Change cover export format', (document) => {
+				document.export_defaults.format = 'png';
+			});
+		}
+	});
 
 	function openExport(mode: 'download' | 'media' | 'attach'): void {
 		if (editor.floatingPixelSelection) editor.commitFloatingPixelSelection();
@@ -488,6 +812,7 @@
 	}
 
 	onMount(() => {
+		if (guestMode) retainLocalImageEditorMediaForDesign(editor.id);
 		const designChannel =
 			!guestMode && typeof BroadcastChannel !== 'undefined'
 				? new BroadcastChannel(`openpost-image-editor:${editor.id}`)
@@ -564,34 +889,6 @@
 			toolPreferencesReady = true;
 		}
 		try {
-			firstEditActionLabel =
-				window.innerWidth < 1024 ? m.image_editor_open_properties() : undefined;
-			if (!localStorage.getItem('openpost-image-editor-first-edit-v1')) {
-				const textLayers =
-					editor.activePage?.layers.filter(
-						(layer) => layer.type === 'text' && Boolean(layer.text?.text.trim())
-					) ?? [];
-				const editableTextLayers = textLayers.filter(
-					(layer) => (layer.text?.text.trim().length ?? 0) > 2
-				);
-				const firstTextLayer = (
-					editableTextLayers.length > 0 ? editableTextLayers : textLayers
-				).reduce<ImageEditorLayer | undefined>(
-					(largest, layer) =>
-						!largest || (layer.text?.font_size ?? 0) > (largest.text?.font_size ?? 0)
-							? layer
-							: largest,
-					undefined
-				);
-				if (firstTextLayer) {
-					editor.selectLayer(firstTextLayer.id);
-					firstEditHintVisible = true;
-				}
-			}
-		} catch {
-			// First-edit guidance is optional when browser storage is unavailable.
-		}
-		try {
 			editor.setRecentColors(
 				parseImageEditorRecentColors(
 					localStorage.getItem('openpost-image-editor-recent-colors-v1') || '[]'
@@ -604,9 +901,19 @@
 			const stored = parseImageEditorLayoutPreferences(
 				localStorage.getItem('openpost-image-editor-layout-v1') || '{}'
 			);
-			assetPanelWidth = clampPanelSize(stored.assets, 220, 420, assetPanelWidth);
 			inspectorPanelWidth = clampPanelSize(stored.inspector, 280, 480, inspectorPanelWidth);
-			layersPanelHeight = clampPanelSize(stored.layers, 120, 520, layersPanelHeight);
+			const editLayersWereUserSized =
+				localStorage.getItem(EDIT_LAYERS_USER_SIZED_KEY) === '1' ||
+				(stored.layers !== undefined && stored.layers !== LEGACY_DEFAULT_LAYERS_HEIGHT);
+			if (stored.layers !== undefined && editLayersWereUserSized) {
+				layersPanelHeight = clampPanelSize(stored.layers, 120, 520, layersPanelHeight);
+				layersPanelUserSized = true;
+			}
+			const storedColorLayers = Number(localStorage.getItem(COLOR_LAYERS_HEIGHT_KEY));
+			if (Number.isFinite(storedColorLayers) && storedColorLayers > 0) {
+				colorLayersPanelHeight = clampPanelSize(storedColorLayers, 120, 520, 120);
+				colorLayersPanelUserSized = true;
+			}
 			pagesPanelHeight = clampPanelSize(stored.pages, 120, 320, pagesPanelHeight);
 			constrainDesktopPanelWidths();
 		} catch {
@@ -647,13 +954,16 @@
 			// commit so recovery/export can never retain the source hole without its pixels.
 			if (editor.floatingPixelSelection) return;
 			if (editor.document && !guestMode) {
+				const recoveryDocument = editor.document;
 				void storeLocalImageEditorRecovery({
 					design_id: editor.id,
 					workspace_id: editor.workspaceID,
 					revision: editor.revision,
-					document: editor.document
+					document: recoveryDocument
 				})
 					.then(() => {
+						if (!editorViewActive || editor.document !== recoveryDocument) return;
+						recoveredDocument = recoveryDocument;
 						recoveryError = '';
 						if (editor.saveState === 'idle') {
 							editor.saveState = 'local';
@@ -661,6 +971,7 @@
 						}
 					})
 					.catch((cause) => {
+						if (!editorViewActive || editor.document !== recoveryDocument) return;
 						recoveryError =
 							cause instanceof DOMException && cause.name === 'QuotaExceededError'
 								? m.image_editor_recovery_quota_exhausted()
@@ -683,34 +994,50 @@
 			}
 		})();
 		const beforeUnload = (event: BeforeUnloadEvent) => {
-			if (editor.saveState === 'idle' || editor.saveState === 'saving') {
+			if (editor.canEdit && editor.saveState !== 'saved') {
 				event.preventDefault();
 			}
 		};
 		window.addEventListener('beforeunload', beforeUnload);
 		return () => {
 			editorViewActive = false;
+			if (guestMode) releaseLocalImageEditorMediaForDesign(editor.id);
+			rasterAbort?.abort();
+			exportPreviewGeneration++;
 			unsubscribe();
 			clearTimeout(saveTimer);
 			clearTimeout(previewTimer);
+			if (exportPreviewTimer) clearTimeout(exportPreviewTimer);
+			exportPreviewAbort?.abort();
+			clearEncodedExportPreview();
 			backgroundRemoval.dispose();
 			designChannel?.close();
 			window.removeEventListener('beforeunload', beforeUnload);
 		};
 	});
 
-	function dismissFirstEditHint(): void {
-		firstEditHintVisible = false;
-		try {
-			localStorage.setItem('openpost-image-editor-first-edit-v1', '1');
-		} catch {
-			// The hint may return when browser storage is unavailable.
+	function openProperties(): void {
+		if (activeEditorWorkspace !== 'color') {
+			mobileSheet = 'properties';
+			return;
 		}
+		editor.rightPanelVisible = true;
+		focusedCanvas = false;
+		requestAnimationFrame(() => {
+			document
+				.querySelector<HTMLElement>(
+					'[data-image-color-workspace] [role="tab"][aria-selected="true"]'
+				)
+				?.focus();
+		});
 	}
 
-	function openFirstEditProperties(): void {
-		if (window.innerWidth < 1024) mobileSheet = 'properties';
-		dismissFirstEditHint();
+	function saveStateIconLabel(): string {
+		if (editor.saveState === 'saving') return m.common_saving();
+		if (editor.saveState === 'saved')
+			return guestMode ? m.image_editor_public_saved_device() : m.video_editor_saved_cloud();
+		if (editor.saveState === 'idle') return m.image_editor_autosave();
+		return editor.saveMessage;
 	}
 
 	function toggleInspectorPanel(): void {
@@ -732,19 +1059,31 @@
 		return Number.isFinite(value) ? Math.max(minimum, Math.min(maximum, value!)) : fallback;
 	}
 
-	function panelMaximum(panel: 'assets' | 'inspector'): number {
-		const otherPanelWidth =
-			panel === 'assets' ? (editor.rightPanelVisible ? inspectorPanelWidth : 0) : assetPanelWidth;
-		const available =
-			desktopViewportWidth - DESKTOP_TOOL_RAIL_WIDTH - MINIMUM_CANVAS_WIDTH - otherPanelWidth;
-		return Math.max(
-			panel === 'assets' ? 220 : 280,
-			Math.min(panel === 'assets' ? 420 : 480, available)
-		);
+	function panelMaximum(): number {
+		const available = desktopViewportWidth - DESKTOP_TOOL_RAIL_WIDTH - MINIMUM_CANVAS_WIDTH;
+		return Math.max(280, Math.min(480, available));
 	}
 
 	function layersPanelMaximum(): number {
-		return Math.max(160, inspectorPanelHeight - 166);
+		return Math.max(120, inspectorPanelHeight - 166);
+	}
+
+	function activeLayersPanelHeight(): number {
+		return activeEditorWorkspace === 'color' ? colorLayersPanelHeight : layersPanelHeight;
+	}
+
+	function activeLayersPanelIsUserSized(): boolean {
+		return activeEditorWorkspace === 'color' ? colorLayersPanelUserSized : layersPanelUserSized;
+	}
+
+	function setActiveLayersPanelHeight(height: number, userSized = true): void {
+		if (activeEditorWorkspace === 'color') {
+			colorLayersPanelHeight = height;
+			colorLayersPanelUserSized = userSized;
+			return;
+		}
+		layersPanelHeight = height;
+		layersPanelUserSized = userSized;
 	}
 
 	function constrainLayersPanelHeightFromDom(): void {
@@ -752,29 +1091,35 @@
 		const measuredHeight = inspectorElement.clientHeight;
 		if (measuredHeight <= 0) return;
 		inspectorPanelHeight = measuredHeight;
-		layersPanelHeight = clampPanelSize(
-			layersPanelHeight,
-			120,
-			layersPanelMaximum(),
-			layersPanelHeight
-		);
+		if (layersPanelUserSized) {
+			layersPanelHeight = clampPanelSize(
+				layersPanelHeight,
+				120,
+				layersPanelMaximum(),
+				layersPanelHeight
+			);
+		}
+		if (colorLayersPanelUserSized) {
+			colorLayersPanelHeight = clampPanelSize(
+				colorLayersPanelHeight,
+				120,
+				layersPanelMaximum(),
+				colorLayersPanelHeight
+			);
+		}
 	}
 
 	function constrainDesktopPanelWidths(): void {
 		if (window.innerWidth < 1024) return;
 		const maximumCombinedWidth =
 			desktopViewportWidth - DESKTOP_TOOL_RAIL_WIDTH - MINIMUM_CANVAS_WIDTH;
-		let overflow = assetPanelWidth + inspectorPanelWidth - maximumCombinedWidth;
+		const overflow = inspectorPanelWidth - maximumCombinedWidth;
 		if (overflow <= 0) return;
-		const assetReduction = Math.min(assetPanelWidth - 220, Math.ceil(overflow / 2));
-		assetPanelWidth -= assetReduction;
-		overflow -= assetReduction;
 		inspectorPanelWidth -= Math.min(inspectorPanelWidth - 280, overflow);
 	}
 
 	function handleWindowResize(): void {
 		desktopViewportWidth = window.innerWidth;
-		firstEditActionLabel = window.innerWidth < 1024 ? m.image_editor_open_properties() : undefined;
 		constrainDesktopPanelWidths();
 		constrainLayersPanelHeightFromDom();
 		requestAnimationFrame(() => {
@@ -782,47 +1127,52 @@
 		});
 	}
 
-	function startPanelResize(event: PointerEvent, panel: 'assets' | 'inspector' | 'layers'): void {
+	function startPanelResize(event: PointerEvent, panel: 'inspector' | 'layers' | 'pages'): void {
 		if (event.button !== 0) return;
 		const handle = event.currentTarget;
 		if (!(handle instanceof HTMLElement)) return;
 		handle.focus();
 		event.preventDefault();
+		if (panel === 'layers' && !activeLayersPanelIsUserSized()) {
+			setActiveLayersPanelHeight(effectiveLayersPanelHeight);
+		}
 		panelResize = {
 			panel,
 			startX: event.clientX,
 			startY: event.clientY,
 			startSize:
-				panel === 'assets'
-					? assetPanelWidth
-					: panel === 'inspector'
-						? inspectorPanelWidth
-						: layersPanelHeight
+				panel === 'inspector'
+					? inspectorPanelWidth
+					: panel === 'pages'
+						? pagesPanelHeight
+						: activeLayersPanelHeight()
 		};
 	}
 
 	function resizePanels(event: PointerEvent): void {
 		if (!panelResize) return;
-		if (panelResize.panel === 'assets') {
-			assetPanelWidth = clampPanelSize(
-				panelResize.startSize + event.clientX - panelResize.startX,
-				220,
-				panelMaximum('assets'),
-				assetPanelWidth
-			);
-		} else if (panelResize.panel === 'inspector') {
+		if (panelResize.panel === 'inspector') {
 			inspectorPanelWidth = clampPanelSize(
 				panelResize.startSize - (event.clientX - panelResize.startX),
 				280,
-				panelMaximum('inspector'),
+				panelMaximum(),
 				inspectorPanelWidth
 			);
+		} else if (panelResize.panel === 'pages') {
+			pagesPanelHeight = clampPanelSize(
+				panelResize.startSize + (panelResize.startY - event.clientY),
+				88,
+				480,
+				pagesPanelHeight
+			);
 		} else {
-			layersPanelHeight = clampPanelSize(
-				panelResize.startSize + event.clientY - panelResize.startY,
-				120,
-				layersPanelMaximum(),
-				layersPanelHeight
+			setActiveLayersPanelHeight(
+				clampPanelSize(
+					panelResize.startSize + event.clientY - panelResize.startY,
+					120,
+					layersPanelMaximum(),
+					activeLayersPanelHeight()
+				)
 			);
 		}
 	}
@@ -838,12 +1188,18 @@
 			localStorage.setItem(
 				'openpost-image-editor-layout-v1',
 				JSON.stringify({
-					assets: Math.round(assetPanelWidth),
 					inspector: Math.round(inspectorPanelWidth),
-					layers: Math.round(layersPanelHeight),
+					layers: layersPanelUserSized ? Math.round(layersPanelHeight) : undefined,
 					pages: Math.round(pagesPanelHeight)
 				})
 			);
+			if (layersPanelUserSized) localStorage.setItem(EDIT_LAYERS_USER_SIZED_KEY, '1');
+			else localStorage.removeItem(EDIT_LAYERS_USER_SIZED_KEY);
+			if (colorLayersPanelUserSized) {
+				localStorage.setItem(COLOR_LAYERS_HEIGHT_KEY, String(Math.round(colorLayersPanelHeight)));
+			} else {
+				localStorage.removeItem(COLOR_LAYERS_HEIGHT_KEY);
+			}
 		} catch {
 			// Layout persistence is optional when browser storage is unavailable.
 		}
@@ -884,22 +1240,11 @@
 		storeViewPreferences();
 	}
 
-	function openGuideDialog(): void {
-		guideAxis = 'vertical';
-		guidePosition = Math.round((editor.document?.width_px ?? 0) / 2);
-		guideDialogOpen = true;
-	}
-
-	function addNumericGuide(): void {
-		editor.addGuide(guideAxis, guidePosition);
-		guideDialogOpen = false;
-	}
-
 	function resizePanelWithKeyboard(
 		event: KeyboardEvent,
-		panel: 'assets' | 'inspector' | 'layers'
+		panel: 'inspector' | 'layers' | 'pages'
 	): void {
-		const verticalSeparator = panel === 'assets' || panel === 'inspector';
+		const verticalSeparator = panel === 'inspector';
 		if (
 			(verticalSeparator && event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') ||
 			(!verticalSeparator && event.key !== 'ArrowUp' && event.key !== 'ArrowDown')
@@ -914,26 +1259,31 @@
 		if (!direction) return;
 		event.preventDefault();
 		const step = event.shiftKey ? 32 : 8;
-		if (panel === 'assets') {
-			assetPanelWidth = clampPanelSize(
-				assetPanelWidth + direction * step,
-				220,
-				panelMaximum('assets'),
-				assetPanelWidth
-			);
-		} else if (panel === 'inspector') {
+		if (panel === 'inspector') {
 			inspectorPanelWidth = clampPanelSize(
 				inspectorPanelWidth - direction * step,
 				280,
-				panelMaximum('inspector'),
+				panelMaximum(),
 				inspectorPanelWidth
 			);
+		} else if (panel === 'pages') {
+			pagesPanelHeight = clampPanelSize(
+				pagesPanelHeight - direction * step,
+				88,
+				480,
+				pagesPanelHeight
+			);
 		} else {
-			layersPanelHeight = clampPanelSize(
-				layersPanelHeight + direction * step,
-				120,
-				layersPanelMaximum(),
-				layersPanelHeight
+			if (!activeLayersPanelIsUserSized()) {
+				setActiveLayersPanelHeight(effectiveLayersPanelHeight);
+			}
+			setActiveLayersPanelHeight(
+				clampPanelSize(
+					activeLayersPanelHeight() + direction * step,
+					120,
+					layersPanelMaximum(),
+					activeLayersPanelHeight()
+				)
 			);
 		}
 		storePanelLayout();
@@ -956,6 +1306,7 @@
 			return;
 		}
 		editor.document = local.document;
+		recoveredDocument = local.document;
 		editor.saveState = 'local';
 		editor.saveMessage = m.image_editor_recovered_local();
 		statusAnnouncement = m.image_editor_recovered_announcement();
@@ -1070,11 +1421,12 @@
 			}
 			coverPreviewMediaID = response.cover_preview_media_id ?? '';
 			if (editor.document === submittedDocument) {
-				// Keep the current identity when the server accepted it unchanged. Replacing
-				// it resets every document consumer, including the page-strip previews.
-				if (JSON.stringify(response.document) !== JSON.stringify(submittedDocument)) {
-					editor.document = response.document;
-				}
+				// The server omits default fields and reorders JSON keys. Normalize its
+				// reply and retain unchanged layers so autosave cannot end canvas typing.
+				editor.document = replaceEqualDeep(
+					submittedDocument,
+					cloneImageEditorDocument(response.document)
+				);
 				editor.saveState = 'saved';
 				editor.saveMessage = guestMode
 					? m.image_editor_public_saved_device()
@@ -1099,11 +1451,14 @@
 				openConflictRecovery();
 			} else if (!navigator.onLine) {
 				editor.saveState = 'offline';
-				editor.saveMessage = m.image_editor_saved_locally();
-				statusAnnouncement = m.image_editor_offline_saved();
+				editor.saveMessage =
+					recoveredDocument === submittedDocument
+						? m.image_editor_saved_locally()
+						: m.image_editor_unsaved_changes();
+				statusAnnouncement = editor.saveMessage;
 			} else {
 				editor.saveState = 'error';
-				editor.saveMessage = cause instanceof Error ? cause.message : m.image_editor_save_failed();
+				editor.saveMessage = imageEditorErrorMessage(cause) ?? m.image_editor_save_failed();
 				statusAnnouncement = editor.saveMessage;
 			}
 			return retryable ? 'retry' : 'blocked';
@@ -1158,10 +1513,12 @@
 			) {
 				return;
 			}
-			const nextDocument = structuredClone(editor.document);
-			const nextPage = nextDocument.pages.find((item) => item.id === page.id);
-			if (!nextPage) return;
-			nextPage.preview_media_id = uploaded.id;
+			const nextDocument = {
+				...editor.document,
+				pages: editor.document.pages.map((item) =>
+					item.id === page.id ? { ...item, preview_media_id: uploaded.id } : item
+				)
+			};
 			editor.document = nextDocument;
 			previewPending = false;
 			lastPreviewAt = Date.now();
@@ -1201,8 +1558,7 @@
 			statusAnnouncement = m.image_editor_conflict_reloaded_with_copy();
 		} catch (cause) {
 			if (!editorMutationViewIsCurrent(view)) return;
-			conflictError =
-				cause instanceof Error ? cause.message : m.image_editor_conflict_preserve_failed();
+			conflictError = imageEditorErrorMessage(cause) ?? m.image_editor_conflict_preserve_failed();
 			statusAnnouncement = conflictError;
 		} finally {
 			if (operationSequence === conflictOperationSequence) conflictBusy = false;
@@ -1228,8 +1584,7 @@
 			await goto(resolveAppPath(`/image-editor/${saved.id}`));
 		} catch (cause) {
 			if (!editorMutationViewIsCurrent(view)) return;
-			conflictError =
-				cause instanceof Error ? cause.message : m.image_editor_conflict_preserve_failed();
+			conflictError = imageEditorErrorMessage(cause) ?? m.image_editor_conflict_preserve_failed();
 			statusAnnouncement = conflictError;
 		} finally {
 			if (operationSequence === conflictOperationSequence) conflictBusy = false;
@@ -1269,11 +1624,13 @@
 
 	async function exportProject(): Promise<void> {
 		if (!editor.document || projectBusy) return;
+		const view = captureEditorMutationView();
 		if (editor.floatingPixelSelection) editor.commitFloatingPixelSelection();
 		projectBusy = true;
 		projectError = '';
 		try {
 			const blob = await createImageEditorProjectArchive(editor.document, projectMediaSource);
+			if (!editorMutationViewIsCurrent(view)) return;
 			const url = URL.createObjectURL(blob);
 			const anchor = document.createElement('a');
 			anchor.href = url;
@@ -1282,8 +1639,7 @@
 			setTimeout(() => URL.revokeObjectURL(url), 0);
 			statusAnnouncement = m.image_editor_project_exported();
 		} catch (cause) {
-			projectError =
-				cause instanceof Error ? cause.message : m.image_editor_project_export_failed();
+			projectError = imageEditorErrorMessage(cause) ?? m.image_editor_project_export_failed();
 			statusAnnouncement = projectError;
 		} finally {
 			projectBusy = false;
@@ -1326,7 +1682,11 @@
 						done: index + 1,
 						total
 					});
-					const uploaded = await storeGuestImageEditorMedia(recovery.guestDesignID, entry.file);
+					const uploaded = await storeGuestImageEditorProjectMedia(
+						recovery.guestDesignID,
+						parsed.document,
+						entry
+					);
 					recovery.replacements.set(entry.id, uploaded.id);
 				}
 				controller.signal.throwIfAborted();
@@ -1378,7 +1738,7 @@
 						})
 					: m.image_editor_project_import_partial_recoverable({
 							count: recovery.replacements.size,
-							error: cause instanceof Error ? cause.message : m.image_editor_project_import_failed()
+							error: imageEditorErrorMessage(cause) ?? m.image_editor_project_import_failed()
 						});
 			statusAnnouncement = projectError;
 		} finally {
@@ -1454,7 +1814,7 @@
 				return;
 			}
 		}
-		await goto(resolveAppPath('/image-editor'));
+		await goto(resolveAppPath(guestMode ? '/image-editor' : '/media'));
 	}
 
 	async function openHistory(): Promise<void> {
@@ -1473,7 +1833,7 @@
 			revisions = page.revisions;
 			revisionNextCursor = page.nextCursor ?? '';
 		} catch (cause) {
-			historyError = cause instanceof Error ? cause.message : m.image_editor_history_load_failed();
+			historyError = imageEditorErrorMessage(cause) ?? m.image_editor_history_load_failed();
 		} finally {
 			historyBusy = false;
 		}
@@ -1491,7 +1851,7 @@
 			revisions = [...revisions, ...page.revisions.filter((revision) => !known.has(revision.id))];
 			revisionNextCursor = page.nextCursor ?? '';
 		} catch (cause) {
-			historyError = cause instanceof Error ? cause.message : m.image_editor_history_load_failed();
+			historyError = imageEditorErrorMessage(cause) ?? m.image_editor_history_load_failed();
 		} finally {
 			historyPageBusy = false;
 		}
@@ -1530,8 +1890,7 @@
 			if (request === revisionPreviewRequest) revisionPreview = preview;
 		} catch (cause) {
 			if (request === revisionPreviewRequest) {
-				historyError =
-					cause instanceof Error ? cause.message : m.image_editor_history_load_failed();
+				historyError = imageEditorErrorMessage(cause) ?? m.image_editor_history_load_failed();
 			}
 		} finally {
 			if (request === revisionPreviewRequest) {
@@ -1567,8 +1926,23 @@
 				setHistoryDialogOpen(false);
 				openConflictRecovery();
 			} else {
-				historyError = cause instanceof Error ? cause.message : m.image_editor_checkpoint_failed();
+				historyError = imageEditorErrorMessage(cause) ?? m.image_editor_checkpoint_failed();
 			}
+		} finally {
+			if (operationSequence === historyMutationSequence) historyBusy = false;
+		}
+	}
+
+	async function removeCheckpoint(revision: ImageEditorRevisionSummary): Promise<void> {
+		if (!editor.canEdit || historyBusy || revision.kind !== 'checkpoint') return;
+		const view = captureEditorMutationView();
+		const operationSequence = ++historyMutationSequence;
+		historyBusy = true;
+		try {
+			await deleteImageEditorCheckpoint(editor.workspaceID, editor.id, revision.id);
+			if (!editorMutationViewIsCurrent(view)) return;
+			revisions = revisions.filter((entry) => entry.id !== revision.id);
+			if (revisionPreview?.summary.id === revision.id) invalidateRevisionPreview();
 		} finally {
 			if (operationSequence === historyMutationSequence) historyBusy = false;
 		}
@@ -1604,7 +1978,7 @@
 				setHistoryDialogOpen(false);
 				openConflictRecovery();
 			} else {
-				historyError = cause instanceof Error ? cause.message : m.image_editor_restore_failed();
+				historyError = imageEditorErrorMessage(cause) ?? m.image_editor_restore_failed();
 			}
 		} finally {
 			if (operationSequence === historyMutationSequence) historyBusy = false;
@@ -1647,7 +2021,7 @@
 					: m.image_editor_template_replaced();
 		} catch (cause) {
 			if (!editorMutationViewIsCurrent(view)) return;
-			historyError = cause instanceof Error ? cause.message : m.image_editor_template_save_failed();
+			historyError = imageEditorErrorMessage(cause) ?? m.image_editor_template_save_failed();
 		} finally {
 			if (operationSequence === historyMutationSequence) historyBusy = false;
 		}
@@ -1664,8 +2038,7 @@
 				(template) => !template.built_in
 			);
 		} catch (cause) {
-			historyError =
-				cause instanceof Error ? cause.message : m.image_editor_templates_load_failed();
+			historyError = imageEditorErrorMessage(cause) ?? m.image_editor_templates_load_failed();
 		}
 	}
 
@@ -1678,51 +2051,6 @@
 		}
 	}
 
-	function openResizeDialog(): void {
-		if (!editor.document) return;
-		resizeWidth = editor.document.width_px;
-		resizeHeight = editor.document.height_px;
-		resizeMode = 'scale';
-		resizeError = '';
-		resizeDialogOpen = true;
-	}
-
-	function resizeDocument(): void {
-		if (!editor.document) return;
-		if (
-			resizeWidth < 64 ||
-			resizeHeight < 64 ||
-			resizeWidth > 4096 ||
-			resizeHeight > 4096 ||
-			resizeWidth * resizeHeight > 25_000_000
-		) {
-			resizeError = m.image_editor_resize_limits();
-			return;
-		}
-		const previousWidth = editor.document.width_px;
-		const previousHeight = editor.document.height_px;
-		editor.mutate('Resize design', (document) => {
-			if (resizeMode === 'scale') {
-				const scaleX = resizeWidth / previousWidth;
-				const scaleY = resizeHeight / previousHeight;
-				for (const page of document.pages) {
-					for (const layer of page.layers) {
-						layer.transform.x *= scaleX;
-						layer.transform.y *= scaleY;
-						layer.transform.width *= scaleX;
-						layer.transform.height *= scaleY;
-						if (layer.text) layer.text.font_size *= Math.min(scaleX, scaleY);
-					}
-				}
-			}
-			document.width_px = resizeWidth;
-			document.height_px = resizeHeight;
-			document.preset_key = 'custom';
-		});
-		editor.fitZoom();
-		resizeDialogOpen = false;
-	}
-
 	function setTool(tool: ImageEditorTool): void {
 		if (editor.floatingPixelSelection) editor.commitFloatingPixelSelection();
 		if (tool === 'shape') {
@@ -1731,16 +2059,21 @@
 		}
 		if (
 			tool === 'crop' &&
-			!editor.selectedLayers.some((layer) => layer.type === 'image' && !layer.locked)
+			!editor.selectedLayers.some(
+				(layer) => layer.type === 'image' && !editor.isLayerLocked(layer.id)
+			)
 		)
 			return;
+		assetOverlayOpen = false;
 		editor.activeTool = tool;
+		editor.backgroundImagePickerActive = false;
 		if (
 			[
 				'select',
 				'marquee',
 				'ellipse_marquee',
 				'lasso',
+				'polygonal_lasso',
 				'magic_wand',
 				'eyedropper',
 				'hand'
@@ -1750,9 +2083,9 @@
 		}
 		if (['text', 'pencil', 'bucket', 'gradient'].includes(tool)) mobileDrawTool = tool;
 		if (['crop', 'eraser', 'magic_eraser'].includes(tool)) mobileRetouchTool = tool;
-		if (isMarqueeTool(tool)) marqueeSlotTool = tool;
-		if (isFillTool(tool)) fillSlotTool = tool;
-		if (isEraserTool(tool)) eraserSlotTool = tool;
+		if (isSelectSlotTool(tool)) selectSlotTool = tool;
+		if (isDrawSlotTool(tool)) drawSlotTool = tool;
+		if (isViewSlotTool(tool)) viewSlotTool = tool;
 		if (tool === 'text') {
 			editor.addText();
 			queueMicrotask(() => {
@@ -1766,6 +2099,8 @@
 	}
 
 	function insertShape(kind: typeof shapeSlotKind): void {
+		assetOverlayOpen = false;
+		editor.backgroundImagePickerActive = false;
 		shapeSlotKind = kind;
 		editor.addShape(kind);
 		editor.activeTool = 'select';
@@ -1775,6 +2110,7 @@
 		editor.backgroundImagePickerActive = true;
 		editor.leftPanel = 'media';
 		if (window.innerWidth < 1024) mobileSheet = 'assets';
+		else assetOverlayOpen = true;
 	}
 
 	async function placeExternalFiles(
@@ -1798,6 +2134,7 @@
 		pageID: string
 	): Promise<void> {
 		if (!editor.canEdit || requests.length === 0 || externalDropBusy) return;
+		const view = captureEditorMutationView();
 		externalDropBusy = true;
 		externalDropError = '';
 		externalDropRetry = null;
@@ -1807,7 +2144,12 @@
 		const targetPage = editor.document?.pages.find((page) => page.id === pageID);
 		const availableSlots = availableImageEditorImportSlots(targetPage?.layers.length ?? 0);
 		const prepared: Array<
-			ExternalImportRequest & { preparedFile: File; width: number; height: number }
+			ExternalImportRequest & {
+				preparedFile: File;
+				width: number;
+				height: number;
+				animation?: import('../types').ImageEditorAnimation;
+			}
 		> = [];
 		let decodedBytes = 0;
 		let inserted = 0;
@@ -1821,13 +2163,14 @@
 				updateExternalImportItem(request.id, { status: 'preparing', error: undefined });
 				try {
 					if (prepared.length >= availableSlots) throw new ImageEditorImportError('layer_limit');
-					const result = await prepareImageEditorImport(request.file, { guestMode });
+					const result = await prepareImageEditorImport(request.file, { guestMode, signal });
 					decodedBytes = assertImageEditorBatchMemory(decodedBytes, result.decodedBytes);
 					prepared.push({
 						...request,
 						preparedFile: result.file,
 						width: result.width,
-						height: result.height
+						height: result.height,
+						animation: result.animation
 					});
 				} catch (cause) {
 					updateExternalImportItem(request.id, {
@@ -1854,21 +2197,24 @@
 						throw new ImageEditorImportError('layer_limit');
 					}
 					const media = guestMode
-						? await storeGuestImageEditorMedia(editor.id, request.preparedFile)
+						? await storeGuestImageEditorMedia(view.designID, request.preparedFile, { signal })
 						: await uploadMediaFile({
-								workspaceId: editor.workspaceID,
+								workspaceId: view.workspaceID,
 								file: request.preparedFile,
 								source: 'upload',
 								retentionClass: 'library',
 								signal
 							});
+					signal.throwIfAborted();
+					if (!editorMutationViewIsCurrent(view)) break;
 					const offset = request.offset * 24;
 					editor.addImage(
 						{
 							id: media.id,
 							name: media.original_filename,
 							width: request.width,
-							height: request.height
+							height: request.height,
+							animation: request.animation
 						},
 						{ x: point.x + offset, y: point.y + offset },
 						pageID
@@ -1942,7 +2288,7 @@
 
 	function imageEditorImportErrorMessage(cause: unknown): string {
 		if (!(cause instanceof ImageEditorImportError)) {
-			return cause instanceof Error ? cause.message : m.image_editor_external_drop_failed();
+			return imageEditorErrorMessage(cause) ?? m.image_editor_external_drop_failed();
 		}
 		switch (cause.code) {
 			case 'unsupported_type':
@@ -1972,7 +2318,7 @@
 	}
 
 	function handleShortcut(event: KeyboardEvent): void {
-		if (overlayWasOpen || editableTarget(event.target)) return;
+		if (event.defaultPrevented || overlayWasOpen || editableTarget(event.target)) return;
 		const key = event.key.toLowerCase();
 		if (
 			editor.pixelSelection &&
@@ -2022,7 +2368,7 @@
 		version_history: () => void openHistory(),
 		create_checkpoint: () => (checkpointDialogOpen = true),
 		save_template: () => void openTemplateDialog(),
-		resize_design: openResizeDialog,
+		resize_design: () => (resizeDialogOpen = true),
 		export_project: () => void exportProject(),
 		import_project: () => projectFileInput?.click(),
 		export_design: () => openExport('download'),
@@ -2034,9 +2380,17 @@
 				: editor.duplicateSelected(),
 		group: () => editor.groupSelected(),
 		ungroup: () => editor.ungroupSelected(),
+		rasterize: () => void bakeLayers('rasterize'),
+		merge_down: () => void bakeLayers('merge_down'),
+		merge_selected: () => void bakeLayers('merge_selected'),
+		flatten_page: () => void bakeLayers('flatten_page'),
 		remove_background: () => void removeBackground(),
 		select_all: () => editor.selectAll(),
 		deselect: () => (editor.pixelSelection ? editor.clearPixelSelection() : editor.selectLayer('')),
+		selection_invert: () => editor.refinePixelSelection('invert'),
+		selection_expand: () => editor.refinePixelSelection('expand'),
+		selection_contract: () => editor.refinePixelSelection('contract'),
+		selection_from_layer_alpha: () => pixelSelectionActions?.loadLayerAlpha(),
 		copy: () => void copySelection(),
 		cut: () => void cutSelection(),
 		paste: () => void pasteSelection(),
@@ -2055,12 +2409,13 @@
 		toggle_grid: () => setViewOption('grid', !editor.showGrid),
 		toggle_snap_grid: () => setViewOption('snapToGrid', !editor.snapToGrid),
 		clear_guides: () => editor.clearGuides(),
-		add_guide: openGuideDialog,
+		add_guide: () => (guideDialogOpen = true),
 		open_help: () => (helpDialogOpen = true),
 		tool_select: () => setTool('select'),
 		tool_marquee: () => setTool('marquee'),
 		tool_ellipse_marquee: () => setTool('ellipse_marquee'),
 		tool_lasso: () => setTool('lasso'),
+		tool_polygonal_lasso: () => setTool('polygonal_lasso'),
 		tool_magic_wand: () => setTool('magic_wand'),
 		tool_crop: () => setTool('crop'),
 		tool_eyedropper: () => setTool('eyedropper'),
@@ -2076,6 +2431,19 @@
 	} satisfies Record<ImageEditorCommandID, () => void>;
 
 	function commandEnabled(id: ImageEditorCommandID): boolean {
+		if (isRasterCommand(id))
+			return Boolean(
+				editor.canEdit &&
+				!rasterBusy &&
+				!editor.floatingPixelSelection &&
+				!editor.colorPreviewActive &&
+				editor.document &&
+				prepareRasterOperation(editor.document, editor.activePageID, editor.selectedLayerIDs, id)
+			);
+		if (id === 'delete' || id === 'cut') {
+			const targets = editor.pixelSelection?.targetLayerIDs ?? editor.selectedLayerIDs;
+			if (targets.length && targets.every((layerID) => editor.isLayerLocked(layerID))) return false;
+		}
 		const availability = imageEditorCommand(id).availability;
 		if (availability === 'always') return true;
 		if (availability === 'editable') return editor.canEdit;
@@ -2084,19 +2452,40 @@
 		if (availability === 'selection') {
 			return Boolean(editor.pixelSelection || editor.selectedLayerIDs.length > 0);
 		}
-		if (availability === 'multi_selection') return editor.selectedLayers.length >= 2;
+		if (availability === 'pixel_selection') {
+			return Boolean(editor.pixelSelection && !editor.floatingPixelSelection);
+		}
+		if (availability === 'layer_selection') {
+			return (
+				editor.selectedLayers.length === 1 && !editor.isLayerLocked(editor.selectedLayers[0].id)
+			);
+		}
+		if (availability === 'multi_selection')
+			return (
+				editor.selectedLayers.length >= 2 &&
+				editor.selectedLayers.every((layer) => !editor.isLayerLocked(layer.id))
+			);
 		if (availability === 'group_selection') {
-			return editor.selectedLayers.some((layer) => layer.type === 'group');
+			return (
+				editor.selectedLayers.some((layer) => layer.type === 'group') &&
+				editor.selectedLayers
+					.filter((layer) => layer.type === 'group')
+					.every((layer) => !editor.isLayerLocked(layer.id))
+			);
 		}
 		if (availability === 'clipboard') return copiedLayers.length > 0 || editor.canEdit;
 		if (availability === 'crop_target') {
 			return (
 				editor.canEdit &&
-				editor.selectedLayers.some((layer) => layer.type === 'image' && !layer.locked)
+				editor.selectedLayers.some(
+					(layer) => layer.type === 'image' && !editor.isLayerLocked(layer.id)
+				)
 			);
 		}
 		if (availability === 'image_selection') {
-			return Boolean(editor.selectedLayers.some((layer) => layer.image && !layer.locked));
+			return Boolean(
+				editor.selectedLayers.some((layer) => layer.image && !editor.isLayerLocked(layer.id))
+			);
 		}
 		if (availability === 'project_idle') return !projectBusy;
 		if (availability === 'guides') {
@@ -2108,10 +2497,20 @@
 	}
 
 	function commandDisabledReason(id: ImageEditorCommandID): string {
+		if (isRasterCommand(id))
+			return commandEnabled(id)
+				? m.image_editor_raster_help()
+				: rasterBusy
+					? m.image_editor_raster_busy()
+					: m.image_editor_raster_requirements();
 		const availability = imageEditorCommand(id).availability;
 		if (availability === 'undo') return m.image_editor_nothing_to_undo();
 		if (availability === 'redo') return m.image_editor_nothing_to_redo();
 		if (availability === 'selection') return m.image_editor_command_requires_selection();
+		if (availability === 'pixel_selection')
+			return m.image_editor_command_requires_pixel_selection();
+		if (availability === 'layer_selection')
+			return m.image_editor_command_requires_layer_selection();
 		if (availability === 'multi_selection')
 			return m.image_editor_command_requires_multiple_layers();
 		if (availability === 'group_selection') return m.image_editor_command_requires_group();
@@ -2164,9 +2563,17 @@
 			duplicate: m.image_editor_duplicate(),
 			group: m.image_editor_group(),
 			ungroup: m.image_editor_ungroup(),
+			rasterize: m.image_editor_rasterize(),
+			merge_down: m.image_editor_merge_down(),
+			merge_selected: m.image_editor_merge_selected(),
+			flatten_page: m.image_editor_flatten_page(),
 			remove_background: m.image_editor_remove_background(),
 			select_all: m.image_editor_select_all(),
 			deselect: m.image_editor_deselect(),
+			selection_invert: m.image_editor_selection_invert(),
+			selection_expand: m.image_editor_selection_expand(),
+			selection_contract: m.image_editor_selection_contract(),
+			selection_from_layer_alpha: m.image_editor_selection_from_layer_alpha(),
 			copy: m.common_copy(),
 			cut: m.image_editor_cut(),
 			paste: m.image_editor_paste(),
@@ -2187,6 +2594,7 @@
 			tool_marquee: m.image_editor_rectangle_select(),
 			tool_ellipse_marquee: m.image_editor_ellipse_select(),
 			tool_lasso: m.image_editor_lasso_select(),
+			tool_polygonal_lasso: m.image_editor_polygonal_lasso_select(),
 			tool_magic_wand: m.image_editor_magic_select(),
 			tool_crop: m.image_editor_crop(),
 			tool_eyedropper: m.image_editor_eyedropper(),
@@ -2234,6 +2642,16 @@
 			return m.image_editor_redo_named({ name: editor.redoLabel });
 		}
 		return commandLabel(id);
+	}
+
+	function compactCommandCategoryLabel(category: CompactMenuSection): string {
+		if (category === 'file') return m.image_editor_file();
+		if (category === 'view') return m.image_editor_view();
+		if (category === 'help') return m.image_editor_help();
+		if (category === 'edit') return m.image_editor_edit();
+		if (category === 'layer') return m.image_editor_layer();
+		if (category === 'select') return m.image_editor_select();
+		return m.image_editor_tools_menu();
 	}
 
 	async function copySelection(): Promise<void> {
@@ -2306,7 +2724,7 @@
 			if (!document) return;
 			await placeExternalFiles(
 				[file],
-				{ x: document.width_px / 2, y: document.height_px / 2 },
+				{ x: editor.activePageDimensions.width / 2, y: editor.activePageDimensions.height / 2 },
 				editor.activePageID
 			);
 			return;
@@ -2338,9 +2756,73 @@
 		editor.selectedLayerIDs = copies.map((layer) => layer.id);
 	}
 
+	function isRasterCommand(id: ImageEditorCommandID): id is ImageEditorRasterOperation {
+		return (
+			id === 'rasterize' || id === 'merge_down' || id === 'merge_selected' || id === 'flatten_page'
+		);
+	}
+
+	async function bakeLayers(kind: ImageEditorRasterOperation): Promise<void> {
+		if (!editor.document || !commandEnabled(kind)) return;
+		const plan = prepareRasterOperation(
+			editor.document,
+			editor.activePageID,
+			editor.selectedLayerIDs,
+			kind
+		);
+		if (!plan) return;
+		const designID = editor.id;
+		const workspaceID = editor.workspaceID;
+		const abort = new AbortController();
+		rasterAbort = abort;
+		rasterBusy = true;
+		rasterError = '';
+		try {
+			const snapshot = rasterRenderDocument(plan);
+			const rendered = await renderImageEditorPage(snapshot, snapshot.pages[0], 0, abort.signal);
+			const raster = await cropRasterResult(plan, rendered.blob, abort.signal);
+			if (!editorViewActive || editor.id !== designID || editor.document !== plan.sourceDocument)
+				throw new Error(m.image_editor_raster_stale());
+			const file = new File([raster.blob], rendered.filename, { type: 'image/png' });
+			const media = guestMode
+				? await storeGuestImageEditorMedia(designID, file)
+				: await uploadMediaFile({
+						workspaceId: workspaceID,
+						file,
+						source: 'image_editor_edit',
+						designDocumentId: designID,
+						designPageId: plan.pageID,
+						retentionClass: 'library',
+						signal: abort.signal
+					});
+			abort.signal.throwIfAborted();
+			if (
+				!editorViewActive ||
+				editor.id !== designID ||
+				!editor.commitRasterOperation(plan, media.id, commandLabel(kind), raster.bounds)
+			)
+				throw new Error(m.image_editor_raster_stale());
+			editor.refreshMediaLibrary();
+			statusAnnouncement = m.image_editor_raster_done();
+		} catch (cause) {
+			if (!abort.signal.aborted)
+				rasterError = imageEditorErrorMessage(cause) ?? m.image_editor_page_render_failed();
+		} finally {
+			rasterBusy = false;
+			rasterAbort = null;
+		}
+	}
+
 	async function removeBackground(optimizeLarge = false): Promise<void> {
-		const layer = editor.selectedLayers[0];
+		const layer = editor.selectedLayers.find(
+			(candidate) => candidate.image && !editor.isLayerLocked(candidate.id)
+		);
 		if (!layer?.image || backgroundBusy) return;
+		if (layer.image.animation) {
+			backgroundError = m.image_editor_animation_still_only();
+			statusAnnouncement = backgroundError;
+			return;
+		}
 		backgroundBusy = true;
 		const finishMetric = startImageEditorMetric('background_removal');
 		backgroundError = '';
@@ -2367,7 +2849,10 @@
 				source = await optimizeBackgroundSource(source);
 			}
 			const result = await backgroundRemoval.remove(source, backgroundModelBaseURL, (progress) => {
-				backgroundProgress = `${progress.stage} ${Math.round(progress.progress * 100)}%`;
+				const phase = progress.stage.startsWith('fetch:')
+					? m.video_editor_transcribe_downloading()
+					: m.image_editor_background_removing();
+				backgroundProgress = `${phase} ${Math.round(progress.progress * 100)}%`;
 			});
 			backgroundProgress = m.image_editor_background_saving();
 			const file = new File([result], `${layer.name || 'image'}-no-background.png`, {
@@ -2392,7 +2877,7 @@
 			finishMetric();
 		} catch (cause) {
 			finishMetric('error');
-			backgroundError = cause instanceof Error ? cause.message : m.image_editor_background_failed();
+			backgroundError = imageEditorErrorMessage(cause) ?? m.image_editor_background_failed();
 			statusAnnouncement = backgroundError;
 		} finally {
 			backgroundBusy = false;
@@ -2432,6 +2917,15 @@
 			exportError = m.image_editor_export_budget_exceeded();
 			return;
 		}
+		const pageIDs =
+			exportAllPages && !(coverHandoff && exportMode === 'attach')
+				? editor.document.pages.map((page) => page.id)
+				: [editor.activePageID];
+		const preparedPages = preparedExportPages(editor.document, pageIDs);
+		if (!preparedPages) {
+			exportError = m.image_editor_export_preview_required();
+			return;
+		}
 		const view = captureEditorMutationView();
 		exportBusy = true;
 		const controller = new AbortController();
@@ -2445,25 +2939,18 @@
 			if (!saved && exportMode !== 'download') {
 				throw new Error(m.image_editor_export_save_first());
 			}
-			const pageIDs = exportAllPages
-				? editor.document.pages.map((page) => page.id)
-				: [editor.activePageID];
 			if (exportMode !== 'download') loadExportResumeLedger();
 			const pagesToRender =
 				exportMode === 'download'
 					? pageIDs
 					: pageIDs.filter((pageID) => !exportSuccessfulByPage[pageID]);
-			const rendered = await renderImageEditorPages(
-				editor.document,
-				pagesToRender,
-				(done, total) => {
-					exportProgress = m.image_editor_rendering_progress({ done, total });
-				},
-				controller.signal
-			);
+			const rendered = preparedPages.filter((page) => pagesToRender.includes(page.page.id));
+			controller.signal.throwIfAborted();
 			if (!editorMutationViewIsCurrent(view)) return;
 			if (exportMode === 'download') {
-				await downloadRenderedPages(rendered, editor.document.title);
+				await downloadRenderedPages(rendered, editor.document.title, controller.signal);
+				controller.signal.throwIfAborted();
+				if (!editorMutationViewIsCurrent(view)) return;
 				exportDialogOpen = false;
 				exportSuccessfulByPage = {};
 				suppressSavedAnnouncementUntil = Date.now() + 5_000;
@@ -2553,8 +3040,7 @@
 			});
 			suppressSavedAnnouncementUntil = Date.now() + 5_000;
 			statusAnnouncement = m.image_editor_exported_pages({
-				count: mediaIDs.length,
-				suffix: mediaIDs.length === 1 ? '' : 's'
+				count: mediaIDs.length
 			});
 			finishMetric();
 		} catch (cause) {
@@ -2565,9 +3051,7 @@
 					? m.image_editor_export_cancelled_resume({
 							count: Object.keys(exportSuccessfulByPage).length
 						})
-					: cause instanceof Error
-						? cause.message
-						: m.image_editor_export_failed();
+					: (imageEditorErrorMessage(cause) ?? m.image_editor_export_failed());
 			statusAnnouncement = exportError;
 		} finally {
 			if (exportAbort === controller) {
@@ -2589,8 +3073,9 @@
 	const commandIcons = new Map<ImageEditorCommandID, ToolGlyph>([
 		['tool_select', { kind: 'protected', role: 'editor-select' }],
 		['tool_marquee', { kind: 'protected', role: 'editor-marquee' }],
-		['tool_ellipse_marquee', { kind: 'protected', role: 'pending' }],
+		['tool_ellipse_marquee', { kind: 'protected', role: 'editor-marquee-ellipse' }],
 		['tool_lasso', { kind: 'protected', role: 'editor-lasso' }],
+		['tool_polygonal_lasso', { kind: 'protected', role: 'editor-lasso' }],
 		['tool_magic_wand', { kind: 'protected', role: 'editor-effects' }],
 		['tool_crop', { kind: 'protected', role: 'editor-crop' }],
 		['tool_eyedropper', { kind: 'protected', role: 'editor-eyedropper' }],
@@ -2606,43 +3091,56 @@
 		['tool_zoom', { kind: 'theme', role: 'layout' }]
 	]);
 	const fallbackToolGlyph: ToolGlyph = { kind: 'protected', role: 'editor-select' };
-	const tools = imageEditorCommandsForRail().map((command) => ({
-		command,
-		key: command.tool!,
-		label: commandLabel(command.id),
-		icon: commandIcons.get(command.id) ?? fallbackToolGlyph
+	const railSlots = imageEditorCommandsForRail().map((command) => ({
+		slot: command.railSlot!,
+		command
 	}));
 
 	function mobileToolCommands(group: 'select' | 'draw' | 'retouch') {
 		return imageEditorCommandsForMobileGroup(group);
 	}
 
-	function railSlotCommands(slot: ImageEditorCommandDescriptor['railSlot']) {
-		return IMAGE_EDITOR_COMMANDS.filter((command) => command.railSlot === slot);
+	function railSlotCommands(slot: ImageEditorCommandRailSlot) {
+		return imageEditorCommandsForRailSlot(slot);
+	}
+
+	type RailFamilySlot = 'select' | 'draw' | 'view';
+
+	function railSlotTool(slot: RailFamilySlot): ImageEditorTool {
+		if (slot === 'select') return selectSlotTool;
+		if (slot === 'draw') return drawSlotTool;
+		return viewSlotTool;
+	}
+
+	function railSlotActive(slot: RailFamilySlot, tool: ImageEditorTool): boolean {
+		return railSlotCommands(slot).some((command) => command.tool === tool);
 	}
 
 	function commandTool(command: ImageEditorCommandDescriptor): ImageEditorTool {
 		return command.tool ?? 'select';
 	}
 
-	function isMarqueeTool(
-		tool: ImageEditorTool
-	): tool is Extract<ImageEditorTool, 'marquee' | 'ellipse_marquee'> {
-		return tool === 'marquee' || tool === 'ellipse_marquee';
+	function isSelectSlotTool(tool: ImageEditorTool): tool is SelectSlotTool {
+		return [
+			'select',
+			'marquee',
+			'ellipse_marquee',
+			'lasso',
+			'polygonal_lasso',
+			'magic_wand'
+		].includes(tool);
 	}
 
-	function isFillTool(
-		tool: ImageEditorTool
-	): tool is Extract<ImageEditorTool, 'bucket' | 'gradient'> {
-		return tool === 'bucket' || tool === 'gradient';
+	function isDrawSlotTool(tool: ImageEditorTool): tool is DrawSlotTool {
+		return ['pencil', 'eraser', 'magic_eraser', 'bucket', 'gradient'].includes(tool);
 	}
 
-	function isEraserTool(
-		tool: ImageEditorTool
-	): tool is Extract<ImageEditorTool, 'eraser' | 'magic_eraser'> {
-		return tool === 'eraser' || tool === 'magic_eraser';
+	function isViewSlotTool(tool: ImageEditorTool): tool is ViewSlotTool {
+		return tool === 'hand' || tool === 'zoom';
 	}
 </script>
+
+<svelte:head><title>{editor.document?.title ?? initial.document.title}</title></svelte:head>
 
 {#snippet toolGlyph(glyph: ToolGlyph)}
 	{#if glyph.kind === 'theme'}
@@ -2652,11 +3150,37 @@
 	{/if}
 {/snippet}
 
-{#snippet toolGroupIndicator()}
-	<span
-		aria-hidden="true"
-		class="pointer-events-none absolute right-[3px] bottom-[3px] size-[5px] bg-current opacity-50 [clip-path:polygon(100%_0,100%_100%,0_100%)]"
-	></span>
+{#snippet railSlotFamily(slot: RailFamilySlot, layout: 'rail' | 'bottom')}
+	{@const commands = railSlotCommands(slot)}
+	{@const current = commands.find((command) => command.tool === railSlotTool(slot)) ?? commands[0]!}
+	{@const CurrentIcon = commandIcons.get(current.id) ?? fallbackToolGlyph}
+	<ToolFamilyButton
+		label={commandLabel(current.id)}
+		active={railSlotActive(slot, editor.activeTool)}
+		disabled={!commandEnabled(current.id)}
+		shortcut={layout === 'rail' ? commandShortcut(current.id) : ''}
+		{layout}
+		onclick={() => executeEditorCommand(current.id)}
+	>
+		{#snippet icon()}
+			{@render toolGlyph(CurrentIcon)}
+			{#if layout === 'bottom'}
+				<span class="max-w-full truncate">{commandLabel(current.id)}</span>
+			{/if}
+		{/snippet}
+		{#snippet menu()}
+			{#each commands as command (command.id)}
+				{@const CommandIcon = commandIcons.get(command.id) ?? fallbackToolGlyph}
+				<DropdownMenu.Item
+					onclick={() => executeEditorCommand(command.id)}
+					disabled={!commandEnabled(command.id)}
+				>
+					{@render toolGlyph(CommandIcon)}{commandLabel(command.id)}
+					<span class="ml-auto text-xs text-muted-foreground">{commandShortcut(command.id)}</span>
+				</DropdownMenu.Item>
+			{/each}
+		{/snippet}
+	</ToolFamilyButton>
 {/snippet}
 
 <svelte:window
@@ -2668,8 +3192,11 @@
 />
 
 <div
-	class="image-editor-theme fixed inset-0 flex min-h-0 flex-col overflow-hidden bg-background text-foreground"
+	class="image-editor-theme fixed inset-0 flex min-h-0 flex-col overflow-hidden bg-background text-foreground {imageAIStudioOpen
+		? 'pb-[50dvh] lg:pb-0'
+		: ''}"
 	data-testid="image-editor-shell"
+	data-agent-status={agentConnectionStatus}
 	{@attach initializeShell}
 >
 	<div class="sr-only" aria-live="polite">{statusAnnouncement}</div>
@@ -2700,6 +3227,164 @@
 				onchange={(value) =>
 					editor.mutate('Rename design', (document) => (document.title = value), 'document-title')}
 			/>
+			<EditorMenubar class="hidden min-w-0 shrink-0 lg:flex" ariaLabel={m.image_editor_menus()}>
+				<Menubar.Menu value="file">
+					<Menubar.Trigger>{m.image_editor_file()}</Menubar.Trigger>
+					<Menubar.Content class="min-w-48 data-[state=closed]:hidden">
+						{#each imageEditorCommandsForCategory('file').filter(commandVisible) as command (command.id)}
+							{#if command.separatorBefore}<Menubar.Separator />{/if}
+							<Menubar.Item
+								onSelect={() => executeEditorCommand(command.id)}
+								disabled={!commandEnabled(command.id)}
+								title={commandDisabledReason(command.id) || undefined}
+							>
+								{#if command.id === 'save'}<ThemeIcon role="save" />{/if}
+								{#if command.id === 'export_design'}<ThemeIcon role="download" />{/if}
+								{commandMenuLabel(command.id)}
+								{#if commandShortcut(command.id)}
+									<Menubar.Shortcut>{commandShortcut(command.id)}</Menubar.Shortcut>
+								{/if}
+							</Menubar.Item>
+						{/each}
+					</Menubar.Content>
+				</Menubar.Menu>
+				<Menubar.Menu value="edit">
+					<Menubar.Trigger>{m.image_editor_edit()}</Menubar.Trigger>
+					<Menubar.Content class="min-w-44">
+						{#each imageEditorCommandsForCategory('edit') as command (command.id)}
+							{#if command.separatorBefore}<Menubar.Separator />{/if}
+							<Menubar.Item
+								onSelect={() => executeEditorCommand(command.id)}
+								disabled={!commandEnabled(command.id)}
+								title={commandDisabledReason(command.id) || undefined}
+							>
+								{commandMenuLabel(command.id)}
+								<Menubar.Shortcut>{commandShortcut(command.id)}</Menubar.Shortcut>
+							</Menubar.Item>
+						{/each}
+					</Menubar.Content>
+				</Menubar.Menu>
+				<Menubar.Menu value="layer">
+					<Menubar.Trigger>{m.image_editor_layer()}</Menubar.Trigger>
+					<Menubar.Content class="min-w-48">
+						{#each imageEditorCommandsForCategory('layer') as command (command.id)}
+							{#if command.separatorBefore}<Menubar.Separator />{/if}
+							<Menubar.Item
+								onSelect={() => executeEditorCommand(command.id)}
+								disabled={!commandEnabled(command.id)}
+								title={commandDisabledReason(command.id) || undefined}
+							>
+								{#if command.id === 'group'}<ProtectedIcon icon="editor-group" />{/if}
+								{#if command.id === 'ungroup'}<ProtectedIcon icon="editor-ungroup" />{/if}
+								{#if command.id === 'remove_background'}<ProtectedIcon icon="editor-effects" />{/if}
+								{commandLabel(command.id)}
+								<Menubar.Shortcut>{commandShortcut(command.id)}</Menubar.Shortcut>
+							</Menubar.Item>
+						{/each}
+						<Menubar.Separator />
+						<p class="max-w-64 px-2 py-1.5 text-xs text-muted-foreground">
+							{m.image_editor_raster_help()}
+						</p>
+					</Menubar.Content>
+				</Menubar.Menu>
+				<Menubar.Menu value="select">
+					<Menubar.Trigger>{m.image_editor_select()}</Menubar.Trigger>
+					<Menubar.Content class="min-w-48">
+						{#each imageEditorCommandsForCategory('select') as command (command.id)}
+							{#if command.separatorBefore}<Menubar.Separator />{/if}
+							<Menubar.Item
+								onSelect={() => executeEditorCommand(command.id)}
+								disabled={!commandEnabled(command.id)}
+								title={commandDisabledReason(command.id) || undefined}
+							>
+								{commandLabel(command.id)}
+								<Menubar.Shortcut>{commandShortcut(command.id)}</Menubar.Shortcut>
+							</Menubar.Item>
+						{/each}
+					</Menubar.Content>
+				</Menubar.Menu>
+				<Menubar.Menu value="tools">
+					<Menubar.Trigger>{m.image_editor_tools_menu()}</Menubar.Trigger>
+					<Menubar.Content class="min-w-52">
+						{#each imageEditorCommandsForCategory('tools') as command (command.id)}
+							<Menubar.Item
+								onSelect={() => executeEditorCommand(command.id)}
+								disabled={!commandEnabled(command.id)}
+								title={commandDisabledReason(command.id) || undefined}
+							>
+								{commandLabel(command.id)}
+								<Menubar.Shortcut>{commandShortcut(command.id)}</Menubar.Shortcut>
+							</Menubar.Item>
+						{/each}
+					</Menubar.Content>
+				</Menubar.Menu>
+				<Menubar.Menu value="view">
+					<Menubar.Trigger>{m.image_editor_view()}</Menubar.Trigger>
+					<Menubar.Content class="min-w-48">
+						{#each imageEditorCommandsForCategory('view').filter((command) => (command.menuOrder ?? 0) <= 60) as command (command.id)}
+							{#if command.separatorBefore}<Menubar.Separator />{/if}
+							<Menubar.CheckboxItem
+								checked={commandChecked(command.id)}
+								onCheckedChange={(checked) => setCommandChecked(command.id, checked)}
+							>
+								{commandLabel(command.id)}
+								{#if command.id === 'toggle_snapping'}
+									<Menubar.Shortcut>{shortcutModifier} drag</Menubar.Shortcut>
+								{/if}
+							</Menubar.CheckboxItem>
+						{/each}
+						<Menubar.Sub>
+							<Menubar.SubTrigger>{m.image_editor_grid_spacing()}</Menubar.SubTrigger>
+							<Menubar.SubContent>
+								{#each [10, 25, 50, 100, 200] as size (size)}
+									<Menubar.Item
+										onclick={() => {
+											editor.gridSize = size;
+											storeViewPreferences();
+										}}
+									>
+										{size} px{editor.gridSize === size ? ' ✓' : ''}
+									</Menubar.Item>
+								{/each}
+							</Menubar.SubContent>
+						</Menubar.Sub>
+						{#each imageEditorCommandsForCategory('view').filter((command) => (command.menuOrder ?? 0) > 60) as command (command.id)}
+							{#if command.separatorBefore}<Menubar.Separator />{/if}
+							{#if command.id === 'focus_canvas'}
+								<Menubar.CheckboxItem
+									checked={commandChecked(command.id)}
+									onCheckedChange={(checked) => setCommandChecked(command.id, checked)}
+								>
+									{commandLabel(command.id)}
+									<Menubar.Shortcut>{commandShortcut(command.id)}</Menubar.Shortcut>
+								</Menubar.CheckboxItem>
+							{:else}
+								<Menubar.Item
+									onSelect={() => executeEditorCommand(command.id)}
+									disabled={!commandEnabled(command.id)}
+									title={commandDisabledReason(command.id) || undefined}
+								>
+									{commandLabel(command.id)}
+									{#if commandShortcut(command.id)}
+										<Menubar.Shortcut>{commandShortcut(command.id)}</Menubar.Shortcut>
+									{/if}
+								</Menubar.Item>
+							{/if}
+						{/each}
+					</Menubar.Content>
+				</Menubar.Menu>
+				<Menubar.Menu value="help">
+					<Menubar.Trigger>{m.image_editor_help()}</Menubar.Trigger>
+					<Menubar.Content class="min-w-48">
+						{#each imageEditorCommandsForCategory('help') as command (command.id)}
+							<Menubar.Item onSelect={() => executeEditorCommand(command.id)}>
+								<ThemeIcon role="help" />
+								{commandLabel(command.id)}
+							</Menubar.Item>
+						{/each}
+					</Menubar.Content>
+				</Menubar.Menu>
+			</EditorMenubar>
 		{/snippet}
 		{#snippet workspaces()}
 			<EditorWorkspaceTabs
@@ -2722,38 +3407,63 @@
 				onvaluechange={(workspace) => {
 					activeEditorWorkspace = workspace === 'color' ? 'color' : 'edit';
 					if (activeEditorWorkspace === 'color') {
+						setTool('select');
 						editor.rightPanelVisible = true;
-						if (window.innerWidth < 1024) mobileSheet = 'properties';
+						if (window.innerWidth < 1024) mobileSheet = null;
+						requestAnimationFrame(() => {
+							constrainLayersPanelHeightFromDom();
+							storePanelLayout();
+						});
 					}
 				}}
 			/>
 		{/snippet}
 		{#snippet actions()}
-			<SaveIndicator
-				saving={editor.saveState === 'saving'}
-				saved={editor.saveState === 'saved'}
-				savingLabel={m.common_saving()}
-				savedLabel={guestMode ? m.image_editor_public_saved_device() : m.image_editor_saved()}
-				class="max-sm:px-0"
-				testId="image-editor-save-indicator"
-			/>
-			{#if ['local', 'offline', 'conflict', 'error'].includes(editor.saveState)}
-				<div
-					class="hidden max-w-52 min-w-0 items-center gap-1.5 truncate px-2 text-xs text-muted-foreground sm:flex"
-					title={editor.saveMessage}
-				>
-					<span class="size-1.5 shrink-0 rounded-full bg-amber-500"></span>
-					<span class="truncate">{editor.saveMessage}</span>
-				</div>
+			{#if $auth.user && editor.canEdit}
+				<ImageAIStudio
+					bind:this={imageAIStudio}
+					bind:open={imageAIStudioOpen}
+					{guestMode}
+					onSaveToOpenPost={saveToOpenPost}
+				/>
 			{/if}
+			{#if !guestMode && editor.canEdit}
+				<ImageEditorAssistant
+					workspaceId={editor.workspaceID}
+					projectId={editor.id}
+					sessionId={agentSessionID}
+					status={agentConnectionStatus}
+				/>
+			{/if}
+			<Button
+				variant="ghost"
+				size="icon-sm"
+				class="relative size-8 shrink-0 [@media(pointer:coarse)]:size-11"
+				title={editor.saveMessage || saveStateIconLabel()}
+				aria-label={editor.saveMessage || saveStateIconLabel()}
+				data-testid="image-editor-save-indicator"
+				data-state={editor.saveState}
+				role="status"
+			>
+				{#if editor.saveState === 'saving'}
+					<ThemeIcon role="refresh" class="motion-safe:animate-spin" />
+				{:else if editor.saveState === 'saved'}
+					<ThemeIcon role="check" class="text-success-foreground" />
+				{:else if editor.saveState === 'error' || editor.saveState === 'conflict'}
+					<ThemeIcon role="save" class="text-destructive" />
+				{:else}
+					<ThemeIcon role="save" class="text-warning-foreground" />
+				{/if}
+			</Button>
 
-			<div class="flex items-center gap-1">
+			<div class="flex items-center gap-2">
 				<Button
 					variant="ghost"
 					size="icon-sm"
 					class="hidden size-8 xl:inline-flex [@media(pointer:coarse)]:size-11"
 					onclick={undoEditor}
 					disabled={!editor.canUndo}
+					title={commandMenuLabel('undo')}
 					aria-label={editor.undoLabel
 						? m.image_editor_undo_named({ name: editor.undoLabel })
 						: m.image_editor_undo()}><ThemeIcon role="undo" /></Button
@@ -2764,27 +3474,16 @@
 					class="hidden size-8 xl:inline-flex [@media(pointer:coarse)]:size-11"
 					onclick={redoEditor}
 					disabled={!editor.canRedo}
+					title={commandMenuLabel('redo')}
 					aria-label={editor.redoLabel
 						? m.image_editor_redo_named({ name: editor.redoLabel })
 						: m.image_editor_redo()}><ThemeIcon role="redo" /></Button
 				>
-				<Button
-					variant="default"
-					size="sm"
-					class="size-11 px-0 sm:h-8 sm:w-auto sm:px-2.5 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:min-w-11"
-					aria-label={returnToken ? m.image_editor_attach() : m.image_editor_export()}
-					onclick={() => openExport(returnToken && editor.canEdit ? 'attach' : 'download')}
-				>
-					<ThemeIcon role="download" class="size-3.5" />
-					<span class="hidden sm:inline"
-						>{#if returnToken}{m.image_editor_attach()}{:else}{m.image_editor_export()}{/if}</span
-					>
-				</Button>
 				{#if !guestMode}
 					<Button
 						variant="ghost"
 						size="icon-sm"
-						class="size-11 md:size-8 [@media(pointer:coarse)]:size-11"
+						class="hidden size-11 sm:inline-flex md:size-8 [@media(pointer:coarse)]:size-11"
 						aria-label={m.feedback_open()}
 						title={m.feedback_open()}
 						onclick={() => ui.openFeedback()}
@@ -2792,7 +3491,7 @@
 						<ThemeIcon role="feedback" />
 					</Button>
 				{/if}
-				<DropdownMenu.Root>
+				<DropdownMenu.Root onOpenChange={() => (compactMenuSection = null)}>
 					<DropdownMenu.Trigger>
 						{#snippet child({ props })}
 							<Button
@@ -2806,88 +3505,113 @@
 							</Button>
 						{/snippet}
 					</DropdownMenu.Trigger>
-					<DropdownMenu.Content align="end">
-						<div class="w-64 p-1 md:hidden">
-							<EditorTitleInput
-								value={editor.document?.title ?? ''}
-								class="h-11 w-full"
-								ariaLabel={m.image_editor_design_title()}
-								disabled={!editor.canEdit}
-								onkeydown={(event) => {
-									if (event.key !== 'Escape' && event.key !== 'Tab') event.stopPropagation();
-								}}
-								onchange={(value) =>
-									editor.mutate(
-										'Rename design',
-										(document) => (document.title = value),
-										'document-title'
-									)}
-							/>
-						</div>
-						<DropdownMenu.Separator class="md:hidden" />
-						{#each imageEditorCommandsForCategory('edit').filter((command) => command.id === 'undo' || command.id === 'redo') as command (command.id)}
+					<DropdownMenu.Content
+						align="end"
+						bind:ref={compactMenuContent}
+						class="max-h-[calc(100dvh-1rem)] w-72 max-w-[calc(100vw-1rem)] overflow-y-auto"
+					>
+						{#if compactMenuSection}
 							<DropdownMenu.Item
-								onclick={() => executeEditorCommand(command.id)}
-								disabled={!commandEnabled(command.id)}
-								title={commandDisabledReason(command.id) || undefined}
+								bind:ref={compactMenuBack}
+								closeOnSelect={false}
+								onSelect={backToCompactMenu}
+								class="[@media(pointer:coarse)]:min-h-11"
 							>
-								<ThemeIcon role={command.id === 'undo' ? 'undo' : 'redo'} />
-								{commandMenuLabel(command.id)}
+								<ThemeIcon role="chevron-left" />{m.common_back()}
 							</DropdownMenu.Item>
-						{/each}
-						<DropdownMenu.Separator />
-						{#each imageEditorCommandsForCategory('file').filter(commandVisible) as command (command.id)}
-							{#if command.separatorBefore}<DropdownMenu.Separator />{/if}
-							<DropdownMenu.Item
-								onclick={() => executeEditorCommand(command.id)}
-								disabled={!commandEnabled(command.id)}
-								title={commandDisabledReason(command.id) || undefined}
+							<DropdownMenu.Label
+								>{compactCommandCategoryLabel(compactMenuSection)}</DropdownMenu.Label
 							>
-								{commandMenuLabel(command.id)}
-							</DropdownMenu.Item>
-						{/each}
-						<DropdownMenu.Separator />
-						<DropdownMenu.Item onclick={() => (mobileSheet = 'layers')}
-							>{m.image_editor_layers()}</DropdownMenu.Item
-						>
-						<DropdownMenu.Item onclick={() => (mobileSheet = 'properties')}
-							>{m.image_editor_properties()}</DropdownMenu.Item
-						>
-						<DropdownMenu.Separator />
-						{#each imageEditorCommandsForCategory('view') as command (command.id)}
-							{#if command.menuKind === 'checkbox' || command.id === 'focus_canvas'}
-								<DropdownMenu.CheckboxItem
-									checked={commandChecked(command.id)}
-									onCheckedChange={(checked) => setCommandChecked(command.id, checked)}
+							{#each (compactMenuSection === 'file' || compactMenuSection === 'view' || compactMenuSection === 'help' ? imageEditorCommandsForCategory(compactMenuSection) : imageEditorCommandsForCompactMenu().filter((command) => command.category === compactMenuSection))
+								.filter(commandVisible)
+								.filter((command) => command.id !== 'version_history') as command (command.id)}
+								{#if command.separatorBefore}<DropdownMenu.Separator />{/if}
+								{#if command.menuKind === 'checkbox' || command.id === 'focus_canvas'}
+									<DropdownMenu.CheckboxItem
+										class="[@media(pointer:coarse)]:min-h-11"
+										checked={commandChecked(command.id)}
+										onCheckedChange={(checked) => setCommandChecked(command.id, checked)}
+										>{commandLabel(command.id)}</DropdownMenu.CheckboxItem
+									>
+								{:else}
+									<DropdownMenu.Item
+										class="[@media(pointer:coarse)]:min-h-11"
+										onSelect={() => executeEditorCommand(command.id)}
+										disabled={!commandEnabled(command.id)}
+										title={commandDisabledReason(command.id) || undefined}
+									>
+										{commandMenuLabel(command.id)}
+										{#if commandShortcut(command.id)}<span
+												class="ml-auto text-xs text-muted-foreground"
+												>{commandShortcut(command.id)}</span
+											>{/if}
+									</DropdownMenu.Item>
+								{/if}
+							{/each}
+							{#if compactMenuSection === 'layer'}<p
+									class="max-w-64 px-2 py-1.5 text-xs text-muted-foreground"
 								>
-									{commandLabel(command.id)}
-								</DropdownMenu.CheckboxItem>
-							{:else}
+									{m.image_editor_raster_help()}
+								</p>{/if}
+						{:else}
+							<div class="w-64 p-1 md:hidden">
+								<EditorTitleInput
+									value={editor.document?.title ?? ''}
+									class="h-11 w-full"
+									ariaLabel={m.image_editor_design_title()}
+									disabled={!editor.canEdit}
+									onkeydown={(event) => {
+										if (event.key !== 'Escape' && event.key !== 'Tab') event.stopPropagation();
+									}}
+									onchange={(value) =>
+										editor.mutate(
+											'Rename design',
+											(document) => (document.title = value),
+											'document-title'
+										)}
+								/>
+							</div>
+							<DropdownMenu.Separator class="md:hidden" />
+							{#if commandVisible(imageEditorCommand('version_history'))}
 								<DropdownMenu.Item
-									onclick={() => executeEditorCommand(command.id)}
-									disabled={!commandEnabled(command.id)}
-									title={commandDisabledReason(command.id) || undefined}
+									class="[@media(pointer:coarse)]:min-h-11"
+									onSelect={() => executeEditorCommand('version_history')}
+									>{commandLabel('version_history')}</DropdownMenu.Item
 								>
-									{commandLabel(command.id)}
+							{/if}
+							{#each compactMenuSections as category (category)}
+								<DropdownMenu.Item
+									class="[@media(pointer:coarse)]:min-h-11"
+									bind:ref={compactMenuItems[category]}
+									closeOnSelect={false}
+									onSelect={() => openCompactMenuSection(category)}
+								>
+									{compactCommandCategoryLabel(category)}<ThemeIcon
+										role="chevron-right"
+										class="ml-auto"
+									/>
+								</DropdownMenu.Item>
+							{/each}
+							<DropdownMenu.Item
+								class="lg:hidden [@media(pointer:coarse)]:min-h-11"
+								onSelect={() => (mobileSheet = 'layers')}
+								>{m.image_editor_layers()}</DropdownMenu.Item
+							>
+							<DropdownMenu.Item
+								class="lg:hidden [@media(pointer:coarse)]:min-h-11"
+								onSelect={openProperties}>{m.image_editor_properties()}</DropdownMenu.Item
+							>
+							{#if !guestMode}
+								<DropdownMenu.Item
+									class="sm:hidden [@media(pointer:coarse)]:min-h-11"
+									onSelect={() => ui.openFeedback()}
+								>
+									<ThemeIcon role="feedback" />
+									{m.feedback_open()}
 								</DropdownMenu.Item>
 							{/if}
-						{/each}
-						{#each imageEditorCommandsForCategory('layer').filter((command) => command.id === 'remove_background') as command (command.id)}
-							<DropdownMenu.Item
-								onclick={() => executeEditorCommand(command.id)}
-								disabled={!commandEnabled(command.id)}
-								title={commandDisabledReason(command.id) || undefined}
-							>
-								{commandLabel(command.id)}
-							</DropdownMenu.Item>
-						{/each}
-						<DropdownMenu.Separator />
-						{#each imageEditorCommandsForCategory('help') as command (command.id)}
-							<DropdownMenu.Item onclick={() => executeEditorCommand(command.id)}>
-								<ThemeIcon role="help" />
-								{commandLabel(command.id)}
-							</DropdownMenu.Item>
-						{/each}
+							<DropdownMenu.Separator />
+						{/if}
 					</DropdownMenu.Content>
 				</DropdownMenu.Root>
 				{#if guestMode}
@@ -2900,134 +3624,30 @@
 						{m.image_editor_public_save_openpost()}
 					</Button>
 				{/if}
+				<Button
+					variant="default"
+					size="sm"
+					class="size-11 px-0 sm:h-8 sm:w-auto sm:px-2.5 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:min-w-11"
+					aria-label={returnToken ? attachLabel : m.image_editor_export()}
+					onclick={() => openExport(returnToken && editor.canEdit ? 'attach' : 'download')}
+				>
+					<ThemeIcon role="download" class="size-3.5" />
+					<span class="hidden sm:inline"
+						>{#if returnToken}{attachLabel}{:else}{m.image_editor_export()}{/if}</span
+					>
+				</Button>
 			</div>
 		{/snippet}
 	</EditorHeader>
-	<div class="hidden shrink-0 border-b bg-card px-3 lg:block">
-		<EditorMenubar class="ml-1" ariaLabel={m.image_editor_menus()}>
-			<Menubar.Menu value="file">
-				<Menubar.Trigger>{m.image_editor_file()}</Menubar.Trigger>
-				<Menubar.Content class="min-w-48">
-					{#each imageEditorCommandsForCategory('file').filter(commandVisible) as command (command.id)}
-						{#if command.separatorBefore}<Menubar.Separator />{/if}
-						<Menubar.Item
-							onclick={() => executeEditorCommand(command.id)}
-							disabled={!commandEnabled(command.id)}
-							title={commandDisabledReason(command.id) || undefined}
-						>
-							{#if command.id === 'save'}<ThemeIcon role="save" />{/if}
-							{#if command.id === 'export_design'}<ThemeIcon role="download" />{/if}
-							{commandMenuLabel(command.id)}
-							{#if commandShortcut(command.id)}
-								<Menubar.Shortcut>{commandShortcut(command.id)}</Menubar.Shortcut>
-							{/if}
-						</Menubar.Item>
-					{/each}
-				</Menubar.Content>
-			</Menubar.Menu>
-			<Menubar.Menu value="edit">
-				<Menubar.Trigger>{m.image_editor_edit()}</Menubar.Trigger>
-				<Menubar.Content class="min-w-44">
-					{#each imageEditorCommandsForCategory('edit') as command (command.id)}
-						{#if command.separatorBefore}<Menubar.Separator />{/if}
-						<Menubar.Item
-							onclick={() => executeEditorCommand(command.id)}
-							disabled={!commandEnabled(command.id)}
-							title={commandDisabledReason(command.id) || undefined}
-						>
-							{commandMenuLabel(command.id)}
-							<Menubar.Shortcut>{commandShortcut(command.id)}</Menubar.Shortcut>
-						</Menubar.Item>
-					{/each}
-				</Menubar.Content>
-			</Menubar.Menu>
-			<Menubar.Menu value="layer">
-				<Menubar.Trigger>{m.image_editor_layer()}</Menubar.Trigger>
-				<Menubar.Content class="min-w-48">
-					{#each imageEditorCommandsForCategory('layer') as command (command.id)}
-						{#if command.separatorBefore}<Menubar.Separator />{/if}
-						<Menubar.Item
-							onclick={() => executeEditorCommand(command.id)}
-							disabled={!commandEnabled(command.id)}
-							title={commandDisabledReason(command.id) || undefined}
-						>
-							{#if command.id === 'group'}<ProtectedIcon icon="editor-group" />{/if}
-							{#if command.id === 'ungroup'}<ProtectedIcon icon="editor-ungroup" />{/if}
-							{#if command.id === 'remove_background'}<ProtectedIcon icon="editor-effects" />{/if}
-							{commandLabel(command.id)}
-							<Menubar.Shortcut>{commandShortcut(command.id)}</Menubar.Shortcut>
-						</Menubar.Item>
-					{/each}
-				</Menubar.Content>
-			</Menubar.Menu>
-			<Menubar.Menu value="view">
-				<Menubar.Trigger>{m.image_editor_view()}</Menubar.Trigger>
-				<Menubar.Content class="min-w-48">
-					{#each imageEditorCommandsForCategory('view').filter((command) => (command.menuOrder ?? 0) <= 60) as command (command.id)}
-						{#if command.separatorBefore}<Menubar.Separator />{/if}
-						<Menubar.CheckboxItem
-							checked={commandChecked(command.id)}
-							onCheckedChange={(checked) => setCommandChecked(command.id, checked)}
-						>
-							{commandLabel(command.id)}
-							{#if command.id === 'toggle_snapping'}
-								<Menubar.Shortcut>{shortcutModifier} drag</Menubar.Shortcut>
-							{/if}
-						</Menubar.CheckboxItem>
-					{/each}
-					<Menubar.Sub>
-						<Menubar.SubTrigger>{m.image_editor_grid_spacing()}</Menubar.SubTrigger>
-						<Menubar.SubContent>
-							{#each [10, 25, 50, 100, 200] as size (size)}
-								<Menubar.Item
-									onclick={() => {
-										editor.gridSize = size;
-										storeViewPreferences();
-									}}
-								>
-									{size} px{editor.gridSize === size ? ' ✓' : ''}
-								</Menubar.Item>
-							{/each}
-						</Menubar.SubContent>
-					</Menubar.Sub>
-					{#each imageEditorCommandsForCategory('view').filter((command) => (command.menuOrder ?? 0) > 60) as command (command.id)}
-						{#if command.separatorBefore}<Menubar.Separator />{/if}
-						{#if command.id === 'focus_canvas'}
-							<Menubar.CheckboxItem
-								checked={commandChecked(command.id)}
-								onCheckedChange={(checked) => setCommandChecked(command.id, checked)}
-							>
-								{commandLabel(command.id)}
-								<Menubar.Shortcut>{commandShortcut(command.id)}</Menubar.Shortcut>
-							</Menubar.CheckboxItem>
-						{:else}
-							<Menubar.Item
-								onclick={() => executeEditorCommand(command.id)}
-								disabled={!commandEnabled(command.id)}
-								title={commandDisabledReason(command.id) || undefined}
-							>
-								{commandLabel(command.id)}
-								{#if commandShortcut(command.id)}
-									<Menubar.Shortcut>{commandShortcut(command.id)}</Menubar.Shortcut>
-								{/if}
-							</Menubar.Item>
-						{/if}
-					{/each}
-				</Menubar.Content>
-			</Menubar.Menu>
-			<Menubar.Menu value="help">
-				<Menubar.Trigger>{m.image_editor_help()}</Menubar.Trigger>
-				<Menubar.Content class="min-w-48">
-					{#each imageEditorCommandsForCategory('help') as command (command.id)}
-						<Menubar.Item onclick={() => executeEditorCommand(command.id)}>
-							<ThemeIcon role="help" />
-							{commandLabel(command.id)}
-						</Menubar.Item>
-					{/each}
-				</Menubar.Content>
-			</Menubar.Menu>
-		</EditorMenubar>
-	</div>
+	{#if ['local', 'offline', 'conflict', 'error'].includes(editor.saveState)}
+		<div
+			class="flex shrink-0 items-center gap-2 border-b bg-muted px-3 py-2 text-xs sm:hidden"
+			role="status"
+		>
+			<span class="size-1.5 shrink-0 rounded-full bg-warning-foreground"></span>
+			<span>{editor.saveMessage}</span>
+		</div>
+	{/if}
 
 	{#if !editor.canEdit}
 		<div class="border-b bg-muted px-3 py-2 text-center text-xs">
@@ -3036,7 +3656,7 @@
 	{/if}
 	{#if recoveryError || concurrentTabWarning}
 		<div
-			class="flex flex-wrap items-center justify-center gap-2 border-b border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs"
+			class="flex flex-wrap items-center justify-center gap-2 border-b bg-warning px-3 py-2 text-xs text-warning-foreground"
 			role="alert"
 		>
 			<span>{recoveryError || concurrentTabWarning}</span>
@@ -3101,6 +3721,22 @@
 				{m.common_dismiss()}
 			</Button>
 		</div>
+	{/if}
+	{#if rasterBusy}
+		<InlineNotice message={m.image_editor_raster_busy()} class="rounded-none border-x-0 border-t-0">
+			{#snippet actions()}<Button variant="ghost" size="xs" onclick={() => rasterAbort?.abort()}
+					>{m.common_cancel()}</Button
+				>{/snippet}
+		</InlineNotice>
+	{/if}
+	{#if rasterError}
+		<InlineNotice
+			tone="error"
+			message={rasterError}
+			onDismiss={() => (rasterError = '')}
+			dismissLabel={m.common_dismiss()}
+			class="rounded-none border-x-0 border-t-0"
+		/>
 	{/if}
 	{#if backgroundError}
 		<div
@@ -3176,331 +3812,118 @@
 		data-focused={focusedCanvas}
 		data-inspector={editor.rightPanelVisible}
 		data-workspace={activeEditorWorkspace}
-		style:--image-editor-assets-width={`${assetPanelWidth}px`}
 		style:--image-editor-inspector-width={`${inspectorPanelWidth}px`}
+		style:--image-editor-mobile-pages-height={pagesExpanded ? '8.75rem' : '2.75rem'}
 	>
 		<nav
-			class="hidden min-h-0 flex-col items-center gap-1 border-r bg-card py-2 lg:flex"
+			class="no-scrollbar hidden min-h-0 flex-col items-center gap-1 overflow-y-auto border-r bg-card py-2 lg:flex"
 			aria-label={m.image_editor_tools()}
 		>
-			{#each tools as tool (tool.key)}
-				{@const ToolIcon = commandIcons.get(tool.command.id) ?? fallbackToolGlyph}
-				{#if tool.key === 'select'}
-					<Tooltip.Root>
-						<Tooltip.Trigger>
-							{#snippet child({ props })}
-								<Button
-									{...props}
-									variant={editor.activeTool === 'select' ? 'secondary' : 'ghost'}
-									size="icon-sm"
-									onclick={() => executeEditorCommand(tool.command.id)}
-									aria-label={commandLabel(tool.command.id)}
-									aria-pressed={editor.activeTool === 'select'}
-									disabled={!commandEnabled(tool.command.id)}
-									title={commandDisabledReason(tool.command.id) || undefined}
-								>
-									<ProtectedIcon icon="editor-select" />
-								</Button>
-							{/snippet}
-						</Tooltip.Trigger>
-						<Tooltip.Content side="right">{commandTooltip(tool.command.id)}</Tooltip.Content>
-					</Tooltip.Root>
-				{:else if tool.key === 'marquee'}
-					<ContextMenu.Root>
-						<Tooltip.Root>
-							<Tooltip.Trigger>
-								{#snippet child({ props: tooltipProps })}
-									<ContextMenu.Trigger>
-										{#snippet child({ props: menuProps })}
-											<Button
-												{...tooltipProps}
-												{...menuProps}
-												variant={isMarqueeTool(editor.activeTool) ? 'secondary' : 'ghost'}
-												size="icon-sm"
-												class="relative"
-												onclick={() =>
-													executeEditorCommand(
-														marqueeSlotTool === 'ellipse_marquee'
-															? 'tool_ellipse_marquee'
-															: 'tool_marquee'
-													)}
-												aria-label={commandLabel(
-													marqueeSlotTool === 'ellipse_marquee'
-														? 'tool_ellipse_marquee'
-														: 'tool_marquee'
-												)}
-												aria-pressed={isMarqueeTool(editor.activeTool)}
-											>
-												{#if marqueeSlotTool === 'marquee'}
-													<ProtectedIcon icon="editor-marquee" />
-												{:else}
-													<ProtectedIcon icon="pending" />
-												{/if}
-												{@render toolGroupIndicator()}
-											</Button>
-										{/snippet}
-									</ContextMenu.Trigger>
-								{/snippet}
-							</Tooltip.Trigger>
-							<Tooltip.Content side="right">
-								{commandTooltip(
-									marqueeSlotTool === 'ellipse_marquee' ? 'tool_ellipse_marquee' : 'tool_marquee'
-								)}
-							</Tooltip.Content>
-						</Tooltip.Root>
-						<ContextMenu.Portal>
-							<ContextMenu.Content class={TOOL_CONTEXT_MENU_CLASS}>
-								{#each railSlotCommands('pixel_select') as command (command.id)}
-									{@const CommandIcon = commandIcons.get(command.id) ?? fallbackToolGlyph}
-									<ContextMenu.Item
-										class={TOOL_CONTEXT_MENU_ITEM_CLASS}
-										onclick={() => executeEditorCommand(command.id)}
-										disabled={!commandEnabled(command.id)}
-									>
-										{@render toolGlyph(CommandIcon)}
-										{commandLabel(command.id)}
-										<span class="ml-auto text-xs text-muted-foreground"
-											>{commandShortcut(command.id)}</span
-										>
-									</ContextMenu.Item>
-								{/each}
-							</ContextMenu.Content>
-						</ContextMenu.Portal>
-					</ContextMenu.Root>
-				{:else if tool.key === 'shape'}
-					<ContextMenu.Root>
-						<Tooltip.Root>
-							<Tooltip.Trigger>
-								{#snippet child({ props: tooltipProps })}
-									<ContextMenu.Trigger disabled={!commandEnabled(tool.command.id)}>
-										{#snippet child({ props: menuProps })}
-											<Button
-												{...tooltipProps}
-												{...menuProps}
-												variant="ghost"
-												size="icon-sm"
-												class="relative"
-												onclick={() => executeEditorCommand(tool.command.id)}
-												aria-label={commandLabel(tool.command.id)}
-												disabled={!commandEnabled(tool.command.id)}
-												title={commandDisabledReason(tool.command.id) || undefined}
-											>
-												{#if shapeSlotKind === 'ellipse'}
-													<ProtectedIcon icon="editor-shapes" />
-												{:else if shapeSlotKind === 'line'}
-													<ThemeIcon role="remove" />
-												{:else}
-													<ProtectedIcon icon="editor-shapes" />
-												{/if}
-												{@render toolGroupIndicator()}
-											</Button>
-										{/snippet}
-									</ContextMenu.Trigger>
-								{/snippet}
-							</Tooltip.Trigger>
-							<Tooltip.Content side="right">{commandTooltip(tool.command.id)}</Tooltip.Content>
-						</Tooltip.Root>
-						<ContextMenu.Portal>
-							<ContextMenu.Content class={TOOL_CONTEXT_MENU_CLASS}>
-								<ContextMenu.Item
-									class={TOOL_CONTEXT_MENU_ITEM_CLASS}
-									onclick={() => insertShape('rectangle')}
-								>
-									<ProtectedIcon icon="editor-shapes" />
-									{m.image_editor_rectangle()}
-									<span class="ml-auto text-xs text-muted-foreground">U</span>
-								</ContextMenu.Item>
-								<ContextMenu.Item
-									class={TOOL_CONTEXT_MENU_ITEM_CLASS}
-									onclick={() => insertShape('rounded_rectangle')}
-								>
-									<ProtectedIcon icon="editor-shapes" />
-									{m.image_editor_rounded_rectangle()}
-								</ContextMenu.Item>
-								<ContextMenu.Item
-									class={TOOL_CONTEXT_MENU_ITEM_CLASS}
-									onclick={() => insertShape('ellipse')}
-								>
-									<ProtectedIcon icon="editor-shapes" />
-									{m.image_editor_ellipse()}
-								</ContextMenu.Item>
-								<ContextMenu.Item
-									class={TOOL_CONTEXT_MENU_ITEM_CLASS}
-									onclick={() => insertShape('line')}
-								>
-									<ThemeIcon role="remove" />
-									{m.image_editor_line()}
-								</ContextMenu.Item>
-							</ContextMenu.Content>
-						</ContextMenu.Portal>
-					</ContextMenu.Root>
-				{:else if tool.key === 'bucket'}
-					<ContextMenu.Root>
-						<Tooltip.Root>
-							<Tooltip.Trigger>
-								{#snippet child({ props: tooltipProps })}
-									<ContextMenu.Trigger disabled={!editor.canEdit}>
-										{#snippet child({ props: menuProps })}
-											<Button
-												{...tooltipProps}
-												{...menuProps}
-												variant={isFillTool(editor.activeTool) ? 'secondary' : 'ghost'}
-												size="icon-sm"
-												class="relative"
-												onclick={() =>
-													executeEditorCommand(
-														fillSlotTool === 'gradient' ? 'tool_gradient' : 'tool_bucket'
-													)}
-												aria-label={commandLabel(
-													fillSlotTool === 'gradient' ? 'tool_gradient' : 'tool_bucket'
-												)}
-												disabled={!editor.canEdit}
-											>
-												{#if fillSlotTool === 'gradient'}
-													<ProtectedIcon icon="editor-blend" />
-												{:else}
-													<ProtectedIcon icon="editor-fill" />
-												{/if}
-												{@render toolGroupIndicator()}
-											</Button>
-										{/snippet}
-									</ContextMenu.Trigger>
-								{/snippet}
-							</Tooltip.Trigger>
-							<Tooltip.Content side="right">
-								{commandTooltip(fillSlotTool === 'gradient' ? 'tool_gradient' : 'tool_bucket')}
-							</Tooltip.Content>
-						</Tooltip.Root>
-						<ContextMenu.Portal>
-							<ContextMenu.Content class={TOOL_CONTEXT_MENU_CLASS}>
-								{#each railSlotCommands('fill') as command (command.id)}
-									{@const CommandIcon = commandIcons.get(command.id) ?? fallbackToolGlyph}
-									<ContextMenu.Item
-										class={TOOL_CONTEXT_MENU_ITEM_CLASS}
-										onclick={() => executeEditorCommand(command.id)}
-										disabled={!commandEnabled(command.id)}
-									>
-										{@render toolGlyph(CommandIcon)}{commandLabel(command.id)}
-										<span class="ml-auto text-xs text-muted-foreground"
-											>{commandShortcut(command.id)}</span
-										>
-									</ContextMenu.Item>
-								{/each}
-							</ContextMenu.Content>
-						</ContextMenu.Portal>
-					</ContextMenu.Root>
-				{:else if tool.key === 'eraser'}
-					<ContextMenu.Root>
-						<Tooltip.Root>
-							<Tooltip.Trigger>
-								{#snippet child({ props: tooltipProps })}
-									<ContextMenu.Trigger disabled={!editor.canEdit}>
-										{#snippet child({ props: menuProps })}
-											<Button
-												{...tooltipProps}
-												{...menuProps}
-												variant={isEraserTool(editor.activeTool) ? 'secondary' : 'ghost'}
-												size="icon-sm"
-												class="relative"
-												onclick={() =>
-													executeEditorCommand(
-														eraserSlotTool === 'magic_eraser' ? 'tool_magic_eraser' : 'tool_eraser'
-													)}
-												aria-label={commandLabel(
-													eraserSlotTool === 'magic_eraser' ? 'tool_magic_eraser' : 'tool_eraser'
-												)}
-												disabled={!editor.canEdit}
-											>
-												{#if eraserSlotTool === 'magic_eraser'}
-													<ProtectedIcon icon="editor-effects" />
-												{:else}
-													<ProtectedIcon icon="editor-erase" />
-												{/if}
-												{@render toolGroupIndicator()}
-											</Button>
-										{/snippet}
-									</ContextMenu.Trigger>
-								{/snippet}
-							</Tooltip.Trigger>
-							<Tooltip.Content side="right">
-								{commandTooltip(
-									eraserSlotTool === 'magic_eraser' ? 'tool_magic_eraser' : 'tool_eraser'
-								)}
-							</Tooltip.Content>
-						</Tooltip.Root>
-						<ContextMenu.Portal>
-							<ContextMenu.Content class={TOOL_CONTEXT_MENU_CLASS}>
-								{#each railSlotCommands('erase') as command (command.id)}
-									{@const CommandIcon = commandIcons.get(command.id) ?? fallbackToolGlyph}
-									<ContextMenu.Item
-										class={TOOL_CONTEXT_MENU_ITEM_CLASS}
-										onclick={() => executeEditorCommand(command.id)}
-										disabled={!commandEnabled(command.id)}
-									>
-										{@render toolGlyph(CommandIcon)}{commandLabel(command.id)}
-										<span class="ml-auto text-xs text-muted-foreground"
-											>{commandShortcut(command.id)}</span
-										>
-									</ContextMenu.Item>
-								{/each}
-							</ContextMenu.Content>
-						</ContextMenu.Portal>
-					</ContextMenu.Root>
+			<Tooltip.Root>
+				<Tooltip.Trigger>
+					{#snippet child({ props })}
+						<Button
+							{...props}
+							bind:ref={assetOverlayTrigger}
+							variant={assetOverlayOpen ? 'secondary' : 'ghost'}
+							size="icon-sm"
+							onclick={() => {
+								if (assetOverlayOpen) closeAssetOverlay();
+								else assetOverlayOpen = true;
+							}}
+							aria-label={m.image_editor_add()}
+							aria-pressed={assetOverlayOpen}
+							title={m.image_editor_add()}
+						>
+							<ThemeIcon role="add" class="size-4" />
+						</Button>
+					{/snippet}
+				</Tooltip.Trigger>
+				<Tooltip.Content side="right">{m.image_editor_add()}</Tooltip.Content>
+			</Tooltip.Root>
+			{#each railSlots as railSlot (railSlot.slot)}
+				{#if railSlot.slot === 'select' || railSlot.slot === 'draw' || railSlot.slot === 'view'}
+					{@render railSlotFamily(railSlot.slot, 'rail')}
+				{:else if railSlot.slot === 'shape'}
+					<ToolFamilyButton
+						label={commandLabel(railSlot.command.id)}
+						active={editor.activeTool === 'shape'}
+						disabled={!commandEnabled(railSlot.command.id)}
+						shortcut={commandShortcut(railSlot.command.id)}
+						onclick={() => executeEditorCommand(railSlot.command.id)}
+					>
+						{#snippet icon()}
+							{#if shapeSlotKind === 'line'}
+								<ProtectedIcon icon="editor-path" />
+							{:else if shapeSlotKind === 'rounded_rectangle'}
+								<ProtectedIcon icon="editor-shape-rounded-rectangle" />
+							{:else if shapeSlotKind === 'ellipse'}
+								<ProtectedIcon icon="editor-shape-ellipse" />
+							{:else}
+								<ProtectedIcon icon="editor-shape-rectangle" />
+							{/if}
+						{/snippet}
+						{#snippet menu()}
+							<DropdownMenu.Item onclick={() => insertShape('rectangle')}>
+								<ProtectedIcon icon="editor-shape-rectangle" />
+								{m.image_editor_rectangle()}
+								<span class="ml-auto text-xs text-muted-foreground">U</span>
+							</DropdownMenu.Item>
+							<DropdownMenu.Item onclick={() => insertShape('rounded_rectangle')}>
+								<ProtectedIcon icon="editor-shape-rounded-rectangle" />
+								{m.image_editor_rounded_rectangle()}
+							</DropdownMenu.Item>
+							<DropdownMenu.Item onclick={() => insertShape('ellipse')}>
+								<ProtectedIcon icon="editor-shape-ellipse" />
+								{m.image_editor_ellipse()}
+							</DropdownMenu.Item>
+							<DropdownMenu.Item onclick={() => insertShape('line')}>
+								<ProtectedIcon icon="editor-path" />
+								{m.image_editor_line()}
+							</DropdownMenu.Item>
+						{/snippet}
+					</ToolFamilyButton>
 				{:else}
+					{@const ToolIcon = commandIcons.get(railSlot.command.id) ?? fallbackToolGlyph}
 					<Tooltip.Root>
 						<Tooltip.Trigger>
 							{#snippet child({ props })}
 								<Button
 									{...props}
-									variant={editor.activeTool === tool.key ? 'secondary' : 'ghost'}
+									variant={editor.activeTool === commandTool(railSlot.command)
+										? 'secondary'
+										: 'ghost'}
 									size="icon-sm"
-									onclick={() => executeEditorCommand(tool.command.id)}
-									aria-label={commandLabel(tool.command.id)}
-									aria-pressed={editor.activeTool === tool.key}
-									disabled={!commandEnabled(tool.command.id)}
-									title={commandDisabledReason(tool.command.id) || undefined}
+									onclick={() => executeEditorCommand(railSlot.command.id)}
+									aria-label={commandLabel(railSlot.command.id)}
+									aria-pressed={editor.activeTool === commandTool(railSlot.command)}
+									disabled={!commandEnabled(railSlot.command.id)}
+									title={commandDisabledReason(railSlot.command.id) || undefined}
 								>
 									{@render toolGlyph(ToolIcon)}
 								</Button>
 							{/snippet}
 						</Tooltip.Trigger>
-						<Tooltip.Content side="right">{commandTooltip(tool.command.id)}</Tooltip.Content>
+						<Tooltip.Content side="right">
+							{commandTooltip(railSlot.command.id)}
+						</Tooltip.Content>
 					</Tooltip.Root>
 				{/if}
 			{/each}
 		</nav>
-		{#if !focusedCanvas && activeEditorWorkspace === 'edit'}
-			<aside class="relative hidden min-h-0 min-w-0 border-r bg-card lg:block">
-				<div class="size-full min-h-0 overflow-hidden"><AssetPanel {guestMode} /></div>
-				<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-				<!-- svelte-ignore a11y_no_noninteractive_element_interactions -- focusable ARIA Window Splitter -->
-				<div
-					aria-label={m.image_editor_resize_asset_panel()}
-					title={m.image_editor_resize_asset_panel()}
-					role="separator"
-					tabindex="0"
-					aria-orientation="vertical"
-					aria-valuemin="220"
-					aria-valuemax={panelMaximum('assets')}
-					aria-valuenow={Math.round(assetPanelWidth)}
-					class="image-editor-resize-handle absolute inset-y-0 right-0 z-20 w-2 cursor-col-resize touch-none border-0 bg-transparent p-0 [@media(pointer:coarse)]:top-1/2 [@media(pointer:coarse)]:-right-5 [@media(pointer:coarse)]:bottom-auto [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11 [@media(pointer:coarse)]:-translate-y-1/2"
-					onpointerdown={(event) => startPanelResize(event, 'assets')}
-					onkeydown={(event) => resizePanelWithKeyboard(event, 'assets')}
-					ondblclick={() => {
-						assetPanelWidth = clampPanelSize(260, 220, panelMaximum('assets'), 260);
-						storePanelLayout();
-					}}
-				></div>
-			</aside>
-		{/if}
 		<main
 			class="relative min-h-0 min-w-0"
 			style:--image-editor-pages-height={`${pagesPanelHeight}px`}
 		>
+			{#if assetOverlayOpen && !focusedCanvas && activeEditorWorkspace === 'edit'}
+				<div class="absolute top-2 left-2 z-40 hidden lg:block">
+					<AssetPanel {guestMode} mode="overlay" onclose={closeAssetOverlay} />
+				</div>
+			{/if}
 			<div
 				class="absolute inset-0 {focusedCanvas
 					? 'bottom-0'
-					: editor.pagesExpanded
+					: pagesExpanded
 						? 'bottom-[8.75rem] lg:bottom-[var(--image-editor-pages-height)]'
 						: 'bottom-11 lg:bottom-9'}"
 			>
@@ -3513,60 +3936,72 @@
 			<div
 				class="absolute right-3 {focusedCanvas
 					? 'bottom-3'
-					: editor.pagesExpanded
+					: pagesExpanded
 						? 'bottom-[9.5rem] lg:bottom-[calc(var(--image-editor-pages-height)_+_0.75rem)]'
 						: 'bottom-14 lg:bottom-12'} z-10 flex items-center gap-1 rounded-lg bg-background/90 p-1 shadow ring-1 ring-black/10"
 			>
 				<Button
 					variant="ghost"
 					size="icon-xs"
-					class="size-11 md:size-11 lg:size-7"
+					class="size-8 md:size-8 lg:size-7 [@media(pointer:coarse)]:size-11"
 					onclick={() => (editor.zoom = Math.max(0.1, editor.zoom - 0.1))}
-					aria-label={m.image_editor_zoom_out()}>−</Button
+					aria-label={m.image_editor_zoom_out()}><ThemeIcon role="remove" /></Button
 				>
-				<button
-					type="button"
-					class="min-h-11 min-w-14 rounded px-2 text-xs md:min-h-11 lg:min-h-7"
+				<Button
+					variant="ghost"
+					size="icon-xs"
+					class="size-8 min-w-12 px-2 text-xs md:size-8 lg:size-7 [@media(pointer:coarse)]:size-11 [@media(pointer:coarse)]:min-w-11"
 					onclick={() => editor.fitZoom()}
 					aria-label={`${m.image_editor_zoom()} ${Math.round(editor.zoom * 100)}%`}
 				>
 					{Math.round(editor.zoom * 100)}%
-				</button>
+				</Button>
 				<Button
 					variant="ghost"
 					size="icon-xs"
-					class="size-11 md:size-11 lg:size-7"
+					class="size-8 md:size-8 lg:size-7 [@media(pointer:coarse)]:size-11"
 					onclick={() => (editor.zoom = Math.min(4, editor.zoom + 0.1))}
-					aria-label={m.image_editor_zoom_in()}>+</Button
+					aria-label={m.image_editor_zoom_in()}><ThemeIcon role="add" /></Button
 				>
 			</div>
 			{#if !focusedCanvas}
 				<div
-					class="absolute inset-x-0 bottom-0 {editor.pagesExpanded
-						? 'lg:h-[var(--image-editor-pages-height)]'
-						: 'lg:h-9'}"
+					class="absolute inset-x-0 bottom-0 flex flex-col {pagesExpanded
+						? 'h-[8.75rem] lg:h-[var(--image-editor-pages-height)]'
+						: 'h-11 lg:h-9'}"
 				>
-					{#if editor.pagesExpanded}
-						<PanelResizeHandle
-							edge="top"
-							value={pagesPanelHeight}
-							minimum={120}
-							maximum={320}
-							defaultValue={132}
-							label={m.image_editor_pages()}
-							onresize={(value) => (pagesPanelHeight = value)}
-							oncommit={storePanelLayout}
-						/>
+					{#if pagesExpanded}
+						<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+						<!-- svelte-ignore a11y_no_noninteractive_element_interactions -- focusable ARIA Window Splitter -->
+						<div
+							aria-label={`${m.image_editor_resize()} ${m.image_editor_pages()}`}
+							title={`${m.image_editor_resize()} ${m.image_editor_pages()}`}
+							role="separator"
+							tabindex="0"
+							aria-orientation="horizontal"
+							aria-valuemin="88"
+							aria-valuemax="480"
+							aria-valuenow={Math.round(pagesPanelHeight)}
+							class="image-editor-resize-handle hidden h-2 shrink-0 cursor-row-resize touch-none border-0 bg-transparent p-0 lg:block [@media(pointer:coarse)]:h-11"
+							onpointerdown={(event) => startPanelResize(event, 'pages')}
+							onkeydown={(event) => resizePanelWithKeyboard(event, 'pages')}
+							ondblclick={() => {
+								pagesPanelHeight = clampPanelSize(132, 88, 480, 132);
+								storePanelLayout();
+							}}
+						></div>
 					{/if}
-					<PageStrip onExternalFiles={placeExternalFiles} />
+					<div class="min-h-0 flex-1">
+						<PageStrip onExternalFiles={placeExternalFiles} compact={compactPages} />
+					</div>
 				</div>
 			{/if}
 		</main>
-		{#if editor.rightPanelVisible && !focusedCanvas}
+		{#if desktopViewport.current && editor.rightPanelVisible && !focusedCanvas}
 			<aside
 				bind:this={inspectorElement}
 				class="image-editor-inspector relative hidden min-h-0 min-w-0 border-l bg-card lg:grid"
-				style:--image-editor-layers-height={`${layersPanelHeight}px`}
+				style:--image-editor-layers-height={`${effectiveLayersPanelHeight}px`}
 			>
 				<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 				<!-- svelte-ignore a11y_no_noninteractive_element_interactions -- focusable ARIA Window Splitter -->
@@ -3577,13 +4012,13 @@
 					tabindex="0"
 					aria-orientation="vertical"
 					aria-valuemin="280"
-					aria-valuemax={panelMaximum('inspector')}
+					aria-valuemax={panelMaximum()}
 					aria-valuenow={Math.round(inspectorPanelWidth)}
 					class="image-editor-resize-handle absolute inset-y-0 left-0 z-20 w-2 cursor-col-resize touch-none border-0 bg-transparent p-0 [@media(pointer:coarse)]:top-1/2 [@media(pointer:coarse)]:bottom-auto [@media(pointer:coarse)]:-left-5 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11 [@media(pointer:coarse)]:-translate-y-1/2"
 					onpointerdown={(event) => startPanelResize(event, 'inspector')}
 					onkeydown={(event) => resizePanelWithKeyboard(event, 'inspector')}
 					ondblclick={() => {
-						inspectorPanelWidth = clampPanelSize(320, 280, panelMaximum('inspector'), 320);
+						inspectorPanelWidth = clampPanelSize(320, 280, panelMaximum(), 320);
 						storePanelLayout();
 					}}
 				></div>
@@ -3598,63 +4033,81 @@
 					aria-orientation="horizontal"
 					aria-valuemin="120"
 					aria-valuemax={layersPanelMaximum()}
-					aria-valuenow={Math.round(layersPanelHeight)}
+					aria-valuenow={Math.round(effectiveLayersPanelHeight)}
 					class="image-editor-resize-handle relative z-10 cursor-row-resize touch-none border-x-0 border-y bg-background p-0"
 					onpointerdown={(event) => startPanelResize(event, 'layers')}
 					onkeydown={(event) => resizePanelWithKeyboard(event, 'layers')}
 					ondblclick={() => {
-						layersPanelHeight = clampPanelSize(280, 120, layersPanelMaximum(), 280);
+						setActiveLayersPanelHeight(activeEditorWorkspace === 'color' ? 120 : 160, false);
 						storePanelLayout();
 					}}
 				></div>
 				<div class="min-h-0 min-w-0 overflow-hidden">
 					<PropertiesPanel
+						onAIEdit={$auth.user && editor.canEdit
+							? () => {
+									mobileSheet = null;
+									imageAIStudio?.openFor('edit');
+								}
+							: undefined}
 						onOpenMedia={openBackgroundMediaPicker}
 						colorWorkspace={activeEditorWorkspace === 'color'}
 					/>
 				</div>
 			</aside>
 		{/if}
+		{#if !desktopViewport.current && activeEditorWorkspace === 'color' && !focusedCanvas && !imageAIStudioOpen}
+			<aside
+				class="image-editor-mobile-color min-h-0 min-w-0 overflow-hidden border-t bg-card lg:hidden"
+			>
+				<PropertiesPanel
+					onAIEdit={$auth.user && editor.canEdit
+						? () => {
+								mobileSheet = null;
+								imageAIStudio?.openFor('edit');
+							}
+						: undefined}
+					onOpenMedia={openBackgroundMediaPicker}
+					onOpenLayers={() => (mobileSheet = 'layers')}
+					colorWorkspace
+				/>
+			</aside>
+		{/if}
 	</div>
 
 	<nav
 		class="flex h-[calc(4rem+env(safe-area-inset-bottom))] shrink-0 border-t bg-background px-1 pt-1 pb-[env(safe-area-inset-bottom)] sm:hidden"
+		hidden={activeEditorWorkspace !== 'edit' || imageAIStudioOpen}
 		aria-label={m.image_editor_tools()}
 	>
 		<Button
 			variant="ghost"
-			class="h-12 min-w-0 flex-1 flex-col gap-0 px-0 text-[10px]"
+			class="h-12 min-w-0 flex-1 flex-col gap-0 px-0 text-xs"
 			onclick={() => (mobileSheet = 'assets')}
 		>
 			<ThemeIcon role="layout" />
 			<span class="max-w-full truncate">{m.image_editor_add()}</span>
 		</Button>
-		<DropdownMenu.Root>
-			<DropdownMenu.Trigger class="contents">
-				{#snippet child({ props })}
-					<Button
-						{...props}
-						variant={[
-							'select',
-							'marquee',
-							'ellipse_marquee',
-							'lasso',
-							'magic_wand',
-							'eyedropper',
-							'hand'
-						].includes(editor.activeTool)
-							? 'secondary'
-							: 'ghost'}
-						class="h-12 min-w-0 flex-1 flex-col gap-0 px-0 text-[10px]"
-						onclick={() => setTool(mobileSelectTool)}
-						aria-label={m.image_editor_select()}
-					>
-						<ProtectedIcon icon="editor-select" />
-						<span class="max-w-full truncate">{m.image_editor_select()}</span>
-					</Button>
-				{/snippet}
-			</DropdownMenu.Trigger>
-			<DropdownMenu.Content side="top" align="start" class="min-w-52">
+		<ToolFamilyButton
+			label={m.image_editor_select()}
+			active={[
+				'select',
+				'marquee',
+				'ellipse_marquee',
+				'lasso',
+				'polygonal_lasso',
+				'magic_wand',
+				'eyedropper',
+				'hand'
+			].includes(editor.activeTool)}
+			layout="bottom"
+			onclick={() => setTool(mobileSelectTool)}
+		>
+			{#snippet icon()}
+				<ProtectedIcon icon="editor-select" />
+				<span class="max-w-full truncate">{m.image_editor_select()}</span>
+			{/snippet}
+			{#snippet menu()}
 				{#each mobileToolCommands('select') as command (command.id)}
 					{@const Icon = commandIcons.get(command.id) ?? fallbackToolGlyph}
 					<DropdownMenu.Item
@@ -3666,26 +4119,19 @@
 						<span class="ml-auto text-xs text-muted-foreground">{commandShortcut(command.id)}</span>
 					</DropdownMenu.Item>
 				{/each}
-			</DropdownMenu.Content>
-		</DropdownMenu.Root>
-		<DropdownMenu.Root>
-			<DropdownMenu.Trigger class="contents">
-				{#snippet child({ props })}
-					<Button
-						{...props}
-						variant={['text', 'pencil', 'bucket', 'gradient'].includes(editor.activeTool)
-							? 'secondary'
-							: 'ghost'}
-						class="h-12 min-w-0 flex-1 flex-col gap-0 px-0 text-[10px]"
-						onclick={() => setTool(mobileDrawTool)}
-						aria-label={m.image_editor_draw()}
-					>
-						<ThemeIcon role="edit" />
-						<span class="max-w-full truncate">{m.image_editor_draw()}</span>
-					</Button>
-				{/snippet}
-			</DropdownMenu.Trigger>
-			<DropdownMenu.Content side="top" align="start" class="min-w-44">
+			{/snippet}
+		</ToolFamilyButton>
+		<ToolFamilyButton
+			label={m.image_editor_draw()}
+			active={['text', 'pencil', 'bucket', 'gradient'].includes(editor.activeTool)}
+			layout="bottom"
+			onclick={() => setTool(mobileDrawTool)}
+		>
+			{#snippet icon()}
+				<ThemeIcon role="edit" />
+				<span class="max-w-full truncate">{m.image_editor_draw()}</span>
+			{/snippet}
+			{#snippet menu()}
 				{#each mobileToolCommands('draw') as command (command.id)}
 					{@const Icon = commandIcons.get(command.id) ?? fallbackToolGlyph}
 					<DropdownMenu.Item
@@ -3697,27 +4143,20 @@
 						<span class="ml-auto text-xs text-muted-foreground">{commandShortcut(command.id)}</span>
 					</DropdownMenu.Item>
 				{/each}
-			</DropdownMenu.Content>
-		</DropdownMenu.Root>
-		<DropdownMenu.Root>
-			<DropdownMenu.Trigger class="contents">
-				{#snippet child({ props })}
-					<Button
-						{...props}
-						variant={['crop', 'eraser', 'magic_eraser'].includes(editor.activeTool)
-							? 'secondary'
-							: 'ghost'}
-						class="h-12 min-w-0 flex-1 flex-col gap-0 px-0 text-[10px]"
-						onclick={() => setTool(mobileRetouchTool)}
-						aria-label={m.image_editor_retouch()}
-						disabled={!editor.canEdit}
-					>
-						<ProtectedIcon icon="editor-erase" />
-						<span class="max-w-full truncate">{m.image_editor_retouch()}</span>
-					</Button>
-				{/snippet}
-			</DropdownMenu.Trigger>
-			<DropdownMenu.Content side="top" align="start" class="min-w-48">
+			{/snippet}
+		</ToolFamilyButton>
+		<ToolFamilyButton
+			label={m.image_editor_retouch()}
+			active={['crop', 'eraser', 'magic_eraser'].includes(editor.activeTool)}
+			disabled={!editor.canEdit}
+			layout="bottom"
+			onclick={() => setTool(mobileRetouchTool)}
+		>
+			{#snippet icon()}
+				<ProtectedIcon icon="editor-erase" />
+				<span class="max-w-full truncate">{m.image_editor_retouch()}</span>
+			{/snippet}
+			{#snippet menu()}
 				{#each mobileToolCommands('retouch') as command (command.id)}
 					{@const Icon = commandIcons.get(command.id) ?? fallbackToolGlyph}
 					<DropdownMenu.Item
@@ -3736,11 +4175,11 @@
 						icon="editor-effects"
 					/>{m.image_editor_remove_background()}</DropdownMenu.Item
 				>
-			</DropdownMenu.Content>
-		</DropdownMenu.Root>
+			{/snippet}
+		</ToolFamilyButton>
 		<Button
 			variant={mobileSheet === 'layers' ? 'secondary' : 'ghost'}
-			class="h-12 min-w-0 flex-1 flex-col gap-0 px-0 text-[10px]"
+			class="h-12 min-w-0 flex-1 flex-col gap-0 px-0 text-xs"
 			onclick={() => (mobileSheet = 'layers')}
 		>
 			<ProtectedIcon icon="editor-layers" />
@@ -3748,7 +4187,7 @@
 		</Button>
 		<Button
 			variant={mobileSheet === 'properties' ? 'secondary' : 'ghost'}
-			class="h-12 min-w-0 flex-1 flex-col gap-0 px-0 text-[10px]"
+			class="h-12 min-w-0 flex-[1.4] flex-col gap-0 px-0 text-xs"
 			onclick={() => (mobileSheet = 'properties')}
 		>
 			<ThemeIcon role="controls" />
@@ -3758,157 +4197,77 @@
 
 	<nav
 		class="hidden h-[calc(4rem+env(safe-area-inset-bottom))] shrink-0 snap-x snap-mandatory overflow-x-auto overscroll-x-contain border-t bg-background px-1 pt-1 pb-[env(safe-area-inset-bottom)] sm:flex lg:hidden"
+		hidden={activeEditorWorkspace !== 'edit'}
 		aria-label={m.image_editor_tools()}
 	>
 		<Button
 			variant="ghost"
-			class="h-12 w-16 shrink-0 snap-start flex-col gap-0 px-0 text-[11px] md:h-12"
+			class="h-12 w-16 shrink-0 snap-start flex-col gap-0 px-0 text-xs md:h-12"
 			onclick={() => (mobileSheet = 'assets')}
 		>
 			<ThemeIcon role="layout" />
 			{m.image_editor_add()}
 		</Button>
-		{#each tools.filter( (tool) => ['select', 'marquee', 'lasso', 'magic_wand', 'crop', 'eyedropper', 'text', 'pencil', 'bucket', 'eraser', 'hand'].includes(tool.key) ) as tool (tool.key)}
-			{@const ToolIcon = commandIcons.get(tool.command.id) ?? fallbackToolGlyph}
-			{#if tool.key === 'select'}
-				<Button
-					variant={editor.activeTool === 'select' ? 'secondary' : 'ghost'}
-					class="h-12 w-16 shrink-0 snap-start flex-col gap-0 px-0 text-[11px] md:h-12"
-					onclick={() => executeEditorCommand(tool.command.id)}
-					aria-label={commandLabel(tool.command.id)}
-					aria-pressed={editor.activeTool === 'select'}
-					disabled={!commandEnabled(tool.command.id)}
-					title={commandDisabledReason(tool.command.id) || undefined}
+		{#each railSlots as railSlot (railSlot.slot)}
+			{#if railSlot.slot === 'select' || railSlot.slot === 'draw' || railSlot.slot === 'view'}
+				{@render railSlotFamily(railSlot.slot, 'bottom')}
+			{:else if railSlot.slot === 'shape'}
+				<ToolFamilyButton
+					label={commandLabel(railSlot.command.id)}
+					active={editor.activeTool === 'shape'}
+					disabled={!commandEnabled(railSlot.command.id)}
+					layout="bottom"
+					onclick={() => executeEditorCommand(railSlot.command.id)}
 				>
-					<ProtectedIcon icon="editor-select" />
-					{m.image_editor_select()}
-				</Button>
-			{:else if tool.key === 'marquee'}
-				<DropdownMenu.Root>
-					<DropdownMenu.Trigger>
-						{#snippet child({ props })}
-							<Button
-								{...props}
-								variant={isMarqueeTool(editor.activeTool) ? 'secondary' : 'ghost'}
-								class="relative h-12 w-16 shrink-0 snap-start flex-col gap-0 px-0 text-[11px] md:h-12"
-								aria-label={m.image_editor_pixel_select()}
-							>
-								{#if editor.activeTool === 'marquee'}
-									<ProtectedIcon icon="editor-marquee" />
-								{:else if editor.activeTool === 'ellipse_marquee'}
-									<ProtectedIcon icon="pending" />
-								{:else}
-									<ProtectedIcon icon="editor-marquee" />
-								{/if}
-								{m.image_editor_pixels()}
-								{@render toolGroupIndicator()}
-							</Button>
-						{/snippet}
-					</DropdownMenu.Trigger>
-					<DropdownMenu.Content side="top" align="start" class="min-w-52">
-						{#each railSlotCommands('pixel_select') as command (command.id)}
-							{@const CommandIcon = commandIcons.get(command.id) ?? fallbackToolGlyph}
-							<DropdownMenu.Item
-								onclick={() => executeEditorCommand(command.id)}
-								disabled={!commandEnabled(command.id)}
-								title={commandDisabledReason(command.id) || undefined}
-							>
-								{@render toolGlyph(CommandIcon)}
-								{commandLabel(command.id)}
-							</DropdownMenu.Item>
-						{/each}
-					</DropdownMenu.Content>
-				</DropdownMenu.Root>
-			{:else if tool.key === 'bucket'}
-				<DropdownMenu.Root>
-					<DropdownMenu.Trigger>
-						{#snippet child({ props })}
-							<Button
-								{...props}
-								variant={isFillTool(editor.activeTool) ? 'secondary' : 'ghost'}
-								class="relative h-12 w-16 shrink-0 snap-start flex-col gap-0 px-0 text-[11px] md:h-12"
-								disabled={!editor.canEdit}
-								aria-label={editor.activeTool === 'gradient'
-									? m.image_editor_gradient()
-									: m.image_editor_paint_bucket()}
-							>
-								{#if editor.activeTool === 'gradient'}
-									<ProtectedIcon icon="editor-blend" />
-								{:else}
-									<ProtectedIcon icon="editor-fill" />
-								{/if}
-								{m.image_editor_fill()}
-								{@render toolGroupIndicator()}
-							</Button>
-						{/snippet}
-					</DropdownMenu.Trigger>
-					<DropdownMenu.Content side="top" align="start" class="min-w-44">
-						{#each railSlotCommands('fill') as command (command.id)}
-							{@const CommandIcon = commandIcons.get(command.id) ?? fallbackToolGlyph}
-							<DropdownMenu.Item
-								onclick={() => executeEditorCommand(command.id)}
-								disabled={!commandEnabled(command.id)}
-								title={commandDisabledReason(command.id) || undefined}
-							>
-								{@render toolGlyph(CommandIcon)}
-								{commandLabel(command.id)}
-							</DropdownMenu.Item>
-						{/each}
-					</DropdownMenu.Content>
-				</DropdownMenu.Root>
-			{:else if tool.key === 'eraser'}
-				<DropdownMenu.Root>
-					<DropdownMenu.Trigger>
-						{#snippet child({ props })}
-							<Button
-								{...props}
-								variant={isEraserTool(editor.activeTool) ? 'secondary' : 'ghost'}
-								class="relative h-12 w-16 shrink-0 snap-start flex-col gap-0 px-0 text-[11px] md:h-12"
-								disabled={!editor.canEdit}
-								aria-label={editor.activeTool === 'magic_eraser'
-									? m.image_editor_magic_erase()
-									: m.image_editor_erase()}
-							>
-								{#if editor.activeTool === 'magic_eraser'}
-									<ProtectedIcon icon="editor-effects" />
-								{:else}
-									<ProtectedIcon icon="editor-erase" />
-								{/if}
-								{m.image_editor_erase()}
-								{@render toolGroupIndicator()}
-							</Button>
-						{/snippet}
-					</DropdownMenu.Trigger>
-					<DropdownMenu.Content side="top" align="start" class="min-w-48">
-						{#each railSlotCommands('erase') as command (command.id)}
-							{@const CommandIcon = commandIcons.get(command.id) ?? fallbackToolGlyph}
-							<DropdownMenu.Item
-								onclick={() => executeEditorCommand(command.id)}
-								disabled={!commandEnabled(command.id)}
-								title={commandDisabledReason(command.id) || undefined}
-							>
-								{@render toolGlyph(CommandIcon)}
-								{commandLabel(command.id)}
-							</DropdownMenu.Item>
-						{/each}
-					</DropdownMenu.Content>
-				</DropdownMenu.Root>
+					{#snippet icon()}
+						{#if shapeSlotKind === 'line'}
+							<ProtectedIcon icon="editor-path" />
+						{:else if shapeSlotKind === 'rounded_rectangle'}
+							<ProtectedIcon icon="editor-shape-rounded-rectangle" />
+						{:else if shapeSlotKind === 'ellipse'}
+							<ProtectedIcon icon="editor-shape-ellipse" />
+						{:else}
+							<ProtectedIcon icon="editor-shape-rectangle" />
+						{/if}
+						<span class="max-w-full truncate">{commandLabel(railSlot.command.id)}</span>
+					{/snippet}
+					{#snippet menu()}
+						<DropdownMenu.Item onclick={() => insertShape('rectangle')}>
+							<ProtectedIcon icon="editor-shape-rectangle" />
+							{m.image_editor_rectangle()}
+							<span class="ml-auto text-xs text-muted-foreground">U</span>
+						</DropdownMenu.Item>
+						<DropdownMenu.Item onclick={() => insertShape('rounded_rectangle')}>
+							<ProtectedIcon icon="editor-shape-rounded-rectangle" />
+							{m.image_editor_rounded_rectangle()}
+						</DropdownMenu.Item>
+						<DropdownMenu.Item onclick={() => insertShape('ellipse')}>
+							<ProtectedIcon icon="editor-shape-ellipse" />
+							{m.image_editor_ellipse()}
+						</DropdownMenu.Item>
+						<DropdownMenu.Item onclick={() => insertShape('line')}>
+							<ProtectedIcon icon="editor-path" />
+							{m.image_editor_line()}
+						</DropdownMenu.Item>
+					{/snippet}
+				</ToolFamilyButton>
 			{:else}
+				{@const ToolIcon = commandIcons.get(railSlot.command.id) ?? fallbackToolGlyph}
 				<Button
-					variant={editor.activeTool === tool.key ? 'secondary' : 'ghost'}
-					class="h-12 w-16 shrink-0 snap-start flex-col gap-0 px-0 text-[11px] md:h-12"
-					onclick={() => executeEditorCommand(tool.command.id)}
-					disabled={!commandEnabled(tool.command.id)}
-					title={commandDisabledReason(tool.command.id) || undefined}
+					variant={editor.activeTool === commandTool(railSlot.command) ? 'secondary' : 'ghost'}
+					class="h-12 w-16 shrink-0 snap-start flex-col gap-0 px-0 text-xs md:h-12"
+					onclick={() => executeEditorCommand(railSlot.command.id)}
+					disabled={!commandEnabled(railSlot.command.id)}
+					title={commandDisabledReason(railSlot.command.id) || undefined}
 				>
 					{@render toolGlyph(ToolIcon)}
-					{tool.label}
+					{commandLabel(railSlot.command.id)}
 				</Button>
 			{/if}
 		{/each}
 		<Button
 			variant="ghost"
-			class="h-12 w-16 shrink-0 snap-start flex-col gap-0 px-0 text-[11px] md:h-12"
+			class="h-12 w-16 shrink-0 snap-start flex-col gap-0 px-0 text-xs md:h-12"
 			onclick={() => (mobileSheet = 'layers')}
 		>
 			<ProtectedIcon icon="editor-layers" />
@@ -3916,42 +4275,110 @@
 		</Button>
 		<Button
 			variant="ghost"
-			class="h-12 w-16 shrink-0 snap-start flex-col gap-0 px-0 text-[11px] md:h-12"
+			class="h-12 w-16 shrink-0 snap-start flex-col gap-0 px-0 text-xs md:h-12"
 			onclick={() => (mobileSheet = 'properties')}
 		>
 			<ThemeIcon role="controls" />
-			{m.image_editor_edit()}
+			{m.image_editor_properties()}
 		</Button>
 	</nav>
 </div>
 
-<Sheet.Root open={mobileSheet !== null} onOpenChange={(open) => !open && (mobileSheet = null)}>
+<Sheet.Root
+	open={mobileSheet === 'properties'}
+	onOpenChange={(open) => {
+		if (open) return;
+		mobileSheet = null;
+	}}
+>
+	<Sheet.Content
+		side="bottom"
+		modal={false}
+		showCloseButton={false}
+		class="max-h-[62dvh] w-full! rounded-t-2xl p-0"
+	>
+		<Sheet.Header class="sr-only">
+			<Sheet.Title>{m.image_editor_properties()}</Sheet.Title>
+			<Sheet.Description>{m.image_editor_editing_controls()}</Sheet.Description>
+		</Sheet.Header>
+		<div class="relative max-h-[62dvh] overflow-y-auto">
+			<Sheet.Close>
+				{#snippet child({ props })}
+					<Button
+						{...props}
+						variant="ghost"
+						size="icon-sm"
+						class="absolute top-0 right-1 z-20 [@media(pointer:coarse)]:size-11"
+						aria-label={m.common_close()}
+					>
+						<ThemeIcon role="close" />
+					</Button>
+				{/snippet}
+			</Sheet.Close>
+			<PropertiesPanel
+				onAIEdit={$auth.user && editor.canEdit
+					? () => {
+							mobileSheet = null;
+							imageAIStudio?.openFor('edit');
+						}
+					: undefined}
+				onOpenMedia={openBackgroundMediaPicker}
+				colorWorkspace={activeEditorWorkspace === 'color'}
+			/>
+		</div>
+	</Sheet.Content>
+</Sheet.Root>
+<Sheet.Root
+	open={mobileSheet === 'assets' || mobileSheet === 'layers'}
+	onOpenChange={(open) => {
+		if (open) return;
+		mobileSheet = null;
+		editor.backgroundImagePickerActive = false;
+	}}
+>
 	<Sheet.Content
 		side={mobileSheet === 'layers' ? 'right' : 'bottom'}
+		showCloseButton={mobileSheet === 'layers'}
 		class={mobileSheet === 'layers'
 			? 'h-dvh! w-full! p-0 sm:max-w-sm!'
-			: 'max-h-[82dvh] w-full! rounded-t-2xl p-0'}
+			: 'max-h-[62dvh] w-full! rounded-t-2xl p-0'}
 	>
 		<Sheet.Header class="sr-only">
 			<Sheet.Title
-				>{mobileSheet === 'assets'
-					? m.image_editor_add()
-					: mobileSheet === 'layers'
-						? m.image_editor_layers()
-						: m.image_editor_properties()}</Sheet.Title
+				>{mobileSheet === 'assets' ? m.image_editor_add() : m.image_editor_layers()}</Sheet.Title
 			>
 			<Sheet.Description>{m.image_editor_editing_controls()}</Sheet.Description>
 		</Sheet.Header>
-		<div class={mobileSheet === 'layers' ? 'h-full pt-14' : 'max-h-[82dvh] overflow-y-auto pt-12'}>
+		<div
+			class={mobileSheet === 'layers' ? 'h-full pt-14' : 'relative max-h-[62dvh] overflow-y-auto'}
+		>
+			{#if mobileSheet !== 'layers'}
+				<Sheet.Close>
+					{#snippet child({ props })}
+						<Button
+							{...props}
+							variant="ghost"
+							size="icon-sm"
+							class="absolute top-0 right-1 z-20 [@media(pointer:coarse)]:size-11"
+							aria-label={m.common_close()}
+						>
+							<ThemeIcon role="close" />
+						</Button>
+					{/snippet}
+				</Sheet.Close>
+			{/if}
 			{#if mobileSheet === 'assets'}
-				<div class="h-[70dvh]"><AssetPanel {guestMode} /></div>
+				<div class="h-[70dvh]">
+					<AssetPanel
+						{guestMode}
+						onclose={() => {
+							mobileSheet = null;
+							editor.backgroundImagePickerActive = false;
+						}}
+					/>
+				</div>
 			{:else if mobileSheet === 'layers'}
 				<LayerTree />
-			{:else if mobileSheet === 'properties'}
-				<PropertiesPanel
-					onOpenMedia={openBackgroundMediaPicker}
-					colorWorkspace={activeEditorWorkspace === 'color'}
-				/>
 			{/if}
 		</div>
 	</Sheet.Content>
@@ -3987,18 +4414,20 @@
 			class="grid max-h-[65dvh] min-h-72 gap-4 overflow-hidden sm:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]"
 		>
 			<div class="space-y-2 overflow-y-auto pr-1">
-				{#if historyBusy}
-					<div class="flex min-h-32 items-center justify-center text-sm text-muted-foreground">
-						<ProtectedIcon icon="loading" class="mr-2 size-4 animate-spin" />
-						{m.image_editor_loading_history()}
-					</div>
+				{#if historyBusy && revisions.length === 0}
+					<PageLoading layout="list" label={m.image_editor_loading_history()} items={3} />
 				{:else if revisions.length === 0}
-					<p class="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
-						{m.image_editor_no_history()}
-					</p>
+					<EmptyState
+						themeIconRole="history"
+						title={m.image_editor_no_history()}
+						variant="muted"
+						size="sm"
+						headingLevel={3}
+					/>
 				{:else}
 					{#each revisions as revision (revision.id)}
 						<Button
+							multiline
 							variant={revisionPreview?.summary.id === revision.id ? 'secondary' : 'outline'}
 							class="h-auto min-h-16 w-full justify-start p-3 text-left whitespace-normal"
 							disabled={revisionPreviewBusy}
@@ -4034,22 +4463,23 @@
 						>
 							{#if historyPageBusy}<ProtectedIcon
 									icon="loading"
-									class="mr-2 size-4 animate-spin"
+									class="mr-2 size-4 animate-spin motion-reduce:animate-none"
 								/>{/if}
 							{m.notifications_load_more()}
 						</Button>
 					{/if}
 				{/if}
 				{#if historyError}
-					<p class="rounded-md bg-destructive/10 p-3 text-sm text-destructive" role="alert">
-						{historyError}
-					</p>
+					<InlineNotice tone="error" message={historyError} />
 				{/if}
 			</div>
 			<section class="min-h-0 overflow-y-auto rounded-lg border bg-muted/20 p-3" aria-live="polite">
 				{#if revisionPreviewBusy}
 					<div class="flex min-h-56 items-center justify-center text-sm text-muted-foreground">
-						<ProtectedIcon icon="loading" class="mr-2 size-4 animate-spin" />
+						<ProtectedIcon
+							icon="loading"
+							class="mr-2 size-4 animate-spin motion-reduce:animate-none"
+						/>
 						{m.version_preview_loading()}
 					</div>
 				{:else if !revisionPreview}
@@ -4138,6 +4568,12 @@
 								!imageEditorRevisionHasChanges(revisionChanges)}
 							onclick={() => (restoreConfirmOpen = true)}>{m.version_restore_version()}</Button
 						>
+						<CheckpointRemove
+							revision={revisionPreview.summary}
+							canEdit={editor.canEdit}
+							disabled={historyBusy || revisionPreviewBusy}
+							onremove={removeCheckpoint}
+						/>
 					</div>
 				{/if}
 			</section>
@@ -4181,7 +4617,10 @@
 					!imageEditorRevisionHasChanges(revisionChanges)}
 				onclick={() => void restoreRevision()}
 			>
-				{#if historyBusy}<ProtectedIcon icon="loading" class="animate-spin" />{/if}
+				{#if historyBusy}<ProtectedIcon
+						icon="loading"
+						class="animate-spin motion-reduce:animate-none"
+					/>{/if}
 				{m.version_restore_confirm()}
 			</Button>
 		</Dialog.Footer>
@@ -4212,7 +4651,10 @@
 				>{m.common_cancel()}</Button
 			>
 			<Button onclick={createCheckpoint} disabled={!checkpointName.trim() || historyBusy}>
-				{#if historyBusy}<ProtectedIcon icon="loading" class="animate-spin" />{/if}
+				{#if historyBusy}<ProtectedIcon
+						icon="loading"
+						class="animate-spin motion-reduce:animate-none"
+					/>{/if}
 				{m.image_editor_create_checkpoint()}
 			</Button>
 		</Dialog.Footer>
@@ -4261,7 +4703,10 @@
 				>{m.common_cancel()}</Button
 			>
 			<Button onclick={saveAsTemplate} disabled={!templateName.trim() || historyBusy}>
-				{#if historyBusy}<ProtectedIcon icon="loading" class="animate-spin" />{/if}
+				{#if historyBusy}<ProtectedIcon
+						icon="loading"
+						class="animate-spin motion-reduce:animate-none"
+					/>{/if}
 				{templateTargetID === 'new'
 					? m.image_editor_save_template_action()
 					: m.image_editor_replace_template_action()}
@@ -4270,110 +4715,70 @@
 	</Dialog.Content>
 </Dialog.Root>
 
-<Dialog.Root bind:open={resizeDialogOpen}>
-	<Dialog.Content class="sm:max-w-md">
-		<Dialog.Header>
-			<Dialog.Title>{m.image_editor_resize_design()}</Dialog.Title>
-			<Dialog.Description>{m.image_editor_resize_body()}</Dialog.Description>
-		</Dialog.Header>
-		<div class="grid gap-4">
-			<div class="grid grid-cols-2 gap-3">
-				<label class="grid gap-1.5 text-sm">
-					<span class="font-medium">{m.image_editor_width()}</span>
-					<Input type="number" min="64" max="4096" bind:value={resizeWidth} />
-				</label>
-				<label class="grid gap-1.5 text-sm">
-					<span class="font-medium">{m.image_editor_height()}</span>
-					<Input type="number" min="64" max="4096" bind:value={resizeHeight} />
-				</label>
-			</div>
-			<RadioGroup.Root bind:value={resizeMode}>
-				<label
-					class="flex min-h-11 cursor-pointer items-center gap-2 rounded-lg border px-3 text-sm has-data-[state=checked]:border-primary has-data-[state=checked]:bg-primary/5"
-				>
-					<RadioGroup.Item value="scale" aria-label={m.image_editor_scale_content()} />
-					<span>{m.image_editor_scale_content()}</span>
-				</label>
-				<label
-					class="flex min-h-11 cursor-pointer items-center gap-2 rounded-lg border px-3 text-sm has-data-[state=checked]:border-primary has-data-[state=checked]:bg-primary/5"
-				>
-					<RadioGroup.Item value="preserve" aria-label={m.image_editor_preserve_content()} />
-					<span>{m.image_editor_preserve_content()}</span>
-				</label>
-			</RadioGroup.Root>
-			{#if resizeError}
-				<p class="rounded-md bg-destructive/10 p-3 text-sm text-destructive" role="alert">
-					{resizeError}
-				</p>
-			{/if}
-		</div>
-		<Dialog.Footer>
-			<Button variant="ghost" onclick={() => (resizeDialogOpen = false)}>{m.common_cancel()}</Button
-			>
-			<Button onclick={resizeDocument}>{m.image_editor_resize()}</Button>
-		</Dialog.Footer>
-	</Dialog.Content>
-</Dialog.Root>
+<ImageEditorResizeDialog bind:open={resizeDialogOpen} />
 
-<Dialog.Root bind:open={guideDialogOpen}>
-	<Dialog.Content class="sm:max-w-sm">
-		<Dialog.Header>
-			<Dialog.Title>{m.image_editor_add_guide()}</Dialog.Title>
-			<Dialog.Description>{m.image_editor_guide_position()}</Dialog.Description>
-		</Dialog.Header>
-		<div class="grid gap-4">
-			<RadioGroup.Root bind:value={guideAxis} class="grid grid-cols-2 gap-2">
-				<label
-					class="flex min-h-11 cursor-pointer items-center gap-2 rounded-lg border px-3 text-sm has-data-[state=checked]:border-primary has-data-[state=checked]:bg-primary/5"
-				>
-					<RadioGroup.Item value="horizontal" aria-label={m.image_editor_horizontal()} />
-					{m.image_editor_horizontal()}
-				</label>
-				<label
-					class="flex min-h-11 cursor-pointer items-center gap-2 rounded-lg border px-3 text-sm has-data-[state=checked]:border-primary has-data-[state=checked]:bg-primary/5"
-				>
-					<RadioGroup.Item value="vertical" aria-label={m.image_editor_vertical()} />
-					{m.image_editor_vertical()}
-				</label>
-			</RadioGroup.Root>
-			<label class="grid gap-1.5 text-sm">
-				<span class="font-medium">{m.image_editor_guide_position()}</span>
-				<Input
-					type="number"
-					min="0"
-					max={guideAxis === 'horizontal' ? editor.document?.height_px : editor.document?.width_px}
-					bind:value={guidePosition}
-					onkeydown={(event) => {
-						if (event.key === 'Enter') addNumericGuide();
-					}}
-				/>
-			</label>
-		</div>
-		<Dialog.Footer>
-			<Button variant="ghost" onclick={() => (guideDialogOpen = false)}>{m.common_cancel()}</Button>
-			<Button onclick={addNumericGuide}>{m.image_editor_add_guide()}</Button>
-		</Dialog.Footer>
-	</Dialog.Content>
-</Dialog.Root>
+<ImageEditorGuideDialog bind:open={guideDialogOpen} />
 
 <Dialog.Root bind:open={exportDialogOpen}>
-	<Dialog.Content class="sm:max-w-lg">
+	<Dialog.Content class="sm:max-w-2xl">
 		<Dialog.Header>
 			<Dialog.Title>{m.image_editor_export_design()}</Dialog.Title>
 			<Dialog.Description>{m.image_editor_export_body()}</Dialog.Description>
 		</Dialog.Header>
 		<div class="space-y-4">
+			<section
+				class="overflow-hidden rounded-xl border bg-muted/20"
+				aria-labelledby="export-preview-title"
+			>
+				<div class="flex min-h-11 items-center justify-between gap-3 border-b px-3 py-2">
+					<h3 id="export-preview-title" class="text-sm font-medium">
+						{m.image_editor_export_preview()}
+					</h3>
+					{#if exportPreview}
+						<p class="text-xs text-muted-foreground tabular-nums">
+							{m.image_editor_export_preview_bytes({
+								bytes: formattedExportBytes(exportPreview.totalBytes)
+							})}
+						</p>
+					{/if}
+				</div>
+				<div class="grid min-h-32 place-items-center p-3 sm:min-h-52">
+					{#if exportPreviewBusy}
+						<div
+							class="grid justify-items-center gap-2 text-sm text-muted-foreground"
+							role="status"
+						>
+							<ProtectedIcon
+								icon="loading"
+								class="size-5 animate-spin motion-reduce:animate-none"
+							/>
+							<span>{exportPreviewProgress || m.image_editor_export_preview_encoding()}</span>
+						</div>
+					{:else if exportPreviewError}
+						<div class="grid max-w-sm justify-items-center gap-3 text-center">
+							<p class="text-sm text-destructive" role="alert">{exportPreviewError}</p>
+							<Button variant="outline" size="sm" onclick={retryEncodedExportPreview}>
+								{m.image_editor_export_preview_retry()}
+							</Button>
+						</div>
+					{:else if exportPreview}
+						<img
+							src={exportPreview.objectURL}
+							alt={m.image_editor_export_preview_alt()}
+							class="max-h-36 max-w-full rounded-md object-contain sm:max-h-56"
+						/>
+					{/if}
+				</div>
+			</section>
 			<div class="rounded-xl border bg-muted/35 p-3">
 				<div class="flex flex-wrap items-center justify-between gap-2">
 					<div>
 						<p class="text-sm font-semibold">
-							{exportFormat.toUpperCase()} · {editor.document?.width_px ?? 0} ×
-							{editor.document?.height_px ?? 0}
+							{exportFormat.toUpperCase()} · {exportSizeLabel}
 						</p>
 						<p class="mt-0.5 text-xs text-muted-foreground">
 							{m.image_editor_export_summary({
 								pages: exportPages.length,
-								suffix: exportPages.length === 1 ? '' : 's',
 								megapixels: (exportPixelCount / 1_000_000).toFixed(1)
 							})}
 						</p>
@@ -4410,7 +4815,7 @@
 				</p>
 			{/if}
 
-			{#if (editor.document?.pages.length ?? 0) > 1}
+			{#if (editor.document?.pages.length ?? 0) > 1 && !(coverHandoff && exportMode === 'attach')}
 				<label class="flex min-h-11 items-center gap-2 rounded-lg border px-3">
 					<Checkbox bind:checked={exportAllPages} />
 					<span
@@ -4428,12 +4833,23 @@
 						disabled={!editor.canEdit}
 						onValueChange={(value) =>
 							editor.mutate('Change export format', (document) => {
-								document.export_defaults.format = value as 'png' | 'jpeg' | 'webp';
+								document.export_defaults.format = value as 'png' | 'jpeg' | 'webp' | 'gif';
 							})}
 						options={[
 							{ value: 'png', label: 'PNG' },
 							{ value: 'jpeg', label: 'JPEG' },
-							{ value: 'webp', label: 'WebP' }
+							...(!(coverHandoff && exportMode === 'attach')
+								? [
+										{ value: 'webp', label: 'WebP' },
+										{
+											value: 'gif',
+											label: 'GIF',
+											disabled: !exportPages.every(
+												(page) => imageEditorPageAnimations(page).length > 0
+											)
+										}
+									]
+								: [])
 						]}
 						class="h-10 w-full"
 					/>
@@ -4450,42 +4866,54 @@
 						max={1}
 						step={0.01}
 						value={editor.document?.export_defaults.quality ?? 0.92}
-						disabled={!editor.canEdit || editor.document?.export_defaults.format === 'png'}
+						disabled={!editor.canEdit || ['png', 'gif'].includes(exportFormat)}
 						ariaLabel={m.image_editor_quality({
 							quality: Math.round((editor.document?.export_defaults.quality ?? 0.92) * 100)
 						})}
-						onValueChange={(quality) =>
+						onValueChange={(quality) => {
+							if (['png', 'gif'].includes(exportFormat) || !editor.document) return;
+							const nextQuality = Number(quality.toFixed(EXPORT_QUALITY_DECIMAL_PLACES));
+							const currentQuality = Number(
+								editor.document.export_defaults.quality.toFixed(EXPORT_QUALITY_DECIMAL_PLACES)
+							);
+							if (nextQuality === currentQuality) return;
 							editor.mutate(
 								'Change export quality',
 								(document) => {
-									document.export_defaults.quality = quality;
+									document.export_defaults.quality = nextQuality;
 								},
 								'export-quality'
-							)}
+							);
+						}}
 					/>
 				</label>
 			</div>
 
+			{#if exportFormat === 'gif'}
+				<p class="text-sm text-muted-foreground">{m.image_editor_animation_export_help()}</p>
+			{/if}
 			{#if exportHasTransparency && !exportSupportsTransparency}
-				<div class="space-y-3 rounded-lg border border-amber-500/35 bg-amber-500/8 p-3">
-					<p class="text-sm leading-relaxed">{m.image_editor_jpeg_transparency_warning()}</p>
-					<ColorPicker
-						label={m.image_editor_jpeg_matte_color()}
-						value={editor.document?.export_defaults.matte_color ?? '#ffffff'}
-						disabled={!editor.canEdit}
-						brandColors={editor.brandKit?.colors ?? []}
-						recentColors={editor.recentColors}
-						onChange={(matteColor) =>
-							editor.mutate(
-								'Change export matte color',
-								(document) => {
-									document.export_defaults.matte_color = matteColor;
-								},
-								'export-matte-color'
-							)}
-						onCommit={(color) => editor.rememberColor(color)}
-					/>
-				</div>
+				<InlineNotice tone="warning">
+					<div class="grid gap-2">
+						<p class="text-sm leading-relaxed">{m.image_editor_jpeg_transparency_warning()}</p>
+						<ColorPicker
+							label={m.image_editor_jpeg_matte_color()}
+							value={editor.document?.export_defaults.matte_color ?? '#ffffff'}
+							disabled={!editor.canEdit}
+							brandColors={editor.brandKit?.colors ?? []}
+							recentColors={editor.recentColors}
+							onChange={(matteColor) =>
+								editor.mutate(
+									'Change export matte color',
+									(document) => {
+										document.export_defaults.matte_color = matteColor;
+									},
+									'export-matte-color'
+								)}
+							onCommit={(color) => editor.rememberColor(color)}
+						/>
+					</div>
+				</InlineNotice>
 			{/if}
 
 			{#if !guestMode}
@@ -4525,12 +4953,14 @@
 								<RadioGroup.Item
 									value="attach"
 									disabled={!editor.canEdit}
-									aria-label={m.image_editor_attach()}
+									aria-label={attachLabel}
 								/>
 								<span class="grid gap-0.5">
-									<span class="text-sm font-medium">{m.image_editor_attach()}</span>
+									<span class="text-sm font-medium">{attachLabel}</span>
 									<span class="text-xs text-muted-foreground"
-										>{m.image_editor_attach_description()}</span
+										>{coverHandoff
+											? m.compose_cover_return_description()
+											: m.image_editor_attach_description()}</span
 									>
 								</span>
 							</label>
@@ -4556,13 +4986,22 @@
 			</Button>
 			<Button
 				onclick={exportDesign}
-				disabled={exportBusy || !editor.document || !exportBudget?.allowed}
+				disabled={exportBusy ||
+					exportPreviewBusy ||
+					!exportPreview ||
+					!editor.document ||
+					!exportBudget?.allowed}
 			>
-				{#if exportBusy}<ProtectedIcon icon="loading" class="animate-spin" />{/if}
+				{#if exportBusy}<ProtectedIcon
+						icon="loading"
+						class="animate-spin motion-reduce:animate-none"
+					/>{/if}
 				{exportMode === 'download'
 					? m.image_editor_download()
 					: exportMode === 'attach'
-						? m.image_editor_export_attach()
+						? coverHandoff
+							? attachLabel
+							: m.image_editor_export_attach()
 						: m.image_editor_export_media()}
 			</Button>
 		</Dialog.Footer>
@@ -4577,16 +5016,6 @@
 		onDismiss={() => (exportToastVisible = false)}
 		actionLabel={guestMode ? m.image_editor_public_save_openpost() : undefined}
 		onAction={guestMode ? saveToOpenPost : undefined}
-	/>
-{/if}
-
-{#if firstEditHintVisible}
-	<AppToast
-		message={m.image_editor_first_edit_hint()}
-		dismissLabel={m.common_dismiss()}
-		onDismiss={dismissFirstEditHint}
-		actionLabel={firstEditActionLabel}
-		onAction={firstEditActionLabel ? openFirstEditProperties : undefined}
 	/>
 {/if}
 
@@ -4696,9 +5125,27 @@
 	}
 
 	@media (max-width: 63.999rem) {
+		.image-editor-workspace[data-workspace='color'] {
+			grid-template-rows:
+				minmax(0, min(60%, calc(42% + var(--image-editor-mobile-pages-height))))
+				minmax(0, 1fr);
+		}
+
 		.image-editor-theme :global(button) {
 			min-width: 2.75rem;
 			min-height: 2.75rem;
+		}
+	}
+
+	@media (min-width: 40rem) and (max-width: 63.999rem) and (max-height: 32rem) {
+		.image-editor-workspace[data-workspace='color'] {
+			grid-template-columns: minmax(0, 1fr) minmax(280px, 45%);
+			grid-template-rows: minmax(0, 1fr);
+		}
+
+		.image-editor-mobile-color {
+			border-top: 0;
+			border-left-width: 1px;
 		}
 	}
 
@@ -4706,13 +5153,12 @@
 		.image-editor-workspace {
 			grid-template-columns:
 				44px
-				var(--image-editor-assets-width)
 				minmax(0, 1fr)
 				var(--image-editor-inspector-width);
 		}
 
 		.image-editor-workspace[data-inspector='false'] {
-			grid-template-columns: 44px var(--image-editor-assets-width) minmax(0, 1fr);
+			grid-template-columns: 44px minmax(0, 1fr);
 		}
 
 		.image-editor-workspace[data-workspace='color'] {

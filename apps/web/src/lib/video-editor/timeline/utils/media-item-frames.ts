@@ -6,7 +6,7 @@
  *
  * Ported from FreeCut (MIT) — utils/media-item-frames.ts — trimmed to the v1
  * surface (no composition wrappers; source fps comes from the item itself
- * because OpenPost has no media-library lookup inside this layer).
+ * because dopost has no media-library lookup inside this layer).
  */
 
 import type { TimelineItem } from '../../project/types';

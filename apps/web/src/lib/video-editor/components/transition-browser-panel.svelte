@@ -1,5 +1,9 @@
 <!-- Transition catalog and previews adapted from FreeCut's MIT-licensed picker. -->
 <script lang="ts">
+	import LibraryFavorite from './library-favorite.svelte';
+	import { videoLibrary } from '../library/library-store.svelte';
+	import { Button } from '$lib/components/ui/button';
+	import { Input } from '$lib/components/ui/input';
 	import { onDestroy } from 'svelte';
 	import { m } from '$lib/paraglide/messages';
 	import type { TransitionDirection } from '$lib/video-editor/project/types';
@@ -20,6 +24,7 @@
 	} = $props();
 
 	let scroller = $state<HTMLElement | null>(null);
+	let search = $state('');
 	let activeId = $state<string | null>(null);
 
 	const categoryOrder = ['basic', 'dissolve', 'motion', 'wipe', 'iris', 'shape', 'custom'];
@@ -48,6 +53,18 @@
 			}))
 			.filter((group) => group.items.length > 0)
 	);
+	const filteredGroups = $derived(
+		groups
+			.map((group) => ({
+				...group,
+				items: group.items.filter((definition) =>
+					`${group.label} ${localizedTransitionLabel(definition.id, definition.label)}`
+						.toLocaleLowerCase()
+						.includes(search.trim().toLocaleLowerCase())
+				)
+			}))
+			.filter((group) => group.items.length > 0)
+	);
 
 	function dragData(presentation: string, label: string, direction?: TransitionDirection) {
 		return { presentation, label, direction } satisfies TransitionDragData;
@@ -72,13 +89,32 @@
 <div
 	bind:this={scroller}
 	class="transition-browser min-h-0 flex-1 overflow-y-auto p-2"
+	role="group"
 	aria-label={m.video_editor_transition()}
 >
-	<p class="mb-2 text-[10px] leading-4 text-[var(--video-editor-muted)]">
-		{m.video_editor_transition_add_or_drag()}
-	</p>
-	{#each groups as group (group.category)}
-		<section class="mb-4 last:mb-0">
+	{#each videoLibrary.entries as entry (entry.id)}
+		{#if entry.recipe.kind === 'transition'}
+			{@const recipe = entry.recipe}
+			<Button
+				size="xs"
+				variant="ghost"
+				class="mb-1 w-full justify-start"
+				onclick={() => onapply(recipe.presentation, recipe.direction)}>{entry.name}</Button
+			>
+		{/if}
+	{/each}
+	<Input
+		type="search"
+		bind:value={search}
+		placeholder={m.video_editor_transition_search()}
+		aria-label={m.video_editor_transition_search()}
+		class="mb-2 h-[25px] text-xs [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:text-base"
+	/>
+	{#if filteredGroups.length === 0}<p class="text-xs text-muted-foreground" role="status">
+			{m.video_editor_transition_no_results()}
+		</p>{/if}
+	{#each filteredGroups as group (group.category)}
+		<section class="mb-2 last:mb-0">
 			<h3
 				class="mb-2 text-[10px] font-semibold tracking-[0.12em] text-[var(--video-editor-muted)] uppercase"
 			>
@@ -88,33 +124,39 @@
 				{#each group.items as definition (definition.id)}
 					{@const label = localizedTransitionLabel(definition.id, definition.label)}
 					{@const direction = definition.directions?.[0] as TransitionDirection | undefined}
-					<button
-						type="button"
-						draggable="true"
-						class="transition-card"
-						data-transition-catalog-id={definition.id}
-						aria-label={label}
-						title={label}
-						onclick={() => onapply(definition.id, direction)}
-						ondragstart={(event) => startDrag(event, definition.id, label, direction)}
-						ondragend={clearTransitionDragData}
-						onpointerenter={() => (activeId = definition.id)}
-						onpointerleave={() => {
-							if (activeId === definition.id) activeId = null;
-						}}
-						onfocus={() => (activeId = definition.id)}
-						onblur={() => {
-							if (activeId === definition.id) activeId = null;
-						}}
-					>
-						<TransitionThumbnail
-							presentationId={definition.id}
-							{direction}
-							viewport={scroller}
-							active={activeId === definition.id}
+					<div class="group/library-item relative min-w-0">
+						<button
+							type="button"
+							draggable="true"
+							class="transition-card w-full"
+							data-transition-catalog-id={definition.id}
+							aria-label={label}
+							title={label}
+							onclick={() => onapply(definition.id, direction)}
+							ondragstart={(event) => startDrag(event, definition.id, label, direction)}
+							ondragend={clearTransitionDragData}
+							onpointerenter={() => (activeId = definition.id)}
+							onpointerleave={() => {
+								if (activeId === definition.id) activeId = null;
+							}}
+							onfocus={() => (activeId = definition.id)}
+							onblur={() => {
+								if (activeId === definition.id) activeId = null;
+							}}
+						>
+							<TransitionThumbnail
+								presentationId={definition.id}
+								{direction}
+								viewport={scroller}
+								active={activeId === definition.id}
+							/>
+							<span>{label}</span>
+						</button><LibraryFavorite
+							catalogId={`transition:${definition.id}`}
+							name={label}
+							recipe={{ kind: 'transition', presentation: definition.id, direction }}
 						/>
-						<span>{label}</span>
-					</button>
+					</div>
 				{/each}
 			</div>
 		</section>

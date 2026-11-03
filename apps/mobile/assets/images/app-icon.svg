@@ -2,9 +2,9 @@
 <svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
   <rect width="512" height="512" fill="#B74C05" />
   <g transform="matrix(2 0 0 2 128 128)" fill="#ffffff">
-    <path d="M24 4h36v28L32 60H4V24A20 20 0 0 1 24 4Z" />
-    <path d="M68 4h36a20 20 0 0 1 20 20v36H96L68 32Z" />
-    <path d="M4 68h28l28 28v28H24a20 20 0 0 1-20-20Z" />
-    <path d="m68 96 28-28h28v36a20 20 0 0 1-20 20H68Z" />
+    <path fill-rule="evenodd" d="M72 14h14a6 6 0 0 1 6 6v62a40 40 0 1 1-26-37.47V20a6 6 0 0 1 6-6Z M40 68v28a4 4 0 0 0 6 3.46l24.5-14a4 4 0 0 0 0-6.92L46 64.54a4 4 0 0 0-6 3.46Z"/>
+    
+    
+    
   </g>
 </svg>

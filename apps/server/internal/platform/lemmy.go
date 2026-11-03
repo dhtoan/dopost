@@ -14,7 +14,7 @@ import (
 	"strings"
 )
 
-// lemmyAPIVersionBoundary is the newest Lemmy line OpenPost publishes
+// lemmyAPIVersionBoundary is the newest Lemmy line dopost publishes
 // through. Lemmy 1.0 moves to a v4 API with breaking changes; instances on
 // that line get an explicit error instead of silent breakage.
 const lemmyAPIVersionBoundary = "1.0"
@@ -107,7 +107,7 @@ func checkLemmyVersion(version string) error {
 	major := strings.SplitN(trimmed, ".", 2)[0]
 	boundary := strings.SplitN(lemmyAPIVersionBoundary, ".", 2)[0]
 	if major >= boundary {
-		return fmt.Errorf("lemmy %s uses API v4, which OpenPost does not publish through yet; connect an instance on 0.19.x", trimmed)
+		return fmt.Errorf("lemmy %s uses API v4, which dopost does not publish through yet; connect an instance on 0.19.x", trimmed)
 	}
 	return nil
 }
@@ -162,12 +162,14 @@ func (l *LemmyAdapter) GetProfile(ctx context.Context, accessToken string) (*Use
 	}, nil
 }
 
+// lemmyCommunity is the API v3 community object. Its canonical actor URL is
+// actor_id; ap_id only names posts and comments.
 type lemmyCommunity struct {
 	ID                      int64   `json:"id"`
 	Name                    string  `json:"name"`
 	Title                   *string `json:"title"`
 	Description             *string `json:"sidebar"`
-	ActorID                 string  `json:"ap_id"`
+	ActorID                 string  `json:"actor_id"`
 	NSFW                    bool    `json:"nsfw"`
 	PostingRestrictedToMods bool    `json:"posting_restricted_to_mods"`
 }
@@ -267,7 +269,7 @@ type lemmyPost struct {
 	Body      *string `json:"body"`
 	ActorID   string  `json:"ap_id"`
 	NSFW      bool    `json:"nsfw"`
-	Published string  `json:"published_at"`
+	Published string  `json:"published"`
 }
 
 type lemmyPostView struct {
@@ -358,46 +360,46 @@ func (l *LemmyAdapter) UploadMedia(ctx context.Context, accessToken, _ string, m
 	}
 	headers := lemmyAuthHeaders(accessToken)
 	headers[headerContentType] = contentType
-	respBody, err := DoRequest(ctx, http.MethodPost, l.instanceURL+"/api/v3/image", payload, headers)
+	// Lemmy 0.19 has no /api/v3 upload route; it proxies pict-rs at
+	// /pictrs/image and serves each stored file under that path.
+	respBody, err := DoRequest(ctx, http.MethodPost, l.instanceURL+"/pictrs/image", payload, headers)
 	if err != nil {
 		return "", fmt.Errorf("lemmy image upload: %w", err)
 	}
 	var result struct {
-		ImageURL *string `json:"image_url"`
-		URL      *string `json:"url"`
+		Msg   string `json:"msg"`
+		Files []struct {
+			File string `json:"file"`
+		} `json:"files"`
 	}
 	if err := json.Unmarshal(respBody, &result); err != nil {
 		return "", fmt.Errorf("decoding lemmy image upload: %w", err)
 	}
-	imageURL := ""
-	if result.ImageURL != nil {
-		imageURL = strings.TrimSpace(*result.ImageURL)
+	if len(result.Files) == 0 || strings.TrimSpace(result.Files[0].File) == "" {
+		return "", fmt.Errorf("lemmy image upload returned no file: %s", strings.TrimSpace(result.Msg))
 	}
-	if imageURL == "" && result.URL != nil {
-		imageURL = strings.TrimSpace(*result.URL)
-	}
-	if imageURL == "" {
-		return "", fmt.Errorf("lemmy image upload returned no url")
-	}
-	return imageURL, nil
+	return l.instanceURL + "/pictrs/image/" + url.PathEscape(strings.TrimSpace(result.Files[0].File)), nil
 }
 
+// lemmyComment is the API v3 comment object: its timestamps are published
+// and updated, and its score lives in the view's counts.
 type lemmyComment struct {
 	ID        int64   `json:"id"`
 	PostID    int64   `json:"post_id"`
 	Content   string  `json:"content"`
-	Published string  `json:"published_at"`
-	Updated   *string `json:"updated_at"`
+	Published string  `json:"published"`
+	Updated   *string `json:"updated"`
 	Removed   bool    `json:"removed"`
 	Deleted   bool    `json:"deleted"`
 	Path      string  `json:"path"`
 	ActorID   string  `json:"ap_id"`
-	Score     int64   `json:"score"`
 }
 
 type lemmyCommentView struct {
 	Comment lemmyComment `json:"comment"`
 	Creator lemmyPerson  `json:"creator"`
+	// MyVote is the connected account's own vote: 1, -1, or absent.
+	MyVote *int64 `json:"my_vote"`
 }
 
 func (l *LemmyAdapter) EngagementSupport() EngagementSupport {
@@ -429,6 +431,9 @@ func (l *LemmyAdapter) ListComments(ctx context.Context, accessToken, accountID,
 		if parentID != "" {
 			parentID = communityCommentRef(providerLemmy, postID, parentID)
 		}
+		// The comment's score includes its author's automatic upvote, so only
+		// my_vote says whether the connected account liked it.
+		liked := view.MyVote != nil && *view.MyVote > 0
 		comments = append(comments, Comment{
 			ID:       communityCommentRef(providerLemmy, postID, strconv.FormatInt(comment.ID, 10)),
 			ParentID: parentID, ConversationID: strconv.FormatInt(postID, 10),
@@ -441,8 +446,8 @@ func (l *LemmyAdapter) ListComments(ctx context.Context, accessToken, accountID,
 			IsOurs:    strings.TrimSpace(accountID) == strconv.FormatInt(view.Creator.ID, 10),
 			CanReply:  true,
 			CanDelete: strings.TrimSpace(accountID) == strconv.FormatInt(view.Creator.ID, 10),
-			CanLike:   comment.Score <= 0, CanUnlike: comment.Score > 0,
-			Liked: comment.Score > 0, LikeStateKnown: true,
+			CanLike:   !liked, CanUnlike: liked,
+			Liked: liked, LikeStateKnown: true,
 		})
 	}
 	return comments, nil
@@ -566,61 +571,6 @@ func (l *LemmyAdapter) FetchContentAnalytics(ctx context.Context, accessToken st
 	}
 	subtractOwnReplies(total, input.OwnReplyCount)
 	return total, nil
-}
-
-func (l *LemmyAdapter) AccountContentDiscoverySupport(input AnalyticsAccountContext) AccountContentDiscoverySupport {
-	if strings.TrimSpace(input.AccountID) == "" {
-		return AccountContentDiscoverySupport{UnavailableReason: "Lemmy account content discovery requires a stable account identity."}
-	}
-	return AccountContentDiscoverySupport{Supported: true, MaxPageSize: 20}
-}
-
-func (l *LemmyAdapter) DiscoverAccountContent(ctx context.Context, accessToken string, input AccountContentDiscoveryRequest) (AccountContentPage, error) {
-	personID, err := strconv.ParseInt(strings.TrimSpace(input.AccountID), 10, 64)
-	if err != nil || personID <= 0 {
-		return AccountContentPage{}, NewAccountContentDiscoveryError(AccountContentDiscoveryUnsupported, "invalid_account", 0)
-	}
-	params := url.Values{
-		"creator_id": {strconv.FormatInt(personID, 10)},
-		"sort":       {"New"},
-		"limit":      {"20"},
-	}
-	if cursor := strings.TrimSpace(input.Cursor); cursor != "" {
-		params.Set("page_cursor", cursor)
-	}
-	response, err := communityJSONGet[struct {
-		Posts    []lemmyPostView `json:"posts"`
-		NextPage *string         `json:"next_page"`
-	}](ctx, l.instanceURL, "/api/v3/post/list", params, accessToken, "lemmy account content")
-	if err != nil {
-		return AccountContentPage{}, socialAccountContentDiscoveryError(err)
-	}
-	page := AccountContentPage{Coverage: AccountContentCoverage{
-		Status:      AccountContentDiscoveryPartial,
-		Description: "Only posts visible through the authenticated Lemmy instance are included.",
-	}}
-	for _, view := range response.Posts {
-		post := view.Post
-		item, ok := normalizeCommunityAccountContent(
-			providerLemmy, l.instanceURL, post.ID, lemmyAccountContentProfile(post), post.Name,
-			post.Body, post.ActorID, post.Published, input.PublishedAfter,
-		)
-		if !ok {
-			continue
-		}
-		appendCommunityAccountContent(&page, item)
-	}
-	if response.NextPage != nil && strings.TrimSpace(*response.NextPage) != "" {
-		page.NextCursor = strings.TrimSpace(*response.NextPage)
-	}
-	return page, nil
-}
-
-func lemmyAccountContentProfile(post lemmyPost) string {
-	if post.URL != nil && strings.TrimSpace(*post.URL) != "" {
-		return "link_share"
-	}
-	return "short_text"
 }
 
 func stringValue(value *string) string {

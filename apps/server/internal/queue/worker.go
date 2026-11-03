@@ -24,17 +24,23 @@ import (
 	"github.com/openpost/backend/internal/services/externalwebhooks"
 	"github.com/openpost/backend/internal/services/feedback"
 	growthservice "github.com/openpost/backend/internal/services/growth"
+	"github.com/openpost/backend/internal/services/imagegeneration"
 	"github.com/openpost/backend/internal/services/medialifecycle"
 	"github.com/openpost/backend/internal/services/mediastore"
 	messagingservice "github.com/openpost/backend/internal/services/messaging"
 	"github.com/openpost/backend/internal/services/notifications"
 	"github.com/openpost/backend/internal/services/organizationownership"
+	postimportservice "github.com/openpost/backend/internal/services/postimport"
 	"github.com/openpost/backend/internal/services/providerwrite"
 	"github.com/openpost/backend/internal/services/publicationbuilder"
 	"github.com/openpost/backend/internal/services/publisher"
 	repostservice "github.com/openpost/backend/internal/services/reposts"
+	"github.com/openpost/backend/internal/services/repurpose"
 	"github.com/openpost/backend/internal/services/tokenmanager"
 	"github.com/openpost/backend/internal/services/videoprocessing"
+	"github.com/openpost/backend/internal/services/waitlist"
+	"github.com/openpost/backend/internal/services/workflows"
+	"github.com/openpost/backend/internal/services/youtubeprofile"
 	"github.com/openpost/backend/internal/telemetry"
 	"github.com/uptrace/bun"
 	"github.com/uptrace/bun/dialect"
@@ -55,10 +61,13 @@ const (
 	processingHeartbeat                = staleProcessingJobAge / 3
 	publicationBuilderUnavailableRetry = time.Minute
 	jobFinalizationTimeout             = 3 * time.Second
+	postImportSweepInterval            = 15 * time.Minute
 )
 
 // BackgroundWorker polls the configured database for pending jobs.
 type BackgroundWorker struct {
+	jobTypes              []string
+	excludedJobTypes      []string
 	db                    *bun.DB
 	workerID              string
 	interval              time.Duration
@@ -77,6 +86,9 @@ type BackgroundWorker struct {
 	video                 *videoprocessing.Service
 	growth                *growthservice.Service
 	publicationBuilder    *publicationbuilder.Application
+	repurposeSuggestions  *repurpose.Service
+	imageGeneration       *imagegeneration.Service
+	postImports           *postimportservice.Service
 	accountPreflight      *accountpreflightservice.Service
 	externalWebhooks      *externalwebhooks.Service
 	telemetry             telemetry.Recorder
@@ -99,6 +111,10 @@ func (w *BackgroundWorker) SetFeedbackService(service *feedback.Service) {
 	}
 }
 
+func (w *BackgroundWorker) SetYouTubeProfileService(service *youtubeprofile.Service) {
+	w.executors[jobregistry.ExecuteYouTubeProfile] = func(ctx context.Context, job *models.Job) error { return service.HandleJob(ctx, job.Type, job.Payload) }
+}
+
 func (w *BackgroundWorker) SetAnalyticsService(service *analyticsservice.Service) {
 	w.analytics = service
 	w.executors[jobregistry.ExecuteAnalytics] = func(ctx context.Context, job *models.Job) error {
@@ -106,6 +122,12 @@ func (w *BackgroundWorker) SetAnalyticsService(service *analyticsservice.Service
 			return fmt.Errorf("analytics collection is not configured")
 		}
 		return w.analytics.HandleJob(ctx, job.Type, job.Payload)
+	}
+}
+
+func (w *BackgroundWorker) SetWaitlistService(service *waitlist.Service) {
+	w.executors[jobregistry.ExecuteWaitlist] = func(ctx context.Context, job *models.Job) error {
+		return service.HandleNotification(ctx, job.Payload)
 	}
 }
 
@@ -209,6 +231,31 @@ func (w *BackgroundWorker) SetPublicationBuilderService(service *publicationbuil
 	}
 }
 
+func (w *BackgroundWorker) SetImageGenerationService(service *imagegeneration.Service) {
+	w.imageGeneration = service
+	w.executors[jobregistry.ExecuteImageGeneration] = func(ctx context.Context, job *models.Job) error { return service.HandleJob(ctx, job.Payload) }
+}
+
+func (w *BackgroundWorker) SetRepurposeSuggestionsService(service *repurpose.Service) {
+	w.repurposeSuggestions = service
+	w.executors[jobregistry.ExecuteRepurposeSuggestions] = func(ctx context.Context, job *models.Job) error {
+		if service == nil {
+			return repurpose.ErrUnavailable
+		}
+		return service.HandleJob(ctx, job.Payload)
+	}
+}
+
+func (w *BackgroundWorker) SetPostImportService(service *postimportservice.Service) {
+	w.postImports = service
+	w.executors[jobregistry.ExecutePostImport] = func(ctx context.Context, job *models.Job) error {
+		if w.postImports == nil {
+			return fmt.Errorf("post imports are not configured")
+		}
+		return w.postImports.HandleJob(ctx, job.Type, job.Payload)
+	}
+}
+
 func (w *BackgroundWorker) SetTelemetry(recorder telemetry.Recorder) {
 	w.telemetry = recorder
 }
@@ -220,25 +267,13 @@ func (w *BackgroundWorker) SetDiagnosticsReporter(reporter *diagnostics.Reporter
 	w.diagnostics = reporter
 }
 
-// workerPanicError carries a recovered worker panic through the normal
-// failure path so panicking jobs fail durably instead of crashing the
-// worker, and are reported once with their original stack.
-type workerPanicError struct {
-	recovered any
-	frames    []diagnostics.Frame
-}
-
-func (e *workerPanicError) Error() string {
-	return fmt.Sprintf("worker panic: %v", e.recovered)
-}
-
 // executeJobGuarded runs one job, converting panics into durable failures.
 // Without this boundary a panicking job would take down the worker before
 // any failure — or diagnostic — could be recorded.
 func (w *BackgroundWorker) executeJobGuarded(ctx context.Context, job *models.Job) (err error) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
-			err = &workerPanicError{recovered: recovered, frames: diagnostics.CaptureFrames(2)}
+			err = &diagnostics.PanicError{Recovered: recovered, Frames: diagnostics.CaptureFrames(2)}
 		}
 	}()
 	return w.executeJob(ctx, job)
@@ -268,13 +303,14 @@ func (w *BackgroundWorker) reportWorkerDiagnostic(job *models.Job, processErr er
 		Surface:      diagnostics.SurfaceWorker,
 		Operation:    normalizeWorkerOperation(job.Type),
 		ErrorCode:    code,
+		ErrorKind:    diagnostics.ErrorKind(processErr),
 		Provider:     provider,
 		AttemptCount: job.Attempts,
 		FirstSeen:    time.Now().UTC(),
 		LastSeen:     time.Now().UTC(),
 	}
-	if panicErr := (*workerPanicError)(nil); errors.As(processErr, &panicErr) {
-		report.Frames = panicErr.frames
+	if panicErr := (*diagnostics.PanicError)(nil); errors.As(processErr, &panicErr) {
+		report.Frames = panicErr.Frames
 	} else if !expected {
 		report.Frames = diagnostics.CaptureFrames(2)
 	}
@@ -285,7 +321,7 @@ func (w *BackgroundWorker) reportWorkerDiagnostic(job *models.Job, processErr er
 // code. The second return reports whether the failure is an expected
 // condition (counted, not alerted). Empty code means "do not report".
 func classifyWorkerDiagnostic(processErr error, jobType string) (string, bool) {
-	if panicErr := (*workerPanicError)(nil); errors.As(processErr, &panicErr) {
+	if panicErr := (*diagnostics.PanicError)(nil); errors.As(processErr, &panicErr) {
 		return diagnostics.CodeWorkerPanic, false
 	}
 	if directed := (*publisher.RetryableError)(nil); errors.As(processErr, &directed) {
@@ -332,7 +368,7 @@ func workerCodeForJobType(jobType string) string {
 	switch {
 	case strings.Contains(lower, "publish") || strings.Contains(lower, "deliver") ||
 		strings.Contains(lower, "webhook") || strings.Contains(lower, "repost") ||
-		strings.Contains(lower, "message") || strings.Contains(lower, "notif"):
+		strings.Contains(lower, "message"):
 		return diagnostics.CodePublishFailed
 	case strings.Contains(lower, "media") || strings.Contains(lower, "image") ||
 		strings.Contains(lower, "video") || strings.Contains(lower, "transcri"):
@@ -410,14 +446,19 @@ func NewWorker(db *bun.DB, id string, interval time.Duration, pub *publisher.Ser
 func (w *BackgroundWorker) Start(ctx context.Context) {
 	ticker := time.NewTicker(w.interval)
 	defer ticker.Stop()
+	importTicker := time.NewTicker(postImportSweepInterval)
+	defer importTicker.Stop()
 	defer close(w.done)
 
 	log.Printf("Worker %s started polling every %v\n", w.workerID, w.interval)
 	if w.isQuiescing() {
 		return
 	}
-	w.ensureMediaLifecycleJobs(ctx)
-	w.ensureQueueReminderSweepJob(ctx)
+	if len(w.jobTypes) == 0 {
+		w.ensureMediaLifecycleJobs(ctx)
+		w.ensureQueueReminderSweepJob(ctx)
+		w.enqueueDuePostImports(ctx)
+	}
 	w.processDueJobs(ctx)
 
 	for {
@@ -430,7 +471,18 @@ func (w *BackgroundWorker) Start(ctx context.Context) {
 			return
 		case <-ticker.C:
 			w.processDueJobs(ctx)
+		case <-importTicker.C:
+			w.enqueueDuePostImports(ctx)
 		}
+	}
+}
+
+func (w *BackgroundWorker) enqueueDuePostImports(ctx context.Context) {
+	if w.postImports == nil {
+		return
+	}
+	if _, err := w.postImports.EnqueueDue(ctx); err != nil {
+		log.Printf("[Worker %s] failed to enqueue due post imports: %v", w.workerID, err)
 	}
 }
 
@@ -470,10 +522,12 @@ func (w *BackgroundWorker) processDueJobs(ctx context.Context) {
 	if w.isQuiescing() {
 		return
 	}
-	requeuedPublicationJobIDs := w.requeueStaleProcessingJobs(ctx)
-	if err := databasemigrations.ReconcileActiveLegacyPublicationJobs(ctx, w.db, requeuedPublicationJobIDs); err != nil {
-		log.Printf("[Worker %s] failed to reconcile requeued publication jobs: %v\n", w.workerID, err)
-		return
+	if len(w.jobTypes) == 0 {
+		requeuedPublicationJobIDs := w.requeueStaleProcessingJobs(ctx)
+		if err := databasemigrations.ReconcileActiveLegacyPublicationJobs(ctx, w.db, requeuedPublicationJobIDs); err != nil {
+			log.Printf("[Worker %s] failed to reconcile requeued publication jobs: %v\n", w.workerID, err)
+			return
+		}
 	}
 	for {
 		if w.isQuiescing() {
@@ -567,17 +621,24 @@ func (w *BackgroundWorker) failAmbiguousStaleJobs(ctx context.Context, cutoff ti
 			return err
 		}
 		for _, job := range jobs {
-			if definition.Execution == jobregistry.ExecuteRepost && w.reposts != nil {
-				w.reposts.MarkAmbiguousWrite(ctx, job.Payload)
-			}
-			if _, err := w.db.NewUpdate().Model((*models.Job)(nil)).
+			result, err := w.db.NewUpdate().Model((*models.Job)(nil)).
 				Set("status = ?", jobStatusFailed).
 				Set("last_error = ?", definition.RecoveryMessage).
 				Set("locked_at = NULL").
 				Set("locked_by = ''").
-				Where("id = ? AND status = ?", job.ID, jobStatusProcessing).
-				Exec(ctx); err != nil {
+				Where("id = ? AND status = ? AND locked_by = ?", job.ID, jobStatusProcessing, job.LockedBy).
+				Where("lease_generation=?", job.LeaseGeneration).
+				Where("locked_at IS NOT NULL AND locked_at <= ?", cutoff).
+				Exec(ctx)
+			if err != nil {
 				return err
+			}
+			affected, err := result.RowsAffected()
+			if err != nil {
+				return err
+			}
+			if affected > 0 && definition.Execution == jobregistry.ExecuteRepost && w.reposts != nil {
+				w.reposts.MarkAmbiguousWrite(ctx, job.Payload)
 			}
 		}
 	}
@@ -593,29 +654,29 @@ func (w *BackgroundWorker) processNextJobIfAvailable(ctx context.Context) bool {
 			WITH next_job AS (
 				SELECT id
 				FROM jobs
-				WHERE status = ? AND run_at <= CURRENT_TIMESTAMP
+				WHERE status = ? AND run_at <= CURRENT_TIMESTAMP AND (? OR type IN (?)) AND (? OR type NOT IN (?))
 				ORDER BY run_at ASC, id ASC
 				FOR UPDATE SKIP LOCKED
 				LIMIT 1
 			)
 			UPDATE jobs
-			SET status = ?, locked_at = CURRENT_TIMESTAMP, locked_by = ?
+			SET status = ?, locked_at = CURRENT_TIMESTAMP, locked_by = ?, lease_generation = lease_generation + 1
 			FROM next_job
 			WHERE jobs.id = next_job.id AND jobs.status = ?
 			RETURNING jobs.*
-		`, jobStatusPending, jobStatusProcessing, w.workerID, jobStatusPending).Scan(ctx, job)
+		`, jobStatusPending, len(w.jobTypes) == 0, bun.List(w.jobTypes), len(w.excludedJobTypes) == 0, bun.List(w.excludedJobTypes), jobStatusProcessing, w.workerID, jobStatusPending).Scan(ctx, job)
 	} else {
 		err = w.db.NewRaw(`
 		UPDATE jobs
-		SET status = ?, locked_at = CURRENT_TIMESTAMP, locked_by = ?
+		SET status = ?, locked_at = CURRENT_TIMESTAMP, locked_by = ?, lease_generation = lease_generation + 1
 		WHERE status = ? AND id = (
 			SELECT id FROM jobs
-			WHERE status = ? AND run_at <= CURRENT_TIMESTAMP
+			WHERE status = ? AND run_at <= CURRENT_TIMESTAMP AND (? OR type IN (?)) AND (? OR type NOT IN (?))
 			ORDER BY run_at ASC, id ASC
 			LIMIT 1
 		)
 		RETURNING *
-		`, jobStatusProcessing, w.workerID, jobStatusPending, jobStatusPending).Scan(ctx, job)
+		`, jobStatusProcessing, w.workerID, jobStatusPending, jobStatusPending, len(w.jobTypes) == 0, bun.List(w.jobTypes), len(w.excludedJobTypes) == 0, bun.List(w.excludedJobTypes)).Scan(ctx, job)
 	}
 
 	if err != nil {
@@ -636,7 +697,7 @@ func (w *BackgroundWorker) handleLockedJob(ctx context.Context, job *models.Job)
 	heartbeatDone := make(chan struct{})
 	go func() {
 		defer close(heartbeatDone)
-		w.heartbeatJobLock(heartbeatCtx, job.ID)
+		w.heartbeatJobLock(heartbeatCtx, job)
 	}()
 	processErr := w.executeJobGuarded(ctx, job)
 	cancelHeartbeat()
@@ -658,6 +719,7 @@ func (w *BackgroundWorker) handleLockedJob(ctx context.Context, job *models.Job)
 			Set("locked_at = NULL").
 			Set("locked_by = ''").
 			Where("id = ? AND status = ? AND locked_by = ?", job.ID, jobStatusProcessing, w.workerID).
+			Where("lease_generation=?", job.LeaseGeneration).
 			Exec(finalizeCtx); dbErr != nil {
 			log.Printf("[Worker %s] failed to reschedule recurring job %s: %v\n", w.workerID, job.ID, dbErr)
 		}
@@ -670,6 +732,7 @@ func (w *BackgroundWorker) handleLockedJob(ctx context.Context, job *models.Job)
 		Set("locked_at = NULL").
 		Set("locked_by = ''").
 		Where("id = ? AND status = ? AND locked_by = ?", job.ID, jobStatusProcessing, w.workerID).
+		Where("lease_generation=?", job.LeaseGeneration).
 		Exec(finalizeCtx)
 	if dbErr != nil {
 		log.Printf("[Worker %s] failed to mark job %s as completed: %v\n", w.workerID, job.ID, dbErr)
@@ -721,6 +784,12 @@ func (w *BackgroundWorker) finishFailedJob(ctx context.Context, job *models.Job,
 	}
 	job.LastError = failure.message
 
+	// Observe the processing failure before attempting its state write. A lost
+	// row or unavailable database cannot suppress the original terminal failure.
+	if job.Status == jobStatusFailed {
+		w.recordTerminalFailure(ctx, job, processErr, failure)
+	}
+
 	persistFailure := func(db bun.IDB) (int64, error) {
 		result, err := db.NewUpdate().Model((*models.Job)(nil)).
 			Set("status = ?", job.Status).
@@ -730,6 +799,7 @@ func (w *BackgroundWorker) finishFailedJob(ctx context.Context, job *models.Job,
 			Set("locked_at = NULL").
 			Set("locked_by = ''").
 			Where("id = ? AND status = ? AND locked_by = ?", job.ID, jobStatusProcessing, w.workerID).
+			Where("lease_generation=?", job.LeaseGeneration).
 			Exec(ctx)
 		if err != nil {
 			return 0, err
@@ -739,14 +809,23 @@ func (w *BackgroundWorker) finishFailedJob(ctx context.Context, job *models.Job,
 
 	var rows int64
 	var dbErr error
-	if job.Status == jobStatusFailed && job.Type == jobregistry.TypePublicationBuild && w.publicationBuilder != nil {
+	var markTerminalFailure func(context.Context, bun.IDB, string) error
+	switch {
+	case job.Status == jobStatusFailed && job.Type == jobregistry.TypePublicationBuild && w.publicationBuilder != nil:
+		markTerminalFailure = w.publicationBuilder.MarkTerminalJobFailure
+	case job.Status == jobStatusFailed && job.Type == jobregistry.TypeRepurposeSuggestions && w.repurposeSuggestions != nil:
+		markTerminalFailure = w.repurposeSuggestions.MarkTerminalJobFailure
+	case job.Status == jobStatusFailed && job.Type == jobregistry.TypeImageGeneration && w.imageGeneration != nil:
+		markTerminalFailure = w.imageGeneration.MarkTerminalJobFailure
+	}
+	if markTerminalFailure != nil {
 		dbErr = w.db.RunInTx(ctx, &sql.TxOptions{}, func(txCtx context.Context, tx bun.Tx) error {
 			var err error
 			rows, err = persistFailure(tx)
 			if err != nil || rows == 0 {
 				return err
 			}
-			return w.publicationBuilder.MarkTerminalJobFailure(txCtx, tx, job.Payload)
+			return markTerminalFailure(txCtx, tx, job.Payload)
 		})
 	} else {
 		rows, dbErr = persistFailure(w.db)
@@ -758,10 +837,13 @@ func (w *BackgroundWorker) finishFailedJob(ctx context.Context, job *models.Job,
 	if rows == 0 {
 		return
 	}
-	if job.Status != jobStatusFailed {
-		return
+	w.observeCommittedJobFailure(ctx, job)
+}
+
+func (w *BackgroundWorker) observeCommittedJobFailure(ctx context.Context, job *models.Job) {
+	if job.Status == jobStatusFailed && job.Type == jobregistry.TypePublicationBuild && w.publicationBuilder != nil {
+		w.publicationBuilder.ObserveTerminalJobFailure(ctx, job.Payload)
 	}
-	w.recordTerminalFailure(ctx, job, processErr, failure)
 }
 
 func (w *BackgroundWorker) recordTerminalFailure(ctx context.Context, job *models.Job, processErr error, failure classifiedJobFailure) {
@@ -791,13 +873,104 @@ func (w *BackgroundWorker) recordTerminalFailure(ctx context.Context, job *model
 	properties["http_status"] = providerFailure.HTTPStatus
 	captureErr := w.telemetry.CaptureException(ctx, telemetry.Exception{
 		DistinctID:  "job:" + job.ID,
-		Title:       "OpenPost " + job.Type + " job failed",
-		Description: "A durable background job reached a terminal failure",
+		WorkspaceID: w.jobErrorWorkspaceID(ctx, job),
+		Title:       "dopost " + job.Type + " job failed",
+		Description: "Durable background processing reached a terminal failure",
 		Properties:  properties,
 	})
 	if captureErr != nil {
 		log.Printf("[Worker %s] failed to enqueue terminal job telemetry: %v\n", w.workerID, captureErr)
 	}
+}
+
+// jobErrorWorkspaceID resolves the affected workspace for a terminal job
+// failure from trusted database state. Publish jobs carry the publication in
+// scope_id (with a payload fallback for old rows); refresh, cleanup, and
+// build jobs resolve through their owning records. Unresolvable jobs return
+// "" so dashboards report unknown impact instead of inventing it.
+// The existing error_kind/error_code properties remain the cause vocabulary;
+// no competing taxonomy is introduced here.
+func (w *BackgroundWorker) jobErrorWorkspaceID(ctx context.Context, job *models.Job) string {
+	switch job.Type {
+	case jobTypePublishPublication, jobregistry.TypePublishPost:
+		return w.publishJobWorkspaceID(ctx, job)
+	case jobTypeRefreshToken:
+		return w.refreshJobWorkspaceID(ctx, job.Payload)
+	case jobTypeMediaCleanup:
+		return mediaCleanupJobWorkspaceID(job.Payload)
+	case jobregistry.TypePublicationBuild:
+		return w.publicationBuildWorkspaceID(ctx, job)
+	default:
+		return ""
+	}
+}
+
+func (w *BackgroundWorker) publishJobWorkspaceID(ctx context.Context, job *models.Job) string {
+	publicationID := strings.TrimSpace(job.ScopeID)
+	if publicationID == "" {
+		var subject struct {
+			PublicationID string `json:"publication_id"`
+		}
+		if err := json.Unmarshal([]byte(job.Payload), &subject); err != nil {
+			return ""
+		}
+		publicationID = strings.TrimSpace(subject.PublicationID)
+	}
+	if publicationID == "" {
+		return ""
+	}
+	var workspaceID string
+	if err := w.db.NewSelect().Model((*models.Publication)(nil)).Column("workspace_id").Where("id = ?", publicationID).Scan(ctx, &workspaceID); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(workspaceID)
+}
+
+func (w *BackgroundWorker) refreshJobWorkspaceID(ctx context.Context, payload string) string {
+	target, err := tokenmanager.ParseRefreshJobPayload(payload)
+	if err != nil {
+		return ""
+	}
+	var workspaceID string
+	switch {
+	case target.GrantID != "":
+		err = w.db.NewSelect().Model((*models.OAuthGrant)(nil)).Column("workspace_id").Where("id = ?", target.GrantID).Scan(ctx, &workspaceID)
+	case target.AccountID != "":
+		err = w.db.NewSelect().Model((*models.SocialAccount)(nil)).Column("workspace_id").Where("id = ?", target.AccountID).Scan(ctx, &workspaceID)
+	default:
+		return ""
+	}
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(workspaceID)
+}
+
+func mediaCleanupJobWorkspaceID(payload string) string {
+	decoded, err := jobregistry.DecodeMediaCleanupPayload(payload)
+	if err != nil {
+		return ""
+	}
+	return decoded.WorkspaceID
+}
+
+func (w *BackgroundWorker) publicationBuildWorkspaceID(ctx context.Context, job *models.Job) string {
+	buildID := strings.TrimSpace(job.ScopeID)
+	if buildID == "" {
+		decoded, err := jobregistry.DecodePublicationBuildPayload(job.Payload)
+		if err != nil {
+			return ""
+		}
+		buildID = decoded.BuildID
+	}
+	if buildID == "" {
+		return ""
+	}
+	var workspaceID string
+	if err := w.db.NewSelect().Model((*publicationbuilder.BuildRecord)(nil)).Column("workspace_id").Where("id = ?", buildID).Scan(ctx, &workspaceID); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(workspaceID)
 }
 
 type classifiedJobFailure struct {
@@ -808,19 +981,15 @@ type classifiedJobFailure struct {
 }
 
 func (w *BackgroundWorker) classifyJobFailure(ctx context.Context, job *models.Job, processErr error) classifiedJobFailure {
+	if job.Type == jobregistry.TypeRepurposeSuggestions {
+		return classifyRepurposeFailure(processErr)
+	}
+
 	if continuation, ok := classifyJobContinuation(processErr); ok {
 		return continuation
 	}
 	if job.Type == jobregistry.TypePublicationBuild {
-		switch {
-		case errors.Is(processErr, publicationbuilder.ErrRuntimeUnavailable):
-			return classifiedJobFailure{retryable: true, retryAfter: publicationBuilderUnavailableRetry, message: "Publication Builder is temporarily unavailable. OpenPost will retry when it is configured.", preserveAttempts: true}
-		case errors.Is(processErr, publicationbuilder.ErrTooManyActiveBuilds):
-			return classifiedJobFailure{retryable: true, retryAfter: publicationBuilderUnavailableRetry, message: "Publication Builder is waiting for an active build slot.", preserveAttempts: true}
-		case errors.Is(processErr, publicationbuilder.ErrBuildLeaseActive):
-			return classifiedJobFailure{retryable: true, retryAfter: publicationBuilderUnavailableRetry, message: "Publication Builder is waiting for the active generation lease.", preserveAttempts: true}
-		}
-		return classifiedJobFailure{retryable: true, message: "Publication Builder could not complete this build. OpenPost will retry when possible."}
+		return classifyPublicationBuildFailure(processErr)
 	}
 	result := classifiedJobFailure{retryable: true, message: processErr.Error()}
 	definition, ok := jobregistry.Lookup(job.Type)
@@ -857,18 +1026,43 @@ func (w *BackgroundWorker) classifyJobFailure(ctx context.Context, job *models.J
 	return result
 }
 
+func classifyPublicationBuildFailure(processErr error) classifiedJobFailure {
+	switch {
+	case errors.Is(processErr, publicationbuilder.ErrRuntimeUnavailable):
+		return classifiedJobFailure{retryable: true, retryAfter: publicationBuilderUnavailableRetry, message: "Publication Builder is temporarily unavailable. dopost will retry when it is configured.", preserveAttempts: true}
+	case errors.Is(processErr, publicationbuilder.ErrTooManyActiveBuilds):
+		return classifiedJobFailure{retryable: true, retryAfter: publicationBuilderUnavailableRetry, message: "Publication Builder is waiting for an active build slot.", preserveAttempts: true}
+	case errors.Is(processErr, publicationbuilder.ErrBuildLeaseActive):
+		return classifiedJobFailure{retryable: true, retryAfter: publicationBuilderUnavailableRetry, message: "Publication Builder is waiting for the active generation lease.", preserveAttempts: true}
+	}
+	return classifiedJobFailure{retryable: true, message: "Publication Builder could not complete this build. dopost will retry when possible."}
+}
+
+func classifyRepurposeFailure(err error) classifiedJobFailure {
+	if errors.Is(err, repurpose.ErrLeaseActive) || errors.Is(err, repurpose.ErrUnavailable) {
+		return classifiedJobFailure{retryable: true, retryAfter: time.Minute, message: "Clip analysis is waiting for an available worker.", preserveAttempts: true}
+	}
+	return classifiedJobFailure{retryable: !jobregistry.IsInvalidPayload(err), message: "Clip analysis was interrupted. dopost will retry when possible."}
+}
+
 func classifyJobContinuation(processErr error) (classifiedJobFailure, bool) {
+	if retryAfter, pending := providerwrite.IsPending(processErr); pending {
+		return classifiedJobFailure{retryable: true, retryAfter: retryAfter, message: "The provider write is awaiting reconciliation. dopost will check its outcome before sending again.", preserveAttempts: true}, true
+	}
+	if errors.Is(processErr, imagegeneration.ErrBillingPending) || errors.Is(processErr, imagegeneration.ErrUnavailable) {
+		return classifiedJobFailure{retryable: true, retryAfter: 5 * time.Minute, message: "Image generation is waiting for configuration or billing.", preserveAttempts: true}, true
+	}
+	if errors.Is(processErr, imagegeneration.ErrPending) {
+		return classifiedJobFailure{retryable: true, retryAfter: 15 * time.Second, message: "Image generation is waiting for the provider.", preserveAttempts: true}, true
+	}
+	var directed *publisher.RetryableError
+	if errors.As(processErr, &directed) && (directed.Failure.Code == "provider_submission_pending" || directed.Failure.Code == "tiktok_inbox_delivered") {
+		return classifiedJobFailure{retryable: true, retryAfter: directed.Failure.RetryAfter, message: directed.Failure.Message, preserveAttempts: true}, true
+	}
 	if retryAfter, continuation := repostservice.IsExecutionContinuation(processErr); continuation {
 		return classifiedJobFailure{
 			retryable: true, retryAfter: retryAfter,
 			message:          "Repost removal will retry from its persisted stage.",
-			preserveAttempts: true,
-		}, true
-	}
-	if retryAfter, continuation := analyticsservice.IsDiscoveryContinuation(processErr); continuation {
-		return classifiedJobFailure{
-			retryable: true, retryAfter: retryAfter,
-			message:          "Account content discovery will continue from its committed cursor.",
 			preserveAttempts: true,
 		}, true
 	}
@@ -887,7 +1081,7 @@ func (w *BackgroundWorker) hasPendingSuccessor(ctx context.Context, jobType, exc
 	return exists
 }
 
-func (w *BackgroundWorker) heartbeatJobLock(ctx context.Context, jobID string) {
+func (w *BackgroundWorker) heartbeatJobLock(ctx context.Context, job *models.Job) {
 	ticker := time.NewTicker(processingHeartbeat)
 	defer ticker.Stop()
 	for {
@@ -898,16 +1092,17 @@ func (w *BackgroundWorker) heartbeatJobLock(ctx context.Context, jobID string) {
 			if _, err := w.db.NewUpdate().
 				Model((*models.Job)(nil)).
 				Set("locked_at = ?", time.Now().UTC()).
-				Where("id = ? AND status = ? AND locked_by = ?", jobID, jobStatusProcessing, w.workerID).
+				Where("id = ? AND status = ? AND locked_by = ?", job.ID, jobStatusProcessing, w.workerID).
+				Where("lease_generation=?", job.LeaseGeneration).
 				Exec(ctx); err != nil && ctx.Err() == nil {
-				log.Printf("[Worker %s] failed to heartbeat job %s: %v\n", w.workerID, jobID, err)
+				log.Printf("[Worker %s] failed to heartbeat job %s: %v\n", w.workerID, job.ID, err)
 			}
 		}
 	}
 }
 
 func (w *BackgroundWorker) executeJob(ctx context.Context, job *models.Job) error {
-	ctx = publisher.WithJobExecution(ctx, job.ID, job.Attempts, job.LockedAt)
+	ctx = publisher.WithJobExecution(ctx, job.ID, job.Attempts, job.LockedAt, job.LeaseGeneration)
 	definition, ok := jobregistry.Lookup(job.Type)
 	if !ok {
 		return fmt.Errorf("unsupported job type %q", job.Type)
@@ -946,7 +1141,7 @@ func (w *BackgroundWorker) handleStorageDelete(ctx context.Context, payload stri
 
 func (w *BackgroundWorker) handleRefreshTokenJob(ctx context.Context, payload string) error {
 	if w.tokens == nil {
-		return nil
+		return fmt.Errorf("token refresh is not configured")
 	}
 
 	target, err := tokenmanager.ParseRefreshJobPayload(payload)
@@ -997,4 +1192,20 @@ func (w *BackgroundWorker) ensureQueueReminderSweepJob(ctx context.Context) {
 	if _, _, err := jobregistry.EnqueueQueueReminderSweep(ctx, w.db, time.Time{}); err != nil {
 		log.Printf("Failed to schedule queue reminder sweep: %v", err)
 	}
+}
+
+func (w *BackgroundWorker) SetWorkflowService(service *workflows.Service) {
+	w.executors[jobregistry.ExecuteWorkflow] = func(ctx context.Context, job *models.Job) error {
+		if service == nil {
+			return fmt.Errorf("workflows are unavailable")
+		}
+		return service.HandleJob(ctx, job.Type, job.Payload)
+	}
+}
+
+// SetJobTypes dedicates this worker to a bounded latency-sensitive lane.
+// The ordinary worker excludes those types; claims remain database-atomic.
+func (w *BackgroundWorker) SetJobTypes(types ...string) { w.jobTypes = append([]string(nil), types...) }
+func (w *BackgroundWorker) ExcludeJobTypes(types ...string) {
+	w.excludedJobTypes = append([]string(nil), types...)
 }

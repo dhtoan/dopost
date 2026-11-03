@@ -24,20 +24,25 @@
   import Settings from "@lucide/svelte/icons/settings";
   import Smile from "@lucide/svelte/icons/smile";
   import User from "@lucide/svelte/icons/user-round";
+  import ThumbsUp from "@lucide/svelte/icons/thumbs-up";
+  import Globe from "@lucide/svelte/icons/globe";
   import Users from "@lucide/svelte/icons/users";
   import Video from "@lucide/svelte/icons/video";
-  import type { PreviewModel } from "./model";
+  import type { PreviewModel, PreviewScheme } from "./model";
   import { platformNames } from "./model";
   import PlatformGlyph from "./PlatformGlyph.svelte";
   import PreviewAvatar from "./PreviewAvatar.svelte";
   import SocialPreview from "./SocialPreview.svelte";
+  import VerifiedBadge from "./VerifiedBadge.svelte";
+  import AdditionalPreviewPage from "./AdditionalPreviewPage.svelte";
 
   interface Props {
     model: PreviewModel;
     class?: string;
+    scheme?: PreviewScheme;
   }
 
-  let { model, class: className = "" }: Props = $props();
+  let { model, class: className = "", scheme = "system" }: Props = $props();
   const platformName = $derived(platformNames[model.platform]);
   const handle = $derived(model.identity.handle.replace(/^@/u, ""));
 </script>
@@ -105,26 +110,48 @@
   </div>
 {/snippet}
 
-{#snippet feedPost(
-  name: string,
-  account: string,
-  text: string,
-  tone: string,
-)}
+{#snippet feedPost(name: string, account: string, text: string, tone: string)}
   <article class="context-post" aria-hidden="true">
     <i style={`--avatar-tone: ${tone}`}>{name.slice(0, 1)}</i>
     <div>
       <header>
-        <strong>{name}</strong><span>@{account} · 2h</span
-        ><MoreHorizontal />
+        <strong>{name}</strong><span>@{account} · 2h</span><MoreHorizontal />
       </header>
       <p>{text}</p>
       <footer>
-        <span><MessageCircle /> 12</span><span><Repeat2 /> 4</span
-        ><span><Heart /> 86</span><span><Share2 /></span>
+        <span><MessageCircle /> 12</span><span><Repeat2 /> 4</span><span
+          ><Heart /> 86</span
+        ><span><Share2 /></span>
       </footer>
     </div>
   </article>
+{/snippet}
+
+{#snippet nativeContextPost(name: string, text: string, tone: string)}
+  <article class="context-post native-context-post" aria-hidden="true">
+    <header>
+      <i style={`--avatar-tone: ${tone}`}>{name.slice(0, 1)}</i>
+      <div><strong>{name}</strong><span>2h · <Globe /></span></div>
+      <MoreHorizontal />
+    </header>
+    <p>{text}</p>
+    <footer>
+      <span><ThumbsUp /> Like</span>
+      <span><MessageCircle /> Comment</span>
+      {#if model.platform === "linkedin"}
+        <span><Repeat2 /> Repost</span><span><Send /> Send</span>
+      {:else}
+        <span><Share2 /> Share</span>
+      {/if}
+    </footer>
+  </article>
+{/snippet}
+
+{#snippet contactRow(name: string, tone: string)}
+  <div class="contact-row" aria-hidden="true">
+    <i style={`--avatar-tone: ${tone}`}>{name.slice(0, 1)}<b></b></i>
+    <strong>{name}</strong>
+  </div>
 {/snippet}
 
 {#snippet followRow(name: string, account: string, tone: string)}
@@ -136,7 +163,11 @@
 {/snippet}
 
 {#snippet mobileNav()}
-  <nav class="mobile-native-nav" aria-label={`${platformName} mobile navigation`}>
+  <nav
+    aria-hidden="true"
+    class="mobile-native-nav"
+    aria-label={`${platformName} mobile navigation`}
+  >
     <span class="active">{@render navIcon("home")}</span>
     <span>{@render navIcon("search")}</span>
     {#if model.platform === "instagram" || model.platform === "tiktok"}
@@ -144,7 +175,11 @@
     {:else}
       <span>{@render navIcon("message")}</span>
     {/if}
-    <span>{@render navIcon(model.platform === "instagram" ? "video" : "bell")}</span>
+    <span
+      >{@render navIcon(
+        model.platform === "instagram" ? "video" : "bell",
+      )}</span
+    >
     <PreviewAvatar identity={model.identity} size={26} />
   </nav>
 {/snippet}
@@ -156,546 +191,572 @@
   </div>
 {/snippet}
 
-<main
-  class={[
-    "preview-page",
-    `platform-${model.platform}`,
-    `format-${model.format}`,
-    className,
-  ]}
-  data-preview-shell={model.platform}
-  aria-label={`${platformName} page preview`}
+<div
+  class="preview-container"
+  data-preview-scheme={scheme}
+  style:color-scheme={scheme === "system" ? undefined : scheme}
 >
-  {#if model.platform === "x" || model.platform === "bluesky" || model.platform === "mastodon" || model.platform === "threads"}
-    <div class="micro-page">
-      <aside class="micro-left">
-        <div class="brand-mark">
-          <PlatformGlyph platform={model.platform} label={platformName} />
-        </div>
-        <nav aria-label={`${platformName} navigation`}>
-          {@render navItem("home", "Home", true)}
-          {@render navItem(
-            "search",
-            model.platform === "bluesky" ? "Search" : "Explore",
-          )}
-          {@render navItem("bell", "Notifications")}
-          {@render navItem(
-            "message",
-            model.platform === "mastodon" ? "Private mentions" : "Messages",
-          )}
-          {#if model.platform === "bluesky"}
-            {@render navItem("hash", "Feeds")}
-            {@render navItem("bookmark", "Saved")}
-          {:else if model.platform === "mastodon"}
-            {@render navItem("users", "Live feeds")}
-            {@render navItem("bookmark", "Bookmarks")}
-          {:else if model.platform === "threads"}
-            {@render navItem("at", "Activity")}
-          {:else}
-            {@render navItem("bookmark", "Bookmarks")}
-            {@render navItem("users", "Communities")}
-          {/if}
-          {@render navItem("user", "Profile")}
-          {@render navItem(
-            "settings",
-            model.platform === "x" ? "More" : "Settings",
-          )}
-        </nav>
-        <div class="compose-button">
-          <Plus aria-hidden="true" /><span>New post</span>
-        </div>
-        <div class="rail-profile">
-          <PreviewAvatar identity={model.identity} size={40} />
-          <span
-            ><strong>{model.identity.displayName}</strong><small
-              >@{handle}</small
-            ></span
-          >
-          <MoreHorizontal aria-hidden="true" />
-        </div>
-      </aside>
-
-      <section class="micro-center">
-        <header class="micro-mobile-header">
-          <PreviewAvatar identity={model.identity} size={32} />
-          <PlatformGlyph platform={model.platform} label={platformName} />
-          {#if model.platform === "x"}
-            <Settings />
-          {:else}
-            <MessageCircle />
-          {/if}
-        </header>
-        <header class="column-header">
-          <div>
-            <h1>
-              {model.platform === "mastodon"
-                ? "Home"
-                : model.platform === "threads"
-                  ? "For you"
-                  : "Home"}
-            </h1>
-            {#if model.platform === "mastodon"}<span
-                >Posts from people you follow</span
-              >{/if}
+  <main
+    class={[
+      "preview-page",
+      `platform-${model.platform}`,
+      `format-${model.format}`,
+      className,
+    ]}
+    data-preview-shell={model.platform}
+    aria-label={`${platformName} page preview`}
+  >
+    {#if ["threads", "mastodon", "pixelfed", "peertube", "lemmy", "piefed", "pinterest", "reddit", "googlebusiness", "devnull"].includes(model.platform)}
+      <AdditionalPreviewPage {model} {scheme} />
+    {:else if model.platform === "x" || model.platform === "bluesky"}
+      <div class="micro-page">
+        <aside class="micro-left">
+          <div class="brand-mark">
+            <PlatformGlyph platform={model.platform} label={platformName} />
           </div>
-          {#if model.platform === "threads"}<ChevronDown
-              aria-hidden="true"
-            />{/if}
-          {#if model.platform === "bluesky"}<Settings aria-hidden="true" />{/if}
-          {#if model.platform === "x"}<span class="feed-settings"
-              ><Settings /></span
-            >{/if}
-        </header>
-        {#if model.platform !== "mastodon"}
-          <div class="feed-tabs" aria-hidden="true">
-            <strong
-              >{model.platform === "bluesky" ? "Following" : "For you"}</strong
+          <nav aria-hidden="true" aria-label={`${platformName} navigation`}>
+            {@render navItem("home", "Home", true)}
+            {@render navItem(
+              "search",
+              model.platform === "bluesky" ? "Search" : "Explore",
+            )}
+            {@render navItem("bell", "Notifications")}
+            {@render navItem(
+              "message",
+              model.platform === "x" ? "Chat" : "Messages",
+            )}
+            {#if model.platform === "bluesky"}
+              {@render navItem("hash", "Feeds")}
+              {@render navItem("bookmark", "Saved")}
+            {:else}
+              {@render navItem("compass", "Grok")}
+              {@render navItem("history", "History")}
+              {@render navItem("news", "Creator Studio")}
+              {@render navItem("at", "Premium")}
+            {/if}
+            {@render navItem("user", "Profile")}
+            {@render navItem(
+              "settings",
+              model.platform === "x" ? "More" : "Settings",
+            )}
+          </nav>
+          <div class="compose-button">
+            <Plus aria-hidden="true" /><span
+              >{model.platform === "x" ? "Post" : "New post"}</span
             >
+          </div>
+          <div class="rail-profile">
+            <PreviewAvatar identity={model.identity} size={40} />
             <span
-              >{model.platform === "bluesky"
-                ? "Discover"
-                : model.platform === "threads"
-                  ? "Following"
-                  : "Following"}</span
+              ><span class="identity-name"
+                ><strong>{model.identity.displayName}</strong>{#if model
+                  .identity.verified}<VerifiedBadge
+                    platform={model.platform}
+                  />{/if}</span
+              ><small>@{handle}</small></span
             >
+            <MoreHorizontal aria-hidden="true" />
           </div>
-        {/if}
-        <div class="micro-composer" aria-hidden="true">
-          <PreviewAvatar identity={model.identity} size={40} />
-          <span>
-            {model.platform === "mastodon"
-              ? "What is on your mind?"
-              : model.platform === "threads"
-                ? "Start a thread..."
-                : "What’s happening?"}
-          </span>
-          <div>
-            <ImageIcon />
-            <Smile />
-          </div>
-          <b>Post</b>
-        </div>
-        <div class="platform-post-stage">
-          <SocialPreview {model} />
-        </div>
-        {@render feedPost(
-          "Maya Chen",
-          "mayac",
-          model.platform === "mastodon"
-            ? "A small update from the fediverse: the community design notes are ready to read."
-            : "The best product updates show the work and make the next step obvious.",
-          "#7c3aed",
-        )}
-        {@render feedPost(
-          "Open Design",
-          "opendesign",
-          "A practical look at accessible interface patterns for publishing tools.",
-          "#0f766e",
-        )}
-      </section>
+        </aside>
 
-      <aside class="micro-right">
-        {@render searchBox(`Search ${platformName}`)}
-        <section class="side-card">
-          <h2>
-            {model.platform === "mastodon"
-              ? "Explore"
-              : model.platform === "threads"
-                ? "For you"
-                : "What’s happening"}
-          </h2>
-          {#each ["Interface design", "Creator tools", "Open source"] as topic, index (topic)}
-            <div class="topic">
-              <span
+        <section class="micro-center">
+          <header class="micro-mobile-header">
+            <PreviewAvatar identity={model.identity} size={32} />
+            <PlatformGlyph platform={model.platform} label={platformName} />
+            {#if model.platform === "x"}
+              <Settings />
+            {:else}
+              <MessageCircle />
+            {/if}
+          </header>
+          <header class="column-header">
+            <div>
+              <h2>Home</h2>
+            </div>
+
+            {#if model.platform === "bluesky"}<Settings
+                aria-hidden="true"
+              />{/if}
+            {#if model.platform === "x"}<span class="feed-settings"
+                ><Settings /></span
+              >{/if}
+          </header>
+          {#if model.platform === "x" || model.platform === "bluesky"}
+            <div class="feed-tabs" aria-hidden="true">
+              <strong
                 >{model.platform === "bluesky"
-                  ? "Popular with friends"
-                  : index === 0
-                    ? "Trending now"
-                    : "Popular"}</span
+                  ? "Following"
+                  : "For you"}</strong
               >
-              <strong>{topic}</strong>
-              <small>{`${index + 1}.2K posts`}</small>
+              <span
+                >{model.platform === "bluesky" ? "Discover" : "Following"}</span
+              >
+            </div>
+          {/if}
+          <div class="micro-composer" aria-hidden="true">
+            <PreviewAvatar identity={model.identity} size={40} />
+            <span>
+              {model.platform === "bluesky"
+                ? "What's up?"
+                : "What’s happening?"}
+            </span>
+            <div>
+              <ImageIcon />
+              <Smile />
+            </div>
+            <b>Post</b>
+          </div>
+          <div class="platform-post-stage">
+            <SocialPreview {model} {scheme} />
+          </div>
+          {@render feedPost(
+            "Maya Chen",
+            "mayac",
+            "The best product updates show the work and make the next step obvious.",
+            "#7c3aed",
+          )}
+          {@render feedPost(
+            "Open Design",
+            "opendesign",
+            "A practical look at accessible interface patterns for publishing tools.",
+            "#0f766e",
+          )}
+        </section>
+
+        <aside class="micro-right">
+          {@render searchBox(`Search ${platformName}`)}
+          <section class="side-card">
+            <h2>
+              {model.platform === "bluesky"
+                ? "Discover new feeds"
+                : "What’s happening"}
+            </h2>
+            {#each ["Interface design", "Creator tools", "Open source"] as topic, index (topic)}
+              <div class="topic">
+                <span
+                  >{model.platform === "bluesky"
+                    ? "Popular with friends"
+                    : index === 0
+                      ? "Trending now"
+                      : "Popular"}</span
+                >
+                <strong>{topic}</strong>
+                <small>{`${index + 1}.2K posts`}</small>
+              </div>
+            {/each}
+            <span class="side-more" aria-hidden="true">Show more</span>
+          </section>
+          <section class="side-card follow-card">
+            <h2>Who to follow</h2>
+            {@render followRow(
+              "dopost Image Editor Notes",
+              "studionotes",
+              "#2563eb",
+            )}
+            {@render followRow("Ari Santos", "arisantos", "#db2777")}
+            {@render followRow("The Web", "theweb", "#ca8a04")}
+          </section>
+          <p class="native-footer" aria-hidden="true">
+            Terms · Privacy · Accessibility · Help · © 2026
+          </p>
+        </aside>
+        {@render mobileNav()}
+      </div>
+    {:else if model.platform === "linkedin"}
+      <header class="linkedin-topbar">
+        <PlatformGlyph platform="linkedin" label="LinkedIn" />
+        {@render searchBox("Search")}
+        <nav aria-hidden="true" aria-label="LinkedIn navigation">
+          {@render navItem("home", "Home", true)}
+          {@render navItem("users", "My Network")}
+          {@render navItem("play", "Jobs")}
+          {@render navItem("message", "Messaging")}
+          {@render navItem("bell", "Notifications")}
+          {@render navItem("user", "Me")}
+        </nav>
+      </header>
+      <div class="linkedin-page">
+        <aside class="linkedin-profile">
+          <div class="profile-cover"></div>
+          <PreviewAvatar identity={model.identity} size={68} />
+          <span class="identity-name profile-name"
+            ><strong>{model.identity.displayName}</strong>{#if model.identity
+              .verified}<VerifiedBadge platform="linkedin" />{/if}</span
+          >
+          <span>@{handle}</span>
+
+          <hr />
+
+          <hr />
+          <div class="saved-row"><Bookmark /> <strong>Saved items</strong></div>
+        </aside>
+        <section class="linkedin-feed">
+          <div class="linkedin-composer">
+            <PreviewAvatar identity={model.identity} size={44} />
+            <span>Start a post</span>
+            <footer>
+              <b><ImageIcon /> Media</b><b><CirclePlay /> Event</b><b
+                ><Newspaper /> Write article</b
+              >
+            </footer>
+          </div>
+          <SocialPreview {model} {scheme} />
+          <div class="linkedin-divider"><span>Sort by: <b>Top</b></span></div>
+          {@render nativeContextPost(
+            "Product Builders",
+            "Three concrete ways teams can make publishing reviews faster and clearer.",
+            "#0a66c2",
+          )}
+        </section>
+        <aside class="linkedin-news side-card">
+          <h2>LinkedIn News</h2>
+          {#each ["Creators rethink distribution", "Design systems keep evolving", "Teams invest in video"] as item, index (item)}
+            <div class="news-item">
+              <strong>{item}</strong><span
+                >{index + 2}h ago · {index + 1},104 readers</span
+              >
             </div>
           {/each}
-          <span class="side-more" aria-hidden="true">Show more</span>
-        </section>
-        <section class="side-card follow-card">
-          <h2>Who to follow</h2>
-          {@render followRow("OpenPost Image Editor Notes", "studionotes", "#2563eb")}
-          {@render followRow("Ari Santos", "arisantos", "#db2777")}
-          {@render followRow("The Web", "theweb", "#ca8a04")}
-        </section>
-        <p class="native-footer" aria-hidden="true">
-          Terms · Privacy · Accessibility · Help · © 2026
-        </p>
-      </aside>
-      {@render mobileNav()}
-    </div>
-  {:else if model.platform === "linkedin"}
-    <header class="linkedin-topbar">
-      <PlatformGlyph platform="linkedin" label="LinkedIn" />
-      {@render searchBox("Search")}
-      <nav aria-label="LinkedIn navigation">
-        {@render navItem("home", "Home", true)}
-        {@render navItem("users", "My Network")}
-        {@render navItem("play", "Jobs")}
-        {@render navItem("message", "Messaging")}
-        {@render navItem("bell", "Notifications")}
-        {@render navItem("user", "Me")}
-      </nav>
-    </header>
-    <div class="linkedin-page">
-      <aside class="linkedin-profile">
-        <div class="profile-cover"></div>
-        <PreviewAvatar identity={model.identity} size={68} />
-        <strong>{model.identity.displayName}</strong>
-        <span>@{handle}</span>
-        <p>Creator · Building with OpenPost</p>
-        <hr />
-        <div class="profile-stat"><small>Profile viewers</small><b>24</b></div>
-        <div class="profile-stat"><small>Post impressions</small><b>138</b></div>
-        <hr />
-        <div class="saved-row"><Bookmark /> <strong>Saved items</strong></div>
-      </aside>
-      <section class="linkedin-feed">
-        <div class="linkedin-composer">
-          <PreviewAvatar identity={model.identity} size={44} />
-          <span>Start a post</span>
-          <footer>
-            <b><ImageIcon /> Media</b><b><CirclePlay /> Event</b
-            ><b><Newspaper /> Write article</b>
-          </footer>
+          <b class="show-more">Show more <ChevronDown /></b>
+        </aside>
+        {@render mobileNav()}
+      </div>
+    {:else if model.platform === "facebook"}
+      <header class="facebook-topbar">
+        <div class="facebook-brand">
+          <PlatformGlyph platform="facebook" label="Facebook" />
         </div>
-        <SocialPreview {model} />
-        <div class="linkedin-divider"><span>Sort by: <b>Top</b></span></div>
-        {@render feedPost(
-          "Product Builders",
-          "product-builders",
-          "Three concrete ways teams can make publishing reviews faster and clearer.",
-          "#0a66c2",
-        )}
-      </section>
-      <aside class="linkedin-news side-card">
-        <h2>LinkedIn News</h2>
-        {#each ["Creators rethink distribution", "Design systems keep evolving", "Teams invest in video"] as item, index (item)}
-          <div class="news-item">
-            <strong>{item}</strong><span
-              >{index + 2}h ago · {index + 1},104 readers</span
+        {@render searchBox("Search Facebook")}
+        <nav aria-hidden="true" aria-label="Facebook navigation">
+          {@render navItem("home", "Home", true)}
+          {@render navItem("video", "Video")}
+          {@render navItem("users", "Groups")}
+        </nav>
+        <div class="top-actions">
+          {@render navIcon("menu")}{@render navIcon("message")}{@render navIcon(
+            "bell",
+          )}<PreviewAvatar identity={model.identity} size={38} />
+        </div>
+      </header>
+      <div class="facebook-page">
+        <aside class="facebook-left">
+          <div class="account-row">
+            <PreviewAvatar identity={model.identity} size={36} /><span
+              class="identity-name"
+              ><strong>{model.identity.displayName}</strong>{#if model.identity
+                .verified}<VerifiedBadge platform={model.platform} />{/if}</span
             >
           </div>
-        {/each}
-        <b class="show-more">Show more <ChevronDown /></b>
-      </aside>
-      {@render mobileNav()}
-    </div>
-  {:else if model.platform === "facebook"}
-    <header class="facebook-topbar">
-      <div class="facebook-brand">
-        <PlatformGlyph platform="facebook" label="Facebook" />
-      </div>
-      {@render searchBox("Search Facebook")}
-      <nav aria-label="Facebook navigation">
-        {@render navItem("home", "Home", true)}
-        {@render navItem("video", "Video")}
-        {@render navItem("users", "Groups")}
-      </nav>
-      <div class="top-actions">
-        {@render navIcon("menu")}{@render navIcon("message")}{@render navIcon(
-          "bell",
-        )}<PreviewAvatar identity={model.identity} size={38} />
-      </div>
-    </header>
-    <div class="facebook-page">
-      <aside class="facebook-left">
-        <div class="account-row">
-          <PreviewAvatar identity={model.identity} size={36} /><strong
-            >{model.identity.displayName}</strong
-          >
-        </div>
-        {@render navItem("users", "Friends")}
-        {@render navItem("video", "Video")}
-        {@render navItem("bookmark", "Saved")}
-        {@render navItem("users", "Groups")}
-        {@render navItem("compass", "Feeds")}
-      </aside>
-      <section class="facebook-feed">
-        <div class="facebook-stories" aria-hidden="true">
-          {#each ["Create story", "Maya", "Ari", "OpenPost Image Editor"] as story, index (story)}
-            <div
-              style={`--story-tone: ${["#1877f2", "#7c3aed", "#db2777", "#0f766e"][index]}`}
-            >
-              <i>{story.slice(0, 1)}</i
-              ><span>{story}</span>
-            </div>
-          {/each}
-        </div>
-        <div class="facebook-composer">
-          <PreviewAvatar identity={model.identity} size={40} />
-          <span>What’s on your mind?</span>
-          <footer>
-            <b><Video /> Live video</b><b><ImageIcon /> Photo/video</b
-            ><b><Smile /> Feeling/activity</b>
-          </footer>
-        </div>
-        <SocialPreview {model} />
-        {@render feedPost(
-          "OpenPost Community",
-          "openpostcommunity",
-          "This week’s community round-up is ready. Thanks to everyone who shared feedback.",
-          "#1877f2",
-        )}
-      </section>
-      <aside class="facebook-right">
-        <div class="contacts-heading"><h2>Contacts</h2><Video /><Search /><MoreHorizontal /></div>
-        {@render followRow("Maya Chen", "Online", "#7c3aed")}
-        {@render followRow("Ari Santos", "Online", "#db2777")}
-        {@render followRow("OpenPost Image Editor Notes", "Online", "#2563eb")}
-        {@render followRow("Open Design", "Online", "#0f766e")}
-      </aside>
-      {@render mobileNav()}
-    </div>
-  {:else if model.platform === "instagram"}
-    <div class="instagram-page">
-      <aside class="instagram-left">
-        <div class="instagram-wordmark">Instagram</div>
-        <div class="brand-mark compact-logo">
-          <PlatformGlyph platform="instagram" />
-        </div>
-        <nav aria-label="Instagram navigation">
-          {@render navItem("home", "Home", true)}
-          {@render navItem("search", "Search")}
-          {@render navItem("compass", "Explore")}
-          {@render navItem("video", "Reels")}
-          {@render navItem("message", "Messages")}
-          {@render navItem("bell", "Notifications")}
-          {@render navItem("plus", "Create")}
-          {@render navItem("user", "Profile")}
-        </nav>
-        {@render navItem("settings", "More")}
-      </aside>
-      <section
-        class={[
-          "instagram-feed",
-          (model.format === "story" || model.format === "reel") && "immersive",
-        ]}
-      >
-        <header class="instagram-mobile-header">
-          <div class="instagram-wordmark">Instagram</div>
-          <span><Heart /><Send /></span>
-        </header>
-        {#if model.format === "post"}
-          <div class="story-strip" aria-hidden="true">
-            {#each Array(6) as _, index (index)}
-              <div>
-                <i></i><span
-                  >{index === 0 ? "Your story" : `profile_${index}`}</span
-                >
+          {@render navItem("users", "Friends")}
+          {@render navItem("video", "Video")}
+          {@render navItem("bookmark", "Saved")}
+          {@render navItem("users", "Groups")}
+          {@render navItem("compass", "Feeds")}
+        </aside>
+        <section class="facebook-feed">
+          <div class="facebook-stories" aria-hidden="true">
+            {#each ["Create story", "Maya", "Ari", "dopost Image Editor"] as story, index (story)}
+              <div
+                style={`--story-tone: ${["#0866ff", "#7c3aed", "#db2777", "#0f766e"][index]}`}
+              >
+                <i>{story.slice(0, 1)}</i><span>{story}</span>
               </div>
             {/each}
           </div>
-        {/if}
-        <SocialPreview {model} />
-        {#if model.format === "post"}{@render ghostRows(2)}{/if}
-      </section>
-      {#if model.format === "post"}
-        <aside class="instagram-right">
-          <div class="account-row">
-            <PreviewAvatar identity={model.identity} size={44} /><span
-              ><strong>{handle}</strong><small
-                >{model.identity.displayName}</small
-              ></span
-            ><b>Switch</b>
+          <div class="facebook-composer">
+            <PreviewAvatar identity={model.identity} size={40} />
+            <span>What’s on your mind?</span>
+            <footer>
+              <b><Video /> Live video</b><b><ImageIcon /> Photo/video</b><b
+                ><Smile /> Feeling/activity</b
+              >
+            </footer>
           </div>
-          <div class="suggested-heading"><h2>Suggested for you</h2><b>See all</b></div>
-          {@render followRow("OpenPost Image Editor Notes", "studionotes", "#2563eb")}
-          {@render followRow("Maya Chen", "mayac", "#7c3aed")}
-          {@render followRow("Open Design", "opendesign", "#0f766e")}
-          <p class="native-footer" aria-hidden="true">
-            About · Help · Press · API · Jobs · Privacy · Terms
-          </p>
+          <SocialPreview {model} {scheme} />
+          {@render nativeContextPost(
+            "dopost Community",
+            "This week’s community round-up is ready. Thanks to everyone who shared feedback.",
+            "#0866ff",
+          )}
+        </section>
+        <aside class="facebook-right">
+          <div class="contacts-heading">
+            <h2>Contacts</h2>
+            <Video /><Search /><MoreHorizontal />
+          </div>
+          {@render contactRow("Maya Chen", "#7c3aed")}
+          {@render contactRow("Ari Santos", "#db2777")}
+          {@render contactRow("dopost Image Editor Notes", "#2563eb")}
+          {@render contactRow("Open Design", "#0f766e")}
         </aside>
-      {/if}
-      {@render mobileNav()}
-    </div>
-  {:else if model.platform === "youtube"}
-    <header class="youtube-topbar">
-      <Menu aria-hidden="true" />
-      <div class="youtube-brand">
-        <PlatformGlyph platform="youtube" label="YouTube" /><strong
-          >YouTube</strong
-        >
+        {@render mobileNav()}
       </div>
-      <div class="youtube-search">
-        {@render searchBox("Search")}<button aria-label="Search"
-          ><Search /></button
-        ><span><Mic /></span>
-      </div>
-      <div class="top-actions">
-        <Video /><Bell /><PreviewAvatar identity={model.identity} size={34} />
-      </div>
-    </header>
-    <div class="youtube-page">
-      <aside class="youtube-left">
-        {@render navItem("home", "Home", true)}
-        {@render navItem("play", "Shorts")}
-        {@render navItem("video", "Subscriptions")}
-        <hr />
-        {@render navItem("user", "You")}
-        {@render navItem("bookmark", "Playlists")}
-        {@render navItem("history", "History")}
-      </aside>
-      <section
-        class={["youtube-watch", model.format === "short" && "shorts-view"]}
-      >
-        <div class="youtube-main">
-          <div class="youtube-chips" aria-hidden="true">
-            <b>All</b><span>From your search</span><span>Related</span
-            ><span>Recently uploaded</span>
+    {:else if model.platform === "instagram"}
+      <div class="instagram-page">
+        <aside class="instagram-left">
+          <div class="instagram-wordmark">Instagram</div>
+          <div class="brand-mark compact-logo">
+            <PlatformGlyph platform="instagram" />
           </div>
-          <SocialPreview {model} />
+          <nav aria-hidden="true" aria-label="Instagram navigation">
+            {@render navItem("home", "Home", true)}
+            {@render navItem("search", "Search")}
+            {@render navItem("compass", "Explore")}
+            {@render navItem("video", "Reels")}
+            {@render navItem("message", "Messages")}
+            {@render navItem("bell", "Notifications")}
+            {@render navItem("plus", "Create")}
+            {@render navItem("user", "Profile")}
+          </nav>
+          {@render navItem("settings", "More")}
+        </aside>
+        <section
+          class={[
+            "instagram-feed",
+            (model.format === "story" || model.format === "reel") &&
+              "immersive",
+          ]}
+        >
+          <header class="instagram-mobile-header">
+            <strong>Instagram</strong>
+            {@render searchBox("Search")}
+          </header>
+          {#if model.format === "post"}
+            <div class="story-strip" aria-hidden="true">
+              {#each Array(6) as _, index (index)}
+                <div>
+                  <i></i><span
+                    >{index === 0 ? "Your story" : `profile_${index}`}</span
+                  >
+                </div>
+              {/each}
+            </div>
+          {/if}
+          <SocialPreview {model} {scheme} />
+          {#if model.format === "post"}{@render ghostRows(2)}{/if}
+        </section>
+        {#if model.format === "post"}
+          <aside class="instagram-right">
+            <div class="account-row">
+              <PreviewAvatar identity={model.identity} size={44} /><span
+                ><span class="identity-name"
+                  ><strong>{handle}</strong>{#if model.identity.verified}<VerifiedBadge
+                      platform={model.platform}
+                    />{/if}</span
+                ><small>{model.identity.displayName}</small></span
+              ><b>Switch</b>
+            </div>
+            <div class="suggested-heading">
+              <h2>Suggested for you</h2>
+              <b>See all</b>
+            </div>
+            {@render followRow(
+              "dopost Image Editor Notes",
+              "studionotes",
+              "#2563eb",
+            )}
+            {@render followRow("Maya Chen", "mayac", "#7c3aed")}
+            {@render followRow("Open Design", "opendesign", "#0f766e")}
+            <p class="native-footer" aria-hidden="true">
+              About · Help · Press · API · Jobs · Privacy · Terms
+            </p>
+          </aside>
+        {/if}
+        <nav class="mobile-native-nav instagram-bottom" aria-hidden="true">
+          <Home /><Search /><Plus /><Video /><User />
+        </nav>
+      </div>
+    {:else if model.platform === "youtube"}
+      <header class="youtube-topbar">
+        <Menu aria-hidden="true" />
+        <div class="youtube-brand">
+          <PlatformGlyph platform="youtube" label="YouTube" /><strong
+            >YouTube</strong
+          >
         </div>
-        <aside class="recommendations">
-          {#each Array(7) as _, index (index)}
-            <div class="recommendation" aria-hidden="true">
-              <i><span>{index + 2}:14</span></i>
-              <div
-                ><strong
-                  >{[
-                    "A practical guide to better social video",
-                    "Build a repeatable publishing workflow",
-                    "The creator tools worth knowing",
-                    "Designing clear content systems",
-                    "How small teams publish consistently",
-                    "Behind the scenes: launch day",
-                    "Weekly product and design notes",
-                  ][index]}</strong
-                ><small>OpenPost Image Editor</small><small
-                  >{index + 3}K views · {index + 1} days ago</small
-                ></div
+        <div class="youtube-search">
+          {@render searchBox("Search")}<span aria-hidden="true"><Search /></span
+          ><span><Mic /></span>
+        </div>
+        <div class="top-actions">
+          <Video /><Bell /><PreviewAvatar identity={model.identity} size={34} />
+        </div>
+      </header>
+      <div class="youtube-page">
+        <aside class="youtube-left">
+          {@render navItem("home", "Home", true)}
+          {@render navItem("play", "Shorts")}
+          {@render navItem("video", "Subscriptions")}
+          <hr />
+          {@render navItem("user", "You")}
+          {@render navItem("bookmark", "Playlists")}
+          {@render navItem("history", "History")}
+        </aside>
+        <section
+          class={["youtube-watch", model.format === "short" && "shorts-view"]}
+        >
+          <div class="youtube-main">
+            <div class="youtube-chips" aria-hidden="true">
+              <b>All</b><span>From your search</span><span>Related</span><span
+                >Recently uploaded</span
               >
             </div>
-          {/each}
-        </aside>
-        {@render mobileNav()}
-      </section>
-    </div>
-  {:else if model.platform === "tiktok"}
-    <header class="tiktok-topbar">
-      <div class="tiktok-brand">
-        <PlatformGlyph platform="tiktok" label="TikTok" /><strong>TikTok</strong
-        >
-      </div>
-      {@render searchBox("Search")}
-      <div class="top-actions">
-        <span class="upload"><Plus /> Upload</span><Send /><MessageCircle
-        /><PreviewAvatar identity={model.identity} size={34} />
-      </div>
-    </header>
-    <div class="tiktok-page">
-      <aside class="tiktok-left">
-        {@render navItem("home", "For You", true)}
-        {@render navItem("compass", "Explore")}
-        {@render navItem("users", "Following")}
-        {@render navItem("users", "Friends")}
-        {@render navItem("video", "LIVE")}
-        {@render navItem("message", "Messages")}
-        {@render navItem("user", "Profile")}
-        <hr />
-        <strong class="rail-label">Suggested accounts</strong>
-        {@render ghostRows(4)}
-      </aside>
-      <section class="tiktok-feed">
-        <div class="tiktok-feed-tabs" aria-hidden="true">
-          <span>Following</span><strong>For You</strong>
-        </div>
-        <SocialPreview {model} />
-        {@render mobileNav()}
-      </section>
-    </div>
-  {:else if model.platform === "discord"}
-    <div class="discord-page">
-      <aside class="server-rail">
-        <div class="discord-home">
-          <PlatformGlyph platform="discord" label="Discord" />
-        </div>
-        {#each ["OP", "DS", "UI", "+"] as server (server)}<span>{server}</span
-          >{/each}
-      </aside>
-      <aside class="channel-rail">
-        <header><strong>OpenPost</strong><ChevronDown /></header>
-        <span>TEXT CHANNELS</span>
-        {@render navItem("hash", "general", true)}
-        {@render navItem("hash", "content")}
-        {@render navItem("hash", "social")}
-        <span>VOICE CHANNELS</span>
-        {@render navItem("message", "Lounge")}
-        <div class="discord-user">
-          <PreviewAvatar identity={model.identity} size={34} />
-          <span><strong>{handle}</strong><small>Online</small></span>
-          <Mic />
-          <Settings />
-        </div>
-      </aside>
-      <section class="discord-chat">
-        <header>
-          <Hash /><strong>general</strong><span>OpenPost community chat</span
-          ><div><Bell /><Users /><Search /></div>
-        </header>
-        <div class="chat-history">
-          <div class="channel-welcome">
-            <Hash />
-            <h1>Welcome to #general!</h1>
-            <p>This is the start of the #general channel.</p>
+            <SocialPreview {model} {scheme} />
           </div>
-          <SocialPreview {model} />
-        </div>
-        <div class="message-box">
-          <Plus /><span>Message #general</span><span>GIF</span><AtSign />
-        </div>
-      </section>
-      <aside class="member-rail">
-        <span>ONLINE — 4</span>
-        {@render followRow("OpenPost", "Creator", "#5865f2")}
-        {@render followRow("Maya", "Online", "#7c3aed")}
-        {@render followRow("Ari", "Online", "#db2777")}
-        {@render followRow("OpenPost Image Editor Bot", "BOT", "#0f766e")}
-      </aside>
-    </div>
-  {:else if model.platform === "telegram"}
-    <div class="telegram-page">
-      <aside class="telegram-chat-list" aria-hidden="true">
-        <header><Menu /><strong>Telegram</strong><Search /></header>
-        <div class="telegram-search">Search</div>
-        <div class="telegram-channel-row">
-          <PreviewAvatar identity={model.identity} size={46} />
-          <span
-            ><strong>{model.identity.displayName}</strong><small
-              >{model.segments[0]?.text || "Channel"}</small
-            ></span
+          <aside class="recommendations">
+            {#each Array(7) as _, index (index)}
+              <div class="recommendation" aria-hidden="true">
+                <i><span>{index + 2}:14</span></i>
+                <div>
+                  <strong
+                    >{[
+                      "A practical guide to better social video",
+                      "Build a repeatable publishing workflow",
+                      "The creator tools worth knowing",
+                      "Designing clear content systems",
+                      "How small teams publish consistently",
+                      "Behind the scenes: launch day",
+                      "Weekly product and design notes",
+                    ][index]}</strong
+                  ><small>dopost Image Editor</small><small
+                    >{index + 3}K views · {index + 1} days ago</small
+                  >
+                </div>
+              </div>
+            {/each}
+          </aside>
+          {@render mobileNav()}
+        </section>
+      </div>
+    {:else if model.platform === "tiktok"}
+      <header class="tiktok-topbar">
+        <div class="tiktok-brand">
+          <PlatformGlyph platform="tiktok" label="TikTok" /><strong
+            >TikTok</strong
           >
-          <time>{model.createdAtLabel}</time>
         </div>
-      </aside>
-      <section class="telegram-conversation">
-        <header class="telegram-channel-header">
-          <PreviewAvatar identity={model.identity} size={40} />
-          <span
-            ><h1>{model.identity.displayName}</h1>
-            <small>channel</small></span
-          >
-          <Search aria-hidden="true" />
-          <MoreHorizontal aria-hidden="true" />
-        </header>
-        <div class="telegram-messages">
-          <span class="telegram-date">Today</span>
-          <SocialPreview {model} />
+        {@render searchBox("Search")}
+        <div class="top-actions">
+          <span class="upload"><Plus /> Upload</span><Send /><MessageCircle
+          /><PreviewAvatar identity={model.identity} size={34} />
         </div>
-      </section>
-    </div>
-  {:else}
-    <div class="unsupported-page"><SocialPreview {model} /></div>
-  {/if}
-</main>
+      </header>
+      <div class="tiktok-page">
+        <aside class="tiktok-left">
+          {@render navItem("home", "For You", true)}
+          {@render navItem("compass", "Explore")}
+          {@render navItem("users", "Following")}
+          {@render navItem("users", "Friends")}
+          {@render navItem("video", "LIVE")}
+          {@render navItem("message", "Messages")}
+          {@render navItem("user", "Profile")}
+          <hr />
+          <strong class="rail-label">Suggested accounts</strong>
+          {@render ghostRows(4)}
+        </aside>
+        <section class="tiktok-feed">
+          <div class="tiktok-feed-tabs" aria-hidden="true">
+            <span>Following</span><strong>For You</strong>
+          </div>
+          <SocialPreview {model} {scheme} />
+          {@render mobileNav()}
+        </section>
+      </div>
+    {:else if model.platform === "discord"}
+      <div class="discord-page">
+        <aside class="server-rail">
+          <div class="discord-home">
+            <PlatformGlyph platform="discord" label="Discord" />
+          </div>
+          {#each ["OP", "DS", "UI", "+"] as server (server)}<span>{server}</span
+            >{/each}
+        </aside>
+        <aside class="channel-rail">
+          <header><strong>dopost</strong><ChevronDown /></header>
+          <span>TEXT CHANNELS</span>
+          {@render navItem("hash", "general", true)}
+          {@render navItem("hash", "content")}
+          {@render navItem("hash", "social")}
+          <span>VOICE CHANNELS</span>
+          {@render navItem("message", "Lounge")}
+          <div class="discord-user">
+            <PreviewAvatar identity={model.identity} size={34} />
+            <span
+              ><span class="identity-name"
+                ><strong>{handle}</strong>{#if model.identity.verified}<VerifiedBadge
+                    platform={model.platform}
+                  />{/if}</span
+              ><small>Online</small></span
+            >
+            <Mic />
+            <Settings />
+          </div>
+        </aside>
+        <section class="discord-chat">
+          <header>
+            <Hash /><strong>general</strong><span>dopost community chat</span>
+            <div><Bell /><Users /><Search /></div>
+          </header>
+          <div class="chat-history">
+            <div class="channel-welcome">
+              <Hash />
+              <h2>Welcome to #general!</h2>
+              <p>This is the start of the #general channel.</p>
+            </div>
+            <SocialPreview {model} {scheme} />
+          </div>
+          <div class="message-box">
+            <Plus /><span>Message #general</span><span>GIF</span><AtSign />
+          </div>
+        </section>
+        <aside class="member-rail">
+          <span>MEMBERS</span>
+          {@render followRow("dopost", "Creator", "#5865f2")}
+          {@render followRow("Maya", "Online", "#7c3aed")}
+          {@render followRow("Ari", "Online", "#db2777")}
+          {@render followRow("dopost Image Editor Bot", "BOT", "#0f766e")}
+        </aside>
+      </div>
+    {:else if model.platform === "telegram"}
+      <div class="telegram-page">
+        <aside class="telegram-chat-list" aria-hidden="true">
+          <header><Menu /><strong>Telegram</strong><Search /></header>
+          <div class="telegram-search">Search</div>
+          <div class="telegram-channel-row">
+            <PreviewAvatar identity={model.identity} size={46} />
+            <span
+              ><span class="identity-name"
+                ><strong>{model.identity.displayName}</strong>{#if model.identity
+                  .verified}<VerifiedBadge platform={model.platform} />{/if}</span
+              ><small>{model.segments[0]?.text || "Channel"}</small></span
+            >
+            <time>{model.createdAtLabel}</time>
+          </div>
+        </aside>
+        <section class="telegram-conversation">
+          <header class="telegram-channel-header">
+            <PreviewAvatar identity={model.identity} size={40} />
+            <span
+              ><span class="identity-name"
+                ><h2>{model.identity.displayName}</h2>{#if model.identity
+                  .verified}<VerifiedBadge platform={model.platform} />{/if}</span
+              >
+              <small>channel</small></span
+            >
+            <Search aria-hidden="true" />
+            <MoreHorizontal aria-hidden="true" />
+          </header>
+          <div class="telegram-messages">
+            <span class="telegram-date">Today</span>
+            <SocialPreview {model} {scheme} />
+          </div>
+        </section>
+      </div>
+    {:else}
+      <div class="unsupported-page"><SocialPreview {model} {scheme} /></div>
+    {/if}
+  </main>
+</div>
 
 <style>
   .preview-page {
@@ -711,7 +772,7 @@
     color: var(--page-fg);
   }
 
-  .preview-page * {
+  .preview-page :global(*) {
     box-sizing: border-box;
   }
 
@@ -815,7 +876,7 @@
     min-width: 0;
   }
 
-  .telegram-channel-header h1 {
+  .telegram-channel-header h2 {
     overflow: hidden;
     margin: 0;
     font-size: 0.9rem;
@@ -990,6 +1051,40 @@
     min-width: 0;
   }
 
+  .identity-name {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 0.25rem;
+  }
+
+  .account-row > .identity-name {
+    display: flex;
+  }
+
+  .identity-name > strong,
+  .identity-name > h2 {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .identity-name > :global(.verified-badge) {
+    width: 0.9rem;
+    height: 0.9rem;
+  }
+
+  .profile-name {
+    justify-content: center;
+    max-width: 100%;
+  }
+
+  .profile-name > strong {
+    flex: 0 1 auto;
+  }
+
   .rail-profile strong,
   .rail-profile small,
   .account-row strong,
@@ -1033,7 +1128,7 @@
     backdrop-filter: blur(10px);
   }
 
-  .column-header h1 {
+  .column-header h2 {
     margin: 0;
     font-size: 1.1rem;
     line-height: 1.2;
@@ -1134,10 +1229,15 @@
     grid-row: 1 / span 2;
     grid-column: 3;
     border-radius: 999px;
-    background: var(--page-accent);
-    color: #fff;
+    background: var(--page-fg);
+    color: var(--page-bg);
     padding: 0.48rem 0.9rem;
     font-size: 0.75rem;
+  }
+
+  .platform-bluesky .micro-composer > b {
+    background: #0066ff;
+    color: #fff;
   }
 
   .micro-right {
@@ -1209,6 +1309,8 @@
   }
 
   .context-post > i,
+  .native-context-post header > i,
+  .contact-row > i,
   .follow-row > i {
     display: grid;
     width: 2.5rem;
@@ -1366,38 +1468,6 @@
     opacity: 0.72;
   }
 
-  .platform-mastodon {
-    --page-bg: #191b22;
-    --page-surface: #282c37;
-    --page-fg: #f5f5f7;
-    --page-muted: #9baec8;
-    --page-border: #393f4f;
-    --page-soft: #282c37;
-    --page-accent: #6364ff;
-  }
-
-  .platform-mastodon .brand-mark {
-    color: #6364ff;
-  }
-
-  .platform-mastodon .micro-page {
-    grid-template-columns: minmax(13rem, 18rem) minmax(0, 34rem) minmax(
-        17rem,
-        20rem
-      );
-    gap: 0.8rem;
-    padding-inline: 0.8rem;
-  }
-
-  .platform-mastodon .micro-left,
-  .platform-mastodon .micro-center {
-    border: 0;
-  }
-
-  .platform-mastodon .micro-center {
-    background: #282c37;
-  }
-
   .platform-bluesky {
     --page-bg: #fff;
     --page-fg: #101827;
@@ -1409,45 +1479,6 @@
 
   .platform-bluesky .brand-mark {
     color: #1185fe;
-  }
-
-  .platform-threads {
-    --page-bg: #fff;
-    --page-fg: #0a0a0a;
-    --page-muted: #777;
-    --page-border: #e5e5e5;
-    --page-soft: #f5f5f5;
-    --page-accent: #0a0a0a;
-  }
-
-  .platform-threads .micro-page {
-    grid-template-columns: 5.5rem minmax(0, 39.5rem) minmax(17rem, 20rem);
-  }
-
-  .platform-threads .micro-left {
-    align-items: center;
-    padding-inline: 0.5rem;
-  }
-
-  .platform-threads .micro-left .nav-item {
-    width: 3.2rem;
-    padding: 0;
-    justify-content: center;
-  }
-
-  .platform-threads .micro-left .nav-item strong,
-  .platform-threads .compose-button span,
-  .platform-threads .rail-profile > span,
-  .platform-threads .rail-profile > :global(svg) {
-    display: none;
-  }
-
-  .platform-threads .compose-button {
-    width: 3.1rem;
-  }
-
-  .platform-threads .rail-profile {
-    padding: 0;
   }
 
   .linkedin-topbar,
@@ -1468,7 +1499,7 @@
     --page-fg: rgb(0 0 0 / 90%);
     --page-muted: rgb(0 0 0 / 60%);
     --page-border: #e0dfdc;
-    --page-soft: #edf3f8;
+    --page-soft: #eef3f8;
     font-family:
       -apple-system, system-ui, BlinkMacSystemFont, "Segoe UI", Roboto,
       sans-serif;
@@ -1551,7 +1582,7 @@
   .profile-cover {
     width: 100%;
     height: 3.6rem;
-    background: #a0b4b7;
+    background: light-dark(#a0b4b7, #38434f);
   }
 
   .linkedin-profile :global(.preview-avatar) {
@@ -1734,14 +1765,17 @@
     --page-muted: #65676b;
     --page-border: #ced0d4;
     --page-soft: #e4e6eb;
-    font-family: Arial, Helvetica, sans-serif;
+    font-family:
+      system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI Historic", "Segoe UI",
+      Helvetica, Arial, sans-serif;
   }
 
   .facebook-topbar {
+    height: 3.5rem;
     min-height: 3.5rem;
-    border-bottom: 1px solid #dddfe2;
+    border-bottom: 1px solid var(--page-border);
     box-shadow: 0 1px 2px rgb(0 0 0 / 10%);
-    padding: 0.45rem 1rem;
+    padding: 0 1rem;
   }
 
   .facebook-brand {
@@ -1749,7 +1783,7 @@
     width: 2.5rem;
     height: 2.5rem;
     place-items: center;
-    color: #1877f2;
+    color: #0866ff;
   }
 
   .facebook-brand :global(svg) {
@@ -1775,13 +1809,13 @@
   }
 
   .facebook-topbar .nav-item strong {
-    display: none;
+    font-size: 0.9rem;
   }
 
   .facebook-topbar .nav-item.active {
-    border-bottom: 3px solid #1877f2;
+    border-bottom: 3px solid #0866ff;
     border-radius: 0;
-    color: #1877f2;
+    color: #0866ff;
   }
 
   .top-actions {
@@ -1796,6 +1830,12 @@
     border-radius: 50%;
     background: var(--page-soft);
     padding: 0.65rem;
+  }
+
+  .facebook-topbar .top-actions > :global(svg) {
+    width: 2.5rem;
+    height: 2.5rem;
+    flex: none;
   }
 
   .facebook-page {
@@ -1846,7 +1886,7 @@
 
   .facebook-stories {
     display: grid;
-    width: min(100%, 31.25rem);
+    width: min(100%, 41.25rem);
     grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 0.5rem;
   }
@@ -1856,7 +1896,11 @@
     min-height: 10rem;
     overflow: hidden;
     border-radius: 0.7rem;
-    background: color-mix(in srgb, var(--story-tone, #1877f2) 22%, var(--page-surface));
+    background: color-mix(
+      in srgb,
+      var(--story-tone, #0866ff) 22%,
+      var(--page-surface)
+    );
     box-shadow: 0 1px 2px rgb(0 0 0 / 16%);
   }
 
@@ -1866,7 +1910,7 @@
     height: 2.25rem;
     margin: 0.65rem;
     place-items: center;
-    border: 3px solid #1877f2;
+    border: 3px solid #0866ff;
     border-radius: 50%;
     background: var(--story-tone);
     color: #fff;
@@ -1886,7 +1930,7 @@
   }
 
   .facebook-composer {
-    width: min(100%, 31.25rem);
+    width: min(100%, 41.25rem);
   }
 
   .facebook-composer footer b:first-child :global(svg) {
@@ -1902,7 +1946,7 @@
   }
 
   .platform-facebook .context-post {
-    width: min(100%, 31.25rem);
+    width: min(100%, 41.25rem);
     border-radius: 0.65rem;
     background: var(--page-surface);
     box-shadow: 0 1px 2px rgb(0 0 0 / 10%);
@@ -1931,12 +1975,63 @@
     margin-left: 0.85rem;
   }
 
-  .facebook-right .follow-row {
-    padding-inline: 0.75rem;
+  .native-context-post {
+    display: block;
   }
-
-  .facebook-right .follow-row > b {
-    display: none;
+  .native-context-post header {
+    gap: 0.65rem;
+  }
+  .native-context-post header > div {
+    min-width: 0;
+  }
+  .native-context-post header strong {
+    display: block;
+  }
+  .native-context-post header span {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    margin-top: 0.2rem;
+  }
+  .native-context-post header span :global(svg) {
+    width: 0.75rem;
+    height: 0.75rem;
+    margin: 0;
+  }
+  .native-context-post p {
+    margin-top: 0.75rem;
+  }
+  .native-context-post footer {
+    max-width: none;
+    border-top: 1px solid var(--page-border);
+    padding-top: 0.65rem;
+  }
+  .native-context-post footer span {
+    font-weight: 600;
+  }
+  .contact-row {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.65rem 0.75rem;
+  }
+  .contact-row > i {
+    position: relative;
+  }
+  .contact-row > i > b {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    width: 0.65rem;
+    height: 0.65rem;
+    border: 2px solid var(--page-bg);
+    border-radius: 50%;
+    background: #31a24c;
+  }
+  .contact-row > strong {
+    min-width: 0;
+    font-size: 0.8rem;
+    overflow-wrap: anywhere;
   }
 
   .platform-instagram {
@@ -1946,15 +2041,26 @@
     --page-muted: #737373;
     --page-border: #dbdbdb;
     font-family:
-      -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial,
+      "Optimistic Text", Optimistic, Montserrat, Helvetica, Arial, "Noto Sans",
       sans-serif;
   }
 
   .instagram-page {
     display: grid;
-    grid-template-columns: 15.25rem minmax(30rem, 39.5rem) minmax(15rem, 20rem);
-    justify-content: center;
+    grid-template-columns: 4.5rem minmax(30rem, 44rem) minmax(15rem, 20rem);
+    justify-content: start;
     gap: 1.5rem;
+  }
+  /* The real desktop rail is wide, with the wordmark and labeled items. */
+  @container social-page (min-width: 68rem) {
+    .instagram-page {
+      grid-template-columns: 14.75rem minmax(30rem, 44rem) minmax(15rem, 20rem);
+    }
+
+    .instagram-left {
+      align-items: stretch;
+      padding-inline: 0.75rem;
+    }
   }
 
   .instagram-left {
@@ -1983,6 +2089,8 @@
   }
 
   .instagram-left .nav-item {
+    justify-content: center;
+    padding-inline: 0;
     min-height: 3.3rem;
     border-radius: 0.5rem;
     font-size: 0.9rem;
@@ -2027,10 +2135,26 @@
   .story-strip i {
     width: 3.5rem;
     height: 3.5rem;
-    border: 2px solid #e1306c;
     border-radius: 50%;
-    background: #efefef;
-    box-shadow: inset 0 0 0 2px #fff;
+    padding: 3px;
+    background: linear-gradient(
+      125deg,
+      #ffd600 15%,
+      #ff7a00 30%,
+      #ff0169,
+      #d300c5 70%,
+      #7638fa 85%
+    );
+  }
+
+  .story-strip i::after {
+    content: "";
+    display: block;
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+    background: light-dark(#efefef, #262626);
+    box-shadow: 0 0 0 1px var(--page-bg);
   }
 
   .story-strip span {
@@ -2143,7 +2267,7 @@
     background: var(--page-surface);
   }
 
-  .youtube-search button {
+  .youtube-search > span:first-of-type {
     width: 4rem;
     height: 2.5rem;
     display: grid;
@@ -2155,7 +2279,7 @@
     color: inherit;
   }
 
-  .youtube-search button :global(svg),
+  .youtube-search > span:first-of-type :global(svg),
   .youtube-search > span :global(svg) {
     width: 1.2rem;
     height: 1.2rem;
@@ -2173,9 +2297,10 @@
 
   .youtube-page {
     display: grid;
-    grid-template-columns: 15rem minmax(0, 1fr);
+    grid-template-columns: 5rem minmax(0, 1fr);
   }
 
+  /* The real watch page keeps the guide collapsed to icons by default. */
   .youtube-left {
     position: sticky;
     top: 3.5rem;
@@ -2186,16 +2311,27 @@
   }
 
   .youtube-left .nav-item {
+    display: grid;
+    justify-items: center;
+    gap: 0.15rem;
     min-height: 2.5rem;
     border-radius: 0.65rem;
-    font-size: 0.82rem;
+    padding: 0.35rem 0;
+    font-size: 0.58rem;
+  }
+
+  .youtube-left .nav-item > span {
+    width: auto;
   }
 
   .youtube-left .nav-item.active {
     background: var(--page-soft);
   }
 
-  .youtube-left hr,
+  .youtube-left hr {
+    display: none;
+  }
+
   .tiktok-left hr {
     width: 100%;
     border: 0;
@@ -2411,7 +2547,7 @@
   .discord-page {
     display: grid;
     grid-template-columns: 4.5rem 15rem minmax(0, 1fr) 15rem;
-    background: #313338;
+    background: var(--page-surface);
   }
 
   .server-rail {
@@ -2419,7 +2555,7 @@
     flex-direction: column;
     align-items: center;
     gap: 0.55rem;
-    background: #1e1f22;
+    background: light-dark(#e3e5e8, #1e1f22);
     padding-top: 0.75rem;
   }
 
@@ -2430,7 +2566,7 @@
     height: 3rem;
     place-items: center;
     border-radius: 50%;
-    background: #313338;
+    background: var(--page-surface);
     color: #dbdee1;
     font-size: 0.72rem;
     font-weight: 700;
@@ -2448,7 +2584,7 @@
 
   .channel-rail {
     position: relative;
-    background: #2b2d31;
+    background: var(--page-soft);
     color: #949ba4;
     padding: 0.75rem 0.5rem;
   }
@@ -2459,9 +2595,9 @@
     align-items: center;
     justify-content: space-between;
     margin: -0.75rem -0.5rem 0.8rem;
-    border-bottom: 1px solid #1f2024;
+    border-bottom: 1px solid var(--page-border);
     padding: 0 1rem;
-    color: #f2f3f5;
+    color: var(--page-fg);
     box-shadow: 0 1px 2px rgb(0 0 0 / 20%);
   }
 
@@ -2541,7 +2677,7 @@
     display: flex;
     align-items: center;
     gap: 0.5rem;
-    border-bottom: 1px solid #26272d;
+    border-bottom: 1px solid light-dark(#e3e5e8, #3f4147);
     padding: 0 1rem;
     box-shadow: 0 1px 2px rgb(0 0 0 / 18%);
   }
@@ -2553,14 +2689,15 @@
   }
 
   .discord-chat > header strong {
-    font-size: 0.9rem;
+    font-size: 1rem;
+    font-weight: 600;
   }
 
   .discord-chat > header span {
     border-left: 1px solid #4e5058;
     color: var(--page-muted);
     padding-left: 0.75rem;
-    font-size: 0.72rem;
+    font-size: 0.875rem;
   }
 
   .discord-chat > header > div {
@@ -2594,7 +2731,7 @@
     padding: 0.7rem;
   }
 
-  .channel-welcome h1 {
+  .channel-welcome h2 {
     margin: 0.65rem 0 0;
     font-size: 1.6rem;
   }
@@ -2622,10 +2759,10 @@
     min-height: 2.8rem;
     margin: 0 1rem 1.5rem;
     border-radius: 0.5rem;
-    background: #383a40;
+    background: light-dark(#ebebed, #383a40);
     color: var(--page-muted);
     padding: 0 0.8rem;
-    font-size: 0.78rem;
+    font-size: 0.875rem;
   }
 
   .message-box :global(svg) {
@@ -2634,7 +2771,7 @@
   }
 
   .member-rail {
-    background: #2b2d31;
+    background: var(--page-soft);
   }
 
   .member-rail .follow-row {
@@ -2657,97 +2794,7 @@
     padding: 1rem;
   }
 
-  @media (prefers-color-scheme: dark) {
-    .platform-x,
-    .platform-bluesky,
-    .platform-threads,
-    .platform-linkedin,
-    .platform-facebook,
-    .platform-instagram,
-    .platform-youtube,
-    .platform-tiktok {
-      --page-bg: #000;
-      --page-surface: #121212;
-      --page-fg: #f2f2f2;
-      --page-muted: #a4a4a4;
-      --page-border: #2f3336;
-      --page-soft: #202124;
-    }
-
-    .platform-bluesky {
-      --page-bg: #111822;
-      --page-surface: #111822;
-      --page-border: #273344;
-    }
-
-    .platform-linkedin {
-      --page-surface: #1b1f23;
-      --page-border: #38434f;
-      --page-soft: #293138;
-    }
-
-    .platform-facebook {
-      --page-bg: #18191a;
-      --page-surface: #242526;
-      --page-border: #3e4042;
-      --page-soft: #3a3b3c;
-    }
-
-    .platform-instagram,
-    .platform-youtube,
-    .platform-tiktok {
-      --page-bg: #000;
-      --page-surface: #0f0f0f;
-      --page-border: #2f2f2f;
-      --page-soft: #272727;
-    }
-  }
-
-  :global(.dark) .platform-x,
-  :global(.dark) .platform-bluesky,
-  :global(.dark) .platform-threads,
-  :global(.dark) .platform-linkedin,
-  :global(.dark) .platform-facebook,
-  :global(.dark) .platform-instagram,
-  :global(.dark) .platform-youtube,
-  :global(.dark) .platform-tiktok {
-    --page-bg: #000;
-    --page-surface: #121212;
-    --page-fg: #f2f2f2;
-    --page-muted: #a4a4a4;
-    --page-border: #2f3336;
-    --page-soft: #202124;
-  }
-
-  :global(.dark) .platform-bluesky {
-    --page-bg: #111822;
-    --page-surface: #111822;
-    --page-border: #273344;
-  }
-
-  :global(.dark) .platform-linkedin {
-    --page-surface: #1b1f23;
-    --page-border: #38434f;
-    --page-soft: #293138;
-  }
-
-  :global(.dark) .platform-facebook {
-    --page-bg: #18191a;
-    --page-surface: #242526;
-    --page-border: #3e4042;
-    --page-soft: #3a3b3c;
-  }
-
-  :global(.dark) .platform-instagram,
-  :global(.dark) .platform-youtube,
-  :global(.dark) .platform-tiktok {
-    --page-bg: #000;
-    --page-surface: #0f0f0f;
-    --page-border: #2f2f2f;
-    --page-soft: #272727;
-  }
-
-  @media (max-width: 68rem) {
+  @container social-page (max-width: 68rem) {
     .micro-page {
       grid-template-columns: 5rem minmax(0, 37.5rem) minmax(16rem, 20rem);
     }
@@ -2835,12 +2882,10 @@
       display: none;
     }
 
-    .youtube-page,
     .tiktok-page {
       grid-template-columns: 5rem minmax(0, 1fr);
     }
 
-    .youtube-left .nav-item,
     .tiktok-left .nav-item {
       display: grid;
       justify-items: center;
@@ -2849,12 +2894,10 @@
       font-size: 0.58rem;
     }
 
-    .youtube-left .nav-item > span,
     .tiktok-left .nav-item > span {
       width: auto;
     }
 
-    .youtube-left hr,
     .tiktok-left hr,
     .tiktok-left .rail-label,
     .tiktok-left .ghost-rows {
@@ -2878,7 +2921,7 @@
     }
   }
 
-  @media (max-width: 52rem) {
+  @container social-page (max-width: 52rem) {
     .micro-page {
       grid-template-columns: 4.25rem minmax(0, 37.5rem);
     }
@@ -2920,7 +2963,7 @@
     }
 
     .youtube-search .native-search,
-    .youtube-search button {
+    .youtube-search > span:first-of-type {
       display: none;
     }
 
@@ -2941,7 +2984,28 @@
     }
   }
 
-  @media (max-width: 40rem) {
+  @container social-page (max-width: 40rem) {
+    /* Phone shells stack and stretch so the bottom navigation pins to the
+       frame bottom even when the feed content is shorter than the screen. */
+    .micro-page,
+    .linkedin-page,
+    .facebook-page,
+    .instagram-page,
+    .youtube-watch,
+    .tiktok-feed {
+      display: flex;
+      flex-direction: column;
+      min-height: 100dvh;
+    }
+
+    .youtube-watch {
+      min-height: calc(100dvh - 3.5rem);
+    }
+
+    .mobile-native-nav {
+      margin-top: auto;
+    }
+
     .telegram-page {
       display: block;
     }
@@ -2954,8 +3018,6 @@
       padding-inline: 0.7rem;
     }
 
-    .micro-page,
-    .instagram-page,
     .youtube-page,
     .tiktok-page,
     .discord-page {
@@ -3008,7 +3070,7 @@
       display: none;
     }
 
-    .column-header h1 {
+    .column-header h2 {
       font-size: 0.9rem;
     }
 
@@ -3017,7 +3079,8 @@
     }
 
     .mobile-native-nav {
-      position: fixed;
+      width: 100%;
+      position: sticky;
       z-index: 40;
       right: 0;
       bottom: 0;
@@ -3065,8 +3128,8 @@
     }
 
     .linkedin-page {
-      display: block;
-      padding: 0 0 3.75rem;
+      display: flex;
+      flex-direction: column;
     }
 
     .linkedin-composer,
@@ -3078,9 +3141,25 @@
       gap: 0;
     }
 
-    .facebook-topbar .native-search,
     .facebook-topbar nav {
       display: none;
+    }
+
+    .facebook-topbar {
+      padding-inline: 0.75rem;
+    }
+    .facebook-topbar .native-search {
+      display: flex;
+      width: 2.5rem;
+      min-width: 2.5rem;
+      min-height: 2.5rem;
+      padding: 0.65rem;
+    }
+    .facebook-topbar .native-search span {
+      display: none;
+    }
+    .facebook-page {
+      padding: 0;
     }
 
     .facebook-topbar .top-actions {
@@ -3127,11 +3206,6 @@
       font-size: 1.5rem;
     }
 
-    .instagram-mobile-header > span {
-      display: flex;
-      gap: 1rem;
-    }
-
     .instagram-mobile-header :global(svg) {
       width: 1.35rem;
       height: 1.35rem;
@@ -3163,8 +3237,9 @@
 
     .youtube-watch,
     .youtube-watch.shorts-view {
-      display: block;
-      padding: 0 0 3.75rem;
+      display: flex;
+      flex-direction: column;
+      padding: 0;
     }
 
     .youtube-chips {
@@ -3173,7 +3248,7 @@
 
     .tiktok-feed {
       min-height: calc(100dvh - 3.75rem);
-      padding: 0 0 3.75rem;
+      padding: 0;
     }
 
     .tiktok-feed-tabs {
@@ -3184,6 +3259,159 @@
 
     .discord-chat {
       min-height: 100dvh;
+    }
+  }
+
+  .preview-container {
+    container: social-page / inline-size;
+    width: 100%;
+    min-width: 0;
+    color-scheme: light dark;
+  }
+  .preview-container[data-preview-scheme="light"] {
+    color-scheme: light;
+  }
+  .preview-container[data-preview-scheme="dark"] {
+    color-scheme: dark;
+  }
+  :global(.dark) .preview-container[data-preview-scheme="system"] {
+    color-scheme: dark;
+  }
+  :global(.light) .preview-container[data-preview-scheme="system"] {
+    color-scheme: light;
+  }
+  .preview-page {
+    --page-bg: light-dark(#fff, #000);
+    --page-surface: light-dark(#fff, #121212);
+    --page-fg: light-dark(#0f1419, #e7e9ea);
+    --page-muted: light-dark(#536471, #71767b);
+    --page-border: light-dark(#eff3f4, #2f3336);
+    --page-soft: light-dark(#f7f9f9, #16181c);
+  }
+  .platform-x {
+    font-family:
+      TwitterChirp, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+      Helvetica, Arial, sans-serif;
+  }
+  .platform-bluesky {
+    --page-bg: light-dark(#fff, #000);
+    --page-surface: var(--page-bg);
+    --page-border: light-dark(#dce2ea, #232e3e);
+    --page-fg: light-dark(#000, #fff);
+    --page-muted: light-dark(#405168, #a5b2c5);
+    --page-soft: light-dark(#f9fafb, #111822);
+    font-family:
+      InterVariable, Inter, system-ui, -apple-system, BlinkMacSystemFont,
+      "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  .platform-linkedin {
+    --page-bg: light-dark(#f4f2ee, #000);
+    --page-surface: light-dark(#fff, #1b1f23);
+    --page-border: light-dark(#e0dfdc, #38434f);
+    --page-soft: light-dark(#eef3f8, #2a2e33);
+  }
+  .platform-facebook {
+    --page-bg: light-dark(#f0f2f5, #18191a);
+    --page-surface: light-dark(#fff, #242526);
+    --page-border: light-dark(#dddfe2, #3e4042);
+    --page-soft: light-dark(#f0f2f5, #3a3b3c);
+  }
+  .platform-mastodon {
+    --page-bg: light-dark(#f3f5f7, #191b22);
+    --page-surface: light-dark(#fff, #282c37);
+    --page-fg: light-dark(#282c37, #f5f5f7);
+    --page-muted: light-dark(#606984, #9baec8);
+    --page-border: light-dark(#d9e1e8, #393f4f);
+    --page-soft: var(--page-surface);
+  }
+  .platform-discord {
+    --page-bg: light-dark(#fff, #313338);
+    --page-surface: var(--page-bg);
+    --page-fg: light-dark(#313338, #f2f3f5);
+    --page-muted: light-dark(#5c5e66, #b5bac1);
+    --page-border: light-dark(#e3e5e8, #26272d);
+    --page-soft: light-dark(#f2f3f5, #2b2d31);
+  }
+  .telegram-page {
+    background: light-dark(#d8e5e4, #0e1621);
+    color: light-dark(#18242b, #f5f5f5);
+  }
+  .telegram-chat-list,
+  .telegram-channel-header {
+    background: light-dark(#fff, #17212b);
+    border-color: light-dark(#e0e5e7, #27333e);
+  }
+  .telegram-search {
+    background: light-dark(#f1f3f5, #242f3d);
+  }
+  .telegram-channel-row {
+    background: light-dark(#e9f3ff, #2b5278);
+  }
+  .telegram-channel-row small,
+  .telegram-channel-row time,
+  .telegram-channel-header small {
+    color: light-dark(#52636b, #a8b7c5);
+  }
+
+  @container social-page (max-width: 40rem) {
+    .facebook-feed {
+      padding-bottom: 0;
+      gap: 8px;
+    }
+    .facebook-feed :global(.facebook-preview) {
+      border-radius: 0;
+    }
+  }
+  .platform-x .column-header {
+    display: none;
+  }
+  .platform-x .compose-button {
+    background: var(--page-fg);
+    color: var(--page-bg);
+  }
+  .platform-x .nav-item {
+    font-size: 20px;
+  }
+  .platform-x .nav-item:not(.active) strong {
+    font-weight: 400;
+  }
+  .platform-instagram {
+    --page-bg: light-dark(#fff, #0c1014);
+    --page-surface: light-dark(#fff, #0c1014);
+    --page-fg: light-dark(#262626, #f5f5f5);
+    --page-muted: light-dark(#737373, #a8a8a8);
+    --page-border: light-dark(#dbdbdb, #262626);
+    --page-soft: light-dark(#fafafa, #121212);
+  }
+  .platform-youtube {
+    --page-bg: light-dark(#fff, #0f0f0f);
+    --page-surface: var(--page-bg);
+    --page-fg: light-dark(#0f0f0f, #f1f1f1);
+    --page-muted: light-dark(#606060, #aaa);
+    --page-border: light-dark(#e5e5e5, #303030);
+    --page-soft: light-dark(#f2f2f2, #272727);
+  }
+  .platform-tiktok {
+    --page-bg: light-dark(#fff, #121212);
+    --page-surface: var(--page-bg);
+    --page-fg: light-dark(#161823, #f1f1f1);
+    --page-muted: light-dark(#646570, #aaa);
+    --page-border: light-dark(#e5e5e5, #303030);
+    --page-soft: light-dark(#f2f2f2, #272727);
+  }
+  @container social-page (max-width: 40rem) {
+    .instagram-mobile-header {
+      gap: 20px;
+    }
+    .instagram-mobile-header .native-search {
+      flex: 1;
+      width: auto;
+      min-height: 32px;
+      border-radius: 8px;
+    }
+    .instagram-bottom {
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      justify-items: center;
     }
   }
 </style>

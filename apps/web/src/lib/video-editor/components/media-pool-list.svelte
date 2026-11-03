@@ -1,13 +1,18 @@
-<!-- Media pool list: imported sources with probe status; click adds to timeline -->
+<!-- Imported sources, placement, and source health. -->
 <script lang="ts">
 	import { onDestroy, tick, untrack } from 'svelte';
 	import { m } from '$lib/paraglide/messages';
 	import { mediaPool } from '$lib/video-editor/media/pool.svelte';
+	import { ThumbnailUrlCache } from '$lib/video-editor/media/thumbnail-url-cache';
 	import {
 		clearActiveMediaDrag,
 		mediaDragData,
 		writeMediaDragData
 	} from '$lib/video-editor/media/media-drag';
+	import {
+		insertMediaAtPlayhead,
+		insertMediaAtSequenceEnd
+	} from '$lib/video-editor/timeline/actions/insert-media';
 	import { mediaPlacement } from '$lib/video-editor/media/media-placement.svelte';
 	import { getMediaObjectUrl } from '$lib/video-editor/media/media-source';
 	import { editorSession } from '$lib/video-editor/editor.svelte';
@@ -30,11 +35,11 @@
 	import * as ContextMenu from '$lib/components/ui/context-menu';
 	import { Input } from '$lib/components/ui/input';
 	import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
+	import * as Popover from '$lib/components/ui/popover';
 	import * as Select from '$lib/components/ui/select';
-	import { Slider } from '$lib/components/ui/slider';
 	import DestructiveConfirmDialog from '$lib/components/destructive-confirm-dialog.svelte';
 	import { canExtractEmbeddedSubtitles } from '$lib/video-editor/media/embedded-subtitle-service';
-	import type { MediaMetadata } from '$lib/video-editor/media/types';
+	import type { MediaMetadata, ProjectAssetImporter } from '$lib/video-editor/media/types';
 	import { readBlob } from '$lib/video-editor/workspace-fs/fs-primitives';
 	import { requireWorkspaceRoot } from '$lib/video-editor/workspace-fs/root';
 	import { mediaThumbnailPath } from '$lib/video-editor/workspace-fs/paths';
@@ -84,7 +89,10 @@
 		type MediaDeletionPlan
 	} from '$lib/video-editor/media/media-deletion';
 	import { removePlannedMediaReferences } from '$lib/video-editor/media/media-deletion-action';
-	import { deleteMediaFromProject } from '$lib/video-editor/media/project-media-delete';
+	import {
+		deleteMediaFromProject,
+		type ProjectMediaDeleteHandler
+	} from '$lib/video-editor/media/project-media-delete';
 	import {
 		captureSnapshot,
 		restoreSnapshot
@@ -109,6 +117,7 @@
 		onrecord = undefined,
 		onstock = undefined,
 		onUnsupportedAudio,
+		importProjectAsset,
 		deleteProjectMedia = deleteMediaFromProject,
 		generateMediaProxy = getAutomaticProxy,
 		requestSourceAccess = requestMediaSourceAccess,
@@ -123,7 +132,8 @@
 		onrecord?: () => void;
 		onstock?: () => void;
 		onUnsupportedAudio?: (request: UnsupportedAudioImportRequest) => Promise<'import' | 'cancel'>;
-		deleteProjectMedia?: typeof deleteMediaFromProject;
+		importProjectAsset?: ProjectAssetImporter;
+		deleteProjectMedia?: ProjectMediaDeleteHandler;
 		generateMediaProxy?: typeof getAutomaticProxy;
 		requestSourceAccess?: typeof requestMediaSourceAccess;
 		pickSourceHandle?: () => Promise<FileSystemFileHandle | undefined>;
@@ -159,8 +169,10 @@
 	const assetViewMode = $derived(editorSettings.mediaLibraryViewMode);
 	const assetGridSize = $derived(editorSettings.mediaLibraryItemSize);
 	const assetGridTemplate = $derived(mediaLibraryGridTemplate(assetGridSize));
-	const ownedThumbnailUrls = new Map<string, string>();
-	let loadedThumbnailRevision = -1;
+	const thumbnails = new ThumbnailUrlCache(loadThumbnail, (id, url) => {
+		if (url) objectUrls[id] = url;
+		else delete objectUrls[id];
+	});
 	const visibleMedia = $derived(
 		filterAndSortMedia(
 			mediaPool.mediaList.filter((media) => !media.tags.includes('font')),
@@ -194,9 +206,7 @@
 		).length,
 		unsupportedCodec: countUnsupportedCodecMedia(mediaPool.mediaList)
 	});
-	const healthIssueTotal = $derived(
-		healthCounts.missing + healthCounts.proxyPending + healthCounts.unsupportedCodec
-	);
+	const healthIssueTotal = $derived(healthCounts.missing + healthCounts.unsupportedCodec);
 	const showHealthChip = $derived(hasMediaHealthIssues(healthCounts));
 
 	$effect(() => {
@@ -335,44 +345,22 @@
 		sequenceSelectionAnchorId = sequenceId;
 		clearMediaSelection();
 	}
-	async function previewUrl(id: string): Promise<void> {
+	async function loadThumbnail(id: string): Promise<Blob | string | null> {
 		const media = mediaPool.get(id);
-		if (!media || objectUrls[id]) return;
-		try {
-			const thumbnail = await readBlob(requireWorkspaceRoot(), mediaThumbnailPath(id));
-			if (thumbnail) {
-				const thumbnailUrl = URL.createObjectURL(thumbnail);
-				const previous = ownedThumbnailUrls.get(id);
-				if (previous) URL.revokeObjectURL(previous);
-				ownedThumbnailUrls.set(id, thumbnailUrl);
-				objectUrls[id] = thumbnailUrl;
-			} else if (media.tags.includes('image')) {
-				objectUrls[id] = await getMediaObjectUrl(media);
-			}
-		} catch {
-			// Preview unavailable; tile stays generic.
+		if (!media) return null;
+		if (media.storageType === 'cloud') {
+			if (media.remoteThumbnailUrl) return media.remoteThumbnailUrl;
+			return media.tags.includes('image') ? getMediaObjectUrl(media) : null;
 		}
-	}
-
-	function syncThumbnails(revision: number, ids: readonly string[]): void {
-		if (revision !== loadedThumbnailRevision) {
-			loadedThumbnailRevision = revision;
-			for (const url of ownedThumbnailUrls.values()) URL.revokeObjectURL(url);
-			ownedThumbnailUrls.clear();
-			objectUrls = {};
-		}
-		const activeIds = new Set(ids);
-		for (const [id, url] of ownedThumbnailUrls) {
-			if (activeIds.has(id)) continue;
-			URL.revokeObjectURL(url);
-			ownedThumbnailUrls.delete(id);
-			delete objectUrls[id];
-		}
-		for (const id of ids) void previewUrl(id);
+		const thumbnail = await readBlob(requireWorkspaceRoot(), mediaThumbnailPath(id));
+		if (thumbnail) return thumbnail;
+		return media.tags.includes('image') ? getMediaObjectUrl(media) : null;
 	}
 
 	$effect(() => {
-		syncThumbnails(mediaPool.thumbnailRevision, mediaPool.order);
+		const revision = mediaPool.thumbnailRevision;
+		const ids = mediaPool.order.filter((id) => mediaPool.entry(id)?.status === 'ready');
+		untrack(() => thumbnails.sync(ids, revision));
 	});
 
 	$effect(() => {
@@ -420,8 +408,7 @@
 	onDestroy(() => {
 		sequenceThumbnailGeneration += 1;
 		compoundThumbnailService.clearAll();
-		for (const url of ownedThumbnailUrls.values()) URL.revokeObjectURL(url);
-		ownedThumbnailUrls.clear();
+		thumbnails.dispose();
 		clearActiveMediaDrag();
 	});
 
@@ -436,6 +423,15 @@
 			event.dataTransfer,
 			mediaDragData('composition', composition.id, composition.name)
 		);
+	}
+
+	function addMedia(media: MediaMetadata, destination: 'playhead' | 'end'): void {
+		mediaPlacement.cancel();
+		editorSession.pausePlayback();
+		if (destination === 'end') insertMediaAtSequenceEnd(media);
+		else insertMediaAtPlayhead(media);
+		editorSession.syncTimelineClock();
+		editorSession.scheduleAutosave();
 	}
 
 	function placeMedia(media: MediaMetadata): void {
@@ -481,7 +477,8 @@
 			id = await importMediaFromUrl(url, {
 				projectId,
 				storageMode: 'copy',
-				onUnsupportedAudio
+				onUnsupportedAudio,
+				importAsset: importProjectAsset
 			});
 		} catch (error) {
 			if (error instanceof MediaImportCancelledError) return;
@@ -706,7 +703,12 @@
 
 	async function upscaleMedia(media: MediaMetadata, variant: UpscaleVariant): Promise<void> {
 		try {
-			const generated = await upscaleService.generate(media, projectId, variant);
+			const generated = await upscaleService.generate(
+				media,
+				projectId,
+				variant,
+				importProjectAsset
+			);
 			showToast(m.video_editor_media_upscale_done({ name: generated.fileName }), 'success');
 		} catch (error) {
 			processFailure(media, error instanceof Error ? error : new Error(String(error)));
@@ -718,7 +720,12 @@
 		factor: InterpolationFactor
 	): Promise<void> {
 		try {
-			const generated = await frameInterpolationService.generate(media, projectId, factor);
+			const generated = await frameInterpolationService.generate(
+				media,
+				projectId,
+				factor,
+				importProjectAsset
+			);
 			showToast(m.video_editor_media_interpolate_done({ name: generated.fileName }), 'success');
 		} catch (error) {
 			processFailure(media, error instanceof Error ? error : new Error(String(error)));
@@ -1061,7 +1068,7 @@
 		hidden
 	></div>
 	<div
-		class="sticky top-0 z-10 -mx-2 space-y-1.5 border-b border-border bg-card px-2 pb-2"
+		class="sticky top-0 z-10 -mx-2 space-y-1 border-b border-border bg-card px-2 pb-2"
 		data-marquee-ignore
 	>
 		<div class="flex items-center gap-1.5">
@@ -1143,6 +1150,120 @@
 					<ThemeIcon role="link" class="size-3.5" />
 				</Button>
 			{/if}
+			<Popover.Root>
+				<Popover.Trigger>
+					{#snippet child({ props })}
+						<Button
+							{...props}
+							type="button"
+							variant="outline"
+							size="icon-xs"
+							aria-label={m.video_editor_media_view()}
+							title={m.video_editor_media_view()}
+							data-media-view-options
+						>
+							<ThemeIcon role="settings" class="size-3.5" />
+						</Button>
+					{/snippet}
+				</Popover.Trigger>
+				<Popover.Content align="end" class="video-editor-theme w-56 space-y-2">
+					<div class="space-y-1">
+						<span class="block px-1 text-[10px] text-muted-foreground">
+							{m.video_editor_media_filter()}
+						</span>
+						<Select.Root type="single" value={filter} onValueChange={changeFilter}>
+							<Select.Trigger
+								aria-label={m.video_editor_media_filter()}
+								class="h-[25px]! w-full! rounded-md! border-field-border! bg-field! px-1.5! py-0! text-[10px]! text-field-foreground! shadow-none! hover:translate-y-0! hover:bg-field-hover! aria-expanded:translate-y-0!"
+							>
+								{filter === 'all'
+									? m.video_editor_media_filter_all()
+									: filter === 'video'
+										? m.video_editor_media_filter_video()
+										: filter === 'audio'
+											? m.video_editor_media_filter_audio()
+											: filter === 'image'
+												? m.video_editor_media_filter_image()
+												: m.video_editor_media_filter_lottie()}
+							</Select.Trigger>
+							<Select.Content
+								class="video-editor-theme rounded-md! border-border! bg-popover! text-popover-foreground! shadow-lg!"
+							>
+								<Select.Item value="all">{m.video_editor_media_filter_all()}</Select.Item>
+								<Select.Item value="video">{m.video_editor_media_filter_video()}</Select.Item>
+								<Select.Item value="audio">{m.video_editor_media_filter_audio()}</Select.Item>
+								<Select.Item value="image">{m.video_editor_media_filter_image()}</Select.Item>
+								<Select.Item value="lottie">{m.video_editor_media_filter_lottie()}</Select.Item>
+							</Select.Content>
+						</Select.Root>
+					</div>
+					<div class="space-y-1">
+						<span class="block px-1 text-[10px] text-muted-foreground">
+							{m.video_editor_media_sort()}
+						</span>
+						<Select.Root type="single" value={sort} onValueChange={changeSort}>
+							<Select.Trigger
+								aria-label={m.video_editor_media_sort()}
+								class="h-[25px]! w-full! rounded-md! border-field-border! bg-field! px-1.5! py-0! text-[10px]! text-field-foreground! shadow-none! hover:translate-y-0! hover:bg-field-hover! aria-expanded:translate-y-0!"
+							>
+								{sort === 'added'
+									? m.video_editor_media_sort_added()
+									: sort === 'name'
+										? m.video_editor_media_sort_name()
+										: sort === 'duration'
+											? m.video_editor_media_sort_duration()
+											: m.video_editor_media_sort_size()}
+							</Select.Trigger>
+							<Select.Content
+								class="video-editor-theme rounded-md! border-border! bg-popover! text-popover-foreground! shadow-lg!"
+							>
+								<Select.Item value="added">{m.video_editor_media_sort_added()}</Select.Item>
+								<Select.Item value="name">{m.video_editor_media_sort_name()}</Select.Item>
+								<Select.Item value="duration">{m.video_editor_media_sort_duration()}</Select.Item>
+								<Select.Item value="size">{m.video_editor_media_sort_size()}</Select.Item>
+							</Select.Content>
+						</Select.Root>
+					</div>
+					<div class="flex items-center justify-between gap-2" data-editor-shortcuts-disabled>
+						<span class="px-1 text-[10px] text-muted-foreground">{m.video_editor_media_view()}</span
+						>
+						<div
+							class="flex shrink-0 overflow-hidden rounded-md border border-border bg-muted"
+							role="group"
+							aria-label={m.video_editor_media_view()}
+						>
+							<Button
+								type="button"
+								variant="ghost"
+								size="icon-xs"
+								class="size-7! rounded-none! {assetViewMode === 'grid'
+									? 'bg-selection text-selection-foreground'
+									: ''}"
+								aria-label={m.media_grid_view()}
+								title={m.media_grid_view()}
+								aria-pressed={assetViewMode === 'grid'}
+								onclick={() => editorSettings.set('mediaLibraryViewMode', 'grid')}
+							>
+								<ThemeIcon role="layout" class="size-3.5" />
+							</Button>
+							<Button
+								type="button"
+								variant="ghost"
+								size="icon-xs"
+								class="size-7! rounded-none! {assetViewMode === 'list'
+									? 'bg-selection text-selection-foreground'
+									: ''}"
+								aria-label={m.media_compact_view()}
+								title={m.media_compact_view()}
+								aria-pressed={assetViewMode === 'list'}
+								onclick={() => editorSettings.set('mediaLibraryViewMode', 'list')}
+							>
+								<ThemeIcon role="layout" class="size-3.5" />
+							</Button>
+						</div>
+					</div>
+				</Popover.Content>
+			</Popover.Root>
 		</div>
 		{#if mediaRecovery.scanning}
 			<div
@@ -1175,106 +1296,6 @@
 				<ThemeIcon role="chevron-right" class="size-3.5 shrink-0" />
 			</button>
 		{/if}
-		<div class="grid grid-cols-2 gap-1.5">
-			<div class="min-w-0">
-				<Select.Root type="single" value={filter} onValueChange={changeFilter}>
-					<Select.Trigger
-						aria-label={m.video_editor_media_filter()}
-						class="h-7! w-full! rounded-md! border-field-border! bg-field! px-1.5! py-0! text-[10px]! text-field-foreground! shadow-none! hover:translate-y-0! hover:bg-field-hover! aria-expanded:translate-y-0!"
-					>
-						{filter === 'all'
-							? m.video_editor_media_filter_all()
-							: filter === 'video'
-								? m.video_editor_media_filter_video()
-								: filter === 'audio'
-									? m.video_editor_media_filter_audio()
-									: filter === 'image'
-										? m.video_editor_media_filter_image()
-										: m.video_editor_media_filter_lottie()}
-					</Select.Trigger>
-					<Select.Content
-						class="video-editor-theme rounded-md! border-border! bg-popover! text-popover-foreground! shadow-lg!"
-					>
-						<Select.Item value="all">{m.video_editor_media_filter_all()}</Select.Item>
-						<Select.Item value="video">{m.video_editor_media_filter_video()}</Select.Item>
-						<Select.Item value="audio">{m.video_editor_media_filter_audio()}</Select.Item>
-						<Select.Item value="image">{m.video_editor_media_filter_image()}</Select.Item>
-						<Select.Item value="lottie">{m.video_editor_media_filter_lottie()}</Select.Item>
-					</Select.Content>
-				</Select.Root>
-			</div>
-			<div class="min-w-0">
-				<Select.Root type="single" value={sort} onValueChange={changeSort}>
-					<Select.Trigger
-						aria-label={m.video_editor_media_sort()}
-						class="h-7! w-full! rounded-md! border-field-border! bg-field! px-1.5! py-0! text-[10px]! text-field-foreground! shadow-none! hover:translate-y-0! hover:bg-field-hover! aria-expanded:translate-y-0!"
-					>
-						{sort === 'added'
-							? m.video_editor_media_sort_added()
-							: sort === 'name'
-								? m.video_editor_media_sort_name()
-								: sort === 'duration'
-									? m.video_editor_media_sort_duration()
-									: m.video_editor_media_sort_size()}
-					</Select.Trigger>
-					<Select.Content
-						class="video-editor-theme rounded-md! border-border! bg-popover! text-popover-foreground! shadow-lg!"
-					>
-						<Select.Item value="added">{m.video_editor_media_sort_added()}</Select.Item>
-						<Select.Item value="name">{m.video_editor_media_sort_name()}</Select.Item>
-						<Select.Item value="duration">{m.video_editor_media_sort_duration()}</Select.Item>
-						<Select.Item value="size">{m.video_editor_media_sort_size()}</Select.Item>
-					</Select.Content>
-				</Select.Root>
-			</div>
-		</div>
-		<div class="flex min-w-0 items-center justify-end gap-2" data-editor-shortcuts-disabled>
-			{#if assetViewMode === 'grid'}
-				<Slider
-					class="min-w-12 flex-1"
-					min={1}
-					max={5}
-					step={1}
-					value={assetGridSize}
-					ariaLabel={m.video_editor_media_card_size()}
-					onValueChange={(value) => editorSettings.set('mediaLibraryItemSize', value)}
-				/>
-			{/if}
-			<div
-				class="flex shrink-0 overflow-hidden rounded-md border border-border bg-muted"
-				role="group"
-				aria-label={m.video_editor_media_view()}
-			>
-				<Button
-					type="button"
-					variant="ghost"
-					size="icon-xs"
-					class="size-7! rounded-none! {assetViewMode === 'grid'
-						? 'bg-selection text-selection-foreground'
-						: ''}"
-					aria-label={m.media_grid_view()}
-					title={m.media_grid_view()}
-					aria-pressed={assetViewMode === 'grid'}
-					onclick={() => editorSettings.set('mediaLibraryViewMode', 'grid')}
-				>
-					<ThemeIcon role="layout" class="size-3.5" />
-				</Button>
-				<Button
-					type="button"
-					variant="ghost"
-					size="icon-xs"
-					class="size-7! rounded-none! {assetViewMode === 'list'
-						? 'bg-selection text-selection-foreground'
-						: ''}"
-					aria-label={m.media_compact_view()}
-					title={m.media_compact_view()}
-					aria-pressed={assetViewMode === 'list'}
-					onclick={() => editorSettings.set('mediaLibraryViewMode', 'list')}
-				>
-					<ThemeIcon role="layout" class="size-3.5" />
-				</Button>
-			</div>
-		</div>
 		{#if selectedAssetCount > 0}
 			<div
 				class="flex min-w-0 items-center gap-1.5 rounded-md border border-border bg-muted px-1.5 py-1"
@@ -1338,7 +1359,7 @@
 			<Button
 				size="sm"
 				variant="ghost"
-				class="h-7! shrink-0 px-2! text-[10px]!"
+				class="h-[25px]! shrink-0 px-2! text-[10px]!"
 				onclick={() => mediaRecovery.show()}
 			>
 				{m.video_editor_media_recovery_review()}
@@ -1355,7 +1376,9 @@
 				{m.video_editor_sequences()}
 			</h3>
 			<ul
-				class={assetViewMode === 'grid' ? 'grid gap-1.5' : 'flex flex-col gap-1'}
+				class={assetViewMode === 'grid'
+					? 'grid max-h-40 gap-1.5 overflow-y-auto'
+					: 'flex max-h-40 flex-col gap-1 overflow-y-auto'}
 				style:grid-template-columns={assetViewMode === 'grid' ? assetGridTemplate : undefined}
 				data-asset-group="sequences"
 				data-view={assetViewMode}
@@ -1405,7 +1428,7 @@
 									{#if editingSequenceId === sequence.id}
 										<Input
 											bind:ref={sequenceRenameInput}
-											class="h-9 min-w-0 flex-1 bg-field px-2 text-xs text-field-foreground"
+											class="h-8 min-w-0 flex-1 bg-field px-2 text-xs text-field-foreground"
 											aria-label={m.common_rename()}
 											bind:value={sequenceNameDraft}
 											onblur={() => commitSequenceRename(sequence)}
@@ -1442,7 +1465,7 @@
 													{...props}
 													variant="ghost"
 													size="icon-xs"
-													class="size-11! text-muted-foreground opacity-70 hover:bg-accent hover:text-accent-foreground hover:opacity-100 focus:opacity-100 sm:size-7!"
+													class="size-8! text-muted-foreground opacity-0 group-hover:opacity-100 hover:bg-accent hover:text-accent-foreground focus:opacity-100 sm:size-7! [@media(pointer:coarse)]:size-11! [@media(pointer:coarse)]:opacity-100"
 													aria-label={`${m.video_editor_sequence_options()}: ${sequence.name}`}
 												>
 													<ThemeIcon role="more-horizontal" class="size-3.5" />
@@ -1575,7 +1598,7 @@
 										aria-label={`${m.video_editor_source_monitor()}: ${entry?.media.fileName ?? ''}`}
 										aria-pressed={selectedMediaIds.has(id)}
 										onclick={(event) => entry && selectMedia(event, entry.media)}
-										title={issue ? sourceIssueLabel(issue) : m.video_editor_source_monitor()}
+										title={issue ? sourceIssueLabel(issue) : entry?.media.fileName}
 									>
 										<span
 											class="flex shrink-0 items-center justify-center overflow-hidden rounded bg-[var(--canvas-pasteboard)] {assetViewMode ===
@@ -1601,7 +1624,8 @@
 											{/if}
 										</span>
 										<span class="min-w-0 flex-1">
-											<span class="block truncate text-xs font-medium">{entry?.media.fileName}</span
+											<span class="line-clamp-2 text-xs font-medium break-all"
+												>{entry?.media.fileName}</span
 											>
 											{#if issue}
 												<span class="flex items-center gap-1 text-[11px] text-warning-foreground">
@@ -1639,7 +1663,7 @@
 														{...props}
 														variant="ghost"
 														size="icon-xs"
-														class="size-11! text-muted-foreground opacity-70 hover:bg-accent hover:text-accent-foreground hover:opacity-100 focus:opacity-100 sm:size-7! {assetViewMode ===
+														class="size-8! text-muted-foreground opacity-0 group-hover:opacity-100 hover:bg-accent hover:text-accent-foreground focus:opacity-100 sm:size-7! [@media(pointer:coarse)]:size-11! [@media(pointer:coarse)]:opacity-100 {assetViewMode ===
 														'grid'
 															? 'justify-self-center'
 															: ''}"
@@ -1652,6 +1676,20 @@
 												{/snippet}
 											</DropdownMenu.Trigger>
 											<DropdownMenu.Content class="video-editor-theme w-52" align="end">
+												<DropdownMenu.Item
+													disabled={Boolean(issue)}
+													onclick={() => addMedia(entry.media, 'playhead')}
+												>
+													<ThemeIcon role="add" class="size-4" />
+													{m.video_editor_stock_add_playhead()}
+												</DropdownMenu.Item>
+												<DropdownMenu.Item
+													disabled={Boolean(issue)}
+													onclick={() => addMedia(entry.media, 'end')}
+												>
+													<ThemeIcon role="add" class="size-4" />
+													{m.video_editor_add_sequence_end()}
+												</DropdownMenu.Item>
 												{#if issue}
 													{#if issue.kind === 'permission'}
 														<DropdownMenu.Item
@@ -1814,7 +1852,7 @@
 									{/if}
 									<button
 										type="button"
-										class="flex size-11 shrink-0 items-center justify-center rounded text-muted-foreground opacity-70 hover:bg-accent hover:text-accent-foreground hover:opacity-100 focus:opacity-100 focus-visible:outline-2 focus-visible:outline-ring disabled:opacity-30 sm:size-7 {assetViewMode ===
+										class="flex size-11 shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 group-hover:opacity-100 hover:bg-accent hover:text-accent-foreground focus:opacity-100 focus-visible:outline-2 focus-visible:outline-ring disabled:opacity-30 sm:size-7 [@media(pointer:coarse)]:opacity-100 {assetViewMode ===
 										'grid'
 											? 'justify-self-center'
 											: ''}"
@@ -1849,6 +1887,20 @@
 									</ContextMenu.Item>
 									<ContextMenu.Separator />
 								{/if}
+								<ContextMenu.Item
+									disabled={Boolean(issue)}
+									onclick={() => addMedia(entry.media, 'playhead')}
+								>
+									<ThemeIcon role="add" class="size-4" />
+									{m.video_editor_stock_add_playhead()}
+								</ContextMenu.Item>
+								<ContextMenu.Item
+									disabled={Boolean(issue)}
+									onclick={() => addMedia(entry.media, 'end')}
+								>
+									<ThemeIcon role="add" class="size-4" />
+									{m.video_editor_add_sequence_end()}
+								</ContextMenu.Item>
 								<ContextMenu.Item disabled={Boolean(issue)} onclick={() => onsourceopen(id)}>
 									<ProtectedIcon icon="media-video" class="size-4" />
 									{m.video_editor_source_monitor()}

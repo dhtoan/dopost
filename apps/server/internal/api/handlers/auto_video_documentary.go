@@ -111,8 +111,8 @@ func documentaryOperation(id, method, path, summary string, auth huma.Middleware
 		Method:      method,
 		Path:        path,
 		Summary:     summary,
-		Description: "Persistent Auno Documentary Long-form workflow. Generated outputs remain editable and are stored separately from the native video project until handoff.",
-		Tags:        []string{"Auno Auto Video"},
+		Description: "Persistent dopost Documentary Long-form workflow. Generated outputs remain editable and are stored separately from the native video project until handoff.",
+		Tags:        []string{"dopost Auto Video"},
 		Middlewares: auth,
 		Errors:      []int{400, 403, 404, 409, 429, 502, 503},
 	}
@@ -120,16 +120,16 @@ func documentaryOperation(id, method, path, summary string, auth huma.Middleware
 
 func (h *DocumentaryHandler) RegisterRoutes(api huma.API) {
 	auth := huma.Middlewares{middleware.AuthMiddleware(api, h.auth)}
-	huma.Register(api, documentaryOperation("create-auno-documentary-run", http.MethodPost, "/auno/auto-video/documentary/runs", "Create an Auno documentary run", auth), h.create)
-	huma.Register(api, documentaryOperation("get-auno-documentary-run", http.MethodGet, "/auno/auto-video/documentary/runs/{run_id}", "Get an Auno documentary run", auth), h.get)
-	huma.Register(api, documentaryOperation("update-auno-documentary-run", http.MethodPut, "/auno/auto-video/documentary/runs/{run_id}", "Update an Auno documentary run", auth), h.update)
-	huma.Register(api, documentaryOperation("delete-auno-documentary-run", http.MethodDelete, "/auno/auto-video/documentary/runs/{run_id}", "Delete an Auno documentary run", auth), h.delete)
-	huma.Register(api, documentaryOperation("generate-auno-documentary-ideas", http.MethodPost, "/auno/auto-video/documentary/runs/{run_id}/ideas", "Generate documentary idea candidates", auth), h.generateIdeas)
-	huma.Register(api, documentaryOperation("generate-auno-documentary-script", http.MethodPost, "/auno/auto-video/documentary/runs/{run_id}/script", "Generate documentary narration", auth), h.generateScript)
-	huma.Register(api, documentaryOperation("generate-auno-documentary-beats", http.MethodPost, "/auno/auto-video/documentary/runs/{run_id}/beats", "Generate documentary beat timing", auth), h.generateBeats)
-	huma.Register(api, documentaryOperation("generate-auno-documentary-visuals", http.MethodPost, "/auno/auto-video/documentary/runs/{run_id}/visuals", "Generate documentary visual plans", auth), h.generateVisuals)
-	huma.Register(api, documentaryOperation("regenerate-auno-documentary-beat-visual", http.MethodPost, "/auno/auto-video/documentary/runs/{run_id}/visuals/{beat_id}", "Regenerate one documentary beat visual", auth), h.regenerateVisual)
-	huma.Register(api, documentaryOperation("generate-auno-documentary-thumbnails", http.MethodPost, "/auno/auto-video/documentary/runs/{run_id}/thumbnails", "Generate documentary thumbnail plans", auth), h.generateThumbnails)
+	huma.Register(api, documentaryOperation("create-dopost-documentary-run", http.MethodPost, "/dopost/auto-video/documentary/runs", "Create a dopost documentary run", auth), h.create)
+	huma.Register(api, documentaryOperation("get-dopost-documentary-run", http.MethodGet, "/dopost/auto-video/documentary/runs/{run_id}", "Get a dopost documentary run", auth), h.get)
+	huma.Register(api, documentaryOperation("update-dopost-documentary-run", http.MethodPut, "/dopost/auto-video/documentary/runs/{run_id}", "Update a dopost documentary run", auth), h.update)
+	huma.Register(api, documentaryOperation("delete-dopost-documentary-run", http.MethodDelete, "/dopost/auto-video/documentary/runs/{run_id}", "Delete a dopost documentary run", auth), h.delete)
+	huma.Register(api, documentaryOperation("generate-dopost-documentary-ideas", http.MethodPost, "/dopost/auto-video/documentary/runs/{run_id}/ideas", "Generate documentary idea candidates", auth), h.generateIdeas)
+	huma.Register(api, documentaryOperation("generate-dopost-documentary-script", http.MethodPost, "/dopost/auto-video/documentary/runs/{run_id}/script", "Generate documentary narration", auth), h.generateScript)
+	huma.Register(api, documentaryOperation("generate-dopost-documentary-beats", http.MethodPost, "/dopost/auto-video/documentary/runs/{run_id}/beats", "Generate documentary beat timing", auth), h.generateBeats)
+	huma.Register(api, documentaryOperation("generate-dopost-documentary-visuals", http.MethodPost, "/dopost/auto-video/documentary/runs/{run_id}/visuals", "Generate documentary visual plans", auth), h.generateVisuals)
+	huma.Register(api, documentaryOperation("regenerate-dopost-documentary-beat-visual", http.MethodPost, "/dopost/auto-video/documentary/runs/{run_id}/visuals/{beat_id}", "Regenerate one documentary beat visual", auth), h.regenerateVisual)
+	huma.Register(api, documentaryOperation("generate-dopost-documentary-thumbnails", http.MethodPost, "/dopost/auto-video/documentary/runs/{run_id}/thumbnails", "Generate documentary thumbnail plans", auth), h.generateThumbnails)
 }
 
 func (h *DocumentaryHandler) create(ctx context.Context, input *CreateDocumentaryRunInput) (*DocumentaryRunOutput, error) {

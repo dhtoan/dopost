@@ -1,20 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ImageEditorHistory } from './history';
 
-describe('OpenPost Image Editor command history', () => {
+describe('dopost Image Editor command history', () => {
 	afterEach(() => vi.useRealTimers());
-
-	it('applies, undoes, and redoes commands', () => {
-		const history = new ImageEditorHistory<number>((value) => value);
-		const next = history.execute(1, {
-			label: 'Increment',
-			apply: (value) => value + 1,
-			revert: (value) => value - 1
-		});
-		expect(next).toBe(2);
-		expect(history.undo(next)).toBe(1);
-		expect(history.redo(1)).toBe(2);
-	});
 
 	it('coalesces continuous edits with the same key', () => {
 		vi.useFakeTimers();

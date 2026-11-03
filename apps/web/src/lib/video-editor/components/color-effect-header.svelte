@@ -9,6 +9,7 @@
 		setEffectEnabledOnItems
 	} from '$lib/video-editor/timeline/actions/effects';
 	import { timelineStore } from '$lib/video-editor/timeline/stores/timeline-store.svelte';
+	import { resolveEditableColorTargetIds } from '$lib/video-editor/effects/color-targets';
 
 	let {
 		itemId,
@@ -16,7 +17,8 @@
 		effectId,
 		label,
 		badge,
-		onedit
+		onedit,
+		compact = false
 	}: {
 		itemId: string | null;
 		itemIds?: string[];
@@ -24,6 +26,7 @@
 		label: string;
 		badge?: string;
 		onedit: () => void;
+		compact?: boolean;
 	} = $props();
 
 	const effect = $derived(
@@ -36,30 +39,32 @@
 					) ?? null)
 			: null
 	);
-	const targetItemIds = $derived.by(() => {
-		const requested = itemId && itemIds.includes(itemId) ? itemIds : itemId ? [itemId] : [];
-		return [...new Set(requested)].filter((id) => timelineStore.itemById.get(id)?.type !== 'audio');
-	});
+	const targetItemIds = $derived(
+		resolveEditableColorTargetIds(itemId, itemIds, timelineStore.itemById, timelineStore.tracks)
+	);
+	const displayItemEditable = $derived(itemId !== null && targetItemIds.includes(itemId));
 	const isDefault = $derived(!effect || isEffectAtDefaults(effect));
 
 	function reset(): void {
-		if (!itemId || !effect) return;
+		if (!itemId || !effect || !displayItemEditable) return;
 		if (resetEffectOnItems(itemId, targetItemIds, effect.id)) onedit();
 	}
 
 	function toggle(): void {
-		if (!itemId || !effect) return;
+		if (!itemId || !effect || !displayItemEditable) return;
 		if (setEffectEnabledOnItems(itemId, targetItemIds, effect.id, !effect.enabled)) onedit();
 	}
 
 	function remove(): void {
-		if (!itemId || !effect) return;
+		if (!itemId || !effect || !displayItemEditable) return;
 		if (removeEffectOnItems(itemId, targetItemIds, effect.id)) onedit();
 	}
 </script>
 
 <header
-	class="flex h-8 shrink-0 items-center justify-between gap-2 border-y border-[var(--video-editor-border)] bg-[var(--video-editor-control)] px-2"
+	class="flex shrink-0 items-center justify-between gap-2 border-y border-[var(--video-editor-border)] bg-[var(--video-editor-control)] px-2 {compact
+		? 'h-[25px]'
+		: 'h-8'}"
 >
 	<h3 class="min-w-0 truncate text-xs font-medium text-[var(--video-editor-text)]">{label}</h3>
 	<div class="flex min-w-0 items-center justify-end gap-0.5">
@@ -71,7 +76,7 @@
 		<button
 			type="button"
 			class="effect-action"
-			disabled={!effect || isDefault}
+			disabled={!displayItemEditable || !effect || isDefault}
 			title={m.video_editor_effects_reset()}
 			aria-label={m.video_editor_effects_reset()}
 			onclick={reset}
@@ -81,7 +86,7 @@
 		<button
 			type="button"
 			class="effect-action"
-			disabled={!effect}
+			disabled={!displayItemEditable || !effect}
 			title={effect?.enabled ? m.video_editor_effects_disable() : m.video_editor_effects_enable()}
 			aria-label={effect?.enabled
 				? m.video_editor_effects_disable()
@@ -97,7 +102,7 @@
 		<button
 			type="button"
 			class="effect-action"
-			disabled={!effect}
+			disabled={!displayItemEditable || !effect}
 			title={m.video_editor_effects_remove()}
 			aria-label={m.video_editor_effects_remove()}
 			onclick={remove}

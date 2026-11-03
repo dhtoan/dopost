@@ -13,7 +13,7 @@ import (
 type PublishRequest struct {
 	Content          string // Post text content
 	RenditionID      string // Owning Rendition for provider-specific durable receipts
-	Profile          string // OpenPost content profile, e.g. short_text, carousel, story, short_video
+	Profile          string // dopost content profile, e.g. short_text, carousel, story, short_video
 	OutputProfile    string // Provider-qualified output profile, e.g. instagram.carousel
 	Title            string // Provider-specific title for video/link surfaces
 	Description      string // Provider-specific description for video/link surfaces
@@ -147,14 +147,22 @@ type MediaItem struct {
 	ID               string
 	MimeType         string
 	Size             int64
+	Width            int
+	Height           int
 	DurationMS       int64
 	OriginalFilename string
 }
 
 type UploadMediaRequest struct {
+	// BeforeWrite revalidates the owning publication immediately before upload
+	// mutations. Resumable adapters must leave read-only reconciliation available.
+	BeforeWrite       func(context.Context) error
 	MimeType          string
 	Filename          string
 	Size              int64
+	Width             int
+	Height            int
+	DurationMS        int64
 	Title             string
 	Description       string
 	Settings          map[string]interface{}
@@ -173,6 +181,13 @@ type UploadMediaRequest struct {
 	OpenReaderAt func(offset int64) (io.ReadCloser, error)
 }
 
+func checkUploadWrite(ctx context.Context, req UploadMediaRequest) error {
+	if req.BeforeWrite != nil {
+		return req.BeforeWrite(ctx)
+	}
+	return nil
+}
+
 // DirectMediaPublisher is an optional publishing extension for providers, such
 // as Discord webhooks, that accept message fields and file bodies in one
 // request. Readers are owned by the caller and are valid only for this call.
@@ -181,7 +196,7 @@ type DirectMediaPublisher interface {
 }
 
 // InstanceCredentialPublisher marks a provider whose write credential belongs
-// to the OpenPost instance rather than a Workspace account. The credential
+// to the dopost instance rather than a Workspace account. The credential
 // stays inside the provider implementation and never crosses the publisher or
 // token-manager boundary.
 type InstanceCredentialPublisher interface {
@@ -192,6 +207,13 @@ type InstanceCredentialPublisher interface {
 // provider operation. It must never recreate the write.
 type PublishReconciler interface {
 	ReconcilePublish(ctx context.Context, accessToken, accountID, providerReference string) (PublishResult, error)
+}
+
+// PublishRequestReconciler performs the same read-only reconciliation with the
+// original authorized request available for exact provider-side matching.
+// Implementations must not recreate the write.
+type PublishRequestReconciler interface {
+	ReconcilePublishRequest(ctx context.Context, accessToken, accountID string, request *PublishRequest, providerReference string) (PublishResult, error)
 }
 
 // PublishResumer continues a provider workflow from a durable stage recorded
@@ -218,8 +240,10 @@ var ErrUnsupportedCommentAction = errors.New("comment action unsupported")
 func RegisterAllMediaValidators() {
 	registerMediaValidatorsOnce.Do(func() {
 		MediaValidators[providerBluesky] = validateBlueskyMedia
+		MediaValidators[providerDevNull] = validateDevNullMedia
 		MediaValidators[providerDiscord] = validateDiscordMedia
 		MediaValidators[providerFacebook] = validateFacebookMedia
+		MediaValidators[providerGoogleBusiness] = validateGoogleBusinessMedia
 		MediaValidators[providerInstagram] = validateInstagramMedia
 		MediaValidators[providerLinkedIn] = validateLinkedInMedia
 		MediaValidators[providerMastodon] = validateMastodonMedia
@@ -337,7 +361,7 @@ type PublishingTargetValidator interface {
 	ValidatePublishingTarget(ctx context.Context, accessToken, accountID string, settings map[string]interface{}) error
 }
 
-// AuthorizationRevoker invalidates a provider credential before OpenPost
+// AuthorizationRevoker invalidates a provider credential before dopost
 // clears the encrypted local grant.
 type AuthorizationRevoker interface {
 	RevokeAuthorization(ctx context.Context, accessToken string) error
@@ -366,6 +390,13 @@ type AccountCapabilityResult struct {
 // account, permission set, or instance.
 type AccountCapabilityProvider interface {
 	ResolveAccountPublishingCapabilities(ctx context.Context, accessToken string, input AccountCapabilityInput) (AccountCapabilityResult, error)
+}
+
+// AccountCapabilityKeyer declares which inputs can change an adapter's
+// ResolveAccountPublishingCapabilities result. Adapters that ignore their input
+// return an empty key.
+type AccountCapabilityKeyer interface {
+	AccountCapabilityKeyInput(input AccountCapabilityInput) string
 }
 
 // TokenResult is a platform-agnostic token response.

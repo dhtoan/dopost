@@ -8,6 +8,9 @@ import { load as parseYaml } from "js-yaml";
 import { create as createTar } from "tar";
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const publicBrand = JSON.parse(
+  readFileSync(path.join(repositoryRoot, "config/public-brand.json"), "utf8"),
+);
 const skillDirectory = path.join(repositoryRoot, ".agents/skills/openpost-cli");
 const mcpServerCardBase = JSON.parse(
   readFileSync(
@@ -16,13 +19,13 @@ const mcpServerCardBase = JSON.parse(
   ),
 );
 const ardSkillDescription =
-  "Operate a running OpenPost instance through the openpost CLI for safe publishing, scheduling, inspection, and recovery workflows.";
+  "Operate a running dopost instance through the openpost CLI for safe publishing, scheduling, inspection, and recovery workflows.";
 
 function jsonDocument(value) {
   return `${JSON.stringify(value, null, 2)}\n`;
 }
 
-export function renderMCPServerCard(version) {
+function renderMCPServerCard(version) {
   return {
     ...mcpServerCardBase,
     version,
@@ -33,45 +36,45 @@ export function renderMCPServerCard(version) {
   };
 }
 
-export function renderARDManifest() {
+function renderARDManifest() {
   return {
     entries: [
       {
         identifier: "urn:air:openpo.st:api:openpost",
-        displayName: "OpenPost HTTP API",
+        displayName: "dopost HTTP API",
         type: "application/vnd.oai.openapi+json",
         url: "https://openpo.st/openapi.json",
         description:
-          "Authenticated HTTP API for OpenPost workspaces, publications, renditions, media, providers, jobs, analytics, and billing.",
+          "Authenticated HTTP API for dopost workspaces, publications, renditions, media, providers, jobs, analytics, and billing.",
         capabilities: ["OpenAPI", "social-publishing", "content-operations"],
         representativeQueries: [
           "create and schedule a social publication through an HTTP API",
-          "inspect publishing jobs and rendition outcomes in an OpenPost workspace",
+          "inspect publishing jobs and rendition outcomes in a dopost workspace",
         ],
       },
       {
         identifier: "urn:air:openpo.st:mcp:openpost",
-        displayName: "OpenPost MCP server",
+        displayName: "dopost MCP server",
         type: "application/mcp-server-card+json",
         url: "https://openpo.st/.well-known/mcp/server-card.json",
         description:
-          "Remote MCP server for scoped discovery and execution of OpenPost publishing operations.",
+          "Remote MCP server for scoped discovery and execution of dopost publishing operations.",
         capabilities: ["MCP", "social-publishing", "content-operations"],
         representativeQueries: [
-          "use MCP to draft and schedule social content in OpenPost",
-          "find an OpenPost operation and inspect its current publishing result",
+          "use MCP to draft and schedule social content in dopost",
+          "find a dopost operation and inspect its current publishing result",
         ],
       },
       {
         identifier: "urn:air:openpo.st:skill:openpost-cli",
-        displayName: "OpenPost CLI Agent Skill",
+        displayName: "dopost CLI Agent Skill",
         type: "application/gzip",
         url: "https://openpo.st/.well-known/agent-skills/openpost-cli.tar.gz",
         description: ardSkillDescription,
         capabilities: ["Agent Skills", "CLI", "social-publishing"],
         representativeQueries: [
-          "operate an OpenPost instance safely from the command line",
-          "create, validate, schedule, or recover an OpenPost publication with the CLI",
+          "operate a dopost instance safely from the command line",
+          "create, validate, schedule, or recover a dopost publication with the CLI",
         ],
       },
     ],
@@ -145,6 +148,7 @@ export async function generateMarketingDiscoveryArtifacts({ outputDirectory, ver
       path.join(repositoryRoot, "apps/web/openapi.json"),
       path.join(outputDirectory, "openapi.json"),
     ),
+    writeFile(path.join(wellKnownDirectory, "brand-facts.json"), jsonDocument(publicBrand), "utf8"),
     writeFile(path.join(wellKnownDirectory, "ard.json"), jsonDocument(renderARDManifest()), "utf8"),
     writeFile(
       path.join(mcpDirectory, "server-card.json"),

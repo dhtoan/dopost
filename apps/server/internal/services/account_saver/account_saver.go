@@ -16,8 +16,11 @@ import (
 	"github.com/google/uuid"
 	"github.com/openpost/backend/internal/models"
 	"github.com/openpost/backend/internal/platform"
+	"github.com/openpost/backend/internal/services/accountavatar"
 	"github.com/openpost/backend/internal/services/crypto"
+	"github.com/openpost/backend/internal/services/dataretention"
 	"github.com/openpost/backend/internal/services/entitlements"
+	"github.com/openpost/backend/internal/services/organizationguard"
 	"github.com/openpost/backend/internal/services/tokenmanager"
 	"github.com/openpost/backend/internal/services/workspaceaccess"
 	"github.com/uptrace/bun"
@@ -31,6 +34,7 @@ type AccountSaver struct {
 	db          *bun.DB
 	crypto      *crypto.TokenEncryptor
 	entitlement entitlements.Service
+	avatars     accountavatar.Cache
 }
 
 type SaveAccountInput struct {
@@ -41,6 +45,7 @@ type SaveAccountInput struct {
 	AccountID             string
 	AccountUsername       string
 	AccountAvatarURL      string
+	ProfileFetchedAt      time.Time
 	InstanceURL           string
 	Token                 *platform.TokenResult
 	CapabilityState       map[string]string
@@ -73,6 +78,10 @@ func NewAccountSaver(db *bun.DB, crypto *crypto.TokenEncryptor, entitlement ...e
 		crypto:      crypto,
 		entitlement: entitlementService,
 	}
+}
+
+func (s *AccountSaver) SetAvatarCache(cache accountavatar.Cache) {
+	s.avatars = cache
 }
 
 func (s *AccountSaver) SetEntitlement(entitlement entitlements.Service) {
@@ -126,35 +135,15 @@ func (s *AccountSaver) SaveAccountsFromInputs(ctx context.Context, inputs []Save
 	if err := s.validateSaveAccountInput(ctx, first); err != nil {
 		return nil, err
 	}
-	for _, input := range normalizedInputs {
-		if input.UserID != first.UserID || input.WorkspaceID != first.WorkspaceID {
-			return nil, fmt.Errorf("selected accounts must belong to the same user and workspace")
-		}
-		if input.Token == nil {
-			return nil, fmt.Errorf("token response is required")
-		}
+	if err := checkSaveAccountCohort(first, normalizedInputs); err != nil {
+		return nil, err
 	}
 
-	existingAccounts := make([]*models.SocialAccount, len(normalizedInputs))
-	seenIdentities := make(map[string]struct{}, len(normalizedInputs))
-	var quotaAmount int64
-	for index := range normalizedInputs {
-		normalizedInputs[index].AccountID = accountIDFromToken(normalizedInputs[index].AccountID, normalizedInputs[index].Token)
-		identity := accountIdentityKey(normalizedInputs[index])
-		if _, exists := seenIdentities[identity]; exists {
-			return nil, fmt.Errorf("the same provider account was selected more than once")
-		}
-		seenIdentities[identity] = struct{}{}
-
-		existing, err := s.findExistingAccount(ctx, normalizedInputs[index])
-		if err != nil {
-			return nil, err
-		}
-		existingAccounts[index] = existing
-		if existing == nil || !existing.IsActive {
-			quotaAmount++
-		}
+	existingAccounts, quotaAmount, err := s.resolveExistingSaveAccounts(ctx, normalizedInputs)
+	if err != nil {
+		return nil, err
 	}
+
 	if quotaAmount > 0 {
 		if err := s.checkSocialAccountQuota(ctx, first.UserID, first.WorkspaceID, quotaAmount); err != nil {
 			return nil, err
@@ -181,12 +170,71 @@ func (s *AccountSaver) SaveAccountsFromInputs(ctx context.Context, inputs []Save
 		return nil, err
 	}
 
-	accounts := make([]*models.SocialAccount, 0, len(normalizedInputs))
-	isExisting := make([]bool, 0, len(normalizedInputs))
-	for index, input := range normalizedInputs {
+	accounts, isExisting, err := assembleSaveAccountRecords(normalizedInputs, existingAccounts, usedSlugs, preparedGrants, grantIndexes, now)
+	if err != nil {
+		return nil, err
+	}
+
+	cachedAvatars := s.cacheAccountAvatars(ctx, accounts, normalizedInputs)
+	retiredAvatars, err := s.persistSaveAccounts(ctx, first, accounts, isExisting, preparedGrants, cachedAvatars, now)
+	if err != nil {
+		s.deleteUnusedAvatars(ctx, cachedAvatars)
+		return nil, err
+	}
+	s.deleteUnusedAvatars(ctx, retiredAvatars)
+
+	for _, prepared := range preparedGrants {
+		if err := tokenmanager.ScheduleGrantRefreshJob(ctx, s.db, prepared.grant.ID, prepared.grant.AccessTokenExpiresAt); err != nil {
+			log.Printf("[AccountSaver] Failed to schedule refresh job for grant %s: %v", prepared.grant.ID, err)
+		}
+	}
+
+	return accounts, nil
+}
+
+func checkSaveAccountCohort(first SaveAccountInput, inputs []SaveAccountInput) error {
+	for _, input := range inputs {
+		if input.UserID != first.UserID || input.WorkspaceID != first.WorkspaceID {
+			return fmt.Errorf("selected accounts must belong to the same user and workspace")
+		}
+		if input.Token == nil {
+			return fmt.Errorf("token response is required")
+		}
+	}
+	return nil
+}
+
+func (s *AccountSaver) resolveExistingSaveAccounts(ctx context.Context, inputs []SaveAccountInput) ([]*models.SocialAccount, int64, error) {
+	existingAccounts := make([]*models.SocialAccount, len(inputs))
+	seenIdentities := make(map[string]struct{}, len(inputs))
+	var quotaAmount int64
+	for index := range inputs {
+		inputs[index].AccountID = accountIDFromToken(inputs[index].AccountID, inputs[index].Token)
+		identity := accountIdentityKey(inputs[index])
+		if _, exists := seenIdentities[identity]; exists {
+			return nil, 0, fmt.Errorf("the same provider account was selected more than once")
+		}
+		seenIdentities[identity] = struct{}{}
+
+		existing, err := s.findExistingAccount(ctx, inputs[index])
+		if err != nil {
+			return nil, 0, err
+		}
+		existingAccounts[index] = existing
+		if existing == nil || !existing.IsActive {
+			quotaAmount++
+		}
+	}
+	return existingAccounts, quotaAmount, nil
+}
+
+func assembleSaveAccountRecords(inputs []SaveAccountInput, existingAccounts []*models.SocialAccount, usedSlugs map[string]string, preparedGrants []preparedGrant, grantIndexes []int, now time.Time) ([]*models.SocialAccount, []bool, error) {
+	accounts := make([]*models.SocialAccount, 0, len(inputs))
+	isExisting := make([]bool, 0, len(inputs))
+	for index, input := range inputs {
 		capabilityState, capabilityCheckedAt, err := encodeCapabilityState(input.CapabilityState)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 
 		existing := existingAccounts[index]
@@ -209,8 +257,9 @@ func (s *AccountSaver) SaveAccountsFromInputs(ctx context.Context, inputs []Save
 		account.Platform = input.PlatformName
 		account.AccountID = input.AccountID
 		account.AccountUsername = input.AccountUsername
+		account.ProfileFetchedAt = input.ProfileFetchedAt
 		accountAvatarURL := strings.TrimSpace(input.AccountAvatarURL)
-		if accountAvatarURL == "" && existing != nil {
+		if accountAvatarURL == "" && existing != nil && (input.PlatformName != "youtube" || input.ProfileFetchedAt.IsZero()) {
 			accountAvatarURL = existing.AccountAvatarURL
 		}
 		account.AccountAvatarURL = accountAvatarURL
@@ -230,67 +279,113 @@ func (s *AccountSaver) SaveAccountsFromInputs(ctx context.Context, inputs []Save
 		accounts = append(accounts, account)
 		isExisting = append(isExisting, existing != nil)
 	}
+	return accounts, isExisting, nil
+}
 
-	if err := s.db.RunInTx(ctx, &sql.TxOptions{}, func(txCtx context.Context, tx bun.Tx) error {
+func (s *AccountSaver) persistSaveAccounts(ctx context.Context, first SaveAccountInput, accounts []*models.SocialAccount, isExisting []bool, preparedGrants []preparedGrant, cachedAvatars []string, now time.Time) ([]string, error) {
+	var retiredAvatars []string
+	err := s.db.RunInTx(ctx, &sql.TxOptions{}, func(txCtx context.Context, tx bun.Tx) error {
+		if err := organizationguard.LockWorkspace(txCtx, tx, first.WorkspaceID); err != nil {
+			return err
+		}
+		var amount int64
+		used, err := activeAccountSlugs(txCtx, tx, first.WorkspaceID)
+		if err != nil {
+			return err
+		}
+		for index, account := range accounts {
+			existing, err := findExistingAccountWithDB(txCtx, tx, SaveAccountInput{WorkspaceID: account.WorkspaceID, PlatformName: account.Platform, AccountID: account.AccountID, InstanceURL: account.InstanceURL})
+			if err != nil {
+				return err
+			}
+			if existing == nil || !existing.IsActive {
+				amount++
+			}
+			if existing != nil {
+				retiredAvatar, err := s.retirePreviousAccountAvatar(txCtx, tx, account, existing, cachedAvatars[index])
+				if err != nil {
+					return err
+				}
+				retiredAvatars = append(retiredAvatars, retiredAvatar)
+				account.ID = existing.ID
+				account.CreatedAt = existing.CreatedAt
+				account.IsNewlyInserted = false
+				isExisting[index] = true
+			}
+			if owner := used[account.Slug]; owner != "" && owner != account.ID {
+				account.Slug = nextAvailableOwnedSlug(account.Slug, used)
+			}
+			used[account.Slug] = account.ID
+		}
+		if err := s.checkSocialAccountQuotaWithDB(txCtx, tx, first.UserID, first.WorkspaceID, amount); err != nil {
+			return err
+		}
 		for _, prepared := range preparedGrants {
 			if err := persistAuthorizationGrant(txCtx, tx, prepared); err != nil {
 				return err
 			}
 		}
-		for index, account := range accounts {
-			if !isExisting[index] {
-				if _, err := tx.NewInsert().Model(account).Exec(txCtx); err != nil {
-					return err
-				}
-				continue
-			}
-			if _, err := tx.NewUpdate().
-				Model(account).
-				Column(
-					"workspace_id", "slug", "platform", "account_id", "account_username",
-					"account_avatar_url", "instance_url", "oauth_grant_id", "access_token_encrypted",
-					"refresh_token_encrypted", "token_expires_at", "granted_scopes",
-					"capability_state_json", "capability_checked_at", "is_active", "error_message",
-				).
-				WherePK().
-				Exec(txCtx); err != nil {
-				return err
-			}
-		}
-		claim := &models.WorkspaceFirstConnection{
-			WorkspaceID: first.WorkspaceID,
-			AccountID:   accounts[0].ID,
-			OriginKey:   first.FirstConnectionOrigin,
-			CreatedAt:   now,
-		}
-		result, err := tx.NewInsert().Model(claim).On("CONFLICT (workspace_id) DO NOTHING").Exec(txCtx)
-		if err != nil {
-			return err
-		}
-		rows, err := result.RowsAffected()
-		if err != nil {
-			return err
-		}
-		accounts[0].ClaimedFirst = rows == 1
-		if !accounts[0].ClaimedFirst && first.FirstConnectionOrigin != "" {
-			var stored models.WorkspaceFirstConnection
-			if err := tx.NewSelect().Model(&stored).Where("workspace_id = ?", first.WorkspaceID).Scan(txCtx); err != nil {
-				return err
-			}
-			accounts[0].ClaimedFirst = stored.OriginKey == first.FirstConnectionOrigin
-		}
-		return nil
-	}); err != nil {
+		return persistSaveAccountRows(txCtx, tx, first, accounts, isExisting, now)
+	})
+	return retiredAvatars, err
+}
+
+func activeAccountSlugs(ctx context.Context, db bun.IDB, workspaceID string) (map[string]string, error) {
+	var active []models.SocialAccount
+	if err := db.NewSelect().Model(&active).Where("workspace_id = ? AND is_active = ?", workspaceID, true).Scan(ctx); err != nil {
 		return nil, err
 	}
+	used := make(map[string]string, len(active))
+	for _, account := range active {
+		used[account.Slug] = account.ID
+	}
+	return used, nil
+}
 
-	for _, prepared := range preparedGrants {
-		if err := tokenmanager.ScheduleGrantRefreshJob(ctx, s.db, prepared.grant.ID, prepared.grant.AccessTokenExpiresAt); err != nil {
-			log.Printf("[AccountSaver] Failed to schedule refresh job for grant %s: %v", prepared.grant.ID, err)
+func persistSaveAccountRows(txCtx context.Context, tx bun.Tx, first SaveAccountInput, accounts []*models.SocialAccount, isExisting []bool, now time.Time) error {
+	for index, account := range accounts {
+		if !isExisting[index] {
+			if _, err := tx.NewInsert().Model(account).Exec(txCtx); err != nil {
+				return err
+			}
+			continue
+		}
+		if _, err := tx.NewUpdate().
+			Model(account).
+			Column(
+				"workspace_id", "slug", "platform", "account_id", "account_username",
+				"account_avatar_url", "profile_fetched_at", "instance_url", "oauth_grant_id", "access_token_encrypted",
+				"refresh_token_encrypted", "token_expires_at", "granted_scopes",
+				"capability_state_json", "capability_checked_at", "is_active", "error_message",
+			).
+			WherePK().
+			Exec(txCtx); err != nil {
+			return err
 		}
 	}
-
-	return accounts, nil
+	claim := &models.WorkspaceFirstConnection{
+		WorkspaceID: first.WorkspaceID,
+		AccountID:   accounts[0].ID,
+		OriginKey:   first.FirstConnectionOrigin,
+		CreatedAt:   now,
+	}
+	result, err := tx.NewInsert().Model(claim).On("CONFLICT (workspace_id) DO NOTHING").Exec(txCtx)
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	accounts[0].ClaimedFirst = rows == 1
+	if !accounts[0].ClaimedFirst && first.FirstConnectionOrigin != "" {
+		var stored models.WorkspaceFirstConnection
+		if err := tx.NewSelect().Model(&stored).Where("workspace_id = ?", first.WorkspaceID).Scan(txCtx); err != nil {
+			return err
+		}
+		accounts[0].ClaimedFirst = stored.OriginKey == first.FirstConnectionOrigin
+	}
+	return nil
 }
 
 func normalizeSaveAccountInput(input SaveAccountInput) SaveAccountInput {
@@ -552,13 +647,20 @@ func persistAuthorizationGrant(ctx context.Context, tx bun.Tx, prepared prepared
 }
 
 func (s *AccountSaver) findExistingAccount(ctx context.Context, input SaveAccountInput) (*models.SocialAccount, error) {
-	query := s.db.NewSelect().
+	return findExistingAccountWithDB(ctx, s.db, input)
+}
+func findExistingAccountWithDB(ctx context.Context, db bun.IDB, input SaveAccountInput) (*models.SocialAccount, error) {
+	query := db.NewSelect().
 		Model((*models.SocialAccount)(nil)).
 		Where("workspace_id = ?", input.WorkspaceID).
 		Where("platform = ?", input.PlatformName).
-		Where("account_id = ?", input.AccountID).
 		Order("is_active DESC", "created_at DESC").
 		Limit(1)
+	if input.PlatformName == "youtube" {
+		query = query.Where("account_id IN (?, ?)", input.AccountID, dataretention.RetiredYouTubeIdentity(input.WorkspaceID, input.AccountID))
+	} else {
+		query = query.Where("account_id = ?", input.AccountID)
+	}
 	if platform.IsInstanceScopedProvider(input.PlatformName) {
 		query = query.Where("instance_url = ?", input.InstanceURL)
 	}
@@ -621,7 +723,7 @@ func (s *AccountSaver) validateSaveAccountInput(ctx context.Context, input SaveA
 		return fmt.Errorf("token response is required")
 	}
 
-	decision, err := workspaceaccess.NewAuthorizer(s.db).Authorize(ctx, input.WorkspaceID, input.Actor, workspaceaccess.LevelEdit)
+	decision, err := workspaceaccess.NewAuthorizer(s.db).Authorize(ctx, input.WorkspaceID, input.Actor, workspaceaccess.LevelConnect)
 	if err != nil {
 		return fmt.Errorf("validating workspace access: %w", err)
 	}
@@ -654,10 +756,9 @@ func (s *AccountSaver) encryptAccountTokens(token *platform.TokenResult) ([]byte
 }
 
 func accountIDFromToken(fallback string, token *platform.TokenResult) string {
-	// LinkedIn selection stores the complete author URN. The shared member
-	// token may also carry a person user_id, which must not replace an
-	// organization identity.
-	if strings.HasPrefix(strings.TrimSpace(fallback), "urn:li:") {
+	// A verified profile or selected destination is authoritative. Token user_id
+	// identifies the authorizing subject, which can differ from that destination.
+	if strings.TrimSpace(fallback) != "" {
 		return fallback
 	}
 	if token.Extra == nil {
@@ -725,7 +826,13 @@ func (s *AccountSaver) CheckSocialAccountQuotaAmount(ctx context.Context, userID
 }
 
 func (s *AccountSaver) checkSocialAccountQuota(ctx context.Context, userID, workspaceID string, amount int64) error {
-	current, err := s.db.NewSelect().
+	return s.checkSocialAccountQuotaWithDB(ctx, s.db, userID, workspaceID, amount)
+}
+func (s *AccountSaver) checkSocialAccountQuotaWithDB(ctx context.Context, db bun.IDB, userID, workspaceID string, amount int64) error {
+	if amount <= 0 {
+		return nil
+	}
+	current, err := db.NewSelect().
 		Model((*models.SocialAccount)(nil)).
 		Where("workspace_id = ?", workspaceID).
 		Where("is_active = ?", true).
@@ -734,7 +841,7 @@ func (s *AccountSaver) checkSocialAccountQuota(ctx context.Context, userID, work
 		return fmt.Errorf("loading social account usage: %w", err)
 	}
 
-	decision, err := s.entitlement.Check(ctx, entitlements.Request{
+	decision, err := entitlements.CheckWithDB(ctx, s.entitlement, db, entitlements.Request{
 		WorkspaceID: workspaceID,
 		UserID:      userID,
 		Limit:       entitlements.LimitSocialAccounts,

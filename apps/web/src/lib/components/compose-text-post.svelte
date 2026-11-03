@@ -1,5 +1,49 @@
 <script lang="ts">
+	import { joinPostText, postTextForDestination } from '@openpost/platform-text/mentions';
+	import SavedMentionDialog from './compose/saved-mention-dialog.svelte';
+	import { searchSavedMentions, savedMentionCandidate } from '$lib/query/saved-mentions';
+	import type { SavedMention } from '@openpost/query-catalog';
+	import PostEditor from '@openpost/ui/components/post-editor';
+	import { lookupComposerMentions } from '$lib/query/mentions';
+	import {
+		readMentionMetadata,
+		validTextMentions,
+		remapMentionMetadata,
+		type PostTextValue,
+		type MentionMetadata,
+		type MentionCandidate
+	} from '@openpost/platform-text/mentions';
+	import { firstComposerURL as accountTextURL } from './compose/composer-links';
+	import {
+		readLinkDraft,
+		linkChoice,
+		linkURL,
+		resolveLinkPreview,
+		type LinkDraft,
+		type LinkChoice
+	} from './compose/links';
+	import { settingLabel } from '$lib/setting-label';
+	import PreviewLinkEditor from './compose/preview-link-editor.svelte';
+	import PreviewPollEditor from './compose/preview-poll-editor.svelte';
+	import type {
+		PreviewCard,
+		PreviewMedia,
+		PreviewPoll,
+		PreviewSegment
+	} from '@openpost/social-preview';
+	import type { Snippet } from 'svelte';
+	import type { PreparedToolDraft } from '$lib/composer/tool-draft-storage';
+	import SharedPollEditor from './compose/shared-poll-editor.svelte';
+	import {
+		readSharedPoll,
+		resolvePollPreview,
+		clearPollSettings,
+		supportsNativePoll,
+		type SharedPoll
+	} from './compose/polls';
 	import { onDestroy, onMount, tick } from 'svelte';
+	import PublicationReviewControl from '$lib/components/publication-review-control.svelte';
+	import { ideate } from '$lib/post-builder/ideate.svelte';
 	import { z } from 'zod';
 	import { captureTelemetryEvent } from '@openpost/telemetry';
 	import { page } from '$app/stores';
@@ -9,7 +53,11 @@
 	import { MediaQuery, SvelteMap, SvelteSet } from 'svelte/reactivity';
 	import { client, type SocialAccount, type Workspace } from '$lib/api/client';
 	import { loadCapabilityCatalog, loadWorkspaceAccounts } from '$lib/api/performance-cache';
-	import { publishingOptionsQueryOptions } from '@openpost/query-catalog';
+	import {
+		publicationDetailQueryOptions,
+		publishingOptionsQueryOptions
+	} from '@openpost/query-catalog';
+	import { queryAPI } from '$lib/query/api';
 	import { queryClient } from '$lib/query/client';
 	import { queryMediaMetadata } from '$lib/query/media';
 	import { queryVoiceProfiles } from '$lib/query/voice-profiles';
@@ -21,6 +69,8 @@
 	import { schedulingQueryAPI } from '$lib/query/scheduling';
 	import type { components } from '$lib/api/types';
 	import AIWorkspaceDialog from '$lib/components/post-builder/ai-workspace-dialog.svelte';
+	import PostOptions from '$lib/components/post-builder/post-options.svelte';
+	import { renderPostVisual, savePostVisual, releasePostVisual } from '$lib/post-builder/visuals';
 	import type {
 		AIAngle,
 		AIGenerationPhase,
@@ -40,6 +90,7 @@
 		type PublicationBuildAngle,
 		type PublicationBuildRequest,
 		type PublicationBuildResult,
+		type PublicationPostOption,
 		type PublicationOpportunity
 	} from '$lib/post-builder/client';
 	import { applyPublicationBuildResult } from '$lib/post-builder/apply';
@@ -57,12 +108,15 @@
 	} from '$lib/meme-generator/api';
 	import type { MemeSuggestionCandidate } from '$lib/meme-generator/types';
 	import { getAuthenticatedMediaByID } from '$lib/media-url';
+	import { fittedImageSettings } from './compose/image-settings';
+	import { optimizeStoredImage, fitStoredImage } from '$lib/media/image-preparation';
 	import {
 		MAX_COMPOSER_DRAFT_MEDIA,
 		mediaCapabilityItemsFromIds,
 		providerMediaWarningMessages
 	} from '$lib/media-capabilities';
 	import { workspaceCtx, type WorkspaceSwitchRequest } from '$lib/stores/workspace.svelte';
+	import { getOptionalUnsavedChanges } from '$lib/unsaved-changes.svelte';
 	import { Button } from '$lib/components/ui/button';
 	import { Checkbox } from '$lib/components/ui/checkbox';
 	import { Input } from '$lib/components/ui/input';
@@ -77,11 +131,30 @@
 	import ComposerPublishActions from './composer-publish-actions.svelte';
 	import ComposerAIActionButton from './composer-ai-action-button.svelte';
 	import ComposerDeliveryFeedback from './composer-delivery-feedback.svelte';
+	import ComposerDestinationTabs from './composer-destination-tabs.svelte';
+	import ComposerVariantToolbar from './composer-variant-toolbar.svelte';
+	import ComposerCharCounter from './composer-char-counter.svelte';
+	import ComposerMediaGrid from './composer-media-grid.svelte';
+	import ComposerMediaActions from './composer-media-actions.svelte';
+	import PasteUploadList from './paste-upload-list.svelte';
 	import SaveIndicator from './save-indicator.svelte';
 	import ComposerScheduleDialog from './composer-schedule-dialog.svelte';
 	import ComposerRepostControl from './composer-repost-control.svelte';
 	import ComposerValidationMenu from './composer-validation-menu.svelte';
 	import DestinationSettingsDialog from './destination-settings-dialog.svelte';
+	import InlineNotice from './inline-notice.svelte';
+	import Disclosure from './disclosure.svelte';
+	import TextCardPreview from './text-card-preview.svelte';
+	import {
+		supportsTextCards,
+		textCardDefaultsFrom,
+		textCardRequest,
+		textCardIdentityForAccount,
+		textCardRequestKey,
+		savedTextCardPreviews,
+		withTextCardImages,
+		type TextCardResult
+	} from '$lib/text-cards';
 	import WorkspaceSetupGuide from './workspace-setup-guide.svelte';
 	import WorkspaceActivationCompletion from './workspace-activation-completion.svelte';
 	import PlatformIcon from './platform-icon.svelte';
@@ -99,15 +172,22 @@
 		makeEmptyPost,
 		getDraftSnapshot,
 		hasAnyContent,
-		type VariantPost
+		type VariantPost,
+		arraysEqual,
+		makeVariantRecord,
+		normalizeVariantRecord,
+		variantRecordEquals
 	} from './compose/draft-utils';
-	import {
-		mostConstrainedCharacterUsage,
-		platformTextLength,
-		uniquePlatformLimits
-	} from './compose/platform-limits';
+	import { platformTextLength, uniquePlatformLimits } from './compose/platform-limits';
+	import { readinessStateMessage } from './account-presentation';
 	import { editorAccountIdAfterVariantLoad } from './compose/editor-target';
 	import { isActionableAccountIssue } from './compose/account-attention';
+	import {
+		capabilityResolutionIsFresh,
+		capabilityResponseApplies,
+		hasUsableCapabilities
+	} from './compose/capability-readiness';
+	import { accountNeedsSegmentCopy } from './compose/segment-overrides';
 	import {
 		composerIssues,
 		isAccountSpecificIssue,
@@ -126,10 +206,12 @@
 		workspaceClock,
 		workspaceDateKeyFromISO,
 		workspaceScheduleFromISO,
-		workspaceScheduleToISO
+		workspaceScheduleToISO,
+		parseScheduleDateParam
 	} from './compose/schedule-timezone';
 	import {
 		buildPublicationPayload,
+		parseComposerSettingOptionalString,
 		type ComposerModeKey,
 		type ComposerPublicationPayload,
 		type ComposerSettings,
@@ -148,6 +230,7 @@
 	import MediaPicker from './media-picker.svelte';
 	import {
 		consumeImageEditorReturnToken,
+		createImageEditorDesign,
 		createImageEditorReturnToken
 	} from '$lib/image-editor/api';
 	import {
@@ -158,6 +241,7 @@
 	} from '$lib/editor-handoff';
 	import {
 		parseComposerHandoffPayload,
+		type ComposerCoverTarget,
 		type ComposerHandoffPayload
 	} from '$lib/composer/handoff-payload';
 	import type { ImageEditorMediaItem } from '$lib/image-editor/types';
@@ -169,8 +253,12 @@
 		type PublicationDraft
 	} from '$lib/composer/session';
 	import { composerErrorMessage } from '$lib/composer/error-presentation';
-	import { createComposerPublicationClient } from '$lib/composer/publication-client';
+	import {
+		createComposerPublicationClient,
+		publicationDraft
+	} from '$lib/composer/publication-client';
 	import { buildComposerPreview } from '$lib/compose-preview';
+	import ComposerPreview from '$lib/components/composer-preview.svelte';
 	import { openPreviewWindow, type PreviewWindowSession } from '$lib/preview-window';
 	import { uploadMediaFile, type MediaUploadResult } from '$lib/media-upload-client';
 	import type { MediaPickerVideoSelection } from '$lib/media-picker';
@@ -189,14 +277,15 @@
 	import {
 		ComposerSessionMediaQueue,
 		availablePasteMediaSlots,
+		firstFailedPasteMediaUpload,
 		hasUnsettledPasteMediaUploads,
 		pasteMediaTargetKey,
-		pastedImageFileSignature,
 		selectPastedImageFiles,
 		type PasteMediaUploadItem,
 		type PasteMediaUploadTarget,
 		type PastedImageRejectionReason
 	} from '$lib/composer/media-queue';
+	import { mediaFileSignature } from '$lib/media-input';
 
 	// --------------------------------------------------------------------------
 	// Types
@@ -229,25 +318,40 @@
 			treatment: z.string(),
 			role: z.string(),
 			brief: z.string(),
-			source_ref: z.string().optional()
+			source_ref: z.string().optional(),
+			template_id: z.string().optional(),
+			alt_text: z.string().optional()
 		}),
 		warnings: z.array(z.string()).optional()
 	});
+	const attachmentRequirementSchema = z.object({
+		kind: z.enum(['image', 'video']),
+		brief: z.string(),
+		document: z.json().optional()
+	});
+	type AttachmentRequirement = z.infer<typeof attachmentRequirementSchema>;
+	let requirementReviewId = $state('');
+	let requirementReviewText = $state('');
+	let aiAttachmentRequirements = $state.raw<Record<string, AttachmentRequirement>>({});
 	const aiBuildMetadataSchema = z.object({
 		version: z.literal(1),
 		strategies: z.array(aiPlatformStrategySchema)
 	});
 	type AIPlatformStrategy = z.infer<typeof aiPlatformStrategySchema>;
 	interface AIComposerCheckpoint {
+		selectedAccountIds: string[];
+		selectedSocialSetId: string;
 		posts: PostItem[];
 		variants: Array<[string, Record<string, VariantPost>]>;
 		linkUrl: string;
 		requestedOutputProfiles: Record<string, string>;
 		formatLockedByAccount: Record<string, boolean>;
 		strategies: AIPlatformStrategy[];
+		attachmentRequirements: Record<string, AttachmentRequirement>;
 	}
 
 	interface Props {
+		initialToolDraft?: PreparedToolDraft | null;
 		initialPublication?: Publication | null;
 		initialScheduleDate?: string | null;
 		initialScheduleTime?: string | null;
@@ -269,6 +373,7 @@
 	// Props & core state
 	// --------------------------------------------------------------------------
 	let {
+		initialToolDraft = null,
 		initialPublication = null,
 		initialScheduleDate = null,
 		initialScheduleTime = null,
@@ -285,12 +390,15 @@
 		copyingDraft = false,
 		hideSetupGuideOnDesktop = false
 	}: Props = $props();
+	const unsavedChangesKey = $props.id();
+	const unsavedChanges = getOptionalUnsavedChanges();
 	let isEditMode = $derived(Boolean(initialPublication));
 
 	let posts = $state<PostItem[]>([makeEmptyPost()]);
 	let activePostIndex = $state(0);
 	let publicationId = $state('');
 	let revision = $state(1);
+	let reviewState = $state('');
 	let lastInitializedPublicationId = $state<string | null>(null);
 	let appliedInitialMediaKey = $state('');
 	let isSaving = $state(false);
@@ -322,6 +430,36 @@
 	let conflictDialogOpen = $state(false);
 	let linkUrl = $state('');
 	let composerSettingsOpen = $state(false);
+	let pollEditorPostKey = $state<string | null>(null);
+	const sidePreviewStorageKey = 'openpost-composer-side-preview';
+	let sidePreviewVisible = $state(true);
+	let wideLayout = $state(false);
+
+	$effect(() => {
+		// The side preview is remembered per device; wide containers show it by default.
+		try {
+			sidePreviewVisible = localStorage.getItem(sidePreviewStorageKey) !== 'off';
+		} catch {
+			sidePreviewVisible = true;
+		}
+	});
+
+	$effect(() => {
+		const query = window.matchMedia('(min-width: 1280px)');
+		const update = () => (wideLayout = query.matches);
+		update();
+		query.addEventListener('change', update);
+		return () => query.removeEventListener('change', update);
+	});
+
+	function toggleSidePreview() {
+		sidePreviewVisible = !sidePreviewVisible;
+		try {
+			localStorage.setItem(sidePreviewStorageKey, sidePreviewVisible ? 'on' : 'off');
+		} catch {
+			// Storage is optional; the choice still applies to this session.
+		}
+	}
 
 	async function openVersionHistory() {
 		composerSettingsOpen = false;
@@ -350,10 +488,22 @@
 	let leaveEditorForWorkspaceID = '';
 	let accountLoadError = $state('');
 	let accountsWorkspaceId = $state('');
+	let mentionDialogSequence = 0;
+	let mentionDialog = $state.raw<{
+		id: number;
+		workspaceId: string;
+		name: string;
+		complete: (candidate: MentionCandidate) => void;
+		session: QueryMutationSession;
+	} | null>(null);
+	$effect(() => {
+		if (mentionDialog && mentionDialog.workspaceId !== selectedWorkspaceId) mentionDialog = null;
+	});
 	let accountRetryIds: string[] | undefined = undefined;
 	let workspaceRequestSequence = 0;
 	let accountRequestSequence = 0;
 	let composerDestroyed = false;
+	let modalApply: import('$lib/post-builder/ideate.svelte').IdeateEntry['apply'];
 	let nextSlotRequestSequence = 0;
 	let saveGeneration = 0;
 	let saveOperationSequence = 0;
@@ -374,6 +524,8 @@
 	let aiWorkspaceOpen = $state(false);
 	let aiWorkspaceEntry = $state<AIWorkspaceEntry>('build');
 	let aiWorkspaceStep = $state<AIWorkspaceStep>('angles');
+	let aiPostOptions = $state.raw<PublicationPostOption[]>([]);
+	let aiOptionMedia = $state.raw<Record<string, string[]> | undefined>();
 	let aiOpportunities = $state.raw<PublicationOpportunity[]>([]);
 	let aiSelectedOpportunityID = $state('');
 	let aiAngles = $state.raw<PublicationBuildAngle[]>([]);
@@ -390,6 +542,7 @@
 	let repurposePrivateContextNotes = $state('');
 	let repurposeReviewActive = $state(false);
 	let appliedRepurposeHandoffID = '';
+	let toolDraftApplied = false;
 	let aiVoiceName = $state<string>(m.compose_ai_default_voice());
 	let aiVoiceProfileID = $state('');
 	let aiActiveBuild = $state.raw<PublicationBuild | null>(null);
@@ -420,27 +573,48 @@
 	let variants = $state<Map<string, Record<string, VariantPost>>>(new Map());
 	let activeVariantAccountId = $state<string | null>(null);
 	let destinationActionOpen = $state(false);
+	let destinationCopyError = $state('');
 	let destinationAction = $state<'copy' | 'media'>('copy');
 	let destinationActionTargetIds = $state<string[]>([]);
 
 	let isDraggingFile = $state(false);
 
 	let mediaAltTexts = $state<Map<string, string>>(new Map());
+	let mediaPreviewMetadata = new SvelteMap<
+		string,
+		{ aspectRatio?: number; poster?: string; width?: number; height?: number }
+	>();
 	let mediaMimeTypes = $state<Map<string, string>>(new Map());
 	let mediaSizes = $state<Map<string, number>>(new Map());
 	let pasteMediaUploads = $state.raw<PasteMediaUploadItem[]>([]);
 	let pasteMediaFeedback = $state.raw<{ targetKey: string; messages: string[] } | null>(null);
 	let pasteMediaAnnouncement = $state('');
+	let imagePreparationNotice = $state('');
+	let fittingImageId = $state('');
+	const imagePreparationSources = new SvelteMap<string, string>();
+	const losslessPreparedImageIds = new Set<string>();
+	const imagePreparationRequests = new Set<AbortController>();
+	let pendingImagePreparationContext = $state<string | null>(null);
+
 	const pasteMediaUploadQueue = new ComposerSessionMediaQueue<MediaUploadResult>({
-		upload: ({ file, target, signal, onProgress }) =>
-			uploadMediaFile({
+		upload: async ({ file, target, signal, onProgress }) => {
+			const uploaded = await uploadMediaFile({
 				workspaceId: target.workspaceId,
 				file,
 				source: 'upload',
 				retentionClass: 'temporary',
 				signal,
 				onProgress: (progress) => onProgress(progress.fraction)
-			}),
+			});
+			if (uploaded.mime_type !== 'image/png') return uploaded;
+			try {
+				const optimized = await optimizeStoredImage(uploaded.id, signal);
+				return optimized ?? uploaded;
+			} catch {
+				signal.throwIfAborted();
+				return uploaded;
+			}
+		},
 		onComplete: completePastedMediaUpload,
 		onChange: (items) => (pasteMediaUploads = items),
 		errorMessage: (cause) =>
@@ -451,12 +625,53 @@
 	const failedCaptionMediaIds = new SvelteSet<string>();
 	const suppressedCaptionMediaIds = new SvelteSet<string>();
 	const captionRequests = new SvelteMap<string, AbortController>();
+	const pendingCaptionResults = new Map<string, ReturnType<typeof generateImageAltText>>();
+	const accountCaptionSuppressions = new Map<string, Set<string>>();
 	const captionPostContexts = new SvelteMap<string, string>();
 	let captionGenerationError = $state('');
 	let editingAltMediaId = $state<string | null>(null);
+	let previewMediaOpen = $state(false);
 	let settingsByAccount = $state<Record<string, ComposerSettings>>({});
+	let captionMentionsByAccount = $state<
+		Record<string, { field: string; body: string; mentions: MentionMetadata } | null>
+	>({});
+	const textCardResults = new SvelteMap<string, TextCardResult>();
+	let textCardNoticeDismissed = $state(false);
+	let savedCardPreviews = $state<Record<string, TextCardResult>>({});
+	// Renditions whose stored text-card images back savedCardPreviews. Kept so
+	// the preview keys can be recomputed once capability defaults resolve.
+	let savedCardRenditions: Publication['renditions'] | undefined;
 	let segmentSettingsByPost = $state<Record<string, Record<string, ComposerSettings>>>({});
 	let mediaSettingsByAccount = $state<Record<string, Record<string, ComposerSettings>>>({});
+	const imagePreparationContext = $derived(
+		JSON.stringify({
+			accounts: selectedAccountIds,
+			profiles: requestedOutputProfiles,
+			locked: formatLockedByAccount,
+			settings: settingsByAccount,
+			segments: segmentSettingsByPost,
+			media: posts.map((post) => ({
+				key: post.key,
+				ids: post.mediaIds,
+				accounts: selectedAccountIds.map((id) => {
+					const variant = variants.get(id)?.[post.key];
+					return {
+						id,
+						inherited: variant?.mediaInherited ?? true,
+						ids: variant?.mediaInherited === false ? variant.mediaIds : post.mediaIds
+					};
+				})
+			}))
+		})
+	);
+	$effect(() => {
+		if (
+			pendingImagePreparationContext !== null &&
+			imagePreparationContext !== pendingImagePreparationContext
+		) {
+			for (const controller of imagePreparationRequests) controller.abort();
+		}
+	});
 	let mediaPickerOpen = $state(false);
 	let mediaPickerPostIndex = $state(0);
 	let mediaPickerInitialFiles = $state.raw<File[]>([]);
@@ -474,11 +689,13 @@
 	let destinationOptionCursorsByAccount = $state<Record<string, Record<string, string>>>({});
 	let destinationOptionSearchByAccount = $state<Record<string, Record<string, string>>>({});
 	let destinationOptionsErrors = $state<Record<string, string>>({});
-	let destinationOptionsLoadingAccountId = $state('');
+	const destinationOptionsLoadingAccountIds = new SvelteSet<string>();
+	const destinationOptionsLoadingCounts = new Map<string, number>();
 	let capabilityResolveTimer: ReturnType<typeof setTimeout> | null = null;
 	let capabilityResolveAbortController: AbortController | null = null;
-	let lastResolvedCapabilityInputSnapshot = '';
-	let destinationOptionsRequestSequence = 0;
+	let lastResolvedCapabilityInputSnapshot = $state('');
+	let lastResolvedCapabilityStructureSnapshot = $state('');
+	const destinationOptionsRequestSequences = new Map<string, number>();
 	let capabilityResolveRequestSequence = 0;
 
 	let autoSaveTimer: ReturnType<typeof setTimeout> | null = null;
@@ -488,7 +705,8 @@
 	let lastSavedScheduleAt = '';
 	let appliedInitialContextKey = $state('');
 	const previewSessions = new SvelteMap<string, PreviewWindowSession>();
-	const textareaRefs = new SvelteMap<number, HTMLTextAreaElement>();
+	let pollCreationAccountID = $state<string | undefined>();
+	let previewPollEditingKeys = new SvelteSet<string>();
 	const randomDelayOptions = [0, 5, 10, 15, 30, 45, 60];
 	const desktopComposerControls = new MediaQuery('min-width: 768px');
 	const accountControlLoading = $derived(loadingWorkspaces || loadingAccounts);
@@ -498,7 +716,7 @@
 			workspaceCtx.settingsReady
 	);
 
-	async function sessionFor(workspaceId: string, existingPublicationId = '') {
+	function getComposerSession(workspaceId: string) {
 		if (!composerSession || composerSession.workspaceId !== workspaceId) {
 			unsubscribeComposerSession?.();
 			composerSession = new ComposerSession({
@@ -521,7 +739,7 @@
 							: m.compose_update_draft_failed(),
 						conflict: {
 							aggregate_type: 'publication',
-							aggregate_id: state.publicationId || existingPublicationId,
+							aggregate_id: state.publicationId || publicationId,
 							expected_revision: state.conflict.expectedRevision,
 							current_revision: state.conflict.currentRevision,
 							status: state.status || 'draft',
@@ -532,10 +750,15 @@
 				}
 			});
 		}
-		if (existingPublicationId && composerSession.snapshot.publicationId !== existingPublicationId) {
-			await composerSession.load(existingPublicationId);
-		}
 		return composerSession;
+	}
+
+	async function sessionFor(workspaceId: string, existingPublicationId = '') {
+		const session = getComposerSession(workspaceId);
+		if (existingPublicationId && session.snapshot.publicationId !== existingPublicationId) {
+			await session.load(existingPublicationId);
+		}
+		return session;
 	}
 
 	// --------------------------------------------------------------------------
@@ -549,11 +772,11 @@
 		const end = workspaceCtx.settings.slot_end_hour;
 		const interval = workspaceCtx.settings.slot_interval_minutes;
 		const slots: string[] = [];
-		for (let hour = start; hour <= end; hour++) {
-			for (let min = 0; min < 60; min += interval) {
-				if (hour === end && min > 0) break;
-				slots.push(`${hour.toString().padStart(2, '0')}:${min.toString().padStart(2, '0')}`);
-			}
+		if (!Number.isInteger(interval) || interval < 1) return slots;
+		for (let minutes = start * 60; minutes <= end * 60; minutes += interval) {
+			const hour = Math.floor(minutes / 60);
+			const minute = minutes % 60;
+			slots.push(`${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`);
 		}
 		return slots;
 	});
@@ -579,7 +802,6 @@
 	const canBuildPost = $derived(
 		!isThread &&
 			!activeVariantAccountId &&
-			selectedAccountIds.length > 0 &&
 			!isSubmitting &&
 			!isSaving &&
 			!buildingPost &&
@@ -799,10 +1021,23 @@
 			((hasContent || Boolean(lastSavedSnapshot)) && getSaveSnapshot() !== lastSavedSnapshot) ||
 			Boolean(draftConflict)
 	);
+	$effect(() => {
+		unsavedChanges?.set(
+			unsavedChangesKey,
+			!loadingWorkspaces && !autoSavesDraft && composerWorkspaceStateDirty,
+			m.compose_leave_without_saving(),
+			// Workspace changes already have a save/discard/stay flow.
+			{ guardWorkspaceSwitch: false }
+		);
+		return () => unsavedChanges?.clear(unsavedChangesKey);
+	});
 	const selectedAccounts = $derived(
 		selectedAccountIds
 			.map((id) => accounts.find((account) => account.id === id))
 			.filter((account): account is SocialAccount => Boolean(account))
+	);
+	const textCardIdentities = $derived(
+		Object.fromEntries(accounts.map((account) => [account.id, textCardIdentityForAccount(account)]))
 	);
 	const deliveryAccountLabels = $derived.by(() =>
 		Object.fromEntries(accounts.map((account) => [account.id, accountLabel(account)]))
@@ -814,7 +1049,16 @@
 	const settingsAccount = $derived(
 		accounts.find((account) => account.id === settingsAccountId) ?? null
 	);
-	const settingsDialogFields = $derived(settingsAccount ? visibleSettings(settingsAccount) : []);
+	const settingsDialogFields = $derived(
+		settingsAccount
+			? visibleSettings(settingsAccount).filter(
+					(field) =>
+						!activePost?.poll ||
+						activePost.poll.destinations[settingsAccount.id]?.mode === 'legacy' ||
+						!field.key.startsWith('poll_')
+				)
+			: []
+	);
 	const settingsDialogValues = $derived(
 		settingsAccount ? dialogSettingsForAccount(settingsAccount) : {}
 	);
@@ -827,9 +1071,21 @@
 			selectedAccounts.map((account) => [account.id, dialogSettingsForAccount(account)])
 		)
 	);
+	const editorMediaAltTexts = $derived.by(() => {
+		const values = new SvelteMap(mediaAltTexts);
+		if (activeVariantAccountId) {
+			for (const [mediaId, settings] of Object.entries(mediaSettingsByAccount)) {
+				const alt = parseComposerSettingOptionalString(settings[activeVariantAccountId]?.alt_text);
+				if (alt !== undefined) values.set(mediaId, alt);
+			}
+		}
+		return values;
+	});
 	const capabilityInputSnapshot = $derived(
 		JSON.stringify({
 			workspace: selectedWorkspaceId,
+			variants: Array.from(variants.entries()),
+			mediaAltTexts: Array.from(mediaAltTexts.entries()),
 			accounts: selectedAccountIds,
 			mode: textComposerMode,
 			requestedOutputProfiles,
@@ -837,17 +1093,61 @@
 			posts: posts.map((post) => ({
 				key: post.key,
 				content: post.content,
-				mediaIds: post.mediaIds
+				mentions: post.mentions,
+				mediaIds: post.mediaIds,
+				poll: post.poll,
+				link: post.link
 			})),
 			settingsByAccount,
+			captionMentionsByAccount,
 			segmentSettingsByPost,
-			mediaSettingsByAccount
+			mediaSettingsByAccount,
+			attachmentRequirements: aiAttachmentRequirements
 		})
 	);
 	const capabilityReadinessCurrent = $derived(
 		!capabilityResolveLoading &&
 			lastResolvedCapabilityInputSnapshot === capabilityInputSnapshot &&
 			selectedAccountIds.every((accountID) => Boolean(resolvedCapabilities[accountID]))
+	);
+	// Content edits keep the previous answer usable. Structural edits (accounts,
+	// formats, media shape, destination settings) must wait for the next answer.
+	const capabilityStructureSnapshot = $derived(
+		JSON.stringify({
+			workspace: selectedWorkspaceId,
+			accounts: selectedAccountIds,
+			mode: textComposerMode,
+			requestedOutputProfiles,
+			posts: posts.map((post) => ({ mediaIds: post.mediaIds, poll: Boolean(post.poll) })),
+			variants: Array.from(variants.entries()).map(([accountID, values]) => [
+				accountID,
+				Object.fromEntries(
+					Object.entries(values).map(([key, value]) => [
+						key,
+						{ mediaIds: value.mediaIds, contentInherited: value.contentInherited }
+					])
+				)
+			]),
+			settingsByAccount,
+			segmentSettingsByPost,
+			attachmentRequirements: aiAttachmentRequirements
+		})
+	);
+	const capabilityReadinessKnown = $derived(
+		hasUsableCapabilities(selectedAccountIds, resolvedCapabilities, capabilityResolveError) &&
+			lastResolvedCapabilityStructureSnapshot === capabilityStructureSnapshot
+	);
+	const settingsDialogEmptyHint = $derived(
+		capabilityReadinessCurrent &&
+			settingsAccount &&
+			getPlatformKey(settingsAccount.platform) === 'youtube' &&
+			settingsDialogFields.length === 0 &&
+			settingsDialogMedia.length === 0 &&
+			resolvedCapabilities[settingsAccount.id]?.issues?.some(
+				(issue) => issue.code === 'media_required'
+			)
+			? m.compose_settings_add_video_hint({ all: m.compose_all() })
+			: ''
 	);
 	const localBlockers = $derived(globalFormBlockers());
 	const validationDestinations = $derived(
@@ -898,20 +1198,36 @@
 	);
 	const canPublishNow = $derived(
 		canSubmitPublication &&
-			capabilityReadinessCurrent &&
+			capabilityReadinessKnown &&
 			selectedAccounts.every((account) => accountReadiness(account, 'publish_immediate').canProceed)
 	);
 	const canSchedulePublication = $derived(
 		canSubmitPublication &&
-			capabilityReadinessCurrent &&
+			capabilityReadinessKnown &&
 			selectedAccounts.every((account) => accountReadiness(account, 'publish_scheduled').canProceed)
 	);
+	const scheduleDisabledReason = $derived(
+		selectedAccounts.length === 0
+			? m.compose_schedule_needs_destination()
+			: canSchedulePublication
+				? m.common_loading()
+				: m.compose_publishing_issues()
+	);
+	const publishDisabledReason = $derived(
+		selectedAccounts.length === 0
+			? m.compose_publish_needs_destination()
+			: m.compose_publishing_issues()
+	);
 	const canSaveEditedPost = $derived(
-		canSubmitPublication && (!(selectedDate && selectedTime) || canSchedulePublication)
+		hasContent &&
+			selectedAccountIds.length > 0 &&
+			(!(selectedDate && selectedTime) || canSchedulePublication)
 	);
 	const activeVariantAccount = $derived(
 		activeVariantAccountId ? (accounts.find((a) => a.id === activeVariantAccountId) ?? null) : null
 	);
+	// Account tabs already render their own preview, so the side panel serves the shared view.
+	const sidePreviewAccount = $derived(activeVariantAccount ? null : (selectedAccounts[0] ?? null));
 	const activeVariantIsUnsynced = $derived(
 		activeVariantAccountId ? variants.has(activeVariantAccountId) : false
 	);
@@ -940,14 +1256,6 @@
 		return uniquePlatformLimits(editorLimitAccounts, resolvedCapabilities);
 	});
 
-	function editorCharacterUsage(value: string): { count: number; limit: number } {
-		const usage = mostConstrainedCharacterUsage(value, editorPlatformLimits);
-		if (usage.limit === null) {
-			throw new Error('Editor character usage requires at least one destination limit');
-		}
-		return usage;
-	}
-
 	const effectiveRandomDelayMinutes = $derived.by(() => {
 		if (randomDelayOverride === 'default') return workspaceCtx.settings.random_delay_minutes;
 		const value = Number(randomDelayOverride);
@@ -964,42 +1272,9 @@
 		return Array.from(options).sort((a, b) => a - b);
 	});
 
-	const editorResizeSignature = $derived.by(() =>
-		posts
-			.map((post, index) => {
-				const mediaIds = getEditorMediaIdsForPost(post);
-				return `${post.key}:${index}:${getEditorContentForPost(post).length}:${mediaIds.join(',')}`;
-			})
-			.join('|')
-	);
-
 	// --------------------------------------------------------------------------
 	// Helpers
 	// --------------------------------------------------------------------------
-	function getCharCounterColor(count: number, max: number): string {
-		const pct = count / max;
-		if (pct >= 1) return 'text-red-500';
-		if (pct >= 0.8) return 'text-amber-500';
-		return 'text-muted-foreground';
-	}
-
-	function parseScheduleDateParam(value: string | null): CalendarDate | undefined {
-		const match = value?.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-		if (!match) return undefined;
-		const year = Number(match[1]);
-		const month = Number(match[2]);
-		const day = Number(match[3]);
-		const parsed = new Date(year, month - 1, day);
-		if (
-			parsed.getFullYear() !== year ||
-			parsed.getMonth() + 1 !== month ||
-			parsed.getDate() !== day
-		) {
-			return undefined;
-		}
-		return new CalendarDate(year, month, day);
-	}
-
 	function applyInitialScheduleDate(dateParam: string | null, timeParam: string | null) {
 		const date = parseScheduleDateParam(dateParam);
 		if (!date) return;
@@ -1166,12 +1441,6 @@
 			error = cause instanceof Error ? cause.message : m.analytics_repurpose_failed();
 		}
 	}
-
-	function arraysEqual(left: string[], right: string[]): boolean {
-		if (left.length !== right.length) return false;
-		return left.every((value, index) => value === right[index]);
-	}
-
 	function sanitizeSelectedAccounts(validAccounts: SocialAccount[]) {
 		const validIds = new Set(validAccounts.map((account) => account.id));
 		const nextSelectedIds = selectedAccountIds.filter((id) => validIds.has(id));
@@ -1210,26 +1479,6 @@
 		});
 	}
 
-	function getCharCounterStrokeColor(count: number, max: number): string {
-		const pct = count / max;
-		if (pct >= 1) return '#ef4444';
-		if (pct >= 0.8) return '#f59e0b';
-		return 'currentColor';
-	}
-
-	function autoResize(el: HTMLTextAreaElement) {
-		el.style.height = 'auto';
-		el.style.height = el.scrollHeight + 'px';
-	}
-
-	function textareaAttachment(index: number) {
-		return (el: HTMLTextAreaElement) => {
-			textareaRefs.set(index, el);
-			autoResize(el);
-			return () => textareaRefs.delete(index);
-		};
-	}
-
 	function getScheduledAt(): string | undefined {
 		if (!selectedDate || !selectedTime) return undefined;
 		return workspaceScheduleToISO(selectedDate, selectedTime, scheduleTimezoneLabel);
@@ -1251,11 +1500,14 @@
 			formatLockedByAccount,
 			scheduleOverridesByAccount,
 			variants: variantEntries,
+			mediaAltTexts: Array.from(mediaAltTexts.entries()),
 			linkUrl,
 			settingsByAccount,
+			captionMentionsByAccount,
 			segmentSettingsByPost,
 			mediaSettingsByAccount,
 			aiAppliedStrategies,
+			aiAttachmentRequirements,
 			scheduledDate: selectedDate?.toString() ?? null,
 			selectedTime,
 			randomDelayOverride,
@@ -1263,13 +1515,15 @@
 			selectedWorkspaceId
 		});
 	}
-
-	function segmentID(publicationID: string, index: number): string {
-		return `legacy-segment:${publicationID}:${index}`;
-	}
-
 	function settingsForAccount(account: SocialAccount): ComposerSettings {
-		return normalizeSettings(account, settingsByAccount[account.id] ?? {}, 'destination');
+		const defaults: ComposerSettings = supportsTextCards(getPlatformKey(account.platform))
+			? { text_card: 'text_only' }
+			: {};
+		return normalizeSettings(
+			account,
+			{ ...defaults, ...settingsByAccount[account.id] },
+			'destination'
+		);
 	}
 
 	function segmentSettingsForAccount(account: SocialAccount): ComposerSettings {
@@ -1310,6 +1564,7 @@
 		for (const field of visibleSettings(account)) {
 			if (field.scope !== scope || next[field.key] !== undefined) continue;
 			if (field.default !== undefined) next[field.key] = parseComposerSettingValue(field.default);
+			else if (field.control === 'optional_boolean') continue;
 			else if (field.type === 'boolean') next[field.key] = false;
 			else next[field.key] = '';
 		}
@@ -1332,7 +1587,7 @@
 		return values;
 	}
 
-	function visibleSettings(account: SocialAccount): SettingDefinition[] {
+	function visibleSettings(account: SocialAccount, post = activePost): SettingDefinition[] {
 		const resolved = resolvedCapabilities[account.id];
 		return composerDestinationSettings(
 			getPlatformKey(account.platform),
@@ -1342,7 +1597,16 @@
 		).filter((field) => {
 			if (
 				['url', 'link_url', 'link_title', 'link_description'].includes(field.key) &&
-				!linkUrl.trim() &&
+				!(
+					(post &&
+						linkURL(
+							post.link,
+							account.id,
+							getVariantContent(account.id, post.key) ?? post.content,
+							{ ...settingsByAccount[account.id], ...segmentSettingsByPost[post.key]?.[account.id] }
+						)) ||
+					linkUrl.trim()
+				) &&
 				!field.required
 			) {
 				return false;
@@ -1352,7 +1616,11 @@
 	}
 
 	function mediaForSettingsDialog(): Array<{ id: string; label: string; mimeType: string }> {
-		const mediaIDs = activePost ? getEditorMediaIdsForPost(activePost) : [];
+		const mediaIDs = activePost
+			? settingsAccount
+				? (getVariantMediaIds(settingsAccount.id, activePost.key) ?? activePost.mediaIds)
+				: getEditorMediaIdsForPost(activePost)
+			: [];
 		return mediaIDs.map((id, index) => ({
 			id,
 			label: `${m.compose_uploaded_media()} ${index + 1}`,
@@ -1369,29 +1637,229 @@
 		);
 	}
 
-	function previewForAccount(account: SocialAccount) {
+	function pollProjection(post: PostItem, account: SocialAccount) {
+		return resolvePollPreview(
+			post.poll,
+			account.id,
+			visibleSettings(account),
+			destinationText(post, account),
+			segmentSettingsByPost[post.key]?.[account.id] ?? {}
+		);
+	}
+
+	function updateSharedPoll(post: PostItem, poll: SharedPoll | undefined) {
+		if (poll && !post.poll) {
+			poll = {
+				...poll,
+				destinations: {
+					...poll.destinations,
+					...Object.fromEntries(
+						selectedAccounts
+							.filter((account) =>
+								Boolean(segmentSettingsByPost[post.key]?.[account.id]?.poll_options)
+							)
+							.map((account) => [account.id, { mode: 'legacy' as const }])
+					)
+				}
+			};
+		}
+		posts = posts.map((item) => (item.key === post.key ? { ...item, poll } : item));
+		if (!poll && post.poll) {
+			segmentSettingsByPost = {
+				...segmentSettingsByPost,
+				[post.key]: Object.fromEntries(
+					Object.entries(segmentSettingsByPost[post.key] ?? {}).map(([id, settings]) => [
+						id,
+						post.poll?.destinations[id]?.mode === 'legacy' ? settings : clearPollSettings(settings)
+					])
+				)
+			};
+		}
+		validationIssues = [];
+		scheduleAutoSave();
+		scheduleCapabilityResolve();
+	}
+
+	function sharedPollError(post: PostItem, account: SocialAccount): string {
+		const poll = post.poll;
+		if (!poll) return '';
+		const choice = poll.destinations[account.id];
+		if (!choice) return m.compose_poll_decision();
+		if (choice.mode === 'omit' || choice.mode === 'legacy') return '';
+		const content = choice.mode === 'custom' ? choice.poll : poll;
+		if (!content?.question.trim()) return m.compose_poll_question_required();
+		const missing = content.options.findIndex((option) => !option.text.trim());
+		if (missing >= 0) return m.compose_poll_option_required({ number: missing + 1 });
+		if (content.options.length < 2) return m.compose_poll_minimum({ count: 2 });
+		if (
+			choice.mode !== 'text' &&
+			posts.length > 1 &&
+			resolvedCapabilities[account.id]?.segment_strategy === 'join'
+		)
+			return m.compose_poll_join_conflict();
+		if (choice.mode === 'text') return '';
+		const fields = visibleSettings(account);
+		if (!supportsNativePoll(fields)) return m.compose_poll_unavailable();
+		const definition = fields.find((field) => field.key === 'poll_options')!;
+		if ((getVariantMediaIds(account.id, post.key) ?? post.mediaIds).length)
+			return m.compose_poll_media_conflict();
+		if (content.options.length > (definition.constraints?.max_items ?? 4))
+			return m.compose_poll_maximum({ count: definition.constraints?.max_items ?? 4 });
+		const maxLength = definition.constraints?.max_length;
+		if (maxLength && content.options.some((option) => [...option.text.trim()].length > maxLength))
+			return m.compose_poll_limit({ count: maxLength });
+		if (
+			(content.multiple && !fields.some((field) => field.key === 'poll_multiple')) ||
+			(content.hide_totals && !fields.some((field) => field.key === 'poll_hide_totals'))
+		)
+			return m.compose_poll_feature_unsupported();
+		if (
+			fields.some((field) => field.key === 'poll_duration') &&
+			![86400, 259200, 604800, 1209600].includes(content.duration_seconds)
+		)
+			return m.compose_poll_duration_invalid();
+		return '';
+	}
+
+	function authoredPreviewForAccount(account: SocialAccount) {
+		const joined =
+			resolvedCapabilities[account.id]?.segment_strategy === 'join' && posts.length > 1;
+		const segments = posts.map((post) => {
+			const mediaIds = getVariantMediaIds(account.id, post.key) ?? post.mediaIds;
+			const projection = joined
+				? {
+						body: destinationText(post, account),
+						settings: segmentSettingsByPost[post.key]?.[account.id] ?? {}
+					}
+				: pollProjection(post, account);
+			return {
+				id: post.key,
+				text: projection.body,
+				settings: resolveLinkPreview(
+					post.link,
+					account.id,
+					getPlatformKey(account.platform),
+					getVariantContent(account.id, post.key) ?? post.content,
+					{ ...settingsForAccount(account), ...projection.settings },
+					mediaIds.length
+				),
+				url: previewLinkURL(post, account),
+				media: mediaIds.map((id) => ({
+					id,
+					mimeType: mediaMimeTypes.get(id),
+					altText: mediaAltTextForAccount(id, account.id),
+					...mediaPreviewMetadata.get(id),
+					settings: mediaSettingsByAccount[id]?.[account.id]
+				}))
+			};
+		});
+		if (joined) {
+			let projection = {
+				body: segments
+					.map((segment) => segment.text.trim())
+					.filter(Boolean)
+					.join('\n\n'),
+				settings: segments[0].settings
+			};
+			for (const post of posts) {
+				if (
+					post.poll?.destinations[account.id]?.mode === 'text' ||
+					post.poll?.destinations[account.id]?.mode === 'omit'
+				) {
+					projection = resolvePollPreview(
+						post.poll,
+						account.id,
+						visibleSettings(account),
+						projection.body,
+						projection.settings
+					);
+				}
+			}
+			const seenMediaIds = new SvelteSet<string>();
+			const joinedMedia = segments
+				.flatMap((segment) => segment.media)
+				.filter((item) => {
+					if (seenMediaIds.has(item.id)) return false;
+					seenMediaIds.add(item.id);
+					return true;
+				});
+			segments.splice(0, segments.length, {
+				...segments[0],
+				text: projection.body,
+				media: joinedMedia,
+				url: joinedPreviewLinkURL(account),
+				settings: resolveLinkPreview(
+					posts[0].link,
+					account.id,
+					getPlatformKey(account.platform),
+					authoredJoinedBody(account),
+					{ ...settingsForAccount(account), ...projection.settings },
+					segments.reduce((count, segment) => count + segment.media.length, 0)
+				)
+			});
+		}
+		const destinationSettings = destinationSettingsForAccount(account);
 		return buildComposerPreview({
 			account,
 			mode: textComposerMode,
 			outputProfile:
 				requestedOutputProfiles[account.id] ?? resolvedCapabilities[account.id]?.output_profile,
-			segments: posts.map((post) => {
-				const mediaIds = getVariantMediaIds(account.id, post.key) ?? post.mediaIds;
-				return {
-					id: post.key,
-					text: getVariantContent(account.id, post.key) ?? post.content,
-					media: mediaIds.map((id) => ({
-						id,
-						mimeType: mediaMimeTypes.get(id),
-						altText: mediaAltTexts.get(id)
-					})),
-					settings: segmentSettingsByPost[post.key]?.[account.id] ?? {}
-				};
-			}),
-			destinationSettings: settingsForAccount(account),
-			linkUrl
+			segments,
+			destinationSettings,
+			title: nativePreviewTitle(account),
+			linkUrl: segments[0]?.url ?? ''
 		});
 	}
+
+	function cardRequestForAccount(account: SocialAccount) {
+		return textCardRequest(
+			account.id,
+			authoredPreviewForAccount(account),
+			settingsForAccount(account),
+			requestedOutputProfiles[account.id] || resolvedCapabilities[account.id]?.output_profile || ''
+		);
+	}
+
+	// Catalogue text-card defaults for one account, resolved once from the
+	// account's resolved capability (falling back to the capability catalogue
+	// while it is still resolving) and merged into settings before the request
+	// key is computed, so omitted styling follows the catalogue.
+	function textCardDefaultsForAccount(account: SocialAccount): ComposerSettings {
+		return textCardDefaultsFrom(resolvedCapabilities[account.id] ?? visibleSettings(account));
+	}
+
+	// Rebuild the stored text-card previews with the catalogue defaults the
+	// current capabilities resolve to, so omitted styling keys from API-created
+	// publications still match the preview request key.
+	function refreshSavedTextCardPreviews(): void {
+		const previews: Record<string, TextCardResult> = {};
+		for (const rendition of savedCardRenditions ?? []) {
+			const account = selectedAccounts.find(
+				(candidate) => candidate.id === rendition.social_account_id
+			);
+			const defaults = account
+				? textCardDefaultsForAccount(account)
+				: textCardDefaultsFrom(capabilities.flatMap((capability) => capability.settings ?? []));
+			Object.assign(previews, savedTextCardPreviews([rendition], textCardIdentities, defaults));
+		}
+		savedCardPreviews = previews;
+	}
+
+	function previewForAccount(account: SocialAccount) {
+		const model = authoredPreviewForAccount(account);
+		const requestKey = textCardRequestKey(
+			cardRequestForAccount(account),
+			textCardIdentityForAccount(account),
+			textCardDefaultsForAccount(account)
+		);
+		const saved = savedCardPreviews[account.id];
+		const result = saved?.key === requestKey ? saved : textCardResults.get(account.id);
+		return result?.key === requestKey ? withTextCardImages(model, result.images) : model;
+	}
+
+	const textCardAccounts = $derived(
+		selectedAccounts.filter((account) => cardRequestForAccount(account))
+	);
 
 	function openAccountPreview(account: SocialAccount) {
 		previewSessions.get(account.id)?.close();
@@ -1416,7 +1884,39 @@
 	});
 
 	function updateAccountSetting(account: SocialAccount, key: string, value: ProviderSettingValue) {
+		const caption = captionMentionsByAccount[account.id];
+		if (caption?.field === key && caption.body !== String(value ?? '')) {
+			const body = String(value ?? '');
+			captionMentionsByAccount = {
+				...captionMentionsByAccount,
+				[account.id]: {
+					...caption,
+					body,
+					mentions: remapMentionMetadata(caption.body, body, caption.mentions) ?? {
+						version: 1,
+						spans: []
+					}
+				}
+			};
+		}
 		const definition = visibleSettings(account).find((field) => field.key === key);
+		if (key === 'url' || key === 'link_url') {
+			const uri = String(value ?? '').trim();
+			posts = posts.map((post) => {
+				if (definition?.scope === 'segment' && post.key !== activePost?.key) return post;
+				const link = post.link ?? initialLinkDraft(post);
+				return {
+					...post,
+					link: {
+						...link,
+						destinations: {
+							...link.destinations,
+							[account.id]: uri ? { mode: 'custom', url: uri } : { mode: 'post' }
+						}
+					}
+				};
+			});
+		}
 		if (definition?.scope === 'segment') {
 			const post = activePost;
 			if (!post) return;
@@ -1478,6 +1978,10 @@
 		key: string,
 		value: ProviderSettingValue
 	) {
+		for (let index = 0; index < posts.length; index++) {
+			const ids = getVariantMediaIds(account.id, posts[index].key) ?? posts[index].mediaIds;
+			if (ids.includes(mediaID)) setVariantMediaIds(account.id, index, [...ids]);
+		}
 		mediaSettingsByAccount = {
 			...mediaSettingsByAccount,
 			[mediaID]: {
@@ -1520,6 +2024,9 @@
 
 	function configuredPollErrorForAccount(account: SocialAccount): string {
 		for (const post of posts) {
+			const sharedError = sharedPollError(post, account);
+			if (sharedError) return sharedError;
+			if (post.poll && post.poll.destinations[account.id]?.mode !== 'legacy') continue;
 			const definition = visibleSettings(account).find(
 				(setting) => setting.key === 'poll_options' && setting.scope === 'segment'
 			);
@@ -1541,10 +2048,15 @@
 
 	function pasteMediaUploadBlocker(): string {
 		if (pasteMediaUploads.length === 0) return '';
-		const failedUpload = pasteMediaUploads.find((upload) => upload.status === 'failed');
+		const failedUpload = firstFailedPasteMediaUpload(pasteMediaUploads);
 		return (
 			failedUpload?.error || m.media_uploaded_progress({ done: 0, total: pasteMediaUploads.length })
 		);
+	}
+
+	function pasteMediaUploadIssue(): string {
+		const failedUpload = firstFailedPasteMediaUpload(pasteMediaUploads);
+		return failedUpload?.error || (failedUpload ? m.compose_upload_failed() : '');
 	}
 
 	function globalFormBlockers(): string[] {
@@ -1554,13 +2066,15 @@
 		if (!hasContent) blockers.push(m.compose_please_enter_content());
 		if (
 			isThread &&
-			posts.filter((post) => post.content.trim() || post.mediaIds.length > 0).length < 2
+			posts.filter((post) => post.content.trim() || post.mediaIds.length > 0 || post.poll).length <
+				2
 		) {
 			blockers.push(m.compose_thread_minimum());
 		}
-		const pasteUploadBlocker = pasteMediaUploadBlocker();
-		if (pasteUploadBlocker) blockers.push(pasteUploadBlocker);
+		const pasteUploadIssue = pasteMediaUploadIssue();
+		if (pasteUploadIssue) blockers.push(pasteUploadIssue);
 		if (capabilityResolveError) blockers.push(capabilityResolveError);
+		if (fittingImageId) blockers.push(m.compose_image_preparing());
 		return uniqueIssueMessages(blockers);
 	}
 
@@ -1606,36 +2120,11 @@
 		account: SocialAccount,
 		presentation: ProviderReadinessPresentation
 	): string {
-		const platform = getPlatformName(account.platform);
-		switch (presentation.state) {
-			case 'unsupported':
-				return m.provider_readiness_unsupported({ platform });
-			case 'disabled':
-				return m.provider_readiness_disabled({ platform });
-			case 'needs_configuration':
-				return m.provider_readiness_needs_configuration({ platform });
-			case 'reconnect_required':
-				return m.provider_readiness_reconnect_required({ platform });
-			case 'degraded':
-				return m.provider_readiness_degraded({ platform });
-			case 'approval_required':
-				return m.provider_readiness_approval_required({ platform });
-			case 'trial_only':
-				return m.provider_readiness_trial_only({ platform });
-			case 'policy_restricted':
-				return m.provider_readiness_policy_restricted({ platform });
-			case 'certification_required':
-				return m.provider_readiness_certification_required({ platform });
-			case 'expired_proof':
-				return m.provider_readiness_expired_proof({ platform });
-			case 'healthy':
-			default:
-				return '';
-		}
+		return readinessStateMessage(presentation.state, getPlatformName(account.platform));
 	}
 
 	function accountReadinessMessages(account: SocialAccount): string[] {
-		if (!capabilityReadinessCurrent) return [];
+		if (!capabilityReadinessKnown) return [];
 		const immediate = accountReadiness(account, 'publish_immediate');
 		const scheduled = accountReadiness(account, 'publish_scheduled');
 		return uniqueIssueMessages([
@@ -1651,7 +2140,7 @@
 	function operationReadinessBlocker(
 		operation: Extract<ProviderReadinessOperation, 'publish_immediate' | 'publish_scheduled'>
 	): string {
-		if (!capabilityReadinessCurrent) return m.compose_load_readiness_failed();
+		if (!capabilityReadinessKnown) return m.compose_load_readiness_failed();
 		for (const account of selectedAccounts) {
 			const presentation = accountReadiness(account, operation);
 			if (presentation.canProceed) continue;
@@ -1666,13 +2155,16 @@
 	function accountIssueMessages(account: SocialAccount): string[] {
 		const provider = getPlatformKey(account.platform);
 		const sourcePosts = isThread ? posts : activePost ? [activePost] : [];
-		const mediaWarnings = sourcePosts.flatMap((post) => {
-			const mediaIds = getVariantMediaIds(account.id, post.key) ?? post.mediaIds;
-			return providerMediaWarningMessages(
-				provider,
-				mediaCapabilityItemsFromIds(mediaIds, mediaMimeTypes, mediaSizes)
-			);
-		});
+		// The server validates generated cards with the complete delivery media.
+		const mediaWarnings = cardRequestForAccount(account)
+			? []
+			: sourcePosts.flatMap((post) => {
+					const mediaIds = getVariantMediaIds(account.id, post.key) ?? post.mediaIds;
+					return providerMediaWarningMessages(
+						provider,
+						mediaCapabilityItemsFromIds(mediaIds, mediaMimeTypes, mediaSizes)
+					);
+				});
 		return uniqueIssueMessages([
 			...accountBlockers(account, false),
 			...accountReadinessMessages(account),
@@ -1680,7 +2172,12 @@
 				.filter((issue) => isAccountSpecificIssue(issue) && isActionableAccountIssue(issue))
 				.map((issue) => issue.message),
 			...validationIssues
-				.filter((issue) => isAccountSpecificIssue(issue) && issueMatchesProvider(issue, provider))
+				.filter(
+					(issue) =>
+						isActionableAccountIssue(issue) &&
+						isAccountSpecificIssue(issue) &&
+						issueMatchesProvider(issue, provider)
+				)
 				.map((issue) => issue.message),
 			...mediaWarnings
 		]);
@@ -1708,6 +2205,8 @@
 	}
 
 	async function focusComposerIssue(issue: ComposerIssue) {
+		if (issue.mediaId) previewMediaOpen = true;
+
 		const postIndex = composerIssuePostIndex(issue);
 		if (postIndex >= 0) activePostIndex = postIndex;
 
@@ -1736,14 +2235,17 @@
 			target = document.getElementById(`destination-setting-${destinationSetting.key}`);
 		} else if (issue.mediaId) {
 			target = document.querySelector<HTMLElement>(
-				`[data-composer-media-id="${CSS.escape(issue.mediaId)}"]`
+				`${previewMediaOpen && activeVariantAccountId ? '[data-testid="composer-media-editor"] ' : ''}[data-composer-media-id="${CSS.escape(issue.mediaId)}"]`
 			);
 		} else if (postIndex >= 0) {
 			target = document.getElementById(`post-textarea-${postIndex}`);
 		} else if (account) {
 			target = document.getElementById(`composer-destination-${account.id}`);
 		}
-		target?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+		target?.scrollIntoView({
+			block: 'center',
+			behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth'
+		});
 		target?.focus({ preventScroll: true });
 	}
 
@@ -1795,8 +2297,11 @@
 			},
 			media: publicationMedia(posts[0]?.mediaIds ?? []),
 			segments: posts.map((post, index) => ({
-				id: segmentID(targetPublicationID, index),
+				id: `legacy-segment:${targetPublicationID}:${index}`,
 				content: post.content,
+				mentions: post.mentions,
+				poll: post.poll,
+				link: post.link,
 				url: index === 0 ? linkUrl : '',
 				media: publicationMedia(post.mediaIds),
 				settingsByAccount: segmentSettingsByPost[post.key] ?? {}
@@ -1828,9 +2333,15 @@
 			if (!source) continue;
 			rendition.segments = rendition.segments.map((segment, index) => {
 				const joinsSegments =
-					rendition.segments.length === 1 &&
+					index === 0 &&
 					posts.length > 1 &&
 					resolvedCapabilities[rendition.social_account_id]?.segment_strategy === 'join';
+				if (
+					index > 0 &&
+					posts.length > 1 &&
+					resolvedCapabilities[rendition.social_account_id]?.segment_strategy === 'join'
+				)
+					return segment;
 				const sourcePosts = joinsSegments ? posts : posts[index] ? [posts[index]] : [];
 				if (sourcePosts.length === 0) return segment;
 				const sourceVariants = sourcePosts.map((post) => source[post.key]).filter(Boolean);
@@ -1839,7 +2350,7 @@
 				const mediaInherited = sourceVariants.every((variant) => variant.mediaInherited);
 				const body = sourcePosts
 					.map((post) => getVariantContent(rendition.social_account_id, post.key) ?? post.content)
-					.map((value) => value.trim())
+					.map((value) => (joinsSegments ? value.trim() : value))
 					.filter(Boolean)
 					.join(joinsSegments ? '\n\n' : '');
 				const mediaIds = sourcePosts.flatMap(
@@ -1857,7 +2368,7 @@
 						media_id: item.id,
 						role: item.role || 'attachment'
 					};
-					if (altText) mediaPayload.alt_text = altText;
+					if (altText !== undefined) mediaPayload.alt_text = altText;
 					if (Object.keys(settings).length > 0) mediaPayload.settings = settings;
 					return mediaPayload;
 				});
@@ -1867,7 +2378,39 @@
 					media_inherited: mediaInherited,
 					media: mediaInherited ? segment.media : media
 				};
-				if (!contentInherited) renditionSegment.body_override = body;
+				if (joinsSegments) {
+					renditionSegment.source_overrides = sourcePosts.map((post, sourceIndex) => {
+						const variant = source[post.key];
+						const sourceMedia = publicationMedia(
+							getVariantMediaIds(rendition.social_account_id, post.key) ?? post.mediaIds
+						);
+						const override: NonNullable<ComposerRenditionSegment['source_overrides']>[number] = {
+							publication_segment_id: payload.segments[sourceIndex].id,
+							media_inherited: variant?.mediaInherited ?? true,
+							media: sourceMedia.map(
+								(item) =>
+									media.find((candidate) => candidate.media_id === item.id) ?? {
+										media_id: item.id,
+										role: item.role || 'attachment'
+									}
+							)
+						};
+						if (variant && !variant.contentInherited) {
+							override.body_override = variant.content;
+							override.mentions = variant.mentions;
+						}
+						return override;
+					});
+				}
+				if (!contentInherited) {
+					renditionSegment.body_override = body;
+					if (!joinsSegments && sourcePosts[0]) {
+						const metadata = source[sourcePosts[0].key]?.mentions;
+						renditionSegment.settings = { ...renditionSegment.settings };
+						delete renditionSegment.settings.mentions;
+						if (metadata) renditionSegment.settings.mentions = metadata;
+					}
+				}
 				return renditionSegment;
 			});
 			const first = rendition.segments[0];
@@ -1876,23 +2419,65 @@
 				rendition.media = first.media.map(({ media_id, role }) => ({ media_id, role }));
 			}
 		}
+		for (const rendition of payload.renditions) {
+			const account = selectedAccounts.find((item) => item.id === rendition.social_account_id);
+			if (!account || nativeDescriptionKey(account) !== 'description') continue;
+			const explicit = parseComposerSettingOptionalString(
+				settingsByAccount[account.id]?.description
+			);
+			const body = joinedDescriptionKey(account)
+				? authoredJoinedBody(account)
+				: posts[0]
+					? (getVariantContent(account.id, posts[0].key) ?? posts[0].content)
+					: '';
+			const description =
+				explicit !== undefined && (explicit || captionMentionsByAccount[account.id])
+					? explicit
+					: body;
+			rendition.description = description;
+			if (rendition.segments[0]) rendition.segments[0].description = description;
+		}
+
+		for (const rendition of payload.renditions) {
+			const first = rendition.segments?.[0];
+			if (first)
+				first.settings = {
+					...first.settings,
+					caption_mentions: captionMentionsByAccount[rendition.social_account_id] ?? null
+				};
+			if (!first) continue;
+			const settings = { ...first.settings };
+			delete settings.attachment_requirement;
+			const requirement = aiAttachmentRequirements[rendition.social_account_id];
+			if (requirement) settings.attachment_requirement = requirement;
+			first.settings = settings;
+		}
 		if (aiAppliedStrategies.length > 0) {
 			payload.metadata[AI_BUILD_METADATA_KEY] = {
 				version: 1,
 				strategies: aiAppliedStrategies
 			};
 		}
-		return payload;
+		return $state.snapshot(payload);
 	}
 
 	function hydrateCanonicalSettings(publication: Publication) {
 		publicationId = publication.id;
 		revision = publication.revision;
+		reviewState = publication.review_state ?? '';
 		repostOverride = publication.repost_override ?? { mode: 'inherit' };
 		const builderMetadata = aiBuildMetadataSchema.safeParse(
 			publication.metadata?.[AI_BUILD_METADATA_KEY]
 		);
 		aiAppliedStrategies = builderMetadata.success ? builderMetadata.data.strategies : [];
+		aiAttachmentRequirements = Object.fromEntries(
+			(publication.renditions ?? []).flatMap((rendition) => {
+				const requirement = attachmentRequirementSchema.safeParse(
+					rendition.segments?.[0]?.settings?.attachment_requirement
+				);
+				return requirement.success ? [[rendition.social_account_id, requirement.data]] : [];
+			})
+		);
 		selectedSocialSetId = publication.social_set_id ?? '';
 		requestedOutputProfiles = Object.fromEntries(
 			(publication.renditions ?? [])
@@ -1911,11 +2496,33 @@
 				.map((rendition) => [rendition.social_account_id, rendition.schedule_override!])
 		);
 		linkUrl = firstComposerURL(posts[0]?.content ?? '') || publication.source_url || '';
+		captionMentionsByAccount = Object.fromEntries(
+			(publication.renditions ?? []).map((rendition) => {
+				const parsed = z
+					.object({
+						field: z.enum(['description', 'video_description']),
+						body: z.string(),
+						mentions: z.unknown()
+					})
+					.safeParse(rendition.segments?.[0]?.settings?.caption_mentions);
+				const caption = parsed.success ? parsed.data : undefined;
+				const metadata = caption ? readMentionMetadata(caption.body, caption.mentions) : undefined;
+				return [
+					rendition.social_account_id,
+					caption && metadata
+						? { field: caption.field, body: caption.body, mentions: metadata }
+						: null
+				];
+			})
+		);
 		settingsByAccount = Object.fromEntries(
-			(publication.renditions ?? []).map((rendition) => [
-				rendition.social_account_id,
-				parseComposerSettingsRecord(rendition.settings ?? {})
-			])
+			(publication.renditions ?? []).map((rendition) => {
+				const settings = parseComposerSettingsRecord(rendition.settings ?? {});
+				if (supportsTextCards(rendition.platform) && settings.text_card === undefined) {
+					settings.text_card = 'off';
+				}
+				return [rendition.social_account_id, settings];
+			})
 		);
 		const canonicalSegments = [...(publication.segments ?? [])].sort(
 			(left, right) => left.position - right.position
@@ -1931,16 +2538,51 @@
 							(segment) => segment.publication_segment_id === canonical.id
 						)
 					: undefined;
-				const contentInherited = renditionSegment?.body_override === undefined;
-				const mediaInherited = renditionSegment?.media_inherited ?? true;
+				const legacyJoined =
+					posts.length > 1 &&
+					rendition.segments?.length === 1 &&
+					!rendition.segments[0].source_overrides?.length;
+				const joinedSource = (rendition.segments ?? [])
+					.flatMap((segment) => segment.source_overrides ?? [])
+					.find((source) => source.publication_segment_id === canonical?.id);
+				const suppressLegacyContinuation =
+					legacyJoined && index > 0 && rendition.segments?.[0]?.body_override !== undefined;
+				const contentInherited = suppressLegacyContinuation
+					? false
+					: joinedSource
+						? joinedSource.body_override === undefined
+						: renditionSegment?.body_override === undefined;
+				const suppressLegacyMedia =
+					legacyJoined && index > 0 && rendition.segments?.[0]?.media_inherited === false;
+				const mediaInherited = suppressLegacyMedia
+					? false
+					: (joinedSource?.media_inherited ?? renditionSegment?.media_inherited ?? true);
 				if (!contentInherited || !mediaInherited) hasOverride = true;
 				record[post.key] = {
-					content: contentInherited
-						? post.content
-						: (renditionSegment?.body_override ?? renditionSegment?.body ?? ''),
-					mediaIds: mediaInherited
-						? [...post.mediaIds]
-						: (renditionSegment?.media ?? []).map((item) => item.id),
+					content: suppressLegacyContinuation
+						? ''
+						: contentInherited
+							? post.content
+							: (joinedSource?.body_override ??
+								renditionSegment?.body_override ??
+								renditionSegment?.body ??
+								''),
+					mediaIds: suppressLegacyMedia
+						? []
+						: mediaInherited
+							? [...post.mediaIds]
+							: joinedSource
+								? (joinedSource.media ?? []).map((item) => item.media_id)
+								: (renditionSegment?.media ?? []).map((item) => item.id),
+					mentions: contentInherited
+						? post.mentions
+						: readMentionMetadata(
+								joinedSource?.body_override ??
+									renditionSegment?.body_override ??
+									renditionSegment?.body ??
+									'',
+								joinedSource?.mentions ?? renditionSegment?.settings?.mentions
+							),
 					contentInherited,
 					mediaInherited
 				};
@@ -1981,14 +2623,23 @@
 				};
 				for (const media of segment.media ?? []) {
 					const mediaSettings = parseComposerSettingsRecord(media.settings ?? {});
-					if (media.alt_text) mediaSettings.alt_text = media.alt_text;
+					if (
+						posts.some((source) =>
+							getVariantMediaIds(rendition.social_account_id, source.key)?.includes(media.id)
+						) ||
+						(media.alt_text ?? '') !== (mediaAltTexts.get(media.id) ?? '')
+					) {
+						mediaSettings.alt_text = media.alt_text ?? '';
+					}
 					if (media.thumbnail_timestamp_ms) {
 						mediaSettings.thumbnail_timestamp_ms = media.thumbnail_timestamp_ms;
 					}
-					nextMediaSettings[media.id] = {
-						...(nextMediaSettings[media.id] ?? {}),
-						[rendition.social_account_id]: mediaSettings
-					};
+					if (Object.keys(mediaSettings).length > 0) {
+						nextMediaSettings[media.id] = {
+							...(nextMediaSettings[media.id] ?? {}),
+							[rendition.social_account_id]: mediaSettings
+						};
+					}
 				}
 			}
 		}
@@ -1996,9 +2647,26 @@
 		mediaSettingsByAccount = nextMediaSettings;
 	}
 
+	function accountNeedsOwnSegmentCopy(accountID: string): boolean {
+		if (
+			posts.some((post) =>
+				post.mentions?.spans.some((span) => span.target.provider === 'workspace')
+			)
+		)
+			return true;
+		return accountNeedsSegmentCopy(
+			accountID,
+			variants,
+			aiAttachmentRequirements,
+			posts.some((post) => post.poll),
+			mediaSettingsByAccount
+		);
+	}
+
 	function scheduleCapabilityResolve() {
 		if (capabilityResolveTimer) clearTimeout(capabilityResolveTimer);
-		capabilityResolveAbortController?.abort();
+		// Let the in-flight resolve finish so its provider work can populate the
+		// cache. The next request aborts it only once the debounce elapses.
 		capabilityResolveTimer = setTimeout(() => {
 			capabilityResolveTimer = null;
 			void resolveCapabilities();
@@ -2006,11 +2674,21 @@
 	}
 
 	async function resolveCapabilities() {
+		if (capabilityResolveTimer) {
+			clearTimeout(capabilityResolveTimer);
+			capabilityResolveTimer = null;
+		}
 		const inputSnapshot = capabilityInputSnapshot;
 		if (!selectedWorkspaceId || selectedAccountIds.length === 0) {
+			capabilityResolveAbortController?.abort();
+			capabilityResolveAbortController = null;
+			capabilityResolveRequestSequence++;
+			capabilityResolveLoading = false;
 			resolvedCapabilities = {};
+			validationIssues = [];
 			capabilityResolveError = '';
 			lastResolvedCapabilityInputSnapshot = inputSnapshot;
+			lastResolvedCapabilityStructureSnapshot = capabilityStructureSnapshot;
 			return;
 		}
 		capabilityResolveAbortController?.abort();
@@ -2018,7 +2696,6 @@
 		capabilityResolveAbortController = abortController;
 		const requestSequence = ++capabilityResolveRequestSequence;
 		capabilityResolveLoading = true;
-		capabilityResolveError = '';
 		const [, region = 'US'] = getLocaleTag().split('-');
 		try {
 			const { data, error: resolveError } = await client.POST('/capabilities/resolve', {
@@ -2035,7 +2712,29 @@
 					locale: getLocaleTag(),
 					region,
 					account_settings: Object.fromEntries(
-						selectedAccounts.map((account) => [account.id, settingsForAccount(account)])
+						selectedAccounts.map((account) => [account.id, destinationSettingsForAccount(account)])
+					),
+					account_segments: Object.fromEntries(
+						selectedAccounts
+							.filter((account) => accountNeedsOwnSegmentCopy(account.id))
+							.map((account) => [
+								account.id,
+								posts.map((post) => ({
+									id: post.key,
+									content: pollProjection(post, account).body,
+									url: post === posts[0] ? linkUrl : '',
+									settings:
+										post === posts[0] && aiAttachmentRequirements[account.id]
+											? { attachment_requirement: aiAttachmentRequirements[account.id] }
+											: undefined,
+									media: (getVariantMediaIds(account.id, post.key) ?? post.mediaIds).map(
+										(mediaId) => ({
+											media_id: mediaId,
+											alt_text: mediaAltTextForAccount(mediaId, account.id)
+										})
+									)
+								}))
+							])
 					),
 					segments: posts.map((post) => ({
 						id: post.key,
@@ -2051,22 +2750,20 @@
 			if (resolveError) {
 				throw new Error(resolveError.detail || m.compose_load_capabilities_failed());
 			}
-			if (requestSequence !== capabilityResolveRequestSequence) return;
+			if (
+				!capabilityResponseApplies({
+					requestSequence,
+					currentRequestSequence: capabilityResolveRequestSequence,
+					requestedSnapshot: inputSnapshot,
+					currentSnapshot: capabilityInputSnapshot
+				})
+			)
+				return;
+			capabilityResolveError = '';
 			const resolvedAccounts = data?.accounts ?? [];
 			resolvedCapabilities = Object.fromEntries(
 				resolvedAccounts.map((capability) => [capability.account_id, capability])
 			);
-			if (
-				resolvedAccounts.some(
-					(capability) =>
-						presentProviderReadiness(capability.immediate_readiness, 'publish_immediate').action ===
-							'retry' ||
-						presentProviderReadiness(capability.scheduled_readiness, 'publish_scheduled').action ===
-							'retry'
-				)
-			) {
-				capabilityResolveError = m.compose_load_readiness_failed();
-			}
 			for (const capability of resolvedAccounts) {
 				const dynamic = capability.dynamic_options ?? {};
 				if (Object.keys(dynamic).length === 0) continue;
@@ -2088,6 +2785,8 @@
 			}
 			validationIssues = resolvedAccounts.flatMap((capability) => capability.issues ?? []);
 			lastResolvedCapabilityInputSnapshot = inputSnapshot;
+			lastResolvedCapabilityStructureSnapshot = capabilityStructureSnapshot;
+			refreshSavedTextCardPreviews();
 			void loadRequiredDestinationOptions();
 		} catch (resolveError) {
 			if (abortController.signal.aborted) return;
@@ -2104,16 +2803,48 @@
 		}
 	}
 
-	async function loadRequiredDestinationOptions() {
-		for (const account of selectedAccounts) {
-			const requiredSources = visibleSettings(account)
-				.filter((setting) => setting.required && Boolean(setting.options_source))
-				.map((setting) => setting.options_source!)
-				.filter((source) => destinationOptionsByAccount[account.id]?.[source] === undefined);
-			for (const source of new Set(requiredSources)) {
-				await loadDestinationOptions(account, false, source);
+	async function resolveCapabilitiesCurrent(): Promise<boolean> {
+		// Edits can land while a request is in flight. Resolve again so a submit
+		// decision never relies on an answer for a superseded state.
+		for (let attempt = 0; attempt < 3; attempt++) {
+			await resolveCapabilities();
+			if (
+				capabilityResolutionIsFresh(
+					lastResolvedCapabilityInputSnapshot,
+					capabilityInputSnapshot,
+					capabilityResolveError
+				)
+			) {
+				return true;
 			}
+			if (capabilityResolveError) return false;
 		}
+		return false;
+	}
+
+	async function loadRequiredDestinationOptions() {
+		const accountsWithSources = selectedAccounts
+			.map((account) => ({
+				account,
+				sources: visibleSettings(account)
+					.filter((setting) => setting.required && Boolean(setting.options_source))
+					.map((setting) => setting.options_source!)
+					.filter((source) => destinationOptionsByAccount[account.id]?.[source] === undefined)
+			}))
+			.filter(({ sources }) => sources.length > 0);
+		// Accounts are independent, but a large composer should not open one
+		// provider request per destination at once.
+		const queue = [...accountsWithSources];
+		const workers = Array.from({ length: Math.min(4, queue.length) }, async () => {
+			for (;;) {
+				const next = queue.shift();
+				if (!next) return;
+				for (const source of new Set(next.sources)) {
+					await loadDestinationOptions(next.account, false, source);
+				}
+			}
+		});
+		await Promise.allSettled(workers);
 	}
 
 	function openDestinationSettings(account: SocialAccount) {
@@ -2138,14 +2869,21 @@
 			onlySource,
 			settingsForAccount(account)
 		);
+		const requestWorkspaceId = selectedWorkspaceId;
 		if (!force && !search) {
 			sources = sources.filter(
 				(source) => destinationOptionsByAccount[account.id]?.[source] === undefined
 			);
 		}
 		if (sources.length === 0) return;
-		const requestSequence = ++destinationOptionsRequestSequence;
-		destinationOptionsLoadingAccountId = account.id;
+		const requestSequences = new Map<string, number>();
+		for (const source of sources) {
+			const key = destinationOptionsSequenceKey(account.id, source);
+			const sequence = (destinationOptionsRequestSequences.get(key) ?? 0) + 1;
+			destinationOptionsRequestSequences.set(key, sequence);
+			requestSequences.set(source, sequence);
+		}
+		markDestinationOptionsLoading(account.id, 1);
 		destinationOptionsErrors = { ...destinationOptionsErrors, [account.id]: '' };
 		const [, region = 'US'] = getLocaleTag().split('-');
 		const accountSearches = destinationOptionSearchByAccount[account.id] ?? {};
@@ -2180,13 +2918,19 @@
 					return [source, data?.options ?? [], data?.next_cursor ?? ''] as const;
 				})
 			);
-			if (requestSequence !== destinationOptionsRequestSequence) return;
+			const applied = results.filter(
+				([source]) =>
+					destinationOptionsRequestSequences.get(
+						destinationOptionsSequenceKey(account.id, source)
+					) === requestSequences.get(source)
+			);
+			if (applied.length === 0) return;
 			destinationOptionsByAccount = {
 				...destinationOptionsByAccount,
 				[account.id]: {
 					...(destinationOptionsByAccount[account.id] ?? {}),
 					...Object.fromEntries(
-						results.map(([source, options]) => [
+						applied.map(([source, options]) => [
 							source,
 							append
 								? mergeDestinationOptions(
@@ -2202,11 +2946,17 @@
 				...destinationOptionCursorsByAccount,
 				[account.id]: {
 					...(destinationOptionCursorsByAccount[account.id] ?? {}),
-					...Object.fromEntries(results.map(([source, , cursor]) => [source, cursor]))
+					...Object.fromEntries(applied.map(([source, , cursor]) => [source, cursor]))
 				}
 			};
 		} catch (optionsError) {
-			if (requestSequence !== destinationOptionsRequestSequence) return;
+			const current = sources.some(
+				(source) =>
+					destinationOptionsRequestSequences.get(
+						destinationOptionsSequenceKey(account.id, source)
+					) === requestSequences.get(source)
+			);
+			if (!current) return;
 			destinationOptionsErrors = {
 				...destinationOptionsErrors,
 				[account.id]:
@@ -2215,10 +2965,25 @@
 						: m.compose_load_provider_options_failed()
 			};
 		} finally {
-			if (requestSequence === destinationOptionsRequestSequence) {
-				destinationOptionsLoadingAccountId = '';
+			if (requestWorkspaceId === selectedWorkspaceId) {
+				markDestinationOptionsLoading(account.id, -1);
 			}
 		}
+	}
+
+	function destinationOptionsSequenceKey(accountID: string, source: string): string {
+		return `${accountID}\u001f${source}`;
+	}
+
+	function markDestinationOptionsLoading(accountID: string, delta: 1 | -1) {
+		const next = (destinationOptionsLoadingCounts.get(accountID) ?? 0) + delta;
+		if (next > 0) {
+			destinationOptionsLoadingCounts.set(accountID, next);
+			destinationOptionsLoadingAccountIds.add(accountID);
+			return;
+		}
+		destinationOptionsLoadingCounts.delete(accountID);
+		destinationOptionsLoadingAccountIds.delete(accountID);
 	}
 
 	function getVariantPost(accountId: string, postKey: string): VariantPost | null {
@@ -2244,59 +3009,6 @@
 			Array.from(variants.entries()).map(([accountId, values]) => [accountId, values])
 		);
 	}
-
-	function makeVariantRecord(sourcePosts: PostItem[]): Record<string, VariantPost> {
-		return Object.fromEntries(
-			sourcePosts.map((post) => [
-				post.key,
-				{
-					content: post.content,
-					mediaIds: [...post.mediaIds],
-					contentInherited: true,
-					mediaInherited: true
-				}
-			])
-		);
-	}
-
-	function normalizeVariantRecord(
-		record: Record<string, VariantPost> | undefined,
-		sourcePosts: PostItem[]
-	): Record<string, VariantPost> {
-		return Object.fromEntries(
-			sourcePosts.map((post) => {
-				const value = record?.[post.key];
-				return [
-					post.key,
-					{
-						content: value?.content ?? post.content,
-						mediaIds: value?.mediaIds ? [...value.mediaIds] : [...post.mediaIds],
-						contentInherited: value?.contentInherited ?? false,
-						mediaInherited: value?.mediaInherited ?? false
-					}
-				];
-			})
-		);
-	}
-
-	function variantRecordEquals(
-		left: Record<string, VariantPost> | undefined,
-		right: Record<string, VariantPost>,
-		sourcePosts: PostItem[]
-	): boolean {
-		if (Object.keys(left ?? {}).length !== Object.keys(right).length) return false;
-		return sourcePosts.every((post) => {
-			const leftValue = left?.[post.key];
-			const rightValue = right[post.key];
-			return (
-				(leftValue?.content ?? post.content) === rightValue.content &&
-				arraysEqual(leftValue?.mediaIds ?? post.mediaIds, rightValue.mediaIds) &&
-				(leftValue?.contentInherited ?? false) === (rightValue.contentInherited ?? false) &&
-				(leftValue?.mediaInherited ?? false) === (rightValue.mediaInherited ?? false)
-			);
-		});
-	}
-
 	function getEditorContentForPost(post: PostItem): string {
 		if (!activeVariantAccountId) return post.content;
 		return getVariantContent(activeVariantAccountId, post.key) ?? post.content;
@@ -2353,7 +3065,7 @@
 		if (!post) return;
 		const next = mergeMediaIds([], mediaIds);
 		if (next.length > 0) void startFirstComposition('media');
-		if (activeVariantAccountId && activeVariantIsUnsynced) {
+		if (activeVariantAccountId) {
 			setVariantMediaIds(activeVariantAccountId, postIndex, next);
 		} else {
 			posts = posts.map((item, index) =>
@@ -2388,9 +3100,14 @@
 			error = m.media_upload_too_many({ maximum: composerMediaLimit });
 		}
 		if (added.length > 0) {
-			setEditorMediaIds(targetIndex, next);
-			await hydrateMediaMetadata(selectedWorkspaceId, added, true);
-			void generateMissingMediaAltText(added, getEditorContentForPost(targetPost));
+			const context = imagePreparationContext,
+				target = pasteMediaTargetForPost(targetPost);
+			const postContext = getEditorContentForPost(targetPost);
+			if (!target) return;
+			const prepared = await prepareNewImageIds(added, selectedWorkspaceId);
+			if (!prepared || context !== imagePreparationContext) return;
+			setPasteTargetMediaIds(target, [...current, ...prepared]);
+			void generateMissingMediaAltText(prepared, postContext);
 		}
 		finishVideoEditorMediaHandoff();
 	}
@@ -2495,6 +3212,7 @@
 		mediaSettingsByAccount = structuredClone(payload.media_settings_by_account);
 		mediaAltTexts = new SvelteMap(payload.media_alt_texts ?? []);
 		mediaMimeTypes = new SvelteMap(payload.media_mime_types ?? []);
+		mediaPreviewMetadata.clear();
 		mediaSizes = new SvelteMap(payload.media_sizes ?? []);
 		selectedDate = undefined;
 		if (payload.selected_date) {
@@ -2524,6 +3242,38 @@
 	}
 
 	async function openImageEditorFromComposer() {
+		return openStillEditorFromComposer('image');
+	}
+
+	async function openTemplateEditorFromComposer() {
+		return openStillEditorFromComposer('template');
+	}
+
+	async function editDestinationCover(
+		setting: SettingDefinition,
+		file: File,
+		metadata: { sourceMediaId: string; timestampMs: number }
+	) {
+		const account = settingsAccount;
+		const post = activePost;
+		if (!account || !post) return;
+		if (setting.key !== 'thumbnail_media_id' && setting.key !== 'cover_media_id') return;
+		mediaPickerPostIndex = activePostIndex;
+		await openStillEditorFromComposer('image', {
+			file,
+			target: {
+				account_id: account.id,
+				post_key: post.key,
+				setting_key: setting.key,
+				source_media_id: metadata.sourceMediaId
+			}
+		});
+	}
+
+	async function openStillEditorFromComposer(
+		editor: 'image' | 'template',
+		cover?: { file: File; target: ComposerCoverTarget }
+	) {
 		if (!selectedWorkspaceId) return;
 		const workspaceId = selectedWorkspaceId;
 		const generation = saveGeneration;
@@ -2532,15 +3282,46 @@
 		await requireSavedComposerBeforeHandoff();
 		if (!saveMutationViewIsCurrent(mutationSession, generation, workspaceId)) return;
 		const returnURL = composerHandoffReturnURL();
-		const purpose = isThread ? 'thread_segment' : 'post_media';
+		let designID = '';
+		if (cover) {
+			const source = posts.find((post) => post.key === cover.target.post_key);
+			if (
+				!source ||
+				!(getVariantMediaIds(cover.target.account_id, source.key) ?? source.mediaIds).includes(
+					cover.target.source_media_id
+				)
+			) {
+				throw new Error(m.compose_cover_target_changed());
+			}
+			const uploaded = await uploadMediaFile({
+				workspaceId,
+				file: cover.file,
+				parentMediaId: cover.target.source_media_id
+			});
+			if (!saveMutationViewIsCurrent(mutationSession, generation, workspaceId)) return;
+			const bitmap = await createImageBitmap(cover.file);
+			const size = { width_px: bitmap.width, height_px: bitmap.height };
+			bitmap.close();
+			const design = await createImageEditorDesign(workspaceId, {
+				title: m.compose_cover_design_title(),
+				preset_key: 'custom',
+				...size,
+				source_media_id: uploaded.id
+			});
+			if (!saveMutationViewIsCurrent(mutationSession, generation, workspaceId)) return;
+			designID = design.id;
+		}
+		const purpose = cover ? 'destination_cover' : isThread ? 'thread_segment' : 'post_media';
 		const token = await createImageEditorReturnToken({
 			workspace_id: workspaceId,
 			return_url: `${returnURL.pathname}${returnURL.search}`,
 			purpose,
-			max_selection: composerMediaLimit,
+			max_selection: cover ? 1 : composerMediaLimit,
 			constraints: {
-				max_count: composerMediaLimit,
-				allowed_mimes: ['image/png', 'image/jpeg', 'image/webp'],
+				max_count: cover ? 1 : composerMediaLimit,
+				allowed_mimes: cover
+					? ['image/png', 'image/jpeg']
+					: ['image/png', 'image/jpeg', 'image/webp', 'image/gif'],
 				thread_segment: mediaPickerPostIndex
 			}
 		});
@@ -2558,11 +3339,11 @@
 			purpose,
 			created_at: new Date().toISOString(),
 			expires_at: token.expires_at,
-			payload: composerHandoffPayload()
+			payload: { ...composerHandoffPayload(), ...(cover && { cover_target: cover.target }) }
 		});
 		await goto(
 			resolveAppPath(
-				`/image-editor/new?workspace=${encodeURIComponent(workspaceId)}&return_token=${encodeURIComponent(token.token)}`
+				`${designID ? `/image-editor/${encodeURIComponent(designID)}` : editor === 'template' ? '/templates' : '/image-editor/new'}?workspace=${encodeURIComponent(workspaceId)}&return_token=${encodeURIComponent(token.token)}`
 			)
 		);
 	}
@@ -2576,16 +3357,61 @@
 		try {
 			const snapshot = loadEditorHandoff(token, 'image');
 			if (!snapshot) throw new ComposerSessionError('image_editor_return_inactive');
-			await restoreComposerHandoff(snapshot, token);
+			if (snapshot.purpose === 'destination_cover') {
+				const current = await canonicalPublicationForHandoff();
+				if (!saveMutationViewIsCurrent(mutationSession, generation, snapshot.workspace_id)) return;
+				if (
+					!current ||
+					current.id !== snapshot.publication_id ||
+					current.revision !== snapshot.publication_revision
+				) {
+					throw new Error(m.compose_cover_target_changed());
+				}
+			}
+			const payload = await restoreComposerHandoff(snapshot, token);
 			if (!saveMutationViewIsCurrent(mutationSession, generation, snapshot.workspace_id)) return;
 			if ($page.url.searchParams.get('editor_handoff_cancelled') === '1') {
 				finishEditorHandoff(token);
+				if (payload.cover_target) {
+					settingsAccountId = payload.cover_target.account_id;
+					settingsDialogOpen = true;
+				}
 				return;
 			}
 			const result = await consumeImageEditorReturnToken(token);
 			if (!saveMutationViewIsCurrent(mutationSession, generation, snapshot.workspace_id)) return;
 			if (snapshot.workspace_id !== result.workspace_id) {
 				throw new ComposerSessionError('image_editor_return_workspace_mismatch');
+			}
+			if (snapshot.purpose === 'destination_cover' && !payload.cover_target)
+				throw new Error(m.compose_cover_target_changed());
+			if (payload.cover_target) {
+				const target = payload.cover_target;
+				const account = selectedAccounts.find((account) => account.id === target.account_id);
+				const source = posts.find((post) => post.key === target.post_key);
+				const definition =
+					account && visibleSettings(account).find((field) => field.key === target.setting_key);
+				if (
+					snapshot.purpose !== 'destination_cover' ||
+					result.purpose !== snapshot.purpose ||
+					result.media_ids.length !== 1 ||
+					!account ||
+					!source ||
+					!definition ||
+					definition.control !== 'media_picker' ||
+					definition.unavailable_reason ||
+					!(getVariantMediaIds(account.id, source.key) ?? source.mediaIds).includes(
+						target.source_media_id
+					)
+				) {
+					throw new Error(m.compose_cover_target_changed());
+				}
+				activePostIndex = posts.indexOf(source);
+				updateAccountSetting(account, target.setting_key, result.media_ids[0]);
+				finishEditorHandoff(token);
+				settingsAccountId = account.id;
+				settingsDialogOpen = true;
+				return;
 			}
 			const targetIndex = Math.max(
 				0,
@@ -2594,15 +3420,15 @@
 					Math.max(0, posts.length - 1)
 				)
 			);
-			setEditorMediaIds(targetIndex, [
-				...getEditorMediaIdsForPost(posts[targetIndex]),
-				...result.media_ids
-			]);
-			await hydrateMediaMetadata(result.workspace_id, result.media_ids, true);
-			void generateMissingMediaAltText(
-				result.media_ids,
-				getEditorContentForPost(posts[targetIndex])
-			);
+			const context = imagePreparationContext,
+				target = pasteMediaTargetForPost(posts[targetIndex]);
+			const postContext = getEditorContentForPost(posts[targetIndex]);
+			if (!target) return;
+			const current = [...mediaIdsForPasteTarget(target)];
+			const prepared = await prepareNewImageIds(result.media_ids, result.workspace_id);
+			if (!prepared || context !== imagePreparationContext) return;
+			setPasteTargetMediaIds(target, [...current, ...prepared]);
+			void generateMissingMediaAltText(prepared, postContext);
 			scheduleAutoSave();
 			finishEditorHandoff(token);
 			notifyImageEditorReturn(result.media_ids.length);
@@ -2675,6 +3501,7 @@
 		latestGenerationUndo = null;
 		aiAppliedResult = null;
 		aiAppliedStrategies = [];
+		aiAttachmentRequirements = {};
 		postBuilderError = '';
 		publicationId = '';
 		selectedSocialSetId = '';
@@ -2690,9 +3517,11 @@
 		selectedAccountIds = [];
 		mediaAltTexts = new Map();
 		mediaMimeTypes = new Map();
+		mediaPreviewMetadata.clear();
 		mediaSizes = new Map();
 		linkUrl = '';
 		settingsByAccount = {};
+		captionMentionsByAccount = {};
 		segmentSettingsByPost = {};
 		mediaSettingsByAccount = {};
 		resolvedCapabilities = {};
@@ -2714,6 +3543,11 @@
 	}
 
 	async function initializeFromPublication(publication: Publication, resolveAfter = true) {
+		// Content and its revision must come from the same read, including cached drafts.
+		getComposerSession(publication.workspace_id).hydrate({
+			publication,
+			draft: publicationDraft(publication)
+		});
 		pasteMediaUploadQueue.reset();
 		clearAutoSaveTimer();
 		generationUndo = null;
@@ -2722,6 +3556,7 @@
 		postBuilderError = '';
 		publicationId = publication.id;
 		revision = publication.revision;
+		reviewState = publication.review_state ?? '';
 		lastInitializedPublicationId = publication.id;
 		selectedWorkspaceId = publication.workspace_id;
 		selectedAccountIds = (publication.renditions ?? []).map(
@@ -2733,6 +3568,9 @@
 		posts = canonicalSegments.map((segment) => ({
 			key: segment.id,
 			content: segment.body,
+			mentions: readMentionMetadata(segment.body, segment.settings?.mentions),
+			poll: readSharedPoll(segment.settings),
+			link: readLinkDraft(segment.settings),
 			mediaIds: (segment.media ?? []).map((media) => media.id)
 		}));
 		if (posts.length === 0) {
@@ -2750,10 +3588,15 @@
 		mediaAltTexts = new Map();
 		const publicationMedia = [
 			...canonicalSegments.flatMap((segment) => segment.media ?? []),
-			...(publication.media ?? [])
+			...(publication.media ?? []),
+			...(publication.renditions ?? []).flatMap((rendition) => [
+				...(rendition.media ?? []),
+				...(rendition.segments ?? []).flatMap((segment) => segment.media ?? [])
+			])
 		];
 		mediaMimeTypes = new Map(publicationMedia.map((media) => [media.id, media.mime_type] as const));
 		mediaSizes = new Map();
+		mediaPreviewMetadata.clear();
 		const mediaIDs = publicationMedia.map((media) => media.id);
 		await ensureComposerWorkspace(publication.workspace_id);
 		if (publication.scheduled_at && publication.scheduled_at !== '0001-01-01T00:00:00Z') {
@@ -2774,7 +3617,15 @@
 				: Promise.resolve(),
 			loadAccounts(selectedWorkspaceId, selectedAccountIds)
 		]);
+		mediaAltTexts = new SvelteMap(
+			[
+				...(publication.media ?? []),
+				...canonicalSegments.flatMap((segment) => segment.media ?? [])
+			].map((media) => [media.id, media.alt_text ?? ''])
+		);
 		hydrateCanonicalSettings(publication);
+		savedCardRenditions = publication.renditions;
+		refreshSavedTextCardPreviews();
 		if (resolveAfter) await resolveCapabilities();
 		lastSavedSnapshot = getSaveSnapshot();
 	}
@@ -2877,6 +3728,11 @@
 		window.addEventListener('pagehide', handlePageHide);
 		void (async () => {
 			await initializeComposer();
+			// Pick up a workspace-switch notice stashed by the pre-remount instance.
+			if (selectedWorkspaceId && !workspaceChangeNotice) {
+				const pending = ui.takePendingComposerWorkspaceNotice(selectedWorkspaceId);
+				if (pending) workspaceChangeNotice = pending;
+			}
 			await restoreImageEditorReturn();
 			await restoreActivePublicationBuild();
 		})();
@@ -2889,15 +3745,20 @@
 	});
 
 	function invalidatePendingComposerRequests() {
+		imagePreparationSources.clear();
+		losslessPreparedImageIds.clear();
+		imagePreparationNotice = '';
+		for (const controller of imagePreparationRequests) controller.abort();
 		workspaceRequestSequence++;
 		accountRequestSequence++;
 		nextSlotRequestSequence++;
-		destinationOptionsRequestSequence++;
 		capabilityResolveRequestSequence++;
 	}
 
 	onDestroy(() => {
 		composerDestroyed = true;
+		if (ideate.entry?.apply === modalApply && ideate.entry)
+			ideate.entry = { ...ideate.entry, apply: undefined };
 		void composerSession?.decideWorkspaceSwitch('stay');
 		invalidatePendingComposerRequests();
 		pasteMediaUploadQueue.reset();
@@ -2909,8 +3770,10 @@
 		aiRequestController?.abort();
 		aiVoiceRequestController?.abort();
 		capabilityResolveAbortController?.abort();
+		for (const controller of imagePreparationRequests) controller.abort();
 		for (const controller of captionRequests.values()) controller.abort();
 		captionRequests.clear();
+		pendingCaptionResults.clear();
 		captionPostContexts.clear();
 		for (const session of previewSessions.values()) session.close();
 		previewSessions.clear();
@@ -2977,6 +3840,45 @@
 	});
 
 	$effect(() => {
+		const draft = initialToolDraft;
+		if (
+			!draft ||
+			toolDraftApplied ||
+			initialPublication ||
+			loadingWorkspaces ||
+			loadingAccounts ||
+			!selectedWorkspaceId
+		)
+			return;
+		toolDraftApplied = true;
+		posts = draft.parts.map((content, index) => {
+			const post: PostItem = {
+				...makeEmptyPost(),
+				content,
+				mediaIds: index === 0 ? draft.media.map((item) => item.id) : []
+			};
+			if (index === 0 && draft.poll) {
+				post.poll = {
+					question: draft.poll.question,
+					options: draft.poll.options.map((text) => ({ id: crypto.randomUUID(), text })),
+					duration_seconds: draft.poll.durationSeconds,
+					destinations: {}
+				};
+			}
+			return post;
+		});
+		linkUrl = draft.link || firstComposerURL(draft.parts[0] ?? '');
+		activePostIndex = 0;
+		variants = new Map();
+		activeVariantAccountId = null;
+		mediaAltTexts = new SvelteMap(draft.media.map((item) => [item.id, item.alt_text]));
+		mediaMimeTypes = new SvelteMap(draft.media.map((item) => [item.id, item.mime_type]));
+		mediaSizes = new SvelteMap(draft.media.map((item) => [item.id, item.size]));
+		void startFirstComposition(draft.media.length ? 'media' : 'text');
+		scheduleAutoSave();
+	});
+
+	$effect(() => {
 		const mediaIds = initialMediaIds;
 		const workspaceParam = initialWorkspaceId;
 		if (loadingWorkspaces || mediaIds.length === 0 || !selectedWorkspaceId) return;
@@ -2989,6 +3891,7 @@
 		const workspaceId = workspaceCtx.currentWorkspace?.id ?? '';
 		if (isEditMode && leaveEditorForWorkspaceID && workspaceId === leaveEditorForWorkspaceID) {
 			leaveEditorForWorkspaceID = '';
+			unsavedChanges?.clear(unsavedChangesKey);
 			onSuccess?.();
 		} else if (
 			!isEditMode &&
@@ -3009,15 +3912,6 @@
 		} else if (workspaceCtx.settingsReady && workspaceId === selectedWorkspaceId) {
 			workspaceSettingsError = '';
 		}
-	});
-
-	$effect(() => {
-		String(editorResizeSignature);
-		tick().then(() => {
-			textareaRefs.forEach((el) => {
-				if (el) autoResize(el);
-			});
-		});
 	});
 
 	$effect(() => {
@@ -3074,7 +3968,9 @@
 		const requestedIds = Array.from(new Set(mediaIds.filter(Boolean)));
 		const missingIds = force
 			? requestedIds
-			: requestedIds.filter((id) => !mediaMimeTypes.has(id) || !mediaSizes.has(id));
+			: requestedIds.filter(
+					(id) => !mediaMimeTypes.has(id) || !mediaSizes.has(id) || !mediaPreviewMetadata.has(id)
+				);
 		if (!workspaceId || missingIds.length === 0) return;
 
 		try {
@@ -3084,16 +3980,30 @@
 			const nextAltTexts = new SvelteMap(mediaAltTexts);
 			const nextSizes = new SvelteMap(mediaSizes);
 			for (const media of mediaData) {
+				if (
+					media.parent_media_id &&
+					['image_optimization', 'image_fit'].includes(media.source ?? '')
+				)
+					imagePreparationSources.set(media.id, media.parent_media_id);
+				if (media.source === 'image_optimization') losslessPreparedImageIds.add(media.id);
+				const ratio =
+					media.mime_type?.startsWith('image/') && (media.width ?? 0) > 0 && (media.height ?? 0) > 0
+						? media.width! / media.height!
+						: undefined;
+				mediaPreviewMetadata.set(media.id, {
+					aspectRatio: ratio,
+					width: media.width,
+					height: media.height,
+					poster: media.poster_thumbnail_url || undefined
+				});
 				if (media.mime_type) {
 					nextMimeTypes.set(media.id, media.mime_type);
 				}
 				if (media.size !== undefined) {
 					nextSizes.set(media.id, media.size);
 				}
-				if (media.alt_text) {
+				if (!nextAltTexts.has(media.id) && media.alt_text) {
 					nextAltTexts.set(media.id, media.alt_text);
-				} else {
-					nextAltTexts.delete(media.id);
 				}
 			}
 			mediaMimeTypes = nextMimeTypes;
@@ -3138,12 +4048,14 @@
 		failedCaptionMediaIds.delete(mediaId);
 
 		try {
-			const result = await generateImageAltText(mediaId, {
+			const pending = generateImageAltText(mediaId, {
 				locale: getLocaleTag(),
 				postContext,
 				signal: controller.signal
 			});
-			if (!result || suppressedCaptionMediaIds.has(mediaId)) return;
+			pendingCaptionResults.set(mediaId, pending);
+			const result = await pending;
+			if (!result || controller.signal.aborted || suppressedCaptionMediaIds.has(mediaId)) return;
 			if (!mediaAltTexts.get(mediaId)?.trim()) {
 				const nextAltTexts = new SvelteMap(mediaAltTexts);
 				nextAltTexts.set(mediaId, result.alt_text);
@@ -3155,7 +4067,10 @@
 			failedCaptionMediaIds.add(mediaId);
 			captionGenerationError = m.compose_alt_text_generation_failed();
 		} finally {
-			if (captionRequests.get(mediaId) === controller) captionRequests.delete(mediaId);
+			if (captionRequests.get(mediaId) === controller) {
+				captionRequests.delete(mediaId);
+				pendingCaptionResults.delete(mediaId);
+			}
 			captioningMediaIds.delete(mediaId);
 		}
 	}
@@ -3277,6 +4192,7 @@
 		aiPendingResult = null;
 		aiAppliedResult = null;
 		aiAppliedStrategies = [];
+		aiAttachmentRequirements = {};
 		aiApplyPending = false;
 		aiBuildCreateRejected = false;
 		aiBuildPublicationID = '';
@@ -3308,9 +4224,11 @@
 		onThreadStateChange?.(false);
 		mediaAltTexts = new Map();
 		mediaMimeTypes = new Map();
+		mediaPreviewMetadata.clear();
 		mediaSizes = new Map();
 		linkUrl = '';
 		settingsByAccount = {};
+		captionMentionsByAccount = {};
 		segmentSettingsByPost = {};
 		mediaSettingsByAccount = {};
 		resolvedCapabilities = {};
@@ -3324,6 +4242,12 @@
 		destinationOptionCursorsByAccount = {};
 		destinationOptionSearchByAccount = {};
 		destinationOptionsErrors = {};
+		destinationOptionsRequestSequences.clear();
+		destinationOptionsLoadingCounts.clear();
+		destinationOptionsLoadingAccountIds.clear();
+		lastResolvedCapabilityInputSnapshot = '';
+		lastResolvedCapabilityStructureSnapshot = '';
+		capabilityResolveError = '';
 		selectedWorkspaceId = value;
 		accounts = [];
 		selectedAccountIds = [];
@@ -3333,6 +4257,13 @@
 		workspaceChangeNotice = resetWorkspaceState ? m.compose_workspace_context_reset() : '';
 		if (resetWorkspaceState) {
 			ui.clearActiveComposerDraft();
+			// The layout remounts the app shell on workspace switches, destroying
+			// this instance before the notice above can render. Stash it so the
+			// remounted composer can show it.
+			ui.setPendingComposerWorkspaceNotice({
+				message: m.compose_workspace_context_reset(),
+				workspaceId: value
+			});
 			replaceState(resolve('/'), {});
 		}
 		void loadAccounts(value);
@@ -3431,7 +4362,7 @@
 
 	function accountLabel(account: SocialAccount): string {
 		return (
-			formatSocialAccountName(account.account_username, account.platform) ||
+			formatSocialAccountName(account.account_username, account.platform, account.alias) ||
 			account.slug ||
 			getPlatformName(account.platform)
 		);
@@ -3550,6 +4481,9 @@
 			const createdPublication = !startingPublicationId;
 			publicationId = savedPublicationId;
 			revision = saved.revision;
+			reviewState = saved.review_state ?? '';
+			savedCardRenditions = saved.renditions;
+			refreshSavedTextCardPreviews();
 			draftConflict = null;
 			lastSavedSnapshot = snapshot;
 			showSavedIndicator();
@@ -3594,7 +4528,6 @@
 		if (loadError || !data) {
 			throw new Error(loadError?.detail || m.compose_update_draft_failed());
 		}
-		await composerSession?.load(data.id);
 		await initializeFromPublication(data);
 		error = '';
 		draftConflict = null;
@@ -3610,12 +4543,51 @@
 		error = '';
 	}
 
+	let reviewBaseline: { id: string; workspaceId: string; snapshot: string } | undefined;
+	async function applyClientReview(post: Publication) {
+		if (
+			composerDestroyed ||
+			!reviewBaseline ||
+			post.id !== publicationId ||
+			post.id !== reviewBaseline.id ||
+			selectedWorkspaceId !== reviewBaseline.workspaceId ||
+			getSaveSnapshot() !== reviewBaseline.snapshot
+		)
+			throw new Error(m.compose_ai_build_failed());
+		await initializeFromPublication(post);
+		reviewBaseline = { id: post.id, workspaceId: selectedWorkspaceId, snapshot: getSaveSnapshot() };
+	}
+	async function prepareClientReview(): Promise<Publication> {
+		clearAutoSaveTimer();
+		if (!(await flushPendingTextDraft())) throw new Error(m.compose_save_draft_failed());
+		const id = publicationId || (await saveDraft({ allowEmpty: true }));
+		if (!id) throw new Error(m.compose_save_draft_failed());
+		const baseline = { id, workspaceId: selectedWorkspaceId, snapshot: getSaveSnapshot() };
+		const post = await queryClient.query({
+			...publicationDetailQueryOptions(queryAPI, baseline.workspaceId, id),
+			staleTime: 0
+		});
+		if (!post) throw new Error(m.compose_save_draft_failed());
+		if (
+			composerDestroyed ||
+			publicationId !== id ||
+			selectedWorkspaceId !== baseline.workspaceId ||
+			getSaveSnapshot() !== baseline.snapshot
+		)
+			throw new Error(m.compose_ai_build_failed());
+		reviewBaseline = baseline;
+		return post;
+	}
+
 	async function overwriteSavedTextDraft() {
 		if (!draftConflict) return;
 		const session = await sessionFor(selectedWorkspaceId, publicationId);
 		const saved = await session.overwriteConflict();
 		publicationId = saved.id;
 		revision = saved.revision;
+		reviewState = saved.review_state ?? '';
+		savedCardRenditions = saved.renditions;
+		refreshSavedTextCardPreviews();
 		lastSavedSnapshot = getSaveSnapshot();
 		draftConflict = null;
 		success = m.compose_changes_saved();
@@ -3664,6 +4636,7 @@
 			selectedTime = null;
 			randomDelayOverride = 'default';
 			showDeleteConfirm = false;
+			unsavedChanges?.clear(unsavedChangesKey);
 			await onDeleted?.();
 			return {
 				ok: true,
@@ -3711,7 +4684,7 @@
 			error = m.compose_select_date_time();
 			return false;
 		}
-		const pollError = configuredPollError();
+		const pollError = selectedDate && selectedTime ? configuredPollError() : '';
 		if (pollError) {
 			error = pollError;
 			return false;
@@ -3736,10 +4709,10 @@
 				try {
 					await (await sessionFor(selectedWorkspaceId, targetPublicationID)).schedule();
 				} catch (scheduleError) {
-					await resolveCapabilities();
-					const readinessFailure = capabilityResolveError
-						? ''
-						: operationReadinessBlocker('publish_scheduled');
+					const resolvedCurrent = await resolveCapabilitiesCurrent();
+					const readinessFailure = resolvedCurrent
+						? operationReadinessBlocker('publish_scheduled')
+						: capabilityResolveError || m.compose_load_readiness_failed();
 					if (readinessFailure) {
 						const blockingIssue =
 							globalIssues.find((candidate) => candidate.severity === 'error') ?? null;
@@ -3852,8 +4825,9 @@
 					throw new Error(m.compose_thread_minimum());
 				}
 			}
-			await resolveCapabilities();
-			if (capabilityResolveError) throw new Error(capabilityResolveError);
+			if (!(await resolveCapabilitiesCurrent())) {
+				throw new Error(capabilityResolveError || m.compose_load_readiness_failed());
+			}
 			const readinessBlocker = operationReadinessBlocker(
 				publishNow ? 'publish_immediate' : 'publish_scheduled'
 			);
@@ -3876,10 +4850,10 @@
 			} catch (actionError) {
 				const blocker = validationIssues.find((issue) => issue.severity === 'error');
 				if (blocker) issueToFocusAfterSubmit = firstValidationIssue();
-				await resolveCapabilities();
-				const readinessFailure = capabilityResolveError
-					? ''
-					: operationReadinessBlocker(publishNow ? 'publish_immediate' : 'publish_scheduled');
+				const resolvedCurrent = await resolveCapabilitiesCurrent();
+				const readinessFailure = resolvedCurrent
+					? operationReadinessBlocker(publishNow ? 'publish_immediate' : 'publish_scheduled')
+					: capabilityResolveError || m.compose_load_readiness_failed();
 				if (readinessFailure) {
 					issueToFocusAfterSubmit =
 						globalIssues.find((candidate) => candidate.severity === 'error') ?? null;
@@ -3918,7 +4892,7 @@
 			}
 			success = publishNow ? m.compose_publishing_now() : m.compose_scheduled_success();
 			soundPreferences.play('success');
-			if (!publishNow) void celebrateSchedule();
+			void celebrateSchedule();
 			ui.invalidatePublications(
 				{
 					workspaceId: selectedWorkspaceId,
@@ -4044,8 +5018,7 @@
 		return {
 			workspaceId: selectedWorkspaceId,
 			postKey: post.key,
-			variantAccountId:
-				activeVariantAccountId && activeVariantIsUnsynced ? activeVariantAccountId : null
+			variantAccountId: activeVariantAccountId
 		};
 	}
 
@@ -4073,8 +5046,12 @@
 		switch (reason) {
 			case 'empty':
 				return m.media_upload_empty_file({ name: file.name });
-			case 'too_large':
+			case 'unsupported':
+				return m.media_upload_unsupported({ name: file.name });
+			case 'file_too_large':
 				return m.media_upload_file_too_large({ name: file.name });
+			case 'video_too_large':
+				return m.media_upload_video_too_large({ name: file.name });
 			case 'duplicate':
 				return m.media_upload_duplicates();
 			case 'capacity':
@@ -4127,6 +5104,9 @@
 			setPasteTargetMediaIds(upload.target, nextMediaIds);
 		}
 
+		if (result.parent_media_id && ['image_optimization', 'image_fit'].includes(result.source ?? ''))
+			imagePreparationSources.set(result.id, result.parent_media_id);
+		if (result.source === 'image_optimization') losslessPreparedImageIds.add(result.id);
 		const nextMimeTypes = new SvelteMap(mediaMimeTypes);
 		nextMimeTypes.set(
 			result.id,
@@ -4151,6 +5131,353 @@
 		return true;
 	}
 
+	async function prepareNewImageIds(ids: string[], workspaceId: string): Promise<string[] | null> {
+		const generation = saveGeneration,
+			session = captureQueryMutationSession();
+		const controller = new AbortController();
+		imagePreparationRequests.add(controller);
+		const prepared = [...ids];
+		try {
+			await hydrateMediaMetadata(workspaceId, ids, true);
+			for (const [index, id] of ids.entries()) {
+				if (
+					!saveMutationViewIsCurrent(session, generation, workspaceId) ||
+					controller.signal.aborted
+				)
+					return null;
+				if (mediaMimeTypes.get(id) !== 'image/png') continue;
+				try {
+					const result = await optimizeStoredImage(id, controller.signal);
+					if (
+						!saveMutationViewIsCurrent(session, generation, workspaceId) ||
+						controller.signal.aborted
+					)
+						return null;
+					if (result) {
+						prepared[index] = result.id;
+						imagePreparationSources.set(result.id, id);
+						losslessPreparedImageIds.add(result.id);
+						if (mediaAltTexts.has(id))
+							mediaAltTexts = new SvelteMap(mediaAltTexts).set(result.id, mediaAltTexts.get(id)!);
+						imagePreparationNotice = m.compose_image_optimized();
+					}
+				} catch {
+					if (controller.signal.aborted) return null;
+				}
+			}
+			await hydrateMediaMetadata(workspaceId, prepared, true);
+			return saveMutationViewIsCurrent(session, generation, workspaceId) &&
+				!controller.signal.aborted
+				? prepared
+				: null;
+		} finally {
+			imagePreparationRequests.delete(controller);
+		}
+	}
+
+	function imageFitCandidates(account: SocialAccount): string[] {
+		const resolved = resolvedCapabilities[account.id];
+		if (!resolved) return [];
+		const ids = [
+			...new Set(posts.flatMap((post) => getVariantMediaIds(account.id, post.key) ?? post.mediaIds))
+		];
+		return ids.filter(
+			(id) =>
+				mediaMimeTypes.get(id)?.startsWith('image/') &&
+				((resolved.issues ?? []).some(
+					(issue) => issue.media_id === id && issue.code.startsWith('media_')
+				) ||
+					((resolved.media.max_image_size_bytes || resolved.media.max_size_bytes) &&
+						(mediaSizes.get(id) ?? 0) >
+							Math.min(
+								...[resolved.media.max_image_size_bytes, resolved.media.max_size_bytes].filter(
+									(n): n is number => !!n && n > 0
+								)
+							)))
+		);
+	}
+
+	function imagePreparationInput(mediaId: string): string {
+		const seen = new Set<string>();
+		while (losslessPreparedImageIds.has(mediaId) && !seen.has(mediaId)) {
+			seen.add(mediaId);
+			const parent = imagePreparationSources.get(mediaId);
+			if (!parent) break;
+			mediaId = parent;
+		}
+		return mediaId;
+	}
+
+	async function fitAccountImage(account: SocialAccount, mediaId: string) {
+		if (fittingImageId) return;
+		const resolved = resolvedCapabilities[account.id];
+		if (!resolved) return;
+		const workspaceId = selectedWorkspaceId,
+			generation = saveGeneration;
+		const session = captureQueryMutationSession();
+		const sources = posts.flatMap((post) =>
+			(getVariantMediaIds(account.id, post.key) ?? post.mediaIds).includes(mediaId)
+				? [{ key: post.key, ids: [...(getVariantMediaIds(account.id, post.key) ?? post.mediaIds)] }]
+				: []
+		);
+		const alt = mediaAltTextForAccount(mediaId, account.id);
+		const authoredContext = imagePreparationContext;
+		pendingImagePreparationContext = authoredContext;
+		const controller = new AbortController();
+		imagePreparationRequests.add(controller);
+		fittingImageId = mediaId;
+		error = '';
+		try {
+			let optimized: MediaUploadResult | null = null;
+			if (mediaMimeTypes.get(mediaId) === 'image/png') {
+				try {
+					optimized = await optimizeStoredImage(mediaId, controller.signal);
+				} catch {
+					controller.signal.throwIfAborted();
+				}
+			}
+			const maxBytes = Math.min(
+				...[resolved.media.max_image_size_bytes, resolved.media.max_size_bytes].filter(
+					(n): n is number => !!n && n > 0
+				)
+			);
+			// Lossless preparation can fix a size-only issue without re-encoding its pixels.
+			const sizeOnly = (resolved.issues ?? [])
+				.filter((issue) => issue.media_id === mediaId && issue.code.startsWith('media_'))
+				.every((issue) => issue.code === 'media_size');
+			const result =
+				optimized && optimized.size <= maxBytes && sizeOnly
+					? optimized
+					: await fitStoredImage({
+							mediaId: imagePreparationInput(mediaId),
+							accountId: account.id,
+							outputProfile: resolved.output_profile,
+							settings: settingsForAccount(account),
+							altText: alt,
+							signal: controller.signal
+						});
+			await hydrateMediaMetadata(workspaceId, [result.id], true);
+			if (
+				!saveMutationViewIsCurrent(session, generation, workspaceId) ||
+				controller.signal.aborted ||
+				imagePreparationContext !== authoredContext ||
+				!selectedAccountIds.includes(account.id) ||
+				resolvedCapabilities[account.id]?.output_profile !== resolved.output_profile ||
+				sources.some((source) => {
+					const post = posts.find((post) => post.key === source.key);
+					return (
+						!post ||
+						!arraysEqual(getVariantMediaIds(account.id, source.key) ?? post.mediaIds, source.ids)
+					);
+				})
+			)
+				return;
+			// End the fence before applying our own authored mutation.
+			pendingImagePreparationContext = null;
+			imagePreparationSources.set(result.id, imagePreparationInput(mediaId));
+			const preparedSize = mediaPreviewMetadata.get(result.id);
+			transferPreparedImageSettings(
+				mediaId,
+				result.id,
+				account.id,
+				preparedSize?.width,
+				preparedSize?.height
+			);
+			mediaAltTexts = new SvelteMap(mediaAltTexts).set(
+				result.id,
+				mediaAltTextForAccount(mediaId, account.id)
+			);
+			for (const source of sources) {
+				const index = posts.findIndex((post) => post.key === source.key);
+				setVariantMediaIds(
+					account.id,
+					index,
+					source.ids.map((id) => (id === mediaId ? result.id : id))
+				);
+			}
+			followPreparedImageCaption(mediaId, result.id, account.id);
+			validationIssues = [];
+			scheduleAutoSave();
+			scheduleCapabilityResolve();
+			imagePreparationNotice =
+				activeVariantAccountId === account.id ? m.compose_image_fit_success() : '';
+		} catch (cause) {
+			if (saveMutationViewIsCurrent(session, generation, workspaceId) && !controller.signal.aborted)
+				error = cause instanceof Error ? cause.message : m.compose_image_fit_failed();
+		} finally {
+			imagePreparationRequests.delete(controller);
+			fittingImageId = '';
+			pendingImagePreparationContext = null;
+			if (saveMutationViewIsCurrent(session, generation, workspaceId)) scheduleAutoSave();
+		}
+	}
+
+	// Reuse the in-flight caption request across preparation, retaining explicit edits.
+	function followPreparedImageCaption(from: string, to: string, accountId: string | null) {
+		const pending = pendingCaptionResults.get(from);
+		if (
+			!pending ||
+			suppressedCaptionMediaIds.has(from) ||
+			(accountId && accountCaptionSuppressions.get(from)?.has(accountId))
+		)
+			return;
+		const workspaceId = selectedWorkspaceId,
+			generation = saveGeneration,
+			session = captureQueryMutationSession();
+		if (!pendingCaptionResults.has(to)) pendingCaptionResults.set(to, pending);
+		captioningMediaIds.add(to);
+		const clear = () => {
+			if (pendingCaptionResults.get(to) === pending) {
+				pendingCaptionResults.delete(to);
+				captioningMediaIds.delete(to);
+			}
+		};
+		void pending.then((result) => {
+			clear();
+			if (
+				!result ||
+				!saveMutationViewIsCurrent(session, generation, workspaceId) ||
+				suppressedCaptionMediaIds.has(to) ||
+				(accountId && accountCaptionSuppressions.get(to)?.has(accountId))
+			)
+				return;
+			const attached = accountId
+				? selectedAccountIds.includes(accountId) &&
+					posts.some((post) =>
+						(getVariantMediaIds(accountId, post.key) ?? post.mediaIds).includes(to)
+					)
+				: posts.some((post) => post.mediaIds.includes(to));
+			if (!attached) return;
+			if (accountId) {
+				if (mediaAltTextForAccount(to, accountId).trim()) return;
+				mediaSettingsByAccount = {
+					...mediaSettingsByAccount,
+					[to]: {
+						...mediaSettingsByAccount[to],
+						[accountId]: { ...mediaSettingsByAccount[to]?.[accountId], alt_text: result.alt_text }
+					}
+				};
+			} else {
+				if (mediaAltTexts.get(to)?.trim()) return;
+				mediaAltTexts = new SvelteMap(mediaAltTexts).set(to, result.alt_text);
+			}
+			scheduleAutoSave();
+		}, clear);
+	}
+
+	function transferPreparedImageSettings(
+		from: string,
+		to: string,
+		accountId: string,
+		width?: number,
+		height?: number,
+		restore = false
+	) {
+		const sourceSize = mediaPreviewMetadata.get(restore ? to : from) ?? {};
+		const fittedSize = restore ? (mediaPreviewMetadata.get(from) ?? {}) : { width, height };
+		mediaSettingsByAccount = {
+			...mediaSettingsByAccount,
+			[to]: {
+				...mediaSettingsByAccount[to],
+				[accountId]: {
+					...fittedImageSettings(
+						mediaSettingsByAccount[from]?.[accountId] ?? {},
+						sourceSize,
+						fittedSize,
+						restore
+					),
+					alt_text: mediaAltTextForAccount(from, accountId)
+				}
+			}
+		};
+	}
+
+	const restorableImages = $derived.by(() => {
+		const ids = [...new Set(posts.flatMap((post) => getEditorMediaIdsForPost(post)))];
+		return ids
+			.filter((id) => imagePreparationSources.has(id))
+			.map((id) => ({ id, number: ids.indexOf(id) + 1 }));
+	});
+
+	async function restoreOriginalImage(mediaId: string) {
+		const original = imagePreparationSources.get(mediaId);
+		if (!original || fittingImageId) return;
+		const accountId = activeVariantAccountId;
+		// A prepared media id without a per-account variant override belongs to the shared
+		// segments; restoring it replaces that attachment for every account, like the
+		// shared view does, while preserving per-account settings and captions.
+		const overrideAccount = (() => {
+			if (!accountId) return null;
+			const overridden = posts.some((post) => {
+				const variantIds = getVariantMediaIds(accountId, post.key);
+				// Settings-only media decisions keep the shared id list; restoring those
+				// attachments still replaces the shared segments for every account.
+				return (
+					variantIds !== null &&
+					(variantIds.length !== post.mediaIds.length ||
+						variantIds.some((id, index) => id !== post.mediaIds[index])) &&
+					variantIds.includes(mediaId)
+				);
+			});
+			return overridden ? accountId : null;
+		})();
+		const context = imagePreparationContext,
+			workspaceId = selectedWorkspaceId,
+			generation = saveGeneration;
+		const session = captureQueryMutationSession();
+		await hydrateMediaMetadata(workspaceId, [original]);
+		if (
+			!saveMutationViewIsCurrent(session, generation, workspaceId) ||
+			(overrideAccount && overrideAccount !== activeVariantAccountId) ||
+			context !== imagePreparationContext
+		)
+			return;
+		const alt = overrideAccount
+			? mediaAltTextForAccount(mediaId, overrideAccount)
+			: (mediaAltTexts.get(mediaId) ?? '');
+		if (overrideAccount) {
+			transferPreparedImageSettings(mediaId, original, overrideAccount, undefined, undefined, true);
+		} else {
+			for (const id of selectedAccountIds) {
+				if (
+					!posts.some(
+						(post) => post.mediaIds.includes(mediaId) && getVariantMediaIds(id, post.key) === null
+					)
+				)
+					continue;
+				transferPreparedImageSettings(mediaId, original, id, undefined, undefined, true);
+				followPreparedImageCaption(mediaId, original, id);
+			}
+			mediaAltTexts = new SvelteMap(mediaAltTexts).set(original, alt);
+		}
+		followPreparedImageCaption(mediaId, original, overrideAccount);
+		let swappedSharedMedia = false;
+		for (let index = 0; index < posts.length; index++) {
+			if (overrideAccount) {
+				const ids = getEditorMediaIdsForPost(posts[index]);
+				if (ids.includes(mediaId))
+					setEditorMediaIds(
+						index,
+						ids.map((id) => (id === mediaId ? original : id))
+					);
+			} else if (posts[index].mediaIds.includes(mediaId)) {
+				// Shared restores keep detached per-account media decisions intact; write
+				// through the post owner instead of the active destination variant.
+				posts = posts.map((item, postIndex) =>
+					postIndex === index
+						? {
+								...item,
+								mediaIds: item.mediaIds.map((id) => (id === mediaId ? original : id))
+							}
+						: item
+				);
+				swappedSharedMedia = true;
+			}
+		}
+		if (swappedSharedMedia) scheduleAutoSave();
+		imagePreparationNotice = '';
+	}
+
 	function queueMediaFiles(files: FileList | File[], targetPostIndex = activePostIndex): void {
 		if (!selectedWorkspaceId || isSubmitting) return;
 		const targetPost = posts[targetPostIndex];
@@ -4172,13 +5499,7 @@
 	function handlePaste(e: ClipboardEvent, postIndex: number = activePostIndex) {
 		const items = e.clipboardData?.items;
 		const post = posts[postIndex];
-		if (
-			!items ||
-			!post ||
-			!selectedWorkspaceId ||
-			isSubmitting ||
-			(activeVariantAccountId !== null && !activeVariantIsUnsynced)
-		) {
+		if (!items || !post || !selectedWorkspaceId || isSubmitting) {
 			return;
 		}
 
@@ -4193,7 +5514,7 @@
 		const selection = selectPastedImageFiles(
 			Array.from(items),
 			capacity,
-			targetUploads.map((upload) => pastedImageFileSignature(upload.file))
+			targetUploads.map((upload) => mediaFileSignature(upload.file))
 		);
 		if (selection.hasImageFiles && selection.rejected.length > 0) {
 			pasteMediaFeedback = {
@@ -4213,6 +5534,9 @@
 		e.preventDefault();
 		error = '';
 		pasteMediaAnnouncement = '';
+		if (target.variantAccountId) {
+			setVariantMediaIds(target.variantAccountId, postIndex, [...mediaIdsForPasteTarget(target)]);
+		}
 		pasteMediaUploadQueue.enqueue(selection.accepted, target);
 	}
 
@@ -4240,7 +5564,7 @@
 		if (!post) return;
 		const mediaIds = getEditorMediaIdsForPost(post);
 		const mediaId = mediaIds[mediaIndex];
-		if (activeVariantAccountId && activeVariantIsUnsynced) {
+		if (activeVariantAccountId) {
 			setVariantMediaIds(
 				activeVariantAccountId,
 				postIndex,
@@ -4251,7 +5575,14 @@
 				i === postIndex ? { ...p, mediaIds: p.mediaIds.filter((_, mi) => mi !== mediaIndex) } : p
 			);
 		}
-		if (mediaId) {
+		const stillAttached =
+			mediaId &&
+			posts.some(
+				(source) =>
+					source.mediaIds.includes(mediaId) ||
+					[...variants.values()].some((record) => record[source.key]?.mediaIds.includes(mediaId))
+			);
+		if (mediaId && !stillAttached) {
 			captionRequests.get(mediaId)?.abort();
 			captionRequests.delete(mediaId);
 			captioningMediaIds.delete(mediaId);
@@ -4268,13 +5599,15 @@
 			newSizes.delete(mediaId);
 			mediaSizes = newSizes;
 		}
+		validationIssues = [];
 		scheduleAutoSave();
+		scheduleCapabilityResolve();
 	}
 
 	function addMediaToPost(postIndex: number, mediaId: string) {
 		const post = posts[postIndex];
 		if (!post) return;
-		if (activeVariantAccountId && activeVariantIsUnsynced) {
+		if (activeVariantAccountId) {
 			setVariantMediaIds(activeVariantAccountId, postIndex, [
 				...getEditorMediaIdsForPost(post),
 				mediaId
@@ -4286,46 +5619,91 @@
 		);
 	}
 
+	function snapshotAccountMediaAltTexts(accountId: string, mediaIds: string[]) {
+		const next = { ...mediaSettingsByAccount };
+		for (const id of mediaIds) {
+			if (
+				!mediaAltTexts.has(id) &&
+				parseComposerSettingOptionalString(next[id]?.[accountId]?.alt_text) === undefined
+			)
+				continue;
+			next[id] = {
+				...next[id],
+				[accountId]: { ...next[id]?.[accountId], alt_text: mediaAltTextForAccount(id, accountId) }
+			};
+		}
+		mediaSettingsByAccount = next;
+	}
+
+	function resetAccountMediaAltTexts(accountId: string) {
+		for (const suppressed of accountCaptionSuppressions.values()) suppressed.delete(accountId);
+		const next = { ...mediaSettingsByAccount };
+		for (const [id, accounts] of Object.entries(next)) {
+			if (!accounts[accountId]) continue;
+			const settings = { ...accounts[accountId] };
+			delete settings.alt_text;
+			next[id] = { ...accounts, [accountId]: settings };
+		}
+		mediaSettingsByAccount = next;
+	}
+
 	function setVariantMediaIds(accountId: string, index: number, mediaIds: string[]) {
 		const postKey = posts[index]?.key;
 		if (!postKey) return;
+		const previousIds = getVariantMediaIds(accountId, postKey) ?? posts[index].mediaIds;
+		snapshotAccountMediaAltTexts(
+			accountId,
+			mediaIds.filter((id) => previousIds.includes(id))
+		);
 		const newVariants = new SvelteMap(variants);
+		const record = normalizeVariantRecord(
+			newVariants.get(accountId) ?? makeVariantRecord(posts),
+			posts
+		);
 		const current = {
-			...normalizeVariantRecord(newVariants.get(accountId), posts),
-			[postKey]: {
-				...(normalizeVariantRecord(newVariants.get(accountId), posts)[postKey] ?? {
-					content: posts[index].content,
-					mediaIds: [...posts[index].mediaIds]
-				}),
-				mediaIds,
-				mediaInherited: false
-			}
+			...record,
+			[postKey]: { ...record[postKey], mediaIds, mediaInherited: false }
 		};
 		newVariants.set(accountId, current);
 		variants = newVariants;
 	}
 
-	function setMediaAltText(mediaId: string, alt: string) {
-		captionRequests.get(mediaId)?.abort();
-		suppressedCaptionMediaIds.add(mediaId);
-		failedCaptionMediaIds.delete(mediaId);
-		const newAlts = new SvelteMap(mediaAltTexts);
-		if (alt.trim()) {
-			newAlts.set(mediaId, alt.trim());
-		} else {
-			newAlts.delete(mediaId);
-		}
-		mediaAltTexts = newAlts;
+	function mediaAltTextForAccount(mediaId: string, accountId: string): string {
+		const override = mediaSettingsByAccount[mediaId]?.[accountId]?.alt_text;
+		return parseComposerSettingOptionalString(override) ?? mediaAltTexts.get(mediaId) ?? '';
+	}
 
-		// Persist to backend
-		client
-			.PATCH('/media/{id}', {
-				params: { path: { id: mediaId } },
-				body: { alt_text: alt.trim() }
-			})
-			.catch((e: any) => {
-				console.error('Failed to save alt text:', e);
-			});
+	function setMediaAltText(mediaId: string, alt: string) {
+		if (activeVariantAccountId) {
+			const suppressed = accountCaptionSuppressions.get(mediaId) ?? new Set<string>();
+			suppressed.add(activeVariantAccountId);
+			accountCaptionSuppressions.set(mediaId, suppressed);
+		} else {
+			captionRequests.get(mediaId)?.abort();
+			suppressedCaptionMediaIds.add(mediaId);
+		}
+		failedCaptionMediaIds.delete(mediaId);
+		if (activeVariantAccountId) {
+			for (let index = 0; index < posts.length; index++) {
+				const ids =
+					getVariantMediaIds(activeVariantAccountId, posts[index].key) ?? posts[index].mediaIds;
+				if (ids.includes(mediaId)) setVariantMediaIds(activeVariantAccountId, index, [...ids]);
+			}
+			mediaSettingsByAccount = {
+				...mediaSettingsByAccount,
+				[mediaId]: {
+					...mediaSettingsByAccount[mediaId],
+					[activeVariantAccountId]: {
+						...mediaSettingsByAccount[mediaId]?.[activeVariantAccountId],
+						alt_text: alt.trim()
+					}
+				}
+			};
+			scheduleAutoSave();
+			return;
+		}
+		mediaAltTexts = new SvelteMap(mediaAltTexts).set(mediaId, alt.trim());
+		scheduleAutoSave();
 	}
 
 	// --------------------------------------------------------------------------
@@ -4336,14 +5714,17 @@
 	}
 
 	function composerAISnapshot(): string {
-		return composerBuildFingerprint({
-			posts,
-			variants,
-			linkUrl,
-			accountIds: selectedAccountIds,
-			requestedOutputProfiles,
-			formatLockedByAccount
-		});
+		return (
+			JSON.stringify(aiAttachmentRequirements) +
+			composerBuildFingerprint({
+				posts,
+				variants,
+				linkUrl,
+				accountIds: selectedAccountIds,
+				requestedOutputProfiles,
+				formatLockedByAccount
+			})
+		);
 	}
 
 	function selectedAIPlatforms(): string[] {
@@ -4417,7 +5798,7 @@
 			const profile = profiles.find((candidate) => candidate.is_default) ?? profiles[0];
 			if (profile) {
 				aiVoiceName = profile.name;
-				aiVoiceProfileID = profile.id;
+				aiVoiceProfileID = '';
 			}
 		} catch (cause) {
 			if (cause instanceof DOMException && cause.name === 'AbortError') return;
@@ -4522,42 +5903,37 @@
 
 	async function continuePublicationOpportunity(): Promise<void> {
 		if (!aiSelectedOpportunityID || !aiGenerationIdea.trim()) return;
-		await loadPublicationAngles(aiGenerationIdea);
+		aiIdeationBrief = aiGenerationIdea;
+		await startSelectedPublicationBuild();
 	}
 
 	async function buildPostWithAI() {
-		if (buildingPost || isThread || activeVariantAccountId) return;
+		if (buildingPost || isThread || activeVariantAccountId || hasPendingPasteMediaUploads) return;
 		const sourcePost = posts[0];
-		if (!selectedWorkspaceId || selectedAccountIds.length === 0) {
-			postBuilderError = m.compose_ai_destinations_required();
-			return;
-		}
-		if (!sourcePost || hasPendingPasteMediaUploads) {
-			postBuilderError = hasPendingPasteMediaUploads
-				? pasteMediaUploadBlocker()
-				: m.compose_ai_build_failed();
-			return;
-		}
-
+		if (!sourcePost || !selectedWorkspaceId) return;
 		const workspaceID = selectedWorkspaceId;
-		repurposeReviewActive = false;
-		aiWorkspaceOpen = true;
-		aiWorkspaceEntry = sourcePost.content.trim() ? 'build' : 'ideate';
-		aiWorkspaceStep = aiWorkspaceEntry === 'build' ? 'angles' : 'brief';
-		aiGenerationIdea = sourcePost.content.trim();
-		if (aiWorkspaceEntry === 'ideate') aiIdeationBrief = '';
-		aiSelectedOpportunityID = '';
-		aiSelectedAngleID = '';
-		aiAngles = [];
-		aiBuildCreateRejected = false;
-		postBuilderError = '';
-		if (aiWorkspaceEntry === 'build') buildingPost = true;
-		else aiOpportunityLoading = false;
-		await loadAIWorkspaceVoice(workspaceID);
-		if (workspaceID !== selectedWorkspaceId) return;
-		if (aiWorkspaceEntry === 'build') {
-			await loadPublicationAngles(aiGenerationIdea);
-		}
+		const targetID = publicationId;
+		const baseline = composerAISnapshot();
+		const request = publicationBuildRequest(sourcePost.content.trim());
+		modalApply = async (option, media) => {
+			if (
+				composerDestroyed ||
+				workspaceID !== selectedWorkspaceId ||
+				(targetID && targetID !== publicationId) ||
+				composerAISnapshot() !== baseline
+			) {
+				throw new Error(m.compose_ai_progress_conflict());
+			}
+			aiPendingResult = option;
+			aiOptionMedia = media;
+			applyReadyPublicationBuild(option.destinations.map((destination) => destination.account_id));
+		};
+		ideate.show({
+			workspaceId: workspaceID,
+			contextKey: `composer:${targetID || sourcePost.key}`,
+			input: request,
+			apply: modalApply
+		});
 	}
 
 	function persistActivePublicationBuild(
@@ -4592,7 +5968,8 @@
 	async function startSelectedPublicationBuild(): Promise<void> {
 		if (buildingPost) return;
 		const angle = aiAngles.find((candidate) => candidate.id === aiSelectedAngleID);
-		if (!angle || !aiGenerationIdea.trim()) return;
+		const idea = repurposeReviewActive ? aiGenerationIdea : aiIdeationBrief;
+		if ((repurposeReviewActive && !angle) || !idea.trim()) return;
 		const buildWorkspaceID = selectedWorkspaceId;
 		buildingPost = true;
 		postBuilderError = '';
@@ -4611,7 +5988,7 @@
 		const buildBaseline = composerAISnapshot();
 		try {
 			const build = await createPublicationBuild(
-				publicationBuildRequest(aiGenerationIdea, angle),
+				{ ...publicationBuildRequest(idea, angle), option_count: repurposeReviewActive ? 0 : 4 },
 				`composer-${crypto.randomUUID()}`
 			);
 			if (
@@ -4674,6 +6051,13 @@
 		}
 		buildingPost = false;
 		if (build.state === 'ready' && build.result) {
+			if (build.result.options?.length) {
+				aiPostOptions = structuredClone(build.result.options);
+				aiPendingResult = build.result;
+				aiWorkspaceStep = 'options';
+				aiWorkspaceOpen = true;
+				return;
+			}
 			aiPendingResult = build.result;
 			if (aiGenerationBaseline && composerAISnapshot() !== aiGenerationBaseline) {
 				aiApplyPending = true;
@@ -4695,8 +6079,58 @@
 		}
 	}
 
+	async function useAIPostOption(option: PublicationPostOption): Promise<void> {
+		if (buildingPost) return;
+		const workspaceID = selectedWorkspaceId;
+		const expectedPublicationID = publicationId;
+		buildingPost = true;
+		postBuilderError = '';
+		const mediaByAccount: Record<string, string[]> = {};
+		try {
+			const saved = new Map<string, string>();
+			for (const destination of option.destinations) {
+				mediaByAccount[destination.account_id] = [];
+				if (
+					destination.media.treatment === 'use_source' &&
+					destination.media.source_ref?.startsWith('media:')
+				)
+					mediaByAccount[destination.account_id] = [destination.media.source_ref.slice(6)];
+				const recipe = destination.media.document;
+				if (!recipe) continue;
+				const key = JSON.stringify(recipe);
+				let id = saved.get(key);
+				if (!id) {
+					const visual = await renderPostVisual(workspaceID, recipe);
+					try {
+						id = (await savePostVisual(workspaceID, visual, destination.media.alt_text ?? '')).id;
+					} finally {
+						releasePostVisual(visual);
+					}
+					saved.set(key, id);
+				}
+				if (workspaceID !== selectedWorkspaceId || expectedPublicationID !== publicationId) return;
+				mediaByAccount[destination.account_id] = [id];
+			}
+			aiOptionMedia = mediaByAccount;
+			aiPendingResult = option;
+			if (aiGenerationBaseline && composerAISnapshot() !== aiGenerationBaseline) {
+				aiApplyPending = true;
+				aiWorkspaceStep = 'generating';
+				return;
+			}
+			applyReadyPublicationBuild();
+		} catch (cause) {
+			if (workspaceID === selectedWorkspaceId)
+				postBuilderError = cause instanceof Error ? cause.message : m.compose_ai_build_failed();
+		} finally {
+			if (workspaceID === selectedWorkspaceId) buildingPost = false;
+		}
+	}
+
 	function captureAIComposerCheckpoint(): AIComposerCheckpoint {
 		return {
+			selectedAccountIds: [...selectedAccountIds],
+			selectedSocialSetId,
 			posts: posts.map((post) => ({ ...post, mediaIds: [...post.mediaIds] })),
 			variants: Array.from(variants.entries()).map(([accountID, record]) => [
 				accountID,
@@ -4705,11 +6139,14 @@
 			linkUrl,
 			requestedOutputProfiles: { ...requestedOutputProfiles },
 			formatLockedByAccount: { ...formatLockedByAccount },
-			strategies: structuredClone(aiAppliedStrategies)
+			strategies: structuredClone(aiAppliedStrategies),
+			attachmentRequirements: structuredClone(aiAttachmentRequirements)
 		};
 	}
 
 	function restoreAIComposerCheckpoint(checkpoint: AIComposerCheckpoint): void {
+		selectedAccountIds = [...checkpoint.selectedAccountIds];
+		selectedSocialSetId = checkpoint.selectedSocialSetId;
 		posts = checkpoint.posts.map((post) => ({ ...post, mediaIds: [...post.mediaIds] }));
 		variants = new SvelteMap(
 			checkpoint.variants.map(([accountID, record]) => [accountID, structuredClone(record)])
@@ -4718,6 +6155,7 @@
 		requestedOutputProfiles = { ...checkpoint.requestedOutputProfiles };
 		formatLockedByAccount = { ...checkpoint.formatLockedByAccount };
 		aiAppliedStrategies = structuredClone(checkpoint.strategies);
+		aiAttachmentRequirements = structuredClone(checkpoint.attachmentRequirements);
 		aiAppliedResult = null;
 		aiMemeCandidates = [];
 		aiMemeError = '';
@@ -4728,14 +6166,18 @@
 		scheduleAutoSave();
 	}
 
-	function applyReadyPublicationBuild(): void {
+	function applyReadyPublicationBuild(destinations?: string[]): void {
 		const result = aiPendingResult;
 		const sourcePost = posts[0];
 		if (!result || !sourcePost) return;
 		const checkpoint = captureAIComposerCheckpoint();
 		if (!generationUndo) generationUndo = checkpoint;
 		latestGenerationUndo = checkpoint;
-		const applied = applyPublicationBuildResult(result, sourcePost);
+		if (destinations) {
+			selectedAccountIds = destinations;
+			selectedSocialSetId = '';
+		}
+		const applied = applyPublicationBuildResult(result, sourcePost, aiOptionMedia);
 		posts = applied.posts;
 		variants = new SvelteMap(Object.entries(applied.variants));
 		requestedOutputProfiles = {
@@ -4746,6 +6188,24 @@
 		activePostIndex = 0;
 		activeVariantAccountId = null;
 		linkUrl = firstComposerURL(posts[0]?.content ?? '');
+		aiAttachmentRequirements = Object.fromEntries(
+			result.destinations.flatMap((destination) => {
+				const kind =
+					destination.media.treatment === 'attach_image'
+						? 'image'
+						: destination.media.treatment === 'attach_video'
+							? 'video'
+							: '';
+				return kind
+					? [
+							[
+								destination.account_id,
+								attachmentRequirementSchema.parse({ kind, brief: destination.media.brief })
+							]
+						]
+					: [];
+			})
+		);
 		aiAppliedResult = result;
 		aiAppliedStrategies = result.destinations.map((destination) => ({
 			account_id: destination.account_id,
@@ -4762,7 +6222,9 @@
 		postBuilderError = (result.skipped ?? [])
 			.map((destination) => `${getPlatformName(destination.platform)}: ${destination.reason}`)
 			.join(' ');
-		void loadAIMemeRecommendations(result);
+		if (!aiOptionMedia) void loadAIMemeRecommendations(result);
+		aiPostOptions = [];
+		aiOptionMedia = undefined;
 		void startFirstComposition('text');
 		void resolveCapabilities();
 		soundPreferences.play('success');
@@ -4890,6 +6352,15 @@
 		if (!mediaID || !canAttachAIMemeToTargets(targetAccountIDs, workspaceID, mediaID)) return false;
 		const post = posts[0];
 		if (!post) return false;
+		const context = imagePreparationContext;
+		const prepared = await prepareNewImageIds([mediaID], workspaceID);
+		if (
+			!prepared ||
+			context !== imagePreparationContext ||
+			!canAttachAIMemeToTargets(targetAccountIDs, workspaceID, prepared[0])
+		)
+			return false;
+		mediaID = prepared[0];
 		const nextVariants = new SvelteMap(variants);
 		for (const accountID of targetAccountIDs) {
 			const record = normalizeVariantRecord(nextVariants.get(accountID), posts);
@@ -5011,29 +6482,57 @@
 
 	function convertGeneratedThreadToPost(): void {
 		if (!generationUndo || posts.length < 2) return;
+		if (posts.slice(1).some((post) => post.poll)) {
+			error = m.compose_poll_join_conflict();
+			return;
+		}
 		const source = posts[0];
-		const joinedSource: PostItem = {
-			...source,
-			content: posts
-				.map((post) => post.content.trim())
-				.filter(Boolean)
-				.join('\n\n'),
-			mediaIds: [...new Set(posts.flatMap((post) => post.mediaIds))]
-		};
+		let joinedSource: PostItem;
 		const nextVariants = new SvelteMap<string, Record<string, VariantPost>>();
-		for (const [accountID, record] of variants.entries()) {
-			const values = posts.map((post) => record[post.key]).filter(Boolean);
-			nextVariants.set(accountID, {
-				[joinedSource.key]: {
-					content: values
-						.map((value) => value.content.trim())
-						.filter(Boolean)
-						.join('\n\n'),
-					mediaIds: [...new Set(values.flatMap((value) => value.mediaIds))],
-					contentInherited: false,
-					mediaInherited: values.every((value) => value.mediaInherited)
-				}
-			});
+		try {
+			const joined = joinPostText(
+				posts.map((post) => ({ body: post.content, mentions: post.mentions?.spans }))
+			);
+			joinedSource = {
+				...source,
+				content: joined.body,
+				mentions:
+					joined.mentions === undefined ? undefined : { version: 1, spans: joined.mentions },
+				mediaIds: [...new Set(posts.flatMap((post) => post.mediaIds))]
+			};
+			for (const [accountID, record] of variants.entries()) {
+				const values = posts.map(
+					(post) =>
+						record[post.key] ?? {
+							content: post.content,
+							mentions: post.mentions,
+							mediaIds: post.mediaIds,
+							contentInherited: true,
+							mediaInherited: true
+						}
+				);
+				const projected = joinPostText(
+					values.map((value, index) => ({
+						body: value.contentInherited ? posts[index].content : value.content,
+						mentions: (value.contentInherited ? posts[index].mentions : value.mentions)?.spans
+					}))
+				);
+				nextVariants.set(accountID, {
+					[joinedSource.key]: {
+						content: projected.body,
+						mentions:
+							projected.mentions === undefined
+								? undefined
+								: { version: 1, spans: projected.mentions },
+						mediaIds: [...new Set(values.flatMap((value) => value.mediaIds))],
+						contentInherited: values.every((value) => value.contentInherited),
+						mediaInherited: values.every((value) => value.mediaInherited)
+					}
+				});
+			}
+		} catch {
+			error = m.editor_mention_limit();
+			return;
 		}
 		posts = [joinedSource];
 		variants = nextVariants;
@@ -5046,7 +6545,12 @@
 	// --------------------------------------------------------------------------
 	// Variants
 	// --------------------------------------------------------------------------
-	function handleVariantChange(accountId: string, index: number, value: string) {
+	function handleVariantChange(
+		accountId: string,
+		index: number,
+		value: string,
+		mentions?: MentionMetadata
+	) {
 		const newVariants = new SvelteMap(variants);
 		const postKey = posts[index]?.key;
 		if (!postKey) return;
@@ -5058,6 +6562,13 @@
 					mediaIds: [...posts[index].mediaIds]
 				}),
 				content: value,
+				mentions:
+					mentions ??
+					remapMentionMetadata(
+						getVariantContent(accountId, postKey) ?? posts[index].content,
+						value,
+						normalizeVariantRecord(newVariants.get(accountId), posts)[postKey]?.mentions
+					),
 				contentInherited: false
 			}
 		};
@@ -5068,6 +6579,8 @@
 
 	function activateVariantTab(accountId: string | null) {
 		activeVariantAccountId = accountId;
+		previewMediaOpen = false;
+		previewPollEditingKeys.clear();
 	}
 
 	function unsyncAccount(accountId: string) {
@@ -5086,13 +6599,36 @@
 		unsyncAccount(accountId);
 	}
 
+	function detachSharedContent(accountId: string) {
+		const record = normalizeVariantRecord(variants.get(accountId), posts);
+		for (const post of posts) {
+			const variant = record[post.key];
+			variant.content = getVariantContent(accountId, post.key) ?? post.content;
+			variant.mediaIds = [...(getVariantMediaIds(accountId, post.key) ?? post.mediaIds)];
+			variant.contentInherited = false;
+			variant.mediaInherited = false;
+			snapshotAccountMediaAltTexts(accountId, variant.mediaIds);
+		}
+		variants = new SvelteMap(variants).set(accountId, record);
+		scheduleAutoSave();
+	}
+
+	function restoreSharedContent(account: SocialAccount) {
+		const key = nativeDescriptionKey(account);
+		if (key) {
+			captionMentionsByAccount = { ...captionMentionsByAccount, [account.id]: null };
+			updateAccountSetting(account, key, '');
+		}
+		resyncAccount(account.id);
+	}
+
 	function resyncAccount(accountId: string) {
+		resetAccountMediaAltTexts(accountId);
 		if (!variants.has(accountId)) return;
 		pasteMediaUploadQueue.discardWhere((upload) => upload.target.variantAccountId === accountId);
 		const nextVariants = new SvelteMap(variants);
 		nextVariants.delete(accountId);
 		variants = nextVariants;
-		activeVariantAccountId = null;
 		scheduleAutoSave();
 	}
 
@@ -5110,6 +6646,7 @@
 		const existing = variants.get(accountId);
 		if (!existing) return;
 		if (field === 'media') {
+			resetAccountMediaAltTexts(accountId);
 			pasteMediaUploadQueue.discardWhere((upload) => upload.target.variantAccountId === accountId);
 		}
 		const nextRecord = normalizeVariantRecord(existing, posts);
@@ -5143,6 +6680,7 @@
 			return;
 		}
 		destinationAction = action;
+		destinationCopyError = '';
 		destinationActionTargetIds = selectedAccountIds.filter(
 			(accountId) => accountId !== activeVariantAccountId
 		);
@@ -5151,23 +6689,14 @@
 
 	function toggleDestinationActionTarget(accountId: string) {
 		if (hasPendingPasteMediaUploads || !selectedAccountIds.includes(accountId)) return;
+		destinationCopyError = '';
 		destinationActionTargetIds = destinationActionTargetIds.includes(accountId)
 			? destinationActionTargetIds.filter((id) => id !== accountId)
 			: [...destinationActionTargetIds, accountId];
 	}
 
 	function inheritedVariantRecord(): Record<string, VariantPost> {
-		return Object.fromEntries(
-			posts.map((post) => [
-				post.key,
-				{
-					content: post.content,
-					mediaIds: [...post.mediaIds],
-					contentInherited: true,
-					mediaInherited: true
-				}
-			])
-		);
+		return makeVariantRecord(posts);
 	}
 
 	function applyDestinationAction() {
@@ -5189,10 +6718,38 @@
 			variants.get(sourceAccountId) ?? inheritedVariantRecord(),
 			posts
 		);
+		const sourceCaption = $state.snapshot(captionMentionsByAccount[sourceAccountId]);
+		const sourceMentions = sourceCaption
+			? [sourceCaption.mentions]
+			: posts.map((post) => {
+					const variant = source[post.key];
+					return variant?.contentInherited ? post.mentions : variant?.mentions;
+				});
+		if (
+			destinationAction === 'copy' &&
+			currentTargetIds.some((targetId) => {
+				const account = selectedAccounts.find((account) => account.id === targetId);
+				return sourceMentions.some((metadata) => {
+					return metadata?.spans.some(
+						(span) =>
+							(span.target.provider !== 'workspace' &&
+								span.target.provider !== account?.platform) ||
+							(span.target.provider === 'mastodon' &&
+								span.target.authority?.replace(/\/$/, '').toLowerCase() !==
+									account?.instance_url?.replace(/\/$/, '').toLowerCase())
+					);
+				});
+			})
+		) {
+			destinationCopyError = m.compose_copy_mentions_incompatible();
+			return;
+		}
 		const nextVariants = new SvelteMap(variants);
 		const nextSchedules = { ...scheduleOverridesByAccount };
 
 		for (const targetId of currentTargetIds) {
+			const targetAccount = selectedAccounts.find((account) => account.id === targetId);
+			const captionKey = targetAccount ? joinedDescriptionKey(targetAccount) : undefined;
 			const target = normalizeVariantRecord(
 				nextVariants.get(targetId) ?? inheritedVariantRecord(),
 				posts
@@ -5202,10 +6759,22 @@
 				const targetVariant = target[post.key];
 				if (!sourceVariant || !targetVariant) continue;
 				if (destinationAction === 'copy') {
-					targetVariant.content = sourceVariant.contentInherited
-						? post.content
-						: sourceVariant.content;
-					targetVariant.contentInherited = sourceVariant.contentInherited;
+					if (sourceCaption && !captionKey) {
+						targetVariant.content = post === posts[0] ? sourceCaption.body : '';
+						targetVariant.contentInherited = false;
+						targetVariant.mentions =
+							post === posts[0]
+								? structuredClone(sourceCaption.mentions)
+								: { version: 1, spans: [] };
+					} else {
+						targetVariant.content = sourceVariant.contentInherited
+							? post.content
+							: sourceVariant.content;
+						targetVariant.contentInherited = sourceVariant.contentInherited;
+						targetVariant.mentions = sourceVariant.contentInherited
+							? post.mentions
+							: (sourceVariant.mentions ?? { version: 1, spans: [] });
+					}
 				}
 				targetVariant.mediaIds = sourceVariant.mediaInherited
 					? [...post.mediaIds]
@@ -5220,6 +6789,15 @@
 				nextVariants.set(targetId, target);
 			}
 			if (destinationAction === 'copy') {
+				captionMentionsByAccount = {
+					...captionMentionsByAccount,
+					[targetId]:
+						sourceCaption && captionKey
+							? { ...structuredClone(sourceCaption), field: captionKey }
+							: null
+				};
+				if (targetAccount && captionKey)
+					updateAccountSetting(targetAccount, captionKey, sourceCaption?.body ?? '');
 				if (scheduleOverridesByAccount[sourceAccountId]) {
 					nextSchedules[targetId] = scheduleOverridesByAccount[sourceAccountId];
 				} else {
@@ -5351,22 +6929,350 @@
 	// --------------------------------------------------------------------------
 	// Snippets
 	// --------------------------------------------------------------------------
-	function setPostContent(index: number, value: string) {
-		posts = posts.map((p, pi) => (pi === index ? { ...p, content: value } : p));
+	function nativePreviewTitle(account: SocialAccount): string | undefined {
+		const provider = getPlatformKey(account.platform);
+		if (!['youtube', 'peertube', 'pinterest', 'lemmy', 'piefed', 'reddit'].includes(provider))
+			return undefined;
+		const values = settingsForAccount(account);
+		return String(
+			values.title ||
+				values.video_title ||
+				values.pin_title ||
+				posts[0]?.content.split('\n')[0] ||
+				''
+		);
+	}
+
+	function nativeDescriptionKey(account: SocialAccount): string | undefined {
+		const provider = getPlatformKey(account.platform);
+		if (provider === 'youtube' || provider === 'peertube') return 'description';
+		if (provider === 'facebook' && ['video', 'reel'].includes(previewForAccount(account).format))
+			return 'video_description';
+		return undefined;
+	}
+	function joinedDescriptionKey(account: SocialAccount): string | undefined {
+		return posts.length > 1 && resolvedCapabilities[account.id]?.segment_strategy === 'join'
+			? nativeDescriptionKey(account)
+			: undefined;
+	}
+	function nativeHasCaptionOverride(account: SocialAccount): boolean {
+		const key = nativeDescriptionKey(account);
+		return (
+			Boolean(captionMentionsByAccount[account.id]) ||
+			Boolean(key && settingsByAccount[account.id]?.[key])
+		);
+	}
+	function nativeHasCustomText(account: SocialAccount): boolean {
+		return variantHasContentOverride(account.id) || nativeHasCaptionOverride(account);
+	}
+	function nativeEditableText(post: PostItem): string {
+		if (activeVariantAccount && posts.indexOf(post) === 0) {
+			const key = nativeDescriptionKey(activeVariantAccount);
+			const value = key
+				? parseComposerSettingOptionalString(settingsByAccount[activeVariantAccount.id]?.[key])
+				: undefined;
+			if (value !== undefined && (value || captionMentionsByAccount[activeVariantAccount.id]))
+				return value;
+		}
+		if (activeVariantAccount && joinedDescriptionKey(activeVariantAccount))
+			return authoredJoinedBody(activeVariantAccount);
+		return getEditorContentForPost(post);
+	}
+	function resetNativeField(account: SocialAccount, field: 'content' | 'media') {
+		if (field === 'content') {
+			const key = nativeDescriptionKey(account);
+			const hasCaptionOverride = nativeHasCaptionOverride(account);
+			const resetCaptionOnly = Boolean(joinedDescriptionKey(account) && hasCaptionOverride);
+			if (key && hasCaptionOverride) {
+				captionMentionsByAccount = { ...captionMentionsByAccount, [account.id]: null };
+				updateAccountSetting(account, key, '');
+			}
+			if (resetCaptionOnly) return;
+		}
+		resetVariantField(account.id, field);
+	}
+
+	function initialLinkDraft(post: PostItem): LinkDraft {
+		return {
+			destinations: Object.fromEntries(
+				selectedAccounts.map((account) => {
+					const values = {
+						...settingsByAccount[account.id],
+						...segmentSettingsByPost[post.key]?.[account.id]
+					};
+					return [account.id, { mode: values.url || values.link_url ? 'legacy' : 'post' }];
+				})
+			)
+		};
+	}
+	function authoredJoinedBody(account: SocialAccount): string {
+		return posts
+			.map((post) => (getVariantContent(account.id, post.key) ?? post.content).trim())
+			.filter(Boolean)
+			.join('\n\n');
+	}
+	function previewLinkURL(post: PostItem, account: SocialAccount): string {
+		const body = getVariantContent(account.id, post.key) ?? post.content;
+		const mediaCount = (getVariantMediaIds(account.id, post.key) ?? post.mediaIds).length;
+		const values = {
+			...settingsForAccount(account),
+			...segmentSettingsByPost[post.key]?.[account.id]
+		};
+		const provider = getPlatformKey(account.platform);
+		if (mediaCount && (provider !== 'bluesky' || linkChoice(post.link, account.id).mode === 'post'))
+			return '';
+		if (
+			post.poll &&
+			['native', 'custom'].includes(post.poll.destinations[account.id]?.mode ?? '') &&
+			provider !== 'bluesky'
+		)
+			return '';
+		return linkURL(post.link, account.id, body, values);
+	}
+	function joinedPreviewLinkURL(account: SocialAccount): string {
+		return linkURL(
+			posts[0]?.link,
+			account.id,
+			authoredJoinedBody(account),
+			settingsForAccount(account)
+		);
+	}
+	function previewSourcePosts(segment: PreviewSegment): PostItem[] {
+		if (activeVariantAccount && joinedDescriptionKey(activeVariantAccount))
+			return posts.slice(0, 1);
+		if (
+			activeVariantAccount &&
+			posts.length > 1 &&
+			resolvedCapabilities[activeVariantAccount.id]?.segment_strategy === 'join'
+		)
+			return posts;
+		const post = posts.find((item) => item.key === segment.id);
+		return post ? [post] : [];
+	}
+	function handleNativeTextChange(
+		post: PostItem,
+		index: number,
+		value: string,
+		mentions?: MentionMetadata
+	) {
+		if (!activeVariantAccountId) return;
+		const id = activeVariantAccountId;
+		if (!post.link && accountTextURL(value))
+			posts = posts.map((item) =>
+				item.key === post.key ? { ...item, link: initialLinkDraft(post) } : item
+			);
+		const account = activeVariantAccount;
+		if (account && joinedDescriptionKey(account)) {
+			// A native caption replaces the delivered description, not authored source text.
+			const field = joinedDescriptionKey(account)!;
+			captionMentionsByAccount = {
+				...captionMentionsByAccount,
+				[id]: { field, body: value, mentions: mentions ?? { version: 1, spans: [] } }
+			};
+			updateAccountSetting(account, field, value);
+			return;
+		}
+		if (account) {
+			const key = nativeDescriptionKey(account);
+			if (key) updateAccountSetting(account, key, value);
+		}
+		unsyncAccount(id);
+		handleVariantChange(id, index, value, mentions);
+	}
+	function pollDestinationFor(post: PostItem, account: SocialAccount) {
+		return {
+			id: account.id,
+			label: accountContextLabel(account),
+			fields: visibleSettings(account),
+			body: getVariantContent(account.id, post.key) ?? post.content,
+			error: sharedPollError(post, account)
+		};
+	}
+	function updatePreviewSettings(account: SocialAccount, index: number, changes: ComposerSettings) {
+		activePostIndex = index;
+		for (const [key, value] of Object.entries(changes)) updateAccountSetting(account, key, value);
+	}
+	function savePreviewLink(
+		post: PostItem,
+		account: SocialAccount,
+		choice: LinkChoice,
+		changes: ComposerSettings
+	) {
+		const index = posts.findIndex((item) => item.key === post.key);
+		if (index < 0 || !selectedAccountIds.includes(account.id)) return;
+		updatePreviewSettings(account, index, changes);
+		const link = post.link ?? initialLinkDraft(post);
+		posts = posts.map((item) =>
+			item.key === post.key
+				? {
+						...item,
+						link: { ...link, destinations: { ...link.destinations, [account.id]: choice } }
+					}
+				: item
+		);
+		validationIssues = [];
+		scheduleAutoSave();
+		scheduleCapabilityResolve();
+	}
+	function customizePollText(post: PostItem, account: SocialAccount, index: number) {
+		activeVariantAccountId = account.id;
+		activePostIndex = index;
+		unsyncAccount(account.id);
+		if (post.poll?.destinations[account.id]?.mode === 'text') {
+			const body = pollProjection(post, account).body;
+			handleVariantChange(account.id, index, body);
+			updateSharedPoll(post, {
+				...post.poll,
+				destinations: { ...post.poll.destinations, [account.id]: { mode: 'omit' } }
+			});
+		}
+	}
+
+	function setPostContent(index: number, value: string, mentions?: MentionMetadata) {
+		posts = posts.map((p, pi) =>
+			pi === index
+				? {
+						...p,
+						content: value,
+						mentions: mentions ?? remapMentionMetadata(p.content, value, p.mentions),
+						link: p.link ?? (firstComposerURL(value) ? initialLinkDraft(p) : undefined)
+					}
+				: p
+		);
 		if (index === 0) linkUrl = firstComposerURL(value);
 		postBuilderError = '';
 		scheduleAutoSave();
 	}
 
-	function setEditorContent(index: number, value: string) {
+	function setEditorContent(index: number, value: string, mentions?: MentionMetadata) {
 		if (value.trim()) void startFirstComposition('text');
 		if (activeVariantAccountId && activeVariantIsUnsynced) {
-			handleVariantChange(activeVariantAccountId, index, value);
+			handleVariantChange(activeVariantAccountId, index, value, mentions);
 			return;
 		}
-		setPostContent(index, value);
+		setPostContent(index, value, mentions);
 	}
 
+	function destinationSettingsForAccount(account: SocialAccount): ComposerSettings {
+		const destinationSettings = { ...settingsForAccount(account) };
+		const provider = getPlatformKey(account.platform);
+		const descriptionKey =
+			provider === 'youtube' || provider === 'peertube'
+				? 'description'
+				: provider === 'facebook'
+					? 'video_description'
+					: undefined;
+		const description = descriptionKey
+			? parseComposerSettingOptionalString(destinationSettings[descriptionKey])
+			: undefined;
+		if (
+			descriptionKey &&
+			description !== undefined &&
+			posts[0] &&
+			!captionMentionsByAccount[account.id]
+		) {
+			destinationSettings[descriptionKey] = postTextForDestination(
+				accountEditorValue(posts[0], account, description, true),
+				account.platform,
+				account.instance_url
+			).body;
+		}
+		return destinationSettings;
+	}
+	function accountEditorValue(
+		post: PostItem,
+		account: SocialAccount | undefined | null,
+		body: string,
+		native: boolean
+	): PostTextValue {
+		const caption = native && account ? captionMentionsByAccount[account.id] : undefined;
+		if (caption && caption.body === body) return { body, mentions: caption.mentions.spans };
+		const variant = account ? variants.get(account.id)?.[post.key] : undefined;
+		const metadata = variant && !variant.contentInherited ? variant.mentions : post.mentions;
+		if (
+			native &&
+			account &&
+			posts.length > 1 &&
+			resolvedCapabilities[account.id]?.segment_strategy === 'join'
+		) {
+			try {
+				const joined = joinPostText(
+					posts.map((source) => {
+						const version = variants.get(account.id)?.[source.key];
+						return {
+							body: version && !version.contentInherited ? version.content : source.content,
+							mentions: (version && !version.contentInherited ? version.mentions : source.mentions)
+								?.spans
+						};
+					})
+				);
+				if (body === joined.body) return joined;
+			} catch {
+				/* The destination readiness owner reports invalid joined metadata. */
+			}
+		}
+		return { body, mentions: metadata ? validTextMentions(body, metadata.spans) : undefined };
+	}
+	function editorValue(post: PostItem, native = false): PostTextValue {
+		const body = native ? nativeEditableText(post) : getEditorContentForPost(post);
+		return accountEditorValue(post, activeVariantAccount, body, native);
+	}
+	function editorChanged(post: PostItem, index: number, value: PostTextValue, native = false) {
+		const metadata: MentionMetadata | undefined =
+			value.mentions === undefined ? undefined : { version: 1, spans: value.mentions };
+		if (native && activeVariantAccount) {
+			if (nativeDescriptionKey(activeVariantAccount)) {
+				handleNativeTextChange(post, index, value.body, metadata);
+				return;
+			}
+			if (!activeVariantIsUnsynced) unsyncAccount(activeVariantAccount.id);
+		}
+		setEditorContent(index, value.body, metadata);
+	}
+	function mentionLookup(
+		native = false
+	): ((query: string, signal: AbortSignal) => Promise<MentionCandidate[]>) | undefined {
+		const account = activeVariantAccount;
+		const workspaceId = selectedWorkspaceId;
+		if (!account) return (query, signal) => searchSavedMentions(workspaceId, query, signal);
+		if (
+			!account ||
+			!['bluesky', 'mastodon', 'linkedin'].includes(account.platform) ||
+			(native && nativeDescriptionKey(account))
+		)
+			return undefined;
+		return (query, signal) => lookupComposerMentions(workspaceId, account.id, query, signal);
+	}
+	function createSavedMention(query: string, complete: (candidate: MentionCandidate) => void) {
+		mentionDialog = {
+			id: ++mentionDialogSequence,
+			workspaceId: selectedWorkspaceId,
+			name: query,
+			complete,
+			session: captureQueryMutationSession()
+		};
+	}
+	function insertSavedMention(entry: SavedMention, origin: number) {
+		const target = mentionDialog;
+		if (target?.id !== origin) return;
+		mentionDialog = null;
+		if (
+			target &&
+			target.workspaceId === selectedWorkspaceId &&
+			queryMutationSessionIsCurrent(target.session)
+		)
+			target.complete(savedMentionCandidate(entry));
+	}
+	function destinationText(post: PostItem, account: SocialAccount) {
+		const variant = variants.get(account.id)?.[post.key];
+		const body = getVariantContent(account.id, post.key) ?? post.content;
+		const metadata = variant && !variant.contentInherited ? variant.mentions : post.mentions;
+		return postTextForDestination(
+			{ body, mentions: metadata?.spans },
+			account.platform,
+			account.instance_url
+		).body;
+	}
 	function setActivePost(index: number) {
 		activePostIndex = index;
 	}
@@ -5391,7 +7297,6 @@
 			if (claimError || !data) return;
 			compositionClaimedWorkspaceIDs.add(workspaceID);
 			compositionClaimOrigins.delete(workspaceID);
-			if (data.claimed) captureTelemetryEvent('first composition started', { signal });
 			if (selectedWorkspaceId === workspaceID) ui.refreshWorkspaceSetup();
 		} finally {
 			compositionClaimPendingWorkspaceIDs.delete(workspaceID);
@@ -5410,6 +7315,7 @@
 		activeVariantAccountId = null;
 		linkUrl = '';
 		settingsByAccount = {};
+		captionMentionsByAccount = {};
 		segmentSettingsByPost = {};
 		mediaSettingsByAccount = {};
 		resolvedCapabilities = {};
@@ -5418,6 +7324,7 @@
 		latestGenerationUndo = null;
 		aiAppliedResult = null;
 		aiAppliedStrategies = [];
+		aiAttachmentRequirements = {};
 		repurposePrivateContextNotes = '';
 		repurposeReviewActive = false;
 		postBuilderError = '';
@@ -5426,6 +7333,216 @@
 		randomDelayOverride = 'default';
 	}
 </script>
+
+{#if mentionDialog}
+	{#key mentionDialog.workspaceId}
+		<SavedMentionDialog
+			dialogId={mentionDialog.id}
+			workspaceId={mentionDialog.workspaceId}
+			{accounts}
+			initialName={mentionDialog.name}
+			onclose={() => {
+				mentionDialog = null;
+			}}
+			oninsert={insertSavedMention}
+		/>
+	{/key}
+{/if}
+
+{#snippet sharedPollControl(post: PostItem, i: number, presentation: 'summary' | 'dialog')}
+	<SharedPollEditor
+		{presentation}
+		creationAccountID={pollCreationAccountID}
+		value={post.poll}
+		body={post.content}
+		destinations={selectedAccounts.map((account) => ({
+			id: account.id,
+			label: accountContextLabel(account),
+			fields: visibleSettings(account),
+			body: getVariantContent(account.id, post.key) ?? post.content,
+			error: sharedPollError(post, account)
+		}))}
+		onChange={(poll) => updateSharedPoll(post, poll)}
+		activeDestinationId={activeVariantAccountId}
+		open={pollEditorPostKey === post.key}
+		onOpenChange={(open) => (pollEditorPostKey = open ? post.key : null)}
+		onOpenDestination={(id) => {
+			activeVariantAccountId = id;
+			activePostIndex = i;
+		}}
+		onLegacySettings={(id) => {
+			activePostIndex = i;
+			const account = selectedAccounts.find((item) => item.id === id);
+			if (account) openDestinationSettings(account);
+		}}
+		onCustomizeText={(id) => {
+			activeVariantAccountId = id;
+			activePostIndex = i;
+			unsyncAccount(id);
+			const account = selectedAccounts.find((item) => item.id === id);
+			if (account && post.poll?.destinations[id]?.mode === 'text') {
+				const text = pollProjection(post, account).body;
+				handleVariantChange(id, i, text);
+				updateSharedPoll(post, {
+					...post.poll,
+					destinations: { ...post.poll.destinations, [id]: { mode: 'omit' } }
+				});
+			}
+		}}
+	/>
+{/snippet}
+
+{#snippet nativePostMedia(
+	media: PreviewMedia,
+	display: Snippet,
+	segment: PreviewSegment | undefined
+)}
+	{@const sourceIndexes = posts.flatMap((post, index) =>
+		(resolvedCapabilities[activeVariantAccountId!]?.segment_strategy === 'join' ||
+			post.key === (segment?.id ?? posts[0]?.key)) &&
+		getEditorMediaIdsForPost(post).includes(media.id)
+			? [index]
+			: []
+	)}
+	{#if sourceIndexes.length}
+		<div class="relative h-full w-full" tabindex="-1" data-composer-media-id={media.id}>
+			{@render display()}
+			<ComposerMediaActions
+				mediaId={media.id}
+				altTexts={editorMediaAltTexts}
+				captioningIds={captioningMediaIds}
+				editing={editingAltMediaId === media.id}
+				onRemove={() => {
+					for (const index of sourceIndexes) {
+						const ids = getEditorMediaIdsForPost(posts[index]);
+						removeMedia(index, ids.indexOf(media.id));
+					}
+				}}
+				onAltText={setMediaAltText}
+				onToggleAlt={() => (editingAltMediaId = editingAltMediaId === media.id ? null : media.id)}
+				onDoneAlt={() => (editingAltMediaId = null)}
+			/>
+		</div>
+	{:else}
+		{@render display()}
+	{/if}
+{/snippet}
+
+{#snippet nativePostText(segment: PreviewSegment)}
+	{@const sourcePosts = previewSourcePosts(segment)}
+	{#each sourcePosts as post (post.key)}
+		{@const index = posts.findIndex((item) => item.key === post.key)}
+		<div
+			class="min-w-0"
+			role="region"
+			aria-label={m.compose_drop_zone({ number: index + 1 })}
+			onfocusin={() => setActivePost(index)}
+			ondragover={handleDragOver}
+			ondragleave={handleDragLeave}
+			ondrop={(event) => handleDrop(event, index)}
+		>
+			{#key `${post.key}:${activeVariantAccountId ?? 'shared'}`}
+				<PostEditor
+					id="post-textarea-{index}"
+					label={editorTextIsYouTubeDescription ? m.compose_description() : m.compose_post_text()}
+					value={editorValue(post, true)}
+					onchange={(value) => editorChanged(post, index, value, true)}
+					lookup={mentionLookup(true)}
+					minimumQueryLength={activeVariantAccountId ? 2 : 0}
+					oncreate={activeVariantAccountId ? undefined : createSavedMention}
+					mentionScope={activeVariantAccount
+						? {
+								provider: activeVariantAccount.platform,
+								authority: activeVariantAccount.instance_url
+							}
+						: undefined}
+					onpaste={(event) => handlePaste(event, index)}
+					onfocus={() => setActivePost(index)}
+					placeholder={m.compose_ai_idea_placeholder()}
+					disabled={isSubmitting || buildingPost}
+					class="native-post-input w-full rounded-sm border-0 bg-transparent p-0 shadow-none outline-none"
+					style="min-height:44px; font:inherit; color:inherit; line-height:inherit;"
+				/>
+			{/key}
+			{#if !previewPollEditingKeys.has(post.key)}
+				{@const body = nativeEditableText(post).trim()}
+				{@const output = (
+					sourcePosts.length === 1 ? segment.text : pollProjection(post, activeVariantAccount!).body
+				).trim()}
+				{#if output.startsWith(body) && output.trim() !== body}<p
+						class="mt-2 whitespace-pre-wrap"
+						dir="auto"
+					>
+						{output.slice(body.length).trim()}
+					</p>{/if}
+			{/if}
+		</div>
+	{/each}
+{/snippet}
+
+{#snippet nativePostTitle(title: string, segment: PreviewSegment)}
+	{@const fields = activeVariantAccount ? visibleSettings(activeVariantAccount) : []}
+	{@const definition = fields.find(
+		(field) =>
+			['title', 'video_title', 'pin_title', 'event_title'].includes(field.key) &&
+			!field.unavailable_reason
+	)}
+	{#if definition && activeVariantAccount}
+		<Input
+			aria-label={settingLabel(definition)}
+			value={String(settingsForAccount(activeVariantAccount)[definition.key] ?? '')}
+			placeholder={title}
+			maxlength={definition.constraints?.max_length}
+			disabled={isSubmitting || buildingPost}
+			oninput={(event) =>
+				updateAccountSetting(activeVariantAccount!, definition.key, event.currentTarget.value)}
+			class="w-full border-transparent bg-transparent px-0 shadow-none"
+			style="font:inherit; color:inherit;"
+		/>
+	{:else}{title}{/if}
+{/snippet}
+
+{#snippet nativeLinkCard(card: PreviewCard, segment: PreviewSegment, display: Snippet)}
+	{@const post = posts.find((item) => item.key === segment.id) ?? posts[0]}
+	{#if post && activeVariantAccount}
+		<PreviewLinkEditor
+			disabled={isSubmitting || buildingPost}
+			{card}
+			{display}
+			provider={getPlatformKey(activeVariantAccount.platform)}
+			fields={visibleSettings(activeVariantAccount, post)}
+			values={{
+				...settingsForAccount(activeVariantAccount),
+				...segmentSettingsByPost[post.key]?.[activeVariantAccount.id]
+			}}
+			choice={linkChoice(post.link, activeVariantAccount.id)}
+			postURL={accountTextURL(getVariantContent(activeVariantAccount.id, post.key) ?? post.content)}
+			onSave={(choice, changes) => savePreviewLink(post, activeVariantAccount!, choice, changes)}
+		/>
+	{/if}
+{/snippet}
+
+{#snippet nativePoll(preview: PreviewPoll, segment: PreviewSegment, display: Snippet)}
+	{@const post = posts.find((item) => item.key === segment.id) ?? posts[0]}
+	{@const index = posts.findIndex((item) => item.key === post?.key)}
+	{#if post && activeVariantAccount}
+		<PreviewPollEditor
+			value={post.poll}
+			{preview}
+			{display}
+			destination={pollDestinationFor(post, activeVariantAccount)}
+			settings={pollProjection(post, activeVariantAccount).settings}
+			disabled={isSubmitting || buildingPost}
+			onChange={(poll) => updateSharedPoll(post, poll)}
+			onLegacyChange={(changes) => updatePreviewSettings(activeVariantAccount!, index, changes)}
+			onCustomizeText={() => customizePollText(post, activeVariantAccount!, index)}
+			onEditingChange={(editing) => {
+				if (editing) previewPollEditingKeys.add(post.key);
+				else previewPollEditingKeys.delete(post.key);
+			}}
+		/>
+	{/if}
+{/snippet}
 
 <!-- ====================================================================== -->
 <!-- Top Bar -->
@@ -5476,7 +7593,7 @@
 						aria-label={m.compose_accounts_loading()}
 						data-testid="composer-account-loading"
 					>
-						<ProtectedIcon icon="loading" class="size-4 animate-spin" />
+						<ProtectedIcon icon="loading" class="size-4 animate-spin motion-reduce:animate-none" />
 					</Button>
 				{/if}
 				{#if autoSavesDraft}
@@ -5520,7 +7637,10 @@
 						onclick={() => saveEditedPost()}
 						disabled={isSaving || isSubmitting || !canSaveEditedPost}
 					>
-						{#if isSaving}<ProtectedIcon icon="loading" class="size-3.5 animate-spin" />{/if}
+						{#if isSaving}<ProtectedIcon
+								icon="loading"
+								class="size-3.5 animate-spin motion-reduce:animate-none"
+							/>{/if}
 						<span>{isSaving ? m.compose_saving_changes() : m.compose_save_changes()}</span>
 					</Button>
 				{:else}
@@ -5539,6 +7659,9 @@
 						canOpenSchedule={selectedWorkspaceSettingsReady}
 						canQuickSchedule={canSchedulePublication && selectedWorkspaceSettingsReady}
 						canPublish={canPublishNow}
+						quickScheduleDisabledReason={scheduleDisabledReason}
+						{scheduleDisabledReason}
+						{publishDisabledReason}
 						onSchedule={openScheduleDialog}
 						onQuickSchedule={quickSchedule}
 						onPublish={() => publish(true)}
@@ -5581,7 +7704,10 @@
 						disabled
 						data-testid="composer-account-loading"
 					>
-						<ProtectedIcon icon="loading" class="size-3.5 animate-spin" />
+						<ProtectedIcon
+							icon="loading"
+							class="size-3.5 animate-spin motion-reduce:animate-none"
+						/>
 						{m.compose_accounts_loading()}
 					</Button>
 				{/if}
@@ -5618,6 +7744,32 @@
 					<Tooltip.Content><p class="text-sm">{m.compose_post_settings()}</p></Tooltip.Content>
 				</Tooltip.Root>
 
+				<Tooltip.Root>
+					<Tooltip.Trigger>
+						{#snippet child({ props })}
+							<Button
+								{...props}
+								variant="ghost"
+								size="icon"
+								class="hidden text-muted-foreground xl:inline-flex"
+								onclick={toggleSidePreview}
+								aria-label={sidePreviewVisible
+									? m.compose_hide_preview()
+									: m.compose_show_preview()}
+								aria-pressed={sidePreviewVisible}
+								data-testid="composer-side-preview-toggle"
+							>
+								<ThemeIcon role="eye" class="size-4" />
+							</Button>
+						{/snippet}
+					</Tooltip.Trigger>
+					<Tooltip.Content>
+						<p class="text-sm">
+							{sidePreviewVisible ? m.compose_hide_preview() : m.compose_show_preview()}
+						</p>
+					</Tooltip.Content>
+				</Tooltip.Root>
+
 				{#if isEditMode && !autoSavesDraft}
 					<Button
 						type="button"
@@ -5637,7 +7789,10 @@
 						onclick={() => saveEditedPost()}
 						disabled={isSaving || isSubmitting || !canSaveEditedPost}
 					>
-						{#if isSaving}<ProtectedIcon icon="loading" class="h-3.5 w-3.5 animate-spin" />{/if}
+						{#if isSaving}<ProtectedIcon
+								icon="loading"
+								class="h-3.5 w-3.5 animate-spin motion-reduce:animate-none"
+							/>{/if}
 						<span>{isSaving ? m.compose_saving_changes() : m.compose_save_changes()}</span>
 					</Button>
 				{:else}
@@ -5655,6 +7810,9 @@
 						canOpenSchedule={selectedWorkspaceSettingsReady}
 						canQuickSchedule={canSchedulePublication && selectedWorkspaceSettingsReady}
 						canPublish={canPublishNow}
+						quickScheduleDisabledReason={scheduleDisabledReason}
+						{scheduleDisabledReason}
+						{publishDisabledReason}
 						onSchedule={openScheduleDialog}
 						onQuickSchedule={quickSchedule}
 						onPublish={() => publish(true)}
@@ -5666,13 +7824,13 @@
 	{/if}
 
 	<ComposerScheduleDialog
+		workspaceId={selectedWorkspaceId}
 		bind:open={showScheduleDialog}
 		bind:selectedDate
 		bind:selectedTime
 		{timeSlots}
 		timezone={scheduleTimezoneLabel}
 		weekStartsOn={workspaceCtx.weekStartsOn}
-		selectedDisplay={formatScheduledDisplay()}
 		externalError={scheduleInputError}
 		suggesting={suggestingSlot}
 		submitting={isSubmitting}
@@ -5726,7 +7884,10 @@
 		<AppToast
 			message={workspaceChangeNotice}
 			dismissLabel={m.common_dismiss()}
-			onDismiss={() => (workspaceChangeNotice = '')}
+			onDismiss={() => {
+				workspaceChangeNotice = '';
+				ui.clearPendingComposerWorkspaceNotice();
+			}}
 		/>
 	{/if}
 	{#if captionGenerationError}
@@ -5793,135 +7954,81 @@
 				/>
 			{/if}
 			<div class="mx-auto w-full max-w-2xl px-3 py-4 md:px-6 md:py-6">
-				{#if selectedAccounts.length > 0}
-					<section class="mb-5" aria-label={m.compose_destination_tabs()}>
-						<div
-							class="destination-tabs-scrollbar flex gap-1 overflow-x-auto border-b pb-px"
-							role="tablist"
-							aria-label={m.compose_destination_tabs()}
-						>
-							<button
+				{#each Object.entries(aiAttachmentRequirements).filter(([accountID]) => selectedAccountIds.includes(accountID) && (!activeVariantAccountId || activeVariantAccountId === accountID)) as [accountID, requirement] (accountID)}
+					{@const account = selectedAccounts.find((item) => item.id === accountID)}
+					{@const attached = posts.some((post) =>
+						(getVariantMediaIds(accountID, post.key) ?? post.mediaIds).some((id) =>
+							mediaMimeTypes.get(id)?.startsWith(`${requirement.kind}/`)
+						)
+					)}
+					{#if !attached}
+						<section class="mb-3 rounded-lg border border-dashed p-3 text-sm">
+							<p class="font-medium">
+								{account ? accountLabel(account) : ''}: {requirement.kind === 'video'
+									? m.ideate_video_needed()
+									: m.ideate_image_needed()}
+							</p>
+							<p class="mt-1 text-muted-foreground">{requirement.brief}</p>
+							<Button
 								type="button"
-								role="tab"
-								aria-selected={!activeVariantAccountId}
-								class="min-h-11 shrink-0 border-b-2 px-3 text-sm font-medium transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none md:min-h-9"
-								class:border-foreground={!activeVariantAccountId}
-								class:border-transparent={Boolean(activeVariantAccountId)}
-								class:text-muted-foreground={Boolean(activeVariantAccountId)}
-								onclick={() => activateVariantTab(null)}
+								variant="ghost"
+								size="sm"
+								class="mt-2"
+								onclick={() => {
+									requirementReviewId = accountID;
+									requirementReviewText = posts[0]
+										? (getVariantContent(accountID, posts[0].key) ?? posts[0].content)
+										: '';
+								}}>{m.ideate_remove_requirement()}</Button
 							>
-								{m.compose_all_channels()}
-							</button>
-							{#each selectedAccounts as account (account.id)}
-								{@const issueCount = accountIssueMessages(account).length}
-								<button
-									id="composer-destination-{account.id}"
-									type="button"
-									role="tab"
-									aria-selected={activeVariantAccountId === account.id}
-									class="flex min-h-11 shrink-0 items-center gap-1.5 border-b-2 px-3 text-sm transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none md:min-h-9"
-									class:border-foreground={activeVariantAccountId === account.id}
-									class:border-transparent={activeVariantAccountId !== account.id}
-									class:text-muted-foreground={activeVariantAccountId !== account.id}
-									onclick={() => activateVariantTab(account.id)}
-								>
-									<SocialAccountIdentity
-										class="max-w-52"
-										name={accountLabel(account)}
-										platform={account.platform}
-										avatarUrl={account.account_avatar_url}
-										size="sm"
-										compactOnMobile
-										showPlatform={false}
-									/>
-									{#if issueCount > 0}
-										<span
-											class="rounded-full bg-destructive/10 px-1.5 py-0.5 text-xs text-destructive"
-											>{issueCount}</span
-										>
-									{/if}
-								</button>
-							{/each}
-						</div>
-
+						</section>
+					{/if}
+				{/each}
+				{#if selectedAccounts.length > 0}
+					<section
+						class="mb-3 flex items-center gap-1 border-b"
+						aria-label={m.compose_destination_tabs()}
+					>
+						<ComposerDestinationTabs
+							accounts={selectedAccounts}
+							activeAccountId={activeVariantAccountId}
+							onActivate={activateVariantTab}
+							{accountLabel}
+							issueCountFor={(account) => accountIssueMessages(account).length}
+							isCustomFor={(account) =>
+								nativeHasCustomText(account) || variantHasMediaOverride(account.id)}
+						/>
 						{#if activeVariantAccount}
-							<div class="flex flex-wrap items-center gap-2 border-b py-3">
-								<Button
-									type="button"
-									variant="ghost"
-									size="sm"
-									class="h-11 md:h-9"
-									onclick={() => openAccountPreview(activeVariantAccount!)}
-								>
-									{m.compose_preview()}
-								</Button>
-								<Button
-									type="button"
-									variant="ghost"
-									size="sm"
-									class="h-11 md:h-9"
-									onclick={() => openDestinationSettings(activeVariantAccount!)}
-								>
-									{m.compose_platform_settings()}
-								</Button>
-								<DropdownMenu.Root>
-									<DropdownMenu.Trigger>
-										{#snippet child({ props })}
-											<Button
-												{...props}
-												type="button"
-												variant="ghost"
-												size="icon"
-												class="size-11 md:size-9"
-												aria-label={m.sidebar_more()}
-											>
-												<ThemeIcon role="more-horizontal" class="size-4" />
-											</Button>
-										{/snippet}
-									</DropdownMenu.Trigger>
-									<DropdownMenu.Content class="w-56" align="start">
-										{#if variantHasContentOverride(activeVariantAccount.id)}
-											<DropdownMenu.Item
-												onclick={() => resetVariantField(activeVariantAccount!.id, 'content')}
-											>
-												{m.compose_reset_field()}
-											</DropdownMenu.Item>
-										{/if}
-										{#if variantHasMediaOverride(activeVariantAccount.id)}
-											<DropdownMenu.Item
-												onclick={() => resetVariantField(activeVariantAccount!.id, 'media')}
-											>
-												{m.compose_reset_media()}
-											</DropdownMenu.Item>
-										{/if}
-										{#if activeVariantIsUnsynced}
-											<DropdownMenu.Item onclick={() => resyncAccount(activeVariantAccount!.id)}>
-												{m.compose_reset_destination()}
-											</DropdownMenu.Item>
-										{/if}
-										{#if selectedAccounts.length > 1}
-											<DropdownMenu.Separator />
-											<DropdownMenu.Item
-												disabled={hasPendingPasteMediaUploads}
-												onclick={() => openDestinationAction('media')}
-											>
-												{m.compose_apply_media()}
-											</DropdownMenu.Item>
-											<DropdownMenu.Item
-												disabled={hasPendingPasteMediaUploads}
-												onclick={() => openDestinationAction('copy')}
-											>
-												{m.compose_copy_rendition()}
-											</DropdownMenu.Item>
-										{/if}
-									</DropdownMenu.Content>
-								</DropdownMenu.Root>
-							</div>
-							{#if resolvedCapabilities[activeVariantAccount.id]?.segment_strategy === 'join' && posts.length > 1}
-								<p class="pt-2 text-xs text-muted-foreground">
-									{m.compose_segments_joined({ count: posts.length })}
-								</p>
-							{/if}
+							<ComposerVariantToolbar
+								hasContentOverride={nativeHasCustomText(activeVariantAccount)}
+								resetTextLabel={nativeHasCustomText(activeVariantAccount) &&
+								(!joinedDescriptionKey(activeVariantAccount) ||
+									nativeHasCaptionOverride(activeVariantAccount))
+									? joinedDescriptionKey(activeVariantAccount)
+										? m.compose_preview_reset()
+										: m.compose_reset_field()
+									: undefined}
+								hasMediaOverride={variantHasMediaOverride(activeVariantAccount.id)}
+								isUnsynced={activeVariantIsUnsynced}
+								uploadsPending={hasPendingPasteMediaUploads}
+								{restorableImages}
+								restorablePending={!!fittingImageId}
+								multiAccount={selectedAccounts.length > 1}
+								segmentStrategy={resolvedCapabilities[activeVariantAccount.id]?.segment_strategy}
+								postCount={posts.length}
+								onPreview={() => openAccountPreview(activeVariantAccount!)}
+								onUseOriginalImage={restoreOriginalImage}
+								onSettings={() => openDestinationSettings(activeVariantAccount!)}
+								onResetField={(field) => resetNativeField(activeVariantAccount!, field)}
+								onToggleSync={() => {
+									const account = activeVariantAccount!;
+									if (nativeHasCustomText(account) || variantHasMediaOverride(account.id))
+										restoreSharedContent(account);
+									else detachSharedContent(account.id);
+								}}
+								onResync={() => restoreSharedContent(activeVariantAccount!)}
+								onDestinationAction={openDestinationAction}
+							/>
 						{/if}
 					</section>
 				{/if}
@@ -5933,7 +8040,7 @@
 						valuesByAccount={requiredValuesByAccount}
 						optionGroupsByAccount={destinationOptionsByAccount}
 						optionErrorsByAccount={destinationOptionsErrors}
-						optionsLoadingAccountId={destinationOptionsLoadingAccountId}
+						optionsLoadingAccountIds={destinationOptionsLoadingAccountIds}
 						onChange={updateAccountSetting}
 						onFormatChange={selectDestinationFormat}
 						onAddMedia={() => openMediaPicker(activePostIndex)}
@@ -5942,591 +8049,506 @@
 				{/if}
 
 				{#if visibleAIStrategies.length > 0}
-					<div
-						class="mb-3 flex gap-2 overflow-x-auto border-y py-3"
-						aria-label={m.compose_ai_strategy_label()}
-					>
-						{#each visibleAIStrategies as destination (destination.account_id)}
-							<div class="min-w-48 rounded-lg border bg-muted/30 px-3 py-2 text-xs">
-								<p class="font-medium text-foreground">
-									{getPlatformName(destination.platform)} · {localizedAIObjective(
-										destination.objective
-									)}
-								</p>
-								<p class="mt-1 text-muted-foreground">
-									{destination.media.treatment === 'none'
-										? m.compose_ai_no_media_recommended()
-										: destination.media.brief ||
-											localizedAIMediaTreatment(destination.media.treatment)}
-								</p>
-								{#if destination.warnings?.length}
-									<p class="mt-1 text-amber-700 dark:text-amber-300">
-										{destination.warnings.join(' ')}
+					<Disclosure summary={m.compose_ai_strategy_label()} summaryClass="text-muted-foreground">
+						<div
+							class="mb-3 flex gap-2 overflow-x-auto border-y py-3"
+							aria-label={m.compose_ai_strategy_label()}
+						>
+							{#each visibleAIStrategies as destination (destination.account_id)}
+								<div class="min-w-48 rounded-lg border bg-muted/30 px-3 py-2 text-xs">
+									<p class="font-medium text-foreground">
+										{getPlatformName(destination.platform)} · {localizedAIObjective(
+											destination.objective
+										)}
 									</p>
-								{/if}
-							</div>
-						{/each}
-					</div>
+									<p class="mt-1 text-muted-foreground">
+										{destination.media.treatment === 'none'
+											? m.compose_ai_no_media_recommended()
+											: destination.media.brief ||
+												localizedAIMediaTreatment(destination.media.treatment)}
+									</p>
+									{#if destination.warnings?.length}
+										<p class="mt-1 text-amber-700 dark:text-amber-300">
+											{destination.warnings.join(' ')}
+										</p>
+									{/if}
+								</div>
+							{/each}
+						</div>
+					</Disclosure>
 				{/if}
 
-				<!-- Posts -->
-				<div class="space-y-0">
-					{#if undoReorderIDs}<Button variant="ghost" size="sm" onclick={undoThreadReorder}
-							>{m.interaction_reorder_undo()}</Button
-						>{/if}
-					<ReorderList
-						items={posts}
-						scope={`${selectedWorkspaceId}:${publicationId}`}
-						label={m.compose_post_text()}
-						onReorder={handleReorder}
+				{#if textCardAccounts.length && !textCardNoticeDismissed}
+					<InlineNotice
+						class="mb-3"
+						message={m.text_card_notice({
+							platform: [
+								...new Set(textCardAccounts.map((account) => getPlatformName(account.platform)))
+							].join(', ')
+						})}
+						dismissLabel={m.common_dismiss()}
+						onDismiss={() => (textCardNoticeDismissed = true)}
 					>
-						{#snippet item(post, i, handle)}
-							{@const editorContent = getEditorContentForPost(post)}
-							{@const editorMediaIds = getEditorMediaIdsForPost(post)}
-							{@const pendingMediaUploads = visiblePasteMediaUploads(post)}
-							{@const pasteFeedback = visiblePasteMediaFeedback(post)}
-							{@const editorMediaCount = editorMediaIds.length + pendingMediaUploads.length}
-							<div
-								class="group/post relative {isDraggingFile && activePostIndex === i
-									? 'bg-primary/5'
-									: ''}"
-								role="region"
-								aria-label={m.compose_drop_zone({ number: i + 1 })}
-								ondragover={handleDragOver}
-								ondragleave={handleDragLeave}
-								ondrop={(e) => handleDrop(e, i)}
-							>
-								{#if isThread && i < posts.length - 1}
-									<div class="absolute top-0 bottom-0 left-3 w-px bg-border"></div>
-								{/if}
+						{#snippet actions()}<Button
+								variant="ghost"
+								size="sm"
+								aria-label={m.text_card_customize()}
+								onclick={() =>
+									openDestinationSettings(
+										activeVariantAccount && textCardAccounts.includes(activeVariantAccount)
+											? activeVariantAccount
+											: textCardAccounts[0]
+									)}
+								><ThemeIcon role="settings" class="size-4 sm:hidden" /><span
+									class="hidden sm:inline">{m.text_card_customize()}</span
+								></Button
+							>{/snippet}
+					</InlineNotice>
+				{/if}
+				{#each selectedAccounts as account (account.id)}
+					<TextCardPreview
+						request={cardRequestForAccount(account)}
+						savedPreview={savedCardPreviews[account.id]}
+						identity={textCardIdentityForAccount(account)}
+						defaults={textCardDefaultsForAccount(account)}
+						showImages={false}
+						onResult={(result) => textCardResults.set(account.id, result)}
+					/>
+				{/each}
 
-								<div class="relative flex gap-3 {isThread ? 'pl-7' : ''}">
-									{#if isThread}
-										<div class="relative flex flex-col items-center pt-3">
-											<button
-												type="button"
-												class="drag-handle -ml-6 flex size-11 cursor-grab items-center justify-center rounded-md text-muted-foreground opacity-70 transition-opacity hover:bg-muted hover:opacity-100 focus-visible:opacity-100 active:cursor-grabbing md:-ml-4 md:size-6 md:opacity-0 md:group-hover/post:opacity-60 [@media(pointer:coarse)]:size-11"
-												title={m.compose_drag_to_reorder()}
-												aria-label={m.compose_drag_to_reorder()}
-												{...handle}
+				{#if imagePreparationNotice}<p class="py-2 text-sm text-muted-foreground" role="status">
+						{imagePreparationNotice}
+					</p>{/if}
+				{#if activeVariantAccount}
+					{@const accountPreview = previewForAccount(activeVariantAccount)}
+					{@const post = activePost}
+					{#key activeVariantAccount.id}
+						<div data-testid="composer-account-editor">
+							<ComposerPreview
+								model={previewForAccount(activeVariantAccount)}
+								editor={{
+									text: nativePostText,
+									media: previewMediaOpen ? undefined : nativePostMedia,
+									title: nativePostTitle,
+									card: nativeLinkCard,
+									poll: nativePoll
+								}}
+							/>
+							{#if imageFitCandidates(activeVariantAccount).length}
+								<div class="space-y-2 border-t py-3" data-testid="composer-image-fit">
+									<p class="text-sm text-muted-foreground">{m.compose_image_fit_help()}</p>
+									<div class="flex flex-wrap gap-2">
+										{#each imageFitCandidates(activeVariantAccount) as id (id)}
+											<Button
+												variant="outline"
+												size="sm"
+												disabled={!!fittingImageId}
+												aria-busy={fittingImageId === id}
+												onclick={() => fitAccountImage(activeVariantAccount!, id)}
+												>{fittingImageId === id
+													? m.compose_image_preparing()
+													: m.compose_image_fit_named({
+															number:
+																[
+																	...new Set(
+																		posts.flatMap(
+																			(post) =>
+																				getVariantMediaIds(activeVariantAccount!.id, post.key) ??
+																				post.mediaIds
+																		)
+																	)
+																].indexOf(id) + 1,
+															network: getPlatformName(activeVariantAccount.platform)
+														})}</Button
 											>
-												<ThemeIcon role="drag" class="h-4 w-4" />
-											</button>
-										</div>
+										{/each}
+									</div>
+								</div>
+							{/if}
+							{#if post}
+								{@const pendingMediaUploads = visiblePasteMediaUploads(post)}
+								<div class="flex flex-wrap items-center gap-2 py-2">
+									<Button
+										variant="ghost"
+										size="icon"
+										aria-label={m.media_picker_add_media()}
+										disabled={isSubmitting ||
+											pendingMediaUploads.length > 0 ||
+											getEditorMediaIdsForPost(post).length >= composerMediaLimit}
+										onclick={() => openMediaPicker(activePostIndex)}
+										><ThemeIcon role="image" class="size-4" /></Button
+									>
+									{#if posts.some((source) => getEditorMediaIdsForPost(source).length)}
+										<Button
+											variant="ghost"
+											size="sm"
+											aria-expanded={previewMediaOpen}
+											onclick={() => (previewMediaOpen = !previewMediaOpen)}
+											>{m.compose_edit_media()}</Button
+										>
+									{/if}
+									{#if !post.poll && !accountPreview.poll && supportsNativePoll(visibleSettings(activeVariantAccount))}
+										<Button
+											variant="ghost"
+											size="icon"
+											aria-label={m.compose_add_poll()}
+											disabled={accountControlLoading}
+											aria-busy={accountControlLoading}
+											onclick={() => {
+												pollCreationAccountID = activeVariantAccount!.id;
+												pollEditorPostKey = post.key;
+											}}><ThemeIcon role="poll" class="size-4" /></Button
+										>
+									{/if}
+									<ComposerCharCounter
+										content={accountPreview.segments[0]?.text ?? ''}
+										limits={editorPlatformLimits}
+									/>
+								</div>
+								{#if previewMediaOpen}
+									<div data-testid="composer-media-editor">
+										{#each posts as source, index (source.key)}
+											<div
+												role="region"
+												aria-label={m.compose_drop_zone({ number: index + 1 })}
+												onfocusin={() => setActivePost(index)}
+											>
+												<ComposerMediaGrid
+													mediaIds={getEditorMediaIdsForPost(source)}
+													mediaCount={getEditorMediaIdsForPost(source).length +
+														visiblePasteMediaUploads(source).length}
+													altTexts={editorMediaAltTexts}
+													captioningIds={captioningMediaIds}
+													bind:editingAltMediaId
+													pendingUploads={visiblePasteMediaUploads(source)}
+													queue={pasteMediaUploadQueue}
+													{isVideoMedia}
+													onRemoveMedia={(mediaIndex) => removeMedia(index, mediaIndex)}
+													onAltText={setMediaAltText}
+												/>
+											</div>
+										{/each}
+									</div>
+								{:else}
+									<PasteUploadList
+										uploads={pendingMediaUploads}
+										mediaCount={getEditorMediaIdsForPost(post).length + pendingMediaUploads.length}
+										baseCount={getEditorMediaIdsForPost(post).length}
+										queue={pasteMediaUploadQueue}
+									/>
+								{/if}
+							{/if}
+							{#each posts as sourcePost, index (sourcePost.key)}
+								{#if sourcePost.poll && !accountPreview.segments.some((segment) => segment.id === sourcePost.key && segment.poll)}
+									<div class="border-t py-3">
+										<PreviewPollEditor
+											value={sourcePost.poll}
+											destination={pollDestinationFor(sourcePost, activeVariantAccount)}
+											settings={pollProjection(sourcePost, activeVariantAccount).settings}
+											onChange={(poll) => updateSharedPoll(sourcePost, poll)}
+											onLegacyChange={(values) =>
+												updatePreviewSettings(activeVariantAccount!, index, values)}
+											onCustomizeText={() =>
+												customizePollText(sourcePost, activeVariantAccount!, index)}
+										/>
+									</div>
+								{/if}
+								{@render sharedPollControl(sourcePost, index, 'dialog')}
+							{/each}
+						</div>
+					{/key}
+				{:else}
+					<!-- Posts -->
+					<div class="space-y-0">
+						{#if undoReorderIDs}<Button variant="ghost" size="sm" onclick={undoThreadReorder}
+								>{m.interaction_reorder_undo()}</Button
+							>{/if}
+						<ReorderList
+							items={posts}
+							scope={`${selectedWorkspaceId}:${publicationId}`}
+							label={m.compose_post_text()}
+							onReorder={handleReorder}
+						>
+							{#snippet item(post, i, handle)}
+								{@const editorContent = getEditorContentForPost(post)}
+								{@const editorMediaIds = getEditorMediaIdsForPost(post)}
+								{@const pendingMediaUploads = visiblePasteMediaUploads(post)}
+								{@const pasteFeedback = visiblePasteMediaFeedback(post)}
+								{@const editorMediaCount = editorMediaIds.length + pendingMediaUploads.length}
+								<div
+									class="group/post relative {isDraggingFile && activePostIndex === i
+										? 'bg-primary/5'
+										: ''}"
+									role="region"
+									aria-label={m.compose_drop_zone({ number: i + 1 })}
+									onfocusin={() => setActivePost(i)}
+									ondragover={handleDragOver}
+									ondragleave={handleDragLeave}
+									ondrop={(e) => handleDrop(e, i)}
+								>
+									{#if isThread && i < posts.length - 1}
+										<div class="absolute top-0 bottom-0 left-3 w-px bg-border"></div>
 									{/if}
 
-									<div class="min-w-0 flex-1">
-										<div class="relative">
-											<Textarea
-												id="post-textarea-{i}"
-												aria-label={editorTextIsYouTubeDescription
-													? m.compose_description()
-													: m.compose_post_text()}
-												unstyled
-												{@attach textareaAttachment(i)}
-												value={editorContent}
-												oninput={(e) => {
-													const target = e.target as HTMLTextAreaElement;
-													setEditorContent(i, target.value);
-													autoResize(target);
-												}}
-												onpaste={(e) => handlePaste(e, i)}
-												onfocus={() => setActivePost(i)}
-												placeholder={activeVariantAccountId
-													? activeVariantIsUnsynced
-														? editorTextIsYouTubeDescription
-															? m.compose_describe_video()
-															: m.compose_write_custom_version({
-																	platform: getPlatformName(activeVariantAccount?.platform ?? '')
-																})
-														: m.compose_unsync_to_edit_placeholder()
-													: i === 0
-														? editorTextIsYouTubeDescription
-															? m.compose_describe_video()
-															: m.compose_ai_idea_placeholder()
-														: m.compose_add_to_thread()}
-												class="relative z-10 w-full resize-none overflow-y-hidden border-0 bg-transparent py-2 {isThread
-													? 'pr-12'
-													: 'pr-3 md:pr-4'} text-base leading-7 text-foreground placeholder:text-muted-foreground/70 focus:ring-0 focus:outline-none md:py-3 md:text-lg md:leading-8"
-												style="min-height: {i === 0 ? '120px' : '56px'};"
-												disabled={isSubmitting ||
-													buildingPost ||
-													(!!activeVariantAccountId && !activeVariantIsUnsynced)}
-											/>
-
-											{#if activeVariantAccountId && activePostIndex === i && !activeVariantIsUnsynced}
-												<div class="px-1 pb-2">
-													<div
-														class="rounded-xl border border-dashed border-border/80 bg-background/95 px-3 py-2 text-xs text-muted-foreground shadow-sm"
-													>
-														<div class="flex flex-wrap items-center justify-between gap-2">
-															<span>{m.compose_editor_locked_synced()}</span>
-															<Button
-																variant="outline"
-																size="sm"
-																class="h-7 gap-1 text-xs"
-																onclick={() =>
-																	activeVariantAccountId && unsyncAccount(activeVariantAccountId)}
-															>
-																<ThemeIcon role="unlink" class="h-3.5 w-3.5" />
-																{m.compose_unsync_to_edit()}
-															</Button>
-														</div>
-													</div>
-												</div>
-											{/if}
-										</div>
-
-										{#if pasteFeedback.length > 0}
-											<div
-												class="mb-3 flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive"
-												role="status"
-												aria-live="polite"
-												data-testid="composer-paste-feedback"
-											>
-												<ul class="min-w-0 flex-1 space-y-1">
-													{#each pasteFeedback as message (message)}
-														<li>{message}</li>
-													{/each}
-												</ul>
+									<div class="relative flex gap-3 {isThread ? 'pl-7' : ''}">
+										{#if isThread}
+											<div class="relative flex flex-col items-center pt-3">
 												<button
 													type="button"
-													class="flex size-7 shrink-0 items-center justify-center rounded-md hover:bg-destructive/10 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-													onclick={() => (pasteMediaFeedback = null)}
-													aria-label={m.common_dismiss()}
+													class="drag-handle -ml-6 flex size-11 cursor-grab items-center justify-center rounded-md text-muted-foreground opacity-70 transition-opacity hover:bg-muted hover:opacity-100 focus-visible:opacity-100 active:cursor-grabbing md:-ml-4 md:size-6 md:opacity-0 md:group-hover/post:opacity-60 [@media(pointer:coarse)]:size-11"
+													title={m.compose_drag_to_reorder()}
+													aria-label={m.compose_drag_to_reorder()}
+													{...handle}
 												>
-													<ThemeIcon role="close" class="size-3.5" />
+													<ThemeIcon role="drag" class="h-4 w-4" />
 												</button>
 											</div>
 										{/if}
 
-										<!-- Media grid -->
-										{#if editorMediaCount > 0}
-											<div class="mb-3 {editorMediaCount === 1 ? '' : 'grid grid-cols-2 gap-1.5'}">
-												{#each editorMediaIds as mediaId, mi (mediaId)}
-													{@const isFirstOfThree = editorMediaCount === 3 && mi === 0}
-													<div
-														tabindex="-1"
-														data-composer-media-id={mediaId}
-														class="group/media relative overflow-hidden rounded-lg {isFirstOfThree
-															? 'col-span-2'
-															: ''}"
-													>
-														{#if isVideoMedia(mediaId)}
-															<video
-																src={getAuthenticatedMediaByID(mediaId)}
-																class="{editorMediaCount === 1
-																	? 'aspect-video'
-																	: 'aspect-square'} w-full object-cover"
-																controls
-																muted
-																playsinline
-															></video>
-														{:else}
-															<img
-																src={getAuthenticatedMediaByID(mediaId)}
-																alt={mediaAltTexts.get(mediaId) || ''}
-																class="{editorMediaCount === 1
-																	? 'aspect-video'
-																	: 'aspect-square'} w-full object-cover"
-															/>
-														{/if}
-														<div
-															class="absolute top-2 right-2 flex items-center gap-1 opacity-100 md:opacity-0 md:transition-opacity md:group-focus-within/media:opacity-100 md:group-hover/media:opacity-100"
-															data-testid="composer-media-actions"
-														>
-															<button
-																type="button"
-																class={[
-																	'flex size-11 items-center justify-center rounded-md bg-black/75 text-white shadow-sm backdrop-blur-sm transition-colors hover:bg-black/90 md:size-7',
-																	mediaAltTexts.get(mediaId)
-																		? 'ring-2 ring-primary/80 ring-offset-1 ring-offset-transparent'
-																		: ''
-																]}
-																aria-label={captioningMediaIds.has(mediaId)
-																	? m.compose_alt_text_generating()
-																	: mediaAltTexts.get(mediaId)
-																		? m.media_alt_text()
-																		: m.media_add_alt_text()}
-																title={captioningMediaIds.has(mediaId)
-																	? m.compose_alt_text_generating()
-																	: mediaAltTexts.get(mediaId)
-																		? m.media_alt_text()
-																		: m.media_add_alt_text()}
-																onclick={(e) => {
-																	e.stopPropagation();
-																	editingAltMediaId =
-																		editingAltMediaId === mediaId ? null : mediaId;
-																}}
-															>
-																{#if captioningMediaIds.has(mediaId)}
-																	<ProtectedIcon
-																		icon="loading"
-																		class="size-4 animate-spin md:size-3.5"
-																	/>
-																{:else}
-																	<ProtectedIcon icon="editor-text" class="size-4 md:size-3.5" />
-																{/if}
-															</button>
-															<button
-																type="button"
-																class="flex size-11 items-center justify-center rounded-md bg-black/75 text-white shadow-sm backdrop-blur-sm transition-colors hover:bg-red-600 md:size-7"
-																aria-label={m.compose_remove_media()}
-																title={m.compose_remove_media()}
-																onclick={(e) => {
-																	e.stopPropagation();
-																	removeMedia(i, mi);
-																}}
-															>
-																<ThemeIcon role="close" class="size-4 md:size-3.5" />
-															</button>
-														</div>
-														{#if editingAltMediaId === mediaId}
-															<div
-																class="absolute inset-x-0 bottom-0 bg-black/70 p-2 backdrop-blur-sm"
-															>
-																<Textarea
-																	value={mediaAltTexts.get(mediaId) || ''}
-																	unstyled
-																	oninput={(e) =>
-																		setMediaAltText(
-																			mediaId,
-																			(e.target as HTMLTextAreaElement).value
-																		)}
-																	placeholder={m.compose_alt_text_placeholder()}
-																	rows={2}
-																	class="w-full resize-none rounded bg-white/10 px-2 py-2 text-base text-white placeholder:text-white/60 focus:ring-2 focus:ring-white/70 focus:outline-none md:py-1 md:text-xs"
-																	aria-label={m.media_alt_text()}
-																/>
-																{#if captioningMediaIds.has(mediaId)}
-																	<p class="mt-1 text-xs text-white/80" aria-live="polite">
-																		{m.compose_alt_text_generating()}
-																	</p>
-																{/if}
-																<div class="mt-1 flex justify-end gap-1">
-																	<button
-																		type="button"
-																		class="text-xs text-white/70 hover:text-white"
-																		onclick={() => (editingAltMediaId = null)}
-																		>{m.common_done()}</button
-																	>
-																</div>
-															</div>
-														{/if}
-													</div>
-												{/each}
-												{#each pendingMediaUploads as upload, uploadIndex (upload.id)}
-													{@const mediaIndex = editorMediaIds.length + uploadIndex}
-													<div
-														class="relative overflow-hidden rounded-lg {editorMediaCount === 3 &&
-														mediaIndex === 0
-															? 'col-span-2'
-															: ''}"
-														data-testid="composer-paste-upload"
-														data-status={upload.status}
-														role="group"
-														aria-label={upload.file.name}
-														aria-busy={upload.status === 'queued' || upload.status === 'uploading'}
-													>
-														<img
-															src={upload.previewURL}
-															alt=""
-															class="{editorMediaCount === 1
-																? 'aspect-video'
-																: 'aspect-square'} w-full object-cover"
-														/>
-														<div
-															class="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/60 p-3 text-center text-white"
-														>
-															<p
-																class="max-w-full truncate text-xs font-semibold"
-																title={upload.file.name}
-															>
-																{upload.file.name}
-															</p>
-															{#if upload.status === 'uploading'}
-																<ProtectedIcon icon="loading" class="size-5 animate-spin" />
-																<p class="text-xs font-medium">
-																	{upload.file.name}: {m.media_upload_action()}
-																	{#if upload.progress !== null}
-																		{Math.round(upload.progress * 100)}%
-																	{/if}
-																</p>
-																{#if upload.progress !== null}
-																	<div
-																		class="h-1.5 w-full max-w-36 overflow-hidden rounded-full bg-white/25"
-																		role="progressbar"
-																		aria-label={`${m.media_upload_action()}: ${upload.file.name}`}
-																		aria-valuemin="0"
-																		aria-valuemax="100"
-																		aria-valuenow={Math.round(upload.progress * 100)}
-																	>
-																		<div
-																			class="h-full rounded-full bg-white transition-[width]"
-																			style:width={`${Math.round(upload.progress * 100)}%`}
-																		></div>
-																	</div>
-																{/if}
-																<button
-																	type="button"
-																	class="rounded-md bg-black/65 px-3 py-1.5 text-xs font-medium hover:bg-black/85 focus-visible:ring-2 focus-visible:ring-white focus-visible:outline-none"
-																	onclick={() => pasteMediaUploadQueue.cancel(upload.id)}
-																	aria-label={`${m.common_cancel()}: ${upload.file.name}`}
-																>
-																	{m.common_cancel()}
-																</button>
-															{:else if upload.status === 'queued'}
-																<ProtectedIcon icon="loading" class="size-5 animate-spin" />
-																<p class="text-xs font-medium">
-																	{upload.file.name}: {m.media_upload_ready()}
-																</p>
-																<button
-																	type="button"
-																	class="rounded-md bg-black/65 px-3 py-1.5 text-xs font-medium hover:bg-black/85 focus-visible:ring-2 focus-visible:ring-white focus-visible:outline-none"
-																	onclick={() => pasteMediaUploadQueue.remove(upload.id)}
-																	aria-label={`${m.common_cancel()}: ${upload.file.name}`}
-																>
-																	{m.common_cancel()}
-																</button>
-															{:else}
-																<p
-																	class="line-clamp-3 text-xs font-medium"
-																	role={upload.status === 'failed' ? 'alert' : 'status'}
-																>
-																	{upload.file.name}: {upload.status === 'failed'
-																		? upload.error || m.compose_upload_failed()
-																		: m.media_upload_ready()}
-																</p>
-																<div class="flex flex-wrap justify-center gap-2">
-																	<button
-																		type="button"
-																		class="flex items-center gap-1 rounded-md bg-white px-3 py-1.5 text-xs font-medium text-black hover:bg-white/90 focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-black focus-visible:outline-none"
-																		onclick={() => pasteMediaUploadQueue.retry(upload.id)}
-																		aria-label={`${m.common_retry()}: ${upload.file.name}`}
-																	>
-																		<ThemeIcon role="refresh" class="size-3.5" />
-																		{m.common_retry()}
-																	</button>
-																	<button
-																		type="button"
-																		class="rounded-md bg-black/65 px-3 py-1.5 text-xs font-medium hover:bg-black/85 focus-visible:ring-2 focus-visible:ring-white focus-visible:outline-none"
-																		onclick={() => pasteMediaUploadQueue.remove(upload.id)}
-																		aria-label={m.media_upload_remove({ name: upload.file.name })}
-																	>
-																		{m.compose_remove_media()}
-																	</button>
-																</div>
-															{/if}
-														</div>
-													</div>
-												{/each}
+										<div class="min-w-0 flex-1">
+											<div class="relative">
+												{#key `${post.key}:${activeVariantAccountId ?? 'shared'}`}
+													<PostEditor
+														id="post-textarea-{i}"
+														label={editorTextIsYouTubeDescription
+															? m.compose_description()
+															: m.compose_post_text()}
+														value={editorValue(post)}
+														onchange={(value) => editorChanged(post, i, value)}
+														lookup={mentionLookup()}
+														minimumQueryLength={activeVariantAccountId ? 2 : 0}
+														oncreate={activeVariantAccountId ? undefined : createSavedMention}
+														onpaste={(event) => handlePaste(event, i)}
+														onfocus={() => setActivePost(i)}
+														placeholder={i === 0
+															? editorTextIsYouTubeDescription
+																? m.compose_describe_video()
+																: m.compose_ai_idea_placeholder()
+															: m.compose_add_to_thread()}
+														class="relative z-10 w-full border-0 bg-transparent py-2 {isThread
+															? 'pr-12'
+															: 'pr-3 md:pr-4'} text-base leading-7 text-foreground md:py-3 md:text-lg md:leading-8"
+														style="min-height: {i === 0 ? '120px' : '56px'};"
+														disabled={isSubmitting ||
+															buildingPost ||
+															(!!activeVariantAccountId && !activeVariantIsUnsynced)}
+													/>
+												{/key}
 											</div>
-										{/if}
 
-										<!-- Bottom bar -->
-										<div
-											class="flex items-center gap-2 pb-2 transition-opacity {activePostIndex === i
-												? 'opacity-100'
-												: 'pointer-events-none opacity-0'}"
-										>
-											{#if isThread}<span
-													class="text-xs font-medium text-muted-foreground tabular-nums"
-													>#{i + 1}</span
-												>{/if}
-
-											<button
-												type="button"
-												class="flex size-11 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50 md:size-7"
-												disabled={isSubmitting ||
-													pendingMediaUploads.length > 0 ||
-													editorMediaCount >= composerMediaLimit ||
-													(!!activeVariantAccountId && !activeVariantIsUnsynced)}
-												aria-busy={pendingMediaUploads.length > 0}
-												onclick={() => openMediaPicker(i)}
-												aria-label={m.media_picker_add_media()}
-											>
-												<ThemeIcon role="image" class="h-3.5 w-3.5" />
-											</button>
-
-											{#if editorPlatformLimits.length > 0}
-												<Tooltip.Root>
-													<Tooltip.Trigger>
-														{#snippet child({ props })}
-															{@const editorUsage = editorCharacterUsage(
-																getEditorContentForPost(post)
-															)}
-															<div {...props} class="flex cursor-default items-center gap-1.5">
-																<svg
-																	class="h-4 w-4 {getCharCounterColor(
-																		editorUsage.count,
-																		editorUsage.limit
-																	)}"
-																	viewBox="0 0 20 20"
-																>
-																	<circle
-																		cx="10"
-																		cy="10"
-																		r="8"
-																		fill="none"
-																		stroke="currentColor"
-																		stroke-width="2.5"
-																		opacity="0.15"
-																	/>
-																	<circle
-																		cx="10"
-																		cy="10"
-																		r="8"
-																		fill="none"
-																		stroke={getCharCounterStrokeColor(
-																			editorUsage.count,
-																			editorUsage.limit
-																		)}
-																		stroke-width="2.5"
-																		stroke-linecap="round"
-																		stroke-dasharray={50.27}
-																		stroke-dashoffset={50.27 *
-																			Math.max(0, 1 - editorUsage.count / editorUsage.limit)}
-																		transform="rotate(-90 10 10)"
-																	/>
-																</svg>
-																<span class="text-xs text-muted-foreground tabular-nums"
-																	>{editorUsage.count}/{editorUsage.limit}</span
-																>
-															</div>
-														{/snippet}
-													</Tooltip.Trigger>
-													<Tooltip.Content>
-														<div class="space-y-1">
-															<p class="text-xs font-medium text-muted-foreground">
-																{m.compose_character_limits()}
-															</p>
-															{#each editorPlatformLimits as pl (pl.key)}
-																{@const platformCount = platformTextLength(
-																	pl.key,
-																	getEditorContentForPost(post)
-																)}
-																<div class="flex items-center justify-between gap-2 text-xs">
-																	<div class="flex items-center gap-1.5">
-																		<PlatformIcon platform={pl.key} class="h-3 w-3" /><span
-																			>{pl.platform}</span
-																		>
-																	</div>
-																	<span
-																		class="tabular-nums {platformCount > pl.limit
-																			? 'text-red-500'
-																			: 'text-muted-foreground'}">{platformCount}/{pl.limit}</span
-																	>
-																</div>
-															{/each}
-														</div>
-													</Tooltip.Content>
-												</Tooltip.Root>
+											{#if pasteFeedback.length > 0}
+												<div
+													class="mb-3 flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive"
+													role="status"
+													aria-live="polite"
+													data-testid="composer-paste-feedback"
+												>
+													<ul class="min-w-0 flex-1 space-y-1">
+														{#each pasteFeedback as message (message)}
+															<li>{message}</li>
+														{/each}
+													</ul>
+													<button
+														type="button"
+														class="flex size-7 shrink-0 items-center justify-center rounded-md hover:bg-destructive/10 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+														onclick={() => (pasteMediaFeedback = null)}
+														aria-label={m.common_dismiss()}
+													>
+														<ThemeIcon role="close" class="size-3.5" />
+													</button>
+												</div>
 											{/if}
 
-											<button
-												type="button"
-												class="-mx-2 flex min-h-11 items-center gap-1.5 px-2 text-xs text-muted-foreground transition-colors hover:text-foreground md:mx-0 md:min-h-7 md:px-0"
-												onclick={addPost}
-											>
-												<ThemeIcon role="add" class="h-3 w-3" />{m.compose_add_post()}
-											</button>
+											<ComposerMediaGrid
+												mediaIds={editorMediaIds}
+												mediaCount={editorMediaCount}
+												altTexts={editorMediaAltTexts}
+												captioningIds={captioningMediaIds}
+												bind:editingAltMediaId
+												pendingUploads={pendingMediaUploads}
+												queue={pasteMediaUploadQueue}
+												{isVideoMedia}
+												onRemoveMedia={(mi) => removeMedia(i, mi)}
+												onAltText={setMediaAltText}
+											/>
 
-											{#if i === 0 && !activeVariantAccountId && !isThread}
-												<ComposerAIActionButton
-													hasText={Boolean(posts[0]?.content.trim())}
-													building={buildingPost}
-													disabled={!canBuildPost}
-													ideateLabel={m.compose_ai_ideate()}
-													buildLabel={generationUndo
-														? m.compose_ai_build_again()
-														: m.compose_ai_build()}
-													buildingLabel={m.compose_ai_building()}
-													onclick={buildPostWithAI}
-													title={selectedAccountIds.length === 0
-														? m.compose_ai_destinations_required()
-														: undefined}
+											{@render sharedPollControl(post, i, 'summary')}
+
+											<!-- Bottom bar -->
+											<div
+												class="flex flex-wrap items-center gap-2 pb-2 transition-opacity {activePostIndex ===
+												i
+													? 'opacity-100'
+													: 'pointer-events-none opacity-0'}"
+											>
+												{#if isThread}<span
+														class="text-xs font-medium text-muted-foreground tabular-nums"
+														>#{i + 1}</span
+													>{/if}
+
+												<button
+													type="button"
+													class="flex size-11 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50 md:size-7"
+													disabled={isSubmitting ||
+														pendingMediaUploads.length > 0 ||
+														editorMediaCount >= composerMediaLimit ||
+														(!!activeVariantAccountId && !activeVariantIsUnsynced)}
+													aria-busy={pendingMediaUploads.length > 0}
+													onclick={() => openMediaPicker(i)}
+													aria-label={m.media_picker_add_media()}
+												>
+													<ThemeIcon role="image" class="h-3.5 w-3.5" />
+												</button>
+												{#if !post.poll}
+													<button
+														type="button"
+														class="flex size-11 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-50 md:size-7"
+														disabled={accountControlLoading}
+														aria-busy={accountControlLoading}
+														onclick={() => {
+															pollCreationAccountID = undefined;
+															pollEditorPostKey = post.key;
+														}}
+														aria-label={m.compose_add_poll()}
+													>
+														<ThemeIcon role="poll" class="h-3.5 w-3.5" />
+													</button>
+												{/if}
+
+												<ComposerCharCounter
+													content={getEditorContentForPost(post)}
+													limits={editorPlatformLimits}
 												/>
-											{/if}
-										</div>
 
-										{#if i === 0 && !activeVariantAccountId && !isThread && postBuilderError}
-											<p class="border-t py-3 text-sm text-destructive" role="alert">
-												{postBuilderError}
-											</p>
-										{:else if i === 0 && !activeVariantAccountId && generationUndo}
-											<div class="space-y-3 border-t py-3">
-												<div class="flex flex-wrap items-center gap-2">
-													<p class="min-w-0 flex-1 text-sm text-muted-foreground">
-														{m.compose_ai_ready({ count: selectedAccounts.length })}
-													</p>
-													{#if isThread}
-														<Button
-															type="button"
-															variant="ghost"
-															size="sm"
-															class="min-h-11 md:min-h-8"
-															onclick={convertGeneratedThreadToPost}
-														>
-															{m.compose_ai_convert_to_post()}
-														</Button>
-													{/if}
-													{#if latestGenerationUndo && latestGenerationUndo !== generationUndo}
+												<button
+													type="button"
+													class="-mx-2 flex min-h-11 items-center gap-1.5 px-2 text-xs whitespace-nowrap text-muted-foreground transition-colors hover:text-foreground md:mx-0 md:min-h-7 md:px-0"
+													onclick={addPost}
+												>
+													<ThemeIcon role="add" class="h-3 w-3" />{m.compose_add_post()}
+												</button>
+
+												{#if i === 0 && !activeVariantAccountId && !isThread}
+													<ComposerAIActionButton
+														hasText={Boolean(posts[0]?.content.trim())}
+														building={buildingPost}
+														disabled={!canBuildPost}
+														ideateLabel={m.nav_ideas()}
+														buildLabel={generationUndo
+															? m.compose_ai_build_again()
+															: m.compose_ai_build()}
+														buildingLabel={m.compose_ai_building()}
+														onclick={buildPostWithAI}
+													/>
+												{/if}
+											</div>
+
+											{#if i === 0 && !activeVariantAccountId && !isThread && postBuilderError}
+												<p class="border-t py-3 text-sm text-destructive" role="alert">
+													{postBuilderError}
+												</p>
+											{:else if i === 0 && !activeVariantAccountId && generationUndo}
+												<div class="space-y-3 border-t py-3">
+													<div class="flex flex-wrap items-center gap-2">
+														<p class="min-w-0 flex-1 text-sm text-muted-foreground">
+															{m.compose_ai_ready({ count: selectedAccounts.length })}
+														</p>
+														{#if isThread}
+															<Button
+																type="button"
+																variant="ghost"
+																size="sm"
+																class="min-h-11 md:min-h-8"
+																onclick={convertGeneratedThreadToPost}
+															>
+																{m.compose_ai_convert_to_post()}
+															</Button>
+														{/if}
+														{#if latestGenerationUndo && latestGenerationUndo !== generationUndo}
+															<Button
+																type="button"
+																variant="ghost"
+																size="sm"
+																class="min-h-11 gap-1.5 md:min-h-8"
+																onclick={undoLatestGenerationApply}
+															>
+																<ThemeIcon role="undo" class="size-3.5" />
+																{m.image_editor_undo()}
+															</Button>
+														{/if}
 														<Button
 															type="button"
 															variant="ghost"
 															size="sm"
 															class="min-h-11 gap-1.5 md:min-h-8"
-															onclick={undoLatestGenerationApply}
+															onclick={restoreIdea}
 														>
 															<ThemeIcon role="undo" class="size-3.5" />
-															{m.image_editor_undo()}
+															{m.compose_ai_restore_idea()}
 														</Button>
-													{/if}
-													<Button
-														type="button"
-														variant="ghost"
-														size="sm"
-														class="min-h-11 gap-1.5 md:min-h-8"
-														onclick={restoreIdea}
-													>
-														<ThemeIcon role="undo" class="size-3.5" />
-														{m.compose_ai_restore_idea()}
-													</Button>
+													</div>
 												</div>
-											</div>
-											{#if aiMemeCandidates.length > 0 || aiMemeError}
-												<div class="border-t py-4">
-													<AIMemeRecommendation
-														candidates={aiMemeCandidates}
-														copy={aiMemeCopy}
-														bind:selectedCandidateId={aiMemeSelectedID}
-														error={aiMemeError}
-														onUse={useAIMeme}
-														onEdit={editAIMeme}
-														onRetry={previewAIMemeCandidate}
-													/>
-												</div>
+												{#if aiMemeCandidates.length > 0 || aiMemeError}
+													<div class="border-t py-4">
+														<AIMemeRecommendation
+															candidates={aiMemeCandidates}
+															copy={aiMemeCopy}
+															bind:selectedCandidateId={aiMemeSelectedID}
+															error={aiMemeError}
+															onUse={useAIMeme}
+															onEdit={editAIMeme}
+															onRetry={previewAIMemeCandidate}
+														/>
+													</div>
+												{/if}
 											{/if}
-										{/if}
-										{#if isThread}
-											<button
-												type="button"
-												class="absolute top-1 right-0 z-20 flex size-11 items-center justify-center rounded-md text-muted-foreground opacity-70 transition-opacity hover:bg-muted hover:text-destructive focus-visible:opacity-100 md:top-3 md:size-7 md:opacity-0 md:group-hover/post:opacity-100 [@media(pointer:coarse)]:size-11"
-												onclick={() => removePost(i)}
-												title={m.compose_remove_post()}
-												aria-label={m.compose_remove_post()}
-											>
-												<ThemeIcon role="delete" class="h-3.5 w-3.5" />
-											</button>
-										{/if}
+											{#if isThread}
+												<button
+													type="button"
+													class="absolute top-1 right-0 z-20 flex size-11 items-center justify-center rounded-md text-muted-foreground opacity-70 transition-opacity hover:bg-muted hover:text-destructive focus-visible:opacity-100 md:top-3 md:size-7 md:opacity-0 md:group-hover/post:opacity-100 [@media(pointer:coarse)]:size-11"
+													onclick={() => removePost(i)}
+													title={m.compose_remove_post()}
+													aria-label={m.compose_remove_post()}
+												>
+													<ThemeIcon role="delete" class="h-3.5 w-3.5" />
+												</button>
+											{/if}
+										</div>
 									</div>
 								</div>
-							</div>
-						{/snippet}
-					</ReorderList>
-				</div>
+							{/snippet}
+						</ReorderList>
+					</div>
+				{/if}
 			</div>
 		</div>
+		{#if wideLayout && sidePreviewVisible && sidePreviewAccount}
+			{@const sidePreviewModel = previewForAccount(sidePreviewAccount)}
+			<aside
+				class="flex w-[22rem] shrink-0 flex-col border-l bg-muted/20"
+				aria-label={m.compose_preview()}
+				data-testid="composer-side-preview"
+			>
+				<div
+					class="flex shrink-0 items-center justify-between gap-2 border-b bg-background/60 px-4 py-3"
+				>
+					<p class="min-w-0 truncate text-sm font-medium">{m.compose_preview()}</p>
+					<Button
+						variant="ghost"
+						size="icon-sm"
+						class="shrink-0 text-muted-foreground"
+						onclick={toggleSidePreview}
+						aria-label={m.compose_hide_preview()}
+						data-testid="composer-side-preview-hide"
+					>
+						<ThemeIcon role="close" class="size-4" />
+					</Button>
+				</div>
+				<div class="min-h-0 flex-1 overflow-y-auto p-4">
+					<ComposerPreview model={sidePreviewModel} />
+				</div>
+			</aside>
+		{/if}
 	</div>
 </div>
 
@@ -6534,7 +8556,9 @@
 	bind:open={aiWorkspaceOpen}
 	entry={aiWorkspaceEntry}
 	step={aiWorkspaceStep}
-	copy={repurposeReviewActive ? repurposeWorkspaceCopy : aiWorkspaceCopy}
+	copy={repurposeReviewActive
+		? repurposeWorkspaceCopy
+		: { ...aiWorkspaceCopy, getIdeas: m.ideate_generate() }}
 	opportunities={aiWorkspaceOpportunities}
 	selectedOpportunityId={aiSelectedOpportunityID}
 	angles={aiWorkspaceAngles}
@@ -6562,7 +8586,7 @@
 		const selected = aiAngles.find((candidate) => candidate.id === angle.id);
 		if (selected) aiObjective = selected.objective;
 	}}
-	onDiscover={() => void discoverPublicationIdeas()}
+	onDiscover={() => void startSelectedPublicationBuild()}
 	onContinue={() => void continuePublicationOpportunity()}
 	onFindMore={() => void loadPublicationOpportunities(true)}
 	onBack={aiWorkspaceEntry === 'ideate'
@@ -6582,7 +8606,7 @@
 			: aiWorkspaceStep === 'opportunities'
 				? () => void loadPublicationOpportunities()
 				: () => void loadPublicationAngles(aiGenerationIdea)}
-	onApply={applyReadyPublicationBuild}
+	onApply={() => applyReadyPublicationBuild()}
 	onKeepEditing={keepCurrentComposerEdits}
 	onDismissError={() => (postBuilderError = '')}
 >
@@ -6592,11 +8616,18 @@
 				{m.compose_ai_brief()}
 				<Textarea
 					bind:value={aiIdeationBrief}
-					maxlength={1000}
+					maxlength={20000}
 					rows={5}
 					placeholder={m.compose_ai_brief_placeholder()}
 				/>
 			</label>
+			<Button
+				type="button"
+				variant="ghost"
+				class="mt-2"
+				onclick={() => void discoverPublicationIdeas()}
+				disabled={buildingPost}>{m.compose_ai_ideate()}</Button
+			>
 		{:else if aiWorkspaceStep === 'angles'}
 			<div class="grid gap-3 rounded-lg border bg-muted/25 p-3 sm:grid-cols-2">
 				<label class="grid gap-1.5 text-xs font-medium">
@@ -6615,10 +8646,11 @@
 						placeholder={m.compose_ai_context_change_placeholder()}
 					/>
 				</label>
-				<details class="sm:col-span-2">
-					<summary class="min-h-8 cursor-pointer text-xs font-medium text-muted-foreground">
-						{m.compose_ai_context_add()}
-					</summary>
+				<Disclosure
+					summary={m.compose_ai_context_add()}
+					summaryClass="text-xs text-muted-foreground"
+					class="sm:col-span-2"
+				>
 					<div class="mt-2 grid gap-3 sm:grid-cols-2">
 						<label class="grid gap-1.5 text-xs font-medium">
 							{m.compose_ai_context_notes()}
@@ -6652,11 +8684,68 @@
 							</p>
 						{/if}
 					</div>
-				</details>
+				</Disclosure>
 			</div>
 		{/if}
 	{/snippet}
+	{#snippet results()}
+		<PostOptions
+			sources={aiPendingResult?.sources ?? []}
+			options={aiPostOptions}
+			accounts={selectedAccounts}
+			workspaceId={selectedWorkspaceId}
+			busy={buildingPost}
+			onUse={(option) => void useAIPostOption(option)}
+			onChange={(option) =>
+				(aiPostOptions = aiPostOptions.map((item) => (item.id === option.id ? option : item)))}
+		/>
+	{/snippet}
 </AIWorkspaceDialog>
+
+<Dialog.Root
+	open={!!requirementReviewId}
+	onOpenChange={(open) => {
+		if (!open) requirementReviewId = '';
+	}}
+>
+	<Dialog.Content class="sm:max-w-lg">
+		<Dialog.Header
+			><Dialog.Title>{m.ideate_review_without_media()}</Dialog.Title><Dialog.Description
+				>{m.ideate_review_without_media_description()}</Dialog.Description
+			></Dialog.Header
+		>
+		<label class="grid gap-2 text-sm font-medium"
+			>{m.ideate_post_text()}<Textarea bind:value={requirementReviewText} rows={5} /></label
+		>
+		<Dialog.Footer
+			><Button variant="outline" onclick={() => (requirementReviewId = '')}
+				>{m.common_cancel()}</Button
+			><Button
+				disabled={!requirementReviewText.trim()}
+				onclick={() => {
+					if (!posts[0]) return;
+					handleVariantChange(requirementReviewId, 0, requirementReviewText);
+					const next = { ...aiAttachmentRequirements };
+					delete next[requirementReviewId];
+					aiAttachmentRequirements = next;
+					const profiles = { ...requestedOutputProfiles };
+					delete profiles[requirementReviewId];
+					requestedOutputProfiles = profiles;
+					formatLockedByAccount = { ...formatLockedByAccount, [requirementReviewId]: false };
+					validationIssues = [];
+					aiAppliedStrategies = aiAppliedStrategies.map((strategy) =>
+						strategy.account_id === requirementReviewId
+							? { ...strategy, media: { treatment: 'none', role: 'none', brief: '' } }
+							: strategy
+					);
+					requirementReviewId = '';
+					scheduleCapabilityResolve();
+					scheduleAutoSave();
+				}}>{m.ideate_save_without_media()}</Button
+			></Dialog.Footer
+		>
+	</Dialog.Content>
+</Dialog.Root>
 
 <Dialog.Root bind:open={destinationActionOpen}>
 	<Dialog.Content class="sm:max-w-md">
@@ -6688,6 +8777,9 @@
 			{/each}
 		</div>
 		<Dialog.Footer>
+			{#if destinationCopyError}<p role="alert" class="text-sm text-destructive">
+					{destinationCopyError}
+				</p>{/if}
 			<Button type="button" variant="outline" onclick={() => (destinationActionOpen = false)}>
 				{m.common_cancel()}
 			</Button>
@@ -6734,7 +8826,10 @@
 						disabled={copyingDraft}
 					>
 						{#if copyingDraft}
-							<ProtectedIcon icon="loading" class="size-4 animate-spin text-muted-foreground" />
+							<ProtectedIcon
+								icon="loading"
+								class="size-4 animate-spin text-muted-foreground motion-reduce:animate-none"
+							/>
 							{m.publication_copying()}
 						{:else}
 							<ThemeIcon role="copy" class="size-4 text-muted-foreground" />
@@ -6744,6 +8839,15 @@
 				{/if}
 			</div>
 		{/if}
+		<div class="px-5">
+			<PublicationReviewControl
+				workspaceId={selectedWorkspaceId}
+				{publicationId}
+				{reviewState}
+				prepare={prepareClientReview}
+				onChanged={applyClientReview}
+			/>
+		</div>
 		<div class="p-5">
 			<ComposerRepostControl
 				workspaceID={selectedWorkspaceId}
@@ -6808,18 +8912,47 @@
 			return true;
 		}
 		const addedIds = ids.filter((id) => !previousIds.includes(id));
-		setEditorMediaIds(mediaPickerPostIndex, ids);
-		await hydrateMediaMetadata(selectedWorkspaceId, addedIds, true);
-		void generateMissingMediaAltText(addedIds, postContext);
+		const post = posts[mediaPickerPostIndex];
+		if (!post) return false;
+		const target = pasteMediaTargetForPost(post);
+		if (!target) return false;
+		const authoredContext = imagePreparationContext;
+		const preparedAdded = await prepareNewImageIds(addedIds, target.workspaceId);
+		if (
+			!preparedAdded ||
+			authoredContext !== imagePreparationContext ||
+			!arraysEqual(mediaIdsForPasteTarget(target), previousIds)
+		)
+			return false;
+		const preparedIds = ids.map((id) => {
+			const index = addedIds.indexOf(id);
+			return index < 0 ? id : preparedAdded[index];
+		});
+		setPasteTargetMediaIds(target, preparedIds);
+		void generateMissingMediaAltText(
+			preparedIds.filter((id) => !previousIds.includes(id)),
+			postContext
+		);
 	}}
 	onCreate={openImageEditorFromComposer}
+	onCreateTemplate={openTemplateEditorFromComposer}
 	onCreateVideo={openVideoEditorFromComposer}
 />
 
 <DestinationSettingsDialog
 	bind:open={settingsDialogOpen}
+	textCardSavedPreview={settingsAccount ? savedCardPreviews[settingsAccount.id] : undefined}
+	textCardText={settingsAccount
+		? authoredPreviewForAccount(settingsAccount)
+				.segments.map((segment) => segment.text)
+				.join('\n\n')
+		: ''}
+	textCardAttachmentCount={settingsAccount
+		? authoredPreviewForAccount(settingsAccount).media.length
+		: 0}
 	account={settingsAccount}
 	settings={settingsDialogFields}
+	emptySettingsHint={settingsDialogEmptyHint}
 	values={settingsDialogValues}
 	mediaItems={settingsDialogMedia}
 	mediaValues={settingsDialogMediaValues}
@@ -6827,7 +8960,9 @@
 	optionNextCursors={settingsAccount
 		? (destinationOptionCursorsByAccount[settingsAccount.id] ?? {})
 		: {}}
-	optionsLoading={settingsAccount?.id === destinationOptionsLoadingAccountId}
+	optionsLoading={settingsAccount
+		? destinationOptionsLoadingAccountIds.has(settingsAccount.id)
+		: false}
 	optionsError={settingsAccount ? (destinationOptionsErrors[settingsAccount.id] ?? '') : ''}
 	scopeLabel={isThread ? m.compose_thread_post({ number: activePostIndex + 1 }) : ''}
 	formatValue={settingsAccount
@@ -6864,6 +8999,7 @@
 		if (settingsAccount) void loadDestinationOptions(settingsAccount, true);
 	}}
 	onFileChange={uploadDestinationSettingFile}
+	onEditCover={editDestinationCover}
 />
 
 <Dialog.Root
@@ -6909,7 +9045,7 @@
 					aria-busy={workspaceSwitchState?.intent === 'save'}
 				>
 					{#if workspaceSwitchState?.intent === 'save'}
-						<ProtectedIcon icon="loading" class="size-4 animate-spin" />
+						<ProtectedIcon icon="loading" class="size-4 animate-spin motion-reduce:animate-none" />
 					{/if}
 					{isEditMode ? m.compose_save_changes() : m.compose_save_draft()}
 				</Button>

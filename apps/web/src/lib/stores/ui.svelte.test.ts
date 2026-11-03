@@ -11,10 +11,10 @@ function repurposeHandoff(id: string): RepurposeHandoff {
 		destination_account_ids: ['account-1'],
 		range: { days: 30 },
 		provenance: {
-			origin: 'external',
+			origin: 'openpost',
 			platform: 'x',
 			published_at: '2026-09-08T12:00:00Z',
-			reference: { type: 'external', account_content_id: 'content-1' }
+			reference: { type: 'openpost', publication_id: 'publication-1', rendition_id: 'rendition-1' }
 		},
 		evidence: []
 	};
@@ -31,6 +31,49 @@ describe('UIState repurpose handoff', () => {
 		expect(state.pendingRepurposeHandoff?.handoff_id).toBe('second');
 		state.consumeRepurposeHandoff('second');
 		expect(state.pendingRepurposeHandoff).toBeNull();
+	});
+});
+
+describe('UIState pending composer workspace notice', () => {
+	it('hands a switch notice to the remounted composer for the matching workspace only', () => {
+		const state = new UIState();
+		state.setPendingComposerWorkspaceNotice({
+			message: 'Workspace changed.',
+			workspaceId: 'workspace-b'
+		});
+
+		expect(state.takePendingComposerWorkspaceNotice('workspace-a')).toBe('');
+		state.setPendingComposerWorkspaceNotice({
+			message: 'Workspace changed.',
+			workspaceId: 'workspace-b'
+		});
+		expect(state.takePendingComposerWorkspaceNotice('workspace-b')).toBe('Workspace changed.');
+		// Taking consumes the notice so later remounts stay quiet.
+		expect(state.takePendingComposerWorkspaceNotice('workspace-b')).toBe('');
+	});
+
+	it('drops expired notices instead of surfacing them on a later visit', () => {
+		const state = new UIState();
+		state.setPendingComposerWorkspaceNotice({
+			message: 'Workspace changed.',
+			workspaceId: 'workspace-b'
+		});
+		if (state.pendingComposerWorkspaceNotice) {
+			state.pendingComposerWorkspaceNotice.at -= 61_000;
+		}
+
+		expect(state.takePendingComposerWorkspaceNotice('workspace-b')).toBe('');
+	});
+
+	it('clears a pending notice on dismiss so it cannot resurface', () => {
+		const state = new UIState();
+		state.setPendingComposerWorkspaceNotice({
+			message: 'Workspace changed.',
+			workspaceId: 'workspace-b'
+		});
+		state.clearPendingComposerWorkspaceNotice();
+
+		expect(state.takePendingComposerWorkspaceNotice('workspace-b')).toBe('');
 	});
 });
 

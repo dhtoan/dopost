@@ -28,7 +28,7 @@ const youtubeAccount: SocialAccount = {
 	slug: 'youtube-main',
 	platform: 'youtube',
 	account_id: 'channel-1',
-	account_username: 'OpenPost channel'
+	account_username: 'dopost channel'
 };
 
 const discordAccount: SocialAccount = {
@@ -37,7 +37,7 @@ const discordAccount: SocialAccount = {
 	slug: 'discord-bot',
 	platform: 'discord_bot',
 	account_id: 'guild-1',
-	account_username: 'OpenPost bot'
+	account_username: 'dopost bot'
 };
 
 function setting(
@@ -64,6 +64,35 @@ function setting(
 }
 
 describe('DestinationSettingsDialog', () => {
+	it('authors explicit disclosure answers and can restore the channel default', async () => {
+		const onChange = vi.fn();
+		const screen = await render(DestinationSettingsDialog, {
+			props: {
+				open: true,
+				account: youtubeAccount,
+				settings: [
+					setting('self_declared_made_for_kids', 'Made for kids', {
+						control: 'optional_boolean',
+						type: 'boolean'
+					})
+				],
+				values: {},
+				onChange
+			}
+		});
+		const choice = screen.getByRole('button', { name: 'Made for kids', exact: true });
+		await expect.element(choice).toHaveTextContent('Not specified');
+		await choice.click();
+		await screen.getByRole('option', { name: 'No', exact: true }).click();
+		expect(onChange).toHaveBeenLastCalledWith('self_declared_made_for_kids', false);
+		await choice.click();
+		await screen.getByRole('option', { name: 'Yes', exact: true }).click();
+		expect(onChange).toHaveBeenLastCalledWith('self_declared_made_for_kids', true);
+		await choice.click();
+		await screen.getByRole('option', { name: 'Not specified', exact: true }).click();
+		expect(onChange).toHaveBeenLastCalledWith('self_declared_made_for_kids', null);
+	});
+
 	afterEach(async () => {
 		const dialog = document.querySelector<HTMLElement>('[role="dialog"]');
 		const doneButton = Array.from(dialog?.querySelectorAll('button') ?? []).find(
@@ -466,3 +495,27 @@ describe('DestinationSettingsDialog', () => {
 		await vi.waitFor(() => expect(onFileChange).toHaveBeenCalledWith(expect.anything(), file));
 	});
 });
+
+it.each([
+	{ text: '😀'.repeat(1250), bytes: 5000, invalid: false },
+	{ text: '😀'.repeat(1251), bytes: 5004, invalid: true },
+	{ text: 'Launch <now>', bytes: 12, invalid: true }
+])(
+	'shows YouTube description byte usage and validity ($bytes bytes)',
+	async ({ text, bytes, invalid }) => {
+		const screen = await render(DestinationSettingsDialog, {
+			props: {
+				open: true,
+				account: youtubeAccount,
+				settings: [setting('description', 'Description', { type: 'textarea' })],
+				values: { description: text },
+				onChange: vi.fn()
+			}
+		});
+		await expect.element(screen.getByText(`${bytes} / 5000 bytes`, { exact: true })).toBeVisible();
+		await expect
+			.element(screen.getByRole('textbox', { name: 'Description', exact: true }))
+			.toHaveAttribute('aria-invalid', String(invalid));
+		await screen.getByRole('button', { name: 'Done', exact: true }).click();
+	}
+);

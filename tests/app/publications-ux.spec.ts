@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { expect, test } from "@playwright/test";
 import { authenticatePage, createPublication, createWorkspace, registerUser } from "./helpers";
@@ -17,8 +18,8 @@ test("publications keeps the main workflow clear across list, search, and calend
   await authenticatePage(page, auth.token);
 
   await page.goto("/publications?tab=drafts");
-  await expect(page.getByRole("heading", { name: "Publications" })).toBeVisible();
-  await expect(page.getByRole("textbox", { name: "Search posts" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Posts", exact: true })).toBeVisible();
+  await expect(page.getByRole("searchbox", { name: "Search posts" })).toBeVisible();
   const selectedTab = page.getByRole("tab", { name: "Drafts", exact: true });
   await expect(selectedTab).toHaveCSS("border-radius", "0px");
   await expect(selectedTab).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
@@ -36,23 +37,25 @@ test("publications keeps the main workflow clear across list, search, and calend
       true,
     );
     await page.screenshot({
-      path: `.impeccable/review/dither-migration/publications-${width}-${scheme}.png`,
+      path: `.impeccable/review/posts/list-${width}-${scheme}.png`,
       fullPage: true,
     });
   }
 
-  await page.getByRole("textbox", { name: "Search posts" }).fill("does not exist");
+  await page.getByRole("searchbox", { name: "Search posts" }).fill("does not exist");
   await expect(page.getByTestId("publication-list")).toHaveCount(0);
-  await page.getByRole("textbox", { name: "Search posts" }).fill("launch note");
+  await page.getByRole("searchbox", { name: "Search posts" }).fill("launch note");
   await expect(page.getByTestId("publication-list")).toContainText("A clear launch note");
 
-  await page.getByRole("button", { name: /Edit A clear launch note/ }).click();
+  await page
+    .getByRole("link", { name: "A clear launch note for the publication workspace", exact: true })
+    .click();
   await expect(page).toHaveURL(new RegExp(`/publications/${created.id}$`));
 
   await page.goto("/publications?tab=drafts");
   await page.getByRole("link", { name: "Calendar" }).click();
   await expect(page).toHaveURL(/\/calendar$/);
-  await expect(page.getByRole("heading", { name: "Publications" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Posts", exact: true })).toBeVisible();
   for (const [width, scheme] of [
     [1440, "light"],
     [390, "dark"],
@@ -65,7 +68,7 @@ test("publications keeps the main workflow clear across list, search, and calend
       true,
     );
     await page.screenshot({
-      path: `.impeccable/review/dither-migration/calendar-${width}-${scheme}.png`,
+      path: `.impeccable/review/posts/calendar-${width}-${scheme}.png`,
       fullPage: true,
     });
   }
@@ -79,7 +82,7 @@ test("publications keeps the main workflow clear across list, search, and calend
     "true",
   );
   await page.setViewportSize({ width: 1440, height: 900 });
-  await page.getByRole("button", { name: "View all", exact: true }).click();
+  await page.getByRole("tab", { name: "Drafts", exact: true }).click();
   await expect(page.getByRole("tab", { name: "Drafts", exact: true })).toHaveAttribute(
     "aria-selected",
     "true",
@@ -128,4 +131,50 @@ test("publication delivery details keep distinct targets for the same account", 
   await list.locator("summary").click();
   await expect(list.getByText("Target first-channel", { exact: true })).toBeVisible();
   await expect(list.getByText("Target second-channel", { exact: true })).toBeVisible();
+  execFileSync("sqlite3", [
+    "-cmd",
+    ".timeout 5000",
+    `/tmp/openpost-app-e2e-${process.env.OPENPOST_APP_E2E_PORT ?? 18180}.db`,
+    `UPDATE publications SET status='scheduled',scheduled_at='2099-01-01 12:00:00+00:00' WHERE id='${publication.id}';`,
+  ]);
+  await page.goto("/publications?tab=scheduled&view=grid");
+  const grid = page.getByTestId("publication-grid");
+  await expect(grid).toContainText("One account, two destinations");
+  await grid.locator("summary").click();
+  await expect(grid.getByText("Target first-channel", { exact: true })).toBeVisible();
+  await expect(grid.getByText("Target second-channel", { exact: true })).toBeVisible();
+});
+
+test("published records show a confirmed local removal action", async ({
+  page,
+  request,
+}, testInfo) => {
+  const auth = await registerUser(request, `published-delete-${randomUUID()}@example.com`);
+  const workspace = await createWorkspace(request, auth.token, "Published cleanup");
+  const created = await createPublication(request, auth.token, workspace.id, "A removed test post");
+  execFileSync("sqlite3", [
+    "-cmd",
+    ".timeout 5000",
+    `/tmp/openpost-app-e2e-${process.env.OPENPOST_APP_E2E_PORT ?? 18180}.db`,
+    `UPDATE publications SET status='published', actual_run_at=CURRENT_TIMESTAMP WHERE id='${created.id}';`,
+  ]);
+  const stored = await request.get(`/api/v1/publications/${created.id}`, {
+    headers: { Authorization: `Bearer ${auth.token}` },
+  });
+  expect((await stored.json()).status).toBe("published");
+  await authenticatePage(page, auth.token);
+  await page.goto(`/publications/${created.id}`);
+  await page.screenshot({
+    path: testInfo.outputPath("published-before-removal.png"),
+    fullPage: true,
+  });
+  await page.getByRole("button", { name: "Remove from dopost", exact: true }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toContainText("Posts on social networks will not be deleted");
+  await dialog.getByRole("button", { name: "Remove from dopost", exact: true }).click();
+  await expect(page).toHaveURL(/\/publications(?:\?.*)?$/);
+  const result = await request.get(`/api/v1/publications/${created.id}`, {
+    headers: { Authorization: `Bearer ${auth.token}` },
+  });
+  expect(result.status()).toBe(404);
 });

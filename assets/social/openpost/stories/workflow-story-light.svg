@@ -7,7 +7,7 @@
     <path d="M4 68h28l28 28v28H24a20 20 0 0 1-20-20Z" />
     <path d="m68 96 28-28h28v36a20 20 0 0 1-20 20H68Z" />
   </g>
-    <text x="125.79840000000002" y="105.3" fill="#2c2825" font-family="Geist" font-size="36.720000000000006" font-weight="690" letter-spacing="-0.9180000000000001">OpenPost</text>
+    <text x="125.79840000000002" y="105.3" fill="#2c2825" font-family="Geist" font-size="36.720000000000006" font-weight="690" letter-spacing="-0.9180000000000001">dopost</text>
       <rect x="81" y="329.31999999999994" width="10.713600000000001" height="10.713600000000001" rx="3.1104000000000003" fill="#b74c05" />
     <text x="100.872" y="345.59999999999997" fill="#b74c05" font-family="Geist" font-size="17.28" font-weight="700" letter-spacing="1.7280000000000002">OPENPOST WORKFLOW</text>
       <text x="81" y="518.4000000000001" fill="#2c2825" font-family="Geist" font-size="90.72" font-weight="650" letter-spacing="-2.2680000000000002"><tspan x="81" dy="0">Publish clearly.</tspan></text>

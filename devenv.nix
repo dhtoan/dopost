@@ -5,8 +5,47 @@
   ...
 }:
 
+let
+  worktreeId = builtins.substring 0 12 (builtins.hashString "sha256" (toString config.git.root));
+  appHost = "openpost-${worktreeId}.localhost";
+  backendPort = toString config.processes.backend.ports.http.value;
+in
 {
   dotenv.enable = true;
+
+  process.proxy.enable = true;
+  processes = {
+    backend = {
+      ports.http.allocate = 8080;
+      proxy.hostname = "openpost-api-${worktreeId}.localhost";
+      env = {
+        OPENPOST_PORT = backendPort;
+        OPENPOST_APP_URL = "http://${appHost}";
+        OPENPOST_PUBLIC_URL = "http://${appHost}";
+        OPENPOST_DATABASE_URL = "";
+        OPENPOST_DATABASE_URL_FILE = "";
+        DATABASE_URL = "";
+        DATABASE_URL_FILE = "";
+        OPENPOST_DATABASE_PATH = "file:${config.git.root}/.devenv/state/parallel-dev/openpost.db?cache=shared&mode=rwc";
+        OPENPOST_STORAGE_DRIVER = "local";
+        OPENPOST_MEDIA_PATH = "${config.git.root}/.devenv/state/parallel-dev/media";
+      };
+      exec = ''
+        mkdir -p "${config.git.root}/.devenv/state/parallel-dev"
+        cd "${config.git.root}/apps/server"
+        go run -tags dev ./cmd/openpost
+      '';
+    };
+    frontend = {
+      ports.http.allocate = 5173;
+      proxy.hostname = appHost;
+      env.OPENPOST_DEV_BACKEND_URL = "http://127.0.0.1:${backendPort}";
+      exec = ''
+        cd "${config.git.root}/apps/web"
+        bun run dev --host 127.0.0.1 --port ${toString config.processes.frontend.ports.http.value} --strictPort
+      '';
+    };
+  };
 
   packages = [
     pkgs.git
@@ -15,6 +54,8 @@
     pkgs.ripgrep
     pkgs.sqlite
     pkgs.ffmpeg
+    pkgs.gifsicle
+    pkgs.uv
     pkgs.wget
     pkgs.docker
     pkgs.actionlint
@@ -25,12 +66,14 @@
   # be resumed after a Hermes reboot without relying on /tmp or global state.
   # enterShell remaps linked worktrees to the primary checkout's same state
   # directory so temporary worktrees do not duplicate multi-gigabyte caches.
-  env.GOCACHE = "${config.git.root}/.devenv/state/go-build";
-  env.GOMODCACHE = "${config.git.root}/.devenv/state/go-mod";
-  # The module files pin the security-patched Go point release. Let the go
-  # command fetch that toolchain when nixpkgs trails the upstream patch.
-  env.GOTOOLCHAIN = lib.mkForce "auto";
-  env.BUN_INSTALL_CACHE_DIR = "${config.git.root}/.devenv/state/bun-cache";
+  env = {
+    GOCACHE = "${config.git.root}/.devenv/state/go-build";
+    GOMODCACHE = "${config.git.root}/.devenv/state/go-mod";
+    # The module files pin the security-patched Go point release. Let the go
+    # command fetch that toolchain when nixpkgs trails the upstream patch.
+    GOTOOLCHAIN = lib.mkForce "auto";
+    BUN_INSTALL_CACHE_DIR = "${config.git.root}/.devenv/state/bun-cache";
+  };
 
   scripts = {
     clean.exec = ''
@@ -68,7 +111,10 @@
     cache-prune.exec = ''
       cd "${config.git.root}"
       bun scripts/turbo-cache.mjs prune
+      go-cache-prune
+    '';
 
+    go-cache-prune.exec = ''
       max_mib="''${OPENPOST_GO_CACHE_MAX_MIB:-4096}"
       if ! [[ "$max_mib" =~ ^[1-9][0-9]*$ ]]; then
         echo "OPENPOST_GO_CACHE_MAX_MIB must be a positive integer; received: $max_mib" >&2
@@ -152,7 +198,7 @@
     fi
 
     echo ""
-    echo "  OpenPost Development Environment"
+    echo "  dopost Development Environment"
     echo "  --------------------------------"
     echo "  Go:     $(go version 2>/dev/null || echo 'not installed')"
     echo "  Bun:    $(bun --version 2>/dev/null || echo 'not installed')"
@@ -188,7 +234,8 @@
       done
     fi
 
-    cache-prune
+    bun scripts/turbo-cache.mjs prune-if-idle
+    go-cache-prune
   '';
 
   enterTest = ''

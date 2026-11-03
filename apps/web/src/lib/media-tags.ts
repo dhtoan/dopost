@@ -36,7 +36,7 @@ function requireMediaTagWorkspace(tag: MediaTag, workspaceId: string): MediaTag 
 
 function settleMediaTagMutation(
 	session: QueryMutationSession,
-	response: Pick<Response, 'status'>
+	response: Pick<Response, 'status' | 'headers'>
 ): void {
 	settleQueryMutationSession(session, response);
 }
@@ -163,10 +163,4 @@ export async function updateMediaTagItems(
 		]
 	});
 	return data.count;
-}
-
-export function toggleMediaTagSelection(selectedIds: string[], tagId: string): string[] {
-	return selectedIds.includes(tagId)
-		? selectedIds.filter((id) => id !== tagId)
-		: [...selectedIds, tagId];
 }

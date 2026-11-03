@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/openpost/backend/internal/api/middleware"
@@ -26,6 +27,7 @@ type DestinationOptionsHandler struct {
 	db          *bun.DB
 	auth        middleware.Authenticator
 	providers   map[string]platform.Adapter
+	providersMu sync.RWMutex
 	tokenSource AccessTokenSource
 	telegram    TelegramChatOptionSource
 }
@@ -34,11 +36,20 @@ func (h *DestinationOptionsHandler) SetTelegramChatOptions(source TelegramChatOp
 	h.telegram = source
 }
 
+func (h *DestinationOptionsHandler) SetProvider(name string, adapter platform.Adapter) {
+	h.providersMu.Lock()
+	defer h.providersMu.Unlock()
+	if h.providers == nil {
+		h.providers = map[string]platform.Adapter{}
+	}
+	h.providers[name] = adapter
+}
+
 func NewDestinationOptionsHandler(db *bun.DB, auth middleware.Authenticator, providers map[string]platform.Adapter, tokenSource AccessTokenSource) *DestinationOptionsHandler {
 	return &DestinationOptionsHandler{
 		db:          db,
 		auth:        auth,
-		providers:   providers,
+		providers:   cloneProviderAdapters(providers),
 		tokenSource: tokenSource,
 	}
 }
@@ -75,6 +86,7 @@ type PublishingOptionsOutput struct {
 
 func (h *DestinationOptionsHandler) RegisterRoutes(api huma.API) {
 	h.registerPublishingOptions(api)
+	h.registerMentionLookup(api)
 	huma.Register(api, huma.Operation{
 		OperationID: "get-account-destination-options",
 		Method:      http.MethodGet,
@@ -273,7 +285,10 @@ func (h *DestinationOptionsHandler) loadDestinationAccount(ctx context.Context, 
 }
 
 func (h *DestinationOptionsHandler) adapterForDestinationAccount(account models.SocialAccount) platform.Adapter {
-	return h.providers[platform.AccountProviderKey(account.Platform, account.InstanceURL, account.CapabilityState)]
+	key := platform.AccountProviderKey(account.Platform, account.InstanceURL, account.CapabilityState)
+	h.providersMu.RLock()
+	defer h.providersMu.RUnlock()
+	return h.providers[key]
 }
 
 func paginatePublishingOptions(options []platform.DestinationOption, search, cursor string, limit int) platform.PublishingOptionsPage {

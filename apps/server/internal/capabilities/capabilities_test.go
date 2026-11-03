@@ -6,8 +6,100 @@ import (
 
 	"github.com/openpost/backend/internal/models"
 	"github.com/openpost/backend/internal/platform"
+	"github.com/openpost/backend/internal/providerlimits"
+	"github.com/openpost/backend/internal/services/publicationlink"
 	"github.com/stretchr/testify/require"
 )
+
+func TestDevNullFirstCommentAvailableAcrossPublishingFormats(t *testing.T) {
+	for _, profile := range []string{models.ContentProfileShortText, models.ContentProfileThread, models.ContentProfileLinkShare, models.ContentProfileImagePost} {
+		capability, ok := Find(ProviderDevNull, profile)
+		require.True(t, ok)
+		var found bool
+		for _, field := range capability.Settings {
+			if field.Key == platform.FirstCommentSettingKey {
+				found = true
+				require.Equal(t, "follow_up", field.Control)
+				require.Equal(t, SettingScopeSegment, field.Scope)
+			}
+		}
+		require.True(t, found, "%s must expose its follow-up comment", profile)
+	}
+}
+
+func TestInstagramAltTextLimitAgreesAcrossAuthoringAndProviderValidation(t *testing.T) {
+	require.Equal(t, 1000, providerlimits.InstagramAltTextMaxCharacters, "canonical Instagram alt text limit")
+	image := func(altText string) MediaItem {
+		return MediaItem{
+			ID: "image-1", MimeType: "image/jpeg", Size: 1024,
+			Width: 1080, Height: 1080, PublicURLReady: true, PublicURLStatus: 200,
+			URL: "https://cdn.example/image.jpg", AltText: altText,
+		}
+	}
+	atLimit := strings.Repeat("a", providerlimits.InstagramAltTextMaxCharacters)
+	overLimit := strings.Repeat("a", providerlimits.InstagramAltTextMaxCharacters+1)
+
+	for _, profile := range []string{models.ContentProfileImagePost, models.ContentProfileCarousel} {
+		issues := Validate(ProviderInstagram, profile, "caption", "", "", []MediaItem{image(atLimit)}, nil)
+		requireNoIssueCode(t, issues, "alt_text_too_long")
+
+		issues = Validate(ProviderInstagram, profile, "caption", "", "", []MediaItem{image(overLimit)}, nil)
+		requireIssueCode(t, issues, "alt_text_too_long")
+		require.Equal(t, "Alt text is over the 1000 character limit", issueMessage(issues, "alt_text_too_long"))
+	}
+
+	// Meta accepts alt_text on image containers only, so a video carousel
+	// child's description is never projected and stays unvalidated.
+	video := MediaItem{ID: "video-1", MimeType: "video/mp4", Size: 1024, DurationMS: 20_000, AnalysisStatus: "ready", AltText: overLimit}
+	issues := Validate(ProviderInstagram, models.ContentProfileCarousel, "caption", "", "", []MediaItem{video}, nil)
+	requireNoIssueCode(t, issues, "alt_text_too_long")
+
+	// The catalogue and its media-item alt_text setting expose the same
+	// provider limit to clients.
+	capability, ok := Find(ProviderInstagram, models.ContentProfileImagePost)
+	require.True(t, ok)
+	require.Equal(t, providerlimits.InstagramAltTextMaxCharacters, capability.Content.AltText.MaxLength)
+	setting, ok := settingDefinitionForKey(capability.Settings, "alt_text")
+	require.True(t, ok, "Instagram capabilities must expose the media-item alt_text setting")
+	require.Equal(t, providerlimits.InstagramAltTextMaxCharacters, setting.Constraints.MaxLength)
+	require.Equal(t, SettingScopeMediaItem, setting.Scope)
+}
+
+func TestXTaggedUsersLimitAgreesAcrossAuthoringAndProviderValidation(t *testing.T) {
+	require.Equal(t, 10, providerlimits.XPostMaxTaggedUsers, "canonical X tagged users limit")
+	image := MediaItem{
+		ID: "image-1", MimeType: "image/jpeg", Size: 1024,
+		Width: 1080, Height: 1080, PublicURLReady: true, PublicURLStatus: 200,
+		URL: "https://cdn.example/image.jpg",
+	}
+	atLimit := "user01,user02,user03,user04,user05,user06,user07,user08,user09,user10"
+	overLimit := atLimit + ",user11"
+
+	issues := ValidateMediaSettings(ProviderX, "x.post", models.ContentProfileImagePost, image, map[string]any{"tagged_users": atLimit})
+	requireNoIssueCode(t, issues, "setting_max_items")
+
+	issues = ValidateMediaSettings(ProviderX, "x.post", models.ContentProfileImagePost, image, map[string]any{"tagged_users": overLimit})
+	requireIssueCode(t, issues, "setting_max_items")
+	require.Equal(t, "Tag people supports at most 10 values", issueMessage(issues, "setting_max_items"))
+
+	// The catalogue and the platform publish boundary share the same
+	// provider limit.
+	capability, ok := Find(ProviderX, models.ContentProfileImagePost)
+	require.True(t, ok)
+	setting, ok := settingDefinitionForKey(capability.Settings, "tagged_users")
+	require.True(t, ok, "X capabilities must expose the media-item tagged_users setting")
+	require.Equal(t, providerlimits.XPostMaxTaggedUsers, setting.Constraints.MaxItems)
+	require.Equal(t, SettingScopeMediaItem, setting.Scope)
+}
+
+func settingDefinitionForKey(settings []SettingDefinition, key string) (SettingDefinition, bool) {
+	for _, setting := range settings {
+		if setting.Key == key {
+			return setting, true
+		}
+	}
+	return SettingDefinition{}, false
+}
 
 func TestBlueskyVideoLimitsAgreeAcrossAuthoringAndProviderValidation(t *testing.T) {
 	platform.RegisterAllMediaValidators()
@@ -235,6 +327,109 @@ func TestResolveDoesNotInferStoryWithoutStoryPreset(t *testing.T) {
 	requireIssueCode(t, resolved.Issues, "format_selection_required")
 }
 
+func TestValidateInstagramRejectsUnsupportedCollaboratorCombinations(t *testing.T) {
+	video := MediaItem{ID: "video-1", MimeType: "video/mp4", Size: 1024, Width: 1080, Height: 1920, DurationMS: 20_000, AnalysisStatus: "ready", PublicURLReady: true, PublicURLStatus: 200}
+	for _, test := range []struct {
+		name, outputProfile, fallbackProfile, code string
+		media                                      []MediaItem
+		settings                                   map[string]any
+	}{
+		{
+			name: "trial reel collaborators", outputProfile: "instagram.reel", fallbackProfile: models.ContentProfileShortVideo,
+			media: []MediaItem{video}, settings: map[string]any{"is_trial_reel": true, "graduation_strategy": "MANUAL", "collaborators": "one"}, code: "instagram_trial_reel_collaborators_conflict",
+		},
+		{
+			name: "more than three collaborators", outputProfile: "instagram.reel", fallbackProfile: models.ContentProfileShortVideo,
+			media: []MediaItem{video}, settings: map[string]any{"collaborators": "one,two,three,four"}, code: "setting_max_items",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			issues := ValidateOutput(ProviderInstagram, test.outputProfile, test.fallbackProfile, "Caption", "", "", test.media, test.settings)
+			requireIssueCode(t, issues, test.code)
+		})
+	}
+}
+
+func TestValidateInstagramStoryWarnsWhenCollaboratorsWillBeOmitted(t *testing.T) {
+	story, found := Find(ProviderInstagram, models.ContentProfileStory)
+	require.True(t, found)
+	for _, setting := range story.Settings {
+		require.NotEqual(t, "collaborators", setting.Key)
+	}
+
+	issues := ValidateOutput(ProviderInstagram, "instagram.story", models.ContentProfileStory, "", "", "", []MediaItem{{
+		ID: "image-1", MimeType: "image/jpeg", Size: 1024, Width: 1080, Height: 1920, PublicURLReady: true, PublicURLStatus: 200,
+	}}, map[string]any{"collaborators": "one,two,three,four"})
+	requireIssueCode(t, issues, "instagram_story_collaborators_omitted")
+	for _, issue := range issues {
+		require.NotEqual(t, "error", issue.Severity)
+	}
+}
+
+func TestValidateOutputAcceptsResolvedLinkURL(t *testing.T) {
+	// Every format that allows text without attachments must accept the URI
+	// projection produced by the composer's canonical link choice.
+	for _, capability := range All() {
+		if capability.Media.MinCount > 0 {
+			continue
+		}
+		for _, mode := range []string{"post", "custom"} {
+			t.Run(capability.Provider+"/"+capability.Profile+"/"+mode, func(t *testing.T) {
+				body := "Read this: https://example.com/post"
+				source := map[string]any{"link": map[string]any{"destinations": map[string]any{"account": map[string]any{"mode": mode, "url": "https://example.com/custom"}}}}
+				settings, err := publicationlink.Resolve(source, "account", capability.Provider, body, nil, 0)
+				require.NoError(t, err)
+				issues := ValidateOutput(capability.Provider, capability.OutputProfile, capability.Profile, body, "A title", "", nil, settings)
+				for _, issue := range issues {
+					require.NotEqual(t, "unsupported_setting", issue.Code, issue.Message)
+				}
+			})
+		}
+	}
+}
+
+func TestValidateOutputPreservesTextFormatLinkChoices(t *testing.T) {
+	for _, profile := range []string{models.ContentProfileShortText, models.ContentProfileThread} {
+		for _, mode := range []string{"post", "custom", "no link"} {
+			t.Run(profile+"/"+mode, func(t *testing.T) {
+				body := "Read https://example.com/post"
+				choiceMode := mode
+				if mode == "no link" {
+					body, choiceMode = "A text update", "post"
+				}
+				source := map[string]any{"link": map[string]any{"destinations": map[string]any{"account": map[string]any{"mode": choiceMode, "url": "https://example.com/custom"}}}}
+				settings, err := publicationlink.Resolve(source, "account", ProviderLinkedIn, body, nil, 0)
+				require.NoError(t, err)
+				wantURL := "https://example.com/post"
+				switch mode {
+				case "custom":
+					wantURL = "https://example.com/custom"
+				case "no link":
+					wantURL = ""
+				}
+				require.Equal(t, wantURL, settings["url"])
+				output := "linkedin.post"
+				if profile == models.ContentProfileThread {
+					output = "linkedin.thread"
+				}
+				resolved := Resolve(ProviderLinkedIn, ResolveInput{RequestedOutputProfile: output, SourceURL: wantURL, Segments: []ResolveSegment{{Body: body}}})
+				require.True(t, resolved.Compatible, "%v", resolved.Issues)
+				require.Equal(t, output, resolved.OutputProfile)
+				for _, issue := range ValidateOutput(ProviderLinkedIn, output, profile, body, "", "", nil, settings) {
+					require.NotEqual(t, "error", issue.Severity, issue.Message)
+				}
+			})
+		}
+	}
+}
+
+func TestValidateOutputQuoteWithURLRetainsEntitlementError(t *testing.T) {
+	issues := ValidateOutput(ProviderX, "x.post", models.ContentProfileShortText, "Read https://example.com/post", "", "", nil,
+		map[string]any{"url": "https://example.com/post", "quote_url": "https://x.com/person/status/123"})
+	requireNoIssueCode(t, issues, "unsupported_setting")
+	requireIssueCode(t, issues, "setting_unavailable")
+}
+
 func TestResolveRequiresFormatOnlyForGenuinelyAmbiguousDestinations(t *testing.T) {
 	image := MediaItem{ID: "image-1", MimeType: "image/jpeg", Size: 1024, Width: 1080, Height: 1080, PublicURLReady: true, PublicURLStatus: 200}
 	video := MediaItem{ID: "video-1", MimeType: "video/mp4", Size: 1024, Width: 1080, Height: 1920, DurationMS: 20_000, AnalysisStatus: "ready", PublicURLReady: true, PublicURLStatus: 200}
@@ -266,6 +461,18 @@ func TestResolveRequiresFormatOnlyForGenuinelyAmbiguousDestinations(t *testing.T
 	}
 }
 
+func TestValidateTikTokPhotoShortSideLimit(t *testing.T) {
+	issues := ValidateOutput(ProviderTikTok, "tiktok.photo", models.ContentProfileCarousel, "Caption", "", "", []MediaItem{
+		{ID: "portrait", MimeType: "image/jpeg", Size: 1024, Width: 1080, Height: 1440, PublicURLReady: true, PublicURLStatus: 200},
+		{ID: "oversized", MimeType: "image/jpeg", Size: 1024, Width: 2172, Height: 2896, PublicURLReady: true, PublicURLStatus: 200},
+	}, map[string]any{"content_posting_method": "DIRECT_POST", "privacy_level": "SELF_ONLY", "music_usage_confirmed": true})
+	require.Len(t, issues, 1)
+	require.Equal(t, "media_short_side_max", issues[0].Code)
+	require.Equal(t, "oversized", issues[0].MediaID)
+	require.Contains(t, issues[0].Message, "2172x2896")
+	require.Contains(t, issues[0].Message, "1080 pixels on the shorter side")
+}
+
 func TestBlueskyImageValidationEnforcesProviderByteLimit(t *testing.T) {
 	for _, test := range []struct {
 		name      string
@@ -274,6 +481,7 @@ func TestBlueskyImageValidationEnforcesProviderByteLimit(t *testing.T) {
 	}{
 		{name: "at limit", size: 2_000_000},
 		{name: "over limit", size: 2_000_001, wantIssue: true},
+		{name: "screenshot", size: 4_203_031, wantIssue: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			issues := Validate(
@@ -288,6 +496,12 @@ func TestBlueskyImageValidationEnforcesProviderByteLimit(t *testing.T) {
 
 			if test.wantIssue {
 				requireIssueCode(t, issues, "media_size")
+				for _, issue := range issues {
+					if issue.Code == "media_size" {
+						require.Equal(t, map[string]any{"size_bytes": test.size, "max_size_bytes": int64(2_000_000)}, issue.Parameters)
+						require.Contains(t, issue.Message, "MB")
+					}
+				}
 				return
 			}
 			requireNoIssueCode(t, issues, "media_size")
@@ -402,10 +616,10 @@ func TestApplyAccountConstraintsRevalidatesXTextAndVideo(t *testing.T) {
 		Media: []MediaItem{{
 			ID:             "video-1",
 			MimeType:       "video/mp4",
-			Size:           600 * 1024 * 1024,
+			Size:           9 * 1024 * 1024 * 1024,
 			Width:          1920,
 			Height:         1080,
-			DurationMS:     180_000,
+			DurationMS:     1_500_000,
 			AnalysisStatus: "ready",
 		}},
 	}}
@@ -419,8 +633,8 @@ func TestApplyAccountConstraintsRevalidatesXTextAndVideo(t *testing.T) {
 
 	ApplyAccountConstraints(&resolved, AccountConstraintInput{Segments: segments, Constraints: map[string]any{
 		"text_limit":                 280,
-		"max_video_duration_seconds": 140,
-		"max_video_size_bytes":       int64(512 * 1024 * 1024),
+		"max_video_duration_seconds": 20 * 60,
+		"max_video_size_bytes":       int64(8 * 1024 * 1024 * 1024),
 	}})
 
 	require.Contains(t, issueCodes(resolved.Issues), "text_too_long")
@@ -430,7 +644,7 @@ func TestApplyAccountConstraintsRevalidatesXTextAndVideo(t *testing.T) {
 
 	ApplyAccountConstraints(&resolved, AccountConstraintInput{Segments: segments, Constraints: map[string]any{
 		"text_limit":                 25_000,
-		"max_video_duration_seconds": 4 * 60 * 60,
+		"max_video_duration_seconds": 125 * 60,
 		"max_video_size_bytes":       int64(16 * 1024 * 1024 * 1024),
 	}})
 	require.NotContains(t, issueCodes(resolved.Issues), "text_too_long")
@@ -497,7 +711,7 @@ func TestVideoCapabilitiesUseSafeProviderSpecificLimits(t *testing.T) {
 		maxDuration  int
 		allowedMIMEs []string
 	}{
-		{ProviderX, models.ContentProfileLongVideo, 512 * 1024 * 1024, 140, []string{"video/mp4"}},
+		{ProviderX, models.ContentProfileLongVideo, 8 * 1024 * 1024 * 1024, 20 * 60, []string{"video/mp4"}},
 		{ProviderMastodon, models.ContentProfileLongVideo, 99 * 1024 * 1024, 0, []string{"video/mp4", "video/quicktime", "video/webm"}},
 		{ProviderLinkedIn, models.ContentProfileLongVideo, 500 * 1024 * 1024, 30 * 60, []string{"video/mp4"}},
 		{ProviderTikTok, models.ContentProfileShortVideo, 4 * 1024 * 1024 * 1024, 10 * 60, []string{"video/mp4", "video/quicktime", "video/webm"}},
@@ -511,7 +725,7 @@ func TestVideoCapabilitiesUseSafeProviderSpecificLimits(t *testing.T) {
 			require.Equal(t, tt.maxBytes, capability.Media.MaxSizeBytes)
 			require.Equal(t, tt.maxDuration, capability.Media.MaxDurationSeconds)
 			require.ElementsMatch(t, tt.allowedMIMEs, capability.Media.AllowedMIMEs)
-			require.Equal(t, "2026-09-12.1", capability.CapabilityRevision)
+			require.Equal(t, "2026-09-26.1", capability.CapabilityRevision)
 		})
 	}
 }
@@ -533,14 +747,21 @@ func TestApplyAccountConstraintsRefreshesVideoMIMEsAndSize(t *testing.T) {
 		Segments: segments,
 	})
 	require.Contains(t, issueCodes(resolved.Issues), "media_size")
-	require.NotContains(t, issueCodes(resolved.Issues), "media_type")
+	require.NotContains(t, issueCodes(resolved.Issues), "media_mime")
+
+	ApplyAccountConstraints(&resolved, AccountConstraintInput{Segments: segments, Constraints: map[string]any{
+		"max_video_size_bytes": int64(200 * 1024 * 1024),
+		"allowed_mimes":        []any{"video/mp4"},
+	}})
+	require.NotContains(t, issueCodes(resolved.Issues), "media_size")
+	require.Contains(t, issueCodes(resolved.Issues), "media_mime")
 
 	ApplyAccountConstraints(&resolved, AccountConstraintInput{Segments: segments, Constraints: map[string]any{
 		"max_video_size_bytes": int64(200 * 1024 * 1024),
 		"allowed_mimes":        []any{"video/mp4", "video/webm"},
 	}})
 	require.NotContains(t, issueCodes(resolved.Issues), "media_size")
-	require.NotContains(t, issueCodes(resolved.Issues), "media_type")
+	require.NotContains(t, issueCodes(resolved.Issues), "media_mime")
 	require.Contains(t, resolved.Media.AllowedMIMEs, "video/webm")
 }
 
@@ -572,6 +793,70 @@ func TestValidateBlocksMastodonPollWithMedia(t *testing.T) {
 	requireIssueCode(t, issues, "mastodon_poll_media_conflict")
 }
 
+func TestValidateAllowsInlineURLsWithMedia(t *testing.T) {
+	for _, test := range []struct {
+		provider        string
+		outputProfile   string
+		fallbackProfile string
+		media           []MediaItem
+	}{
+		{ProviderFacebook, "facebook.photo", models.ContentProfileImagePost, []MediaItem{{ID: "image-1", MimeType: "image/jpeg", Size: 1024}}},
+		{ProviderInstagram, "instagram.feed", models.ContentProfileImagePost, []MediaItem{{ID: "image-1", MimeType: "image/jpeg", Size: 1024}}},
+		{ProviderThreads, "threads.post", models.ContentProfileImagePost, []MediaItem{{ID: "image-1", MimeType: "image/jpeg", Size: 1024}}},
+		{ProviderX, "x.post", models.ContentProfileImagePost, []MediaItem{{ID: "image-1", MimeType: "image/jpeg", Size: 1024}}},
+		{ProviderMastodon, "mastodon.post", models.ContentProfileImagePost, []MediaItem{{ID: "image-1", MimeType: "image/jpeg", Size: 1024}}},
+		{ProviderPixelfed, "pixelfed.post", models.ContentProfileImagePost, []MediaItem{{ID: "image-1", MimeType: "image/jpeg", Size: 1024}}},
+		{ProviderLinkedIn, "linkedin.multi_image", models.ContentProfileCarousel, []MediaItem{
+			{ID: "image-1", MimeType: "image/jpeg", Size: 1024},
+			{ID: "image-2", MimeType: "image/jpeg", Size: 1024},
+		}},
+	} {
+		t.Run(test.provider, func(t *testing.T) {
+			issues := ValidateOutput(test.provider, test.outputProfile, test.fallbackProfile, "Caption https://example.com", "", "", test.media, map[string]any{
+				"url": "https://example.com",
+			})
+			requireNoIssueCode(t, issues, "unsupported_setting")
+		})
+	}
+}
+
+func TestNormalizeMediaTextLinkSettingsPreservesInput(t *testing.T) {
+	settings := map[string]any{"url": "https://example.com", "reply_settings": "everyone"}
+
+	normalized := NormalizeMediaTextLinkSettings(ProviderX, 1, settings)
+	require.Equal(t, map[string]any{"reply_settings": "everyone"}, normalized)
+	require.Equal(t, "https://example.com", settings["url"])
+
+	withoutMedia := NormalizeMediaTextLinkSettings(ProviderX, 0, settings)
+	require.Equal(t, settings, withoutMedia)
+	unknownProvider := NormalizeMediaTextLinkSettings(ProviderPinterest, 1, settings)
+	require.Equal(t, settings, unknownProvider)
+}
+
+func TestResolveDropsStaleNativeLinkSettingsOutsideLinkShare(t *testing.T) {
+	thread, ok := Find(ProviderThreads, models.ContentProfileThread)
+	require.True(t, ok)
+	resolved := Resolve(ProviderThreads, ResolveInput{
+		CreationPreset:         IntentThread,
+		RequestedOutputProfile: thread.OutputProfile,
+		Settings:               map[string]any{"url": "https://example.com", "reply_control": "everyone"},
+		Segments:               []ResolveSegment{{ID: "segment-1", Body: "A thread without a link"}},
+	})
+
+	require.Equal(t, models.ContentProfileThread, resolved.Profile)
+	requireNoIssueCode(t, resolved.Issues, "unsupported_setting")
+
+	linkResolved := Resolve(ProviderThreads, ResolveInput{
+		CreationPreset: IntentPost,
+		SourceURL:      "https://example.com",
+		Settings:       map[string]any{"url": "https://example.com"},
+		Segments:       []ResolveSegment{{ID: "segment-1", Body: "A link share"}},
+	})
+
+	require.Equal(t, models.ContentProfileLinkShare, linkResolved.Profile)
+	requireNoIssueCode(t, linkResolved.Issues, "unsupported_setting")
+}
+
 func TestProviderSettingsRejectCrossProviderKeys(t *testing.T) {
 	t.Parallel()
 
@@ -597,6 +882,41 @@ func TestValidateFlagsUnsupportedProviderSettings(t *testing.T) {
 	requireIssueCode(t, issues, "unsupported_setting")
 }
 
+// TestValidateOutputAcceptsAuthoredMentionsOutsideProviderCatalog guards the
+// shared authored-metadata boundary for every provider and output format.
+func TestValidateOutputAcceptsAuthoredMentionsOutsideProviderCatalog(t *testing.T) {
+	t.Parallel()
+
+	for _, capability := range All() {
+		t.Run(capability.Provider+"/"+capability.Profile+"/cleared", func(t *testing.T) {
+			issues := ValidateOutput(capability.Provider, capability.OutputProfile, capability.Profile,
+				"Thanks for the idea!", "A title", "", nil,
+				map[string]any{"mentions": map[string]any{"version": 1, "spans": []any{}}})
+			for _, issue := range issues {
+				require.False(t, issue.Code == "unsupported_setting" && issue.Field == "mentions", issue.Message)
+			}
+		})
+	}
+	for _, test := range []struct {
+		provider string
+		target   map[string]any
+	}{
+		{ProviderBluesky, map[string]any{"provider": "bluesky", "kind": "person", "id": "did:plc:ewvi7nxzyoun6zhxrhs64oiz"}},
+		{ProviderMastodon, map[string]any{"provider": "mastodon", "kind": "person", "id": "123", "handle": "alice", "authority": "https://mastodon.social"}},
+		{ProviderLinkedIn, map[string]any{"provider": "linkedin", "kind": "page", "id": "urn:li:organization:123"}},
+	} {
+		t.Run(test.provider+"/selected", func(t *testing.T) {
+			settings := map[string]any{"mentions": map[string]any{
+				"version": 1,
+				"spans":   []any{map[string]any{"start": 8, "end": 14, "text": "@alice", "target": test.target}},
+			}}
+			issues := ValidateOutput(test.provider, test.provider+".post", models.ContentProfileShortText,
+				"🚀 Hi @alice", "", "", nil, settings)
+			requireNoIssueCode(t, issues, "unsupported_setting")
+		})
+	}
+}
+
 func TestValidateRequiresExplicitConsentWithoutGenericQuotaWarnings(t *testing.T) {
 	tiktokIssues := Validate(ProviderTikTok, models.ContentProfileShortVideo, "caption", "", "", []MediaItem{{
 		ID:              "video-1",
@@ -608,7 +928,7 @@ func TestValidateRequiresExplicitConsentWithoutGenericQuotaWarnings(t *testing.T
 		URL:             "https://cdn.example/video.mp4",
 	}}, map[string]any{"content_posting_method": "DIRECT_POST", "privacy_level": "SELF_ONLY"})
 
-	requireIssueCode(t, tiktokIssues, "setting_required")
+	requireIssueForField(t, tiktokIssues, "setting_required", "music_usage_confirmed")
 
 	youtubeIssues := Validate(ProviderYouTube, models.ContentProfileLongVideo, "caption", "Title", "", []MediaItem{{
 		ID:             "video-1",
@@ -703,6 +1023,7 @@ func requireIssueForField(t *testing.T, issues []ValidationIssue, code, field st
 	require.Failf(t, "missing validation issue", "code %q for field %q not found in %#v", code, field, issues)
 }
 
+// requireNoIssueCode fails the test when any validation issue uses the given code.
 func requireNoIssueCode(t *testing.T, issues []ValidationIssue, code string) {
 	t.Helper()
 	for _, issue := range issues {
@@ -736,4 +1057,59 @@ func TestThreadVideoAttachmentsAgreeWithPublisher(t *testing.T) {
 			})
 		}
 	}
+}
+
+func TestYouTubeDescriptionValidationMatchesUploadContract(t *testing.T) {
+	for _, fixture := range []struct {
+		name, text string
+		invalid    bool
+	}{
+		{"accent boundary", strings.Repeat("é", 2500), false},
+		{"accent overflow", strings.Repeat("é", 2501), true},
+		{"CJK boundary", strings.Repeat("界", 1666) + "ab", false},
+		{"CJK overflow", strings.Repeat("界", 1667), true},
+		{"emoji boundary", strings.Repeat("😀", 1250), false},
+		{"emoji overflow", strings.Repeat("😀", 1251), true},
+		{"opening bracket", "Launch <now", true}, {"closing bracket", "Launch now>", true},
+	} {
+		for _, source := range []string{"body", "description", "setting"} {
+			t.Run(fixture.name+"/"+source, func(t *testing.T) {
+				body, description := "", ""
+				settings := map[string]any{"title": "Launch", "privacy": "private", "category_id": "22"}
+				switch source {
+				case "body":
+					body = fixture.text
+				case "description":
+					description = fixture.text
+				case "setting":
+					settings["description"] = fixture.text
+				}
+				issues := Validate(ProviderYouTube, models.ContentProfileLongVideo, body, "Launch", description, []MediaItem{{ID: "video", MimeType: "video/mp4", Size: 1024, AnalysisStatus: "ready"}}, settings)
+				var relevant []ValidationIssue
+				for _, issue := range issues {
+					if issue.Field == "body" || issue.Field == "description" || issue.Field == "settings.description" {
+						relevant = append(relevant, issue)
+					}
+				}
+				if fixture.invalid {
+					require.NotEmpty(t, relevant)
+				} else {
+					require.Empty(t, relevant)
+				}
+			})
+		}
+	}
+}
+
+func TestYouTubeExplicitDescriptionWinsOverDestinationSetting(t *testing.T) {
+	issues := Validate(ProviderYouTube, models.ContentProfileLongVideo, "Body", "Title", strings.Repeat("😀", 1251), []MediaItem{{ID: "video", MimeType: "video/mp4", Size: 1024, AnalysisStatus: "ready"}}, map[string]any{"privacy": "private", "title": "Title", "category_id": "22", "description": "Default description"})
+	requireIssueCode(t, issues, "description_invalid")
+}
+
+func TestAccountImageLimitsReachMediaValidation(t *testing.T) {
+	resolved := Resolve(ProviderMastodon, ResolveInput{RequestedOutputProfile: "mastodon.post"})
+	ApplyAccountConstraints(&resolved, AccountConstraintInput{Constraints: map[string]any{"max_image_size_bytes": int64(1000), "max_image_pixels": int64(10000)}, Segments: []ResolveSegment{{Media: []MediaItem{{ID: "image", MimeType: "image/png", Size: 1001, Width: 200, Height: 100}}}}})
+	require.Equal(t, int64(1000), resolved.Media.MaxImageSizeBytes)
+	requireIssueCode(t, resolved.Issues, "media_size")
+	requireIssueCode(t, resolved.Issues, "media_pixels_max")
 }

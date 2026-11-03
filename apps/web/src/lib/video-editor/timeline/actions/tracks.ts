@@ -13,6 +13,7 @@ import {
 } from '../utils/track-groups';
 import { emptyTrackIdsForRemoval } from '../track-removal';
 import { pruneOrphanedTransitions } from './transitions.svelte';
+import { reorderTrackList } from '../track-reorder';
 
 export type TrackKind = NonNullable<TimelineTrack['kind']>;
 
@@ -52,11 +53,25 @@ export function addTrack(kind: TrackKind, name: string): string {
 	});
 }
 
-export function createTrackGroup(trackIds: readonly string[], name: string): string | null {
-	const uniqueIds = [...new Set(trackIds)];
+function tracksForNewGroup(trackIds: readonly string[]): TimelineTrack[] {
+	const ids = new Set(trackIds);
 	const selected = timelineStore.tracks
-		.filter((track) => uniqueIds.includes(track.id) && !isTrackGroup(track))
+		.filter((track) => ids.has(track.id) && !isTrackGroup(track))
 		.sort((left, right) => left.order - right.order);
+	const parentId = selected[0]?.parentTrackId;
+	if (!parentId || selected.some((track) => track.parentTrackId !== parentId)) return selected;
+	const parent = timelineStore.tracks.find((track) => track.id === parentId);
+	if (!parent || !isTrackGroup(parent)) return selected;
+	// Grouping all of a group's children again must preserve its identity and state.
+	return trackChildren(timelineStore.tracks, parentId).length === selected.length ? [] : selected;
+}
+
+export function canCreateTrackGroup(trackIds: readonly string[]): boolean {
+	return tracksForNewGroup(trackIds).length > 0;
+}
+
+export function createTrackGroup(trackIds: readonly string[], name: string): string | null {
+	const selected = tracksForNewGroup(trackIds);
 	if (selected.length === 0) return null;
 	return execute('CREATE_TRACK_GROUP', () => {
 		const groupId = crypto.randomUUID();
@@ -112,37 +127,19 @@ export function renameTrack(id: string, name: string): boolean {
 export function moveTrack(id: string, direction: -1 | 1): boolean {
 	const track = timelineStore.tracks.find((candidate) => candidate.id === id);
 	if (!track) return false;
-	const ordered = [...timelineStore.tracks].sort((left, right) => left.order - right.order);
-	if (track.parentTrackId) {
-		const siblings = trackChildren(ordered, track.parentTrackId);
-		const index = siblings.findIndex((candidate) => candidate.id === id);
-		const other = siblings[index + direction];
-		if (!other) return false;
-		return execute('MOVE_TRACK', () => {
-			timelineStore._setTracks(
-				ordered.map((candidate) =>
-					candidate.id === track.id
-						? { ...candidate, order: other.order }
-						: candidate.id === other.id
-							? { ...candidate, order: track.order }
-							: candidate
-				)
-			);
-			return true;
-		});
-	}
+	const siblings = timelineStore.tracks
+		.filter((candidate) => candidate.parentTrackId === track.parentTrackId)
+		.toSorted((left, right) => left.order - right.order);
+	const target = siblings[siblings.findIndex((candidate) => candidate.id === id) + direction];
+	return target ? moveTrackTo(id, target.id) : false;
+}
 
-	const topLevel = ordered.filter((candidate) => !candidate.parentTrackId);
-	const index = topLevel.findIndex((candidate) => candidate.id === id);
-	const targetIndex = index + direction;
-	if (index < 0 || targetIndex < 0 || targetIndex >= topLevel.length) return false;
-	const reordered = [...topLevel];
-	[reordered[index], reordered[targetIndex]] = [reordered[targetIndex]!, reordered[index]!];
-	const flattened = reordered.flatMap((candidate) =>
-		isTrackGroup(candidate) ? [candidate, ...trackChildren(ordered, candidate.id)] : [candidate]
-	);
-	return execute('MOVE_TRACK_BLOCK', () => {
-		timelineStore._setTracks(renumberTrackOrder(flattened));
+export function moveTrackTo(id: string, targetId: string): boolean {
+	const next = reorderTrackList(timelineStore.tracks, id, targetId);
+	if (!next) return false;
+	const track = timelineStore.tracks.find((track) => track.id === id)!;
+	return execute(track.parentTrackId ? 'MOVE_TRACK' : 'MOVE_TRACK_BLOCK', () => {
+		timelineStore._setTracks(next);
 		return true;
 	});
 }

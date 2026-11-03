@@ -59,7 +59,7 @@ function paperItem(): TimelineItem {
 		trackId: 'visual',
 		from: 0,
 		durationInFrames: 60,
-		label: 'Auno paper hero',
+		label: 'dopost paper hero',
 		type: 'shape',
 		shapeType: 'rectangle',
 		fillEnabled: true,
@@ -70,12 +70,20 @@ function paperItem(): TimelineItem {
 			x: {
 				frames: [0, 40, 59],
 				values: [-10, 0, 0],
-				ids: ['auno:paper-jitter:scene-paper-hero:x:0', 'auno:assembly:scene-paper-hero:x:1', 'auno:assembly:scene-paper-hero:x:hold']
+				ids: [
+					'dopost:paper-jitter:scene-paper-hero:x:0',
+					'dopost:assembly:scene-paper-hero:x:1',
+					'dopost:assembly:scene-paper-hero:x:hold'
+				]
 			},
 			rotation: {
 				frames: [0, 40, 59],
 				values: [-2, 0, 0],
-				ids: ['auno:paper-jitter:scene-paper-hero:rotation:0', 'auno:assembly:scene-paper-hero:rotation:1', 'auno:assembly:scene-paper-hero:rotation:hold']
+				ids: [
+					'dopost:paper-jitter:scene-paper-hero:rotation:0',
+					'dopost:assembly:scene-paper-hero:rotation:1',
+					'dopost:assembly:scene-paper-hero:rotation:hold'
+				]
 			}
 		}
 	};

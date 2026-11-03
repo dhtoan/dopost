@@ -1,5 +1,5 @@
 <script lang="ts">
-	import PlatformIcon from '$lib/components/platform-icon.svelte';
+	import SocialAccountAvatar from '$lib/components/social-account-avatar.svelte';
 	import type { components } from '$lib/api/types';
 	import { Button } from '$lib/components/ui/button';
 	import { getLocaleTag } from '$lib/i18n';
@@ -15,12 +15,13 @@
 	type ApiRendition = components['schemas']['RenditionResponse'];
 	type Rendition = Pick<
 		ApiRendition,
-		'id' | 'platform' | 'target_key' | 'status' | 'external_url' | 'delivery'
+		'id' | 'platform' | 'target_key' | 'status' | 'external_url' | 'delivery' | 'account'
 	>;
 
 	let {
 		rendition,
 		destinationLabel,
+		accountAvatarUrl = '',
 		variant = 'card',
 		retrying = false,
 		onRetry,
@@ -28,6 +29,7 @@
 	}: {
 		rendition: Rendition;
 		destinationLabel?: string;
+		accountAvatarUrl?: string | null;
 		variant?: 'card' | 'compact';
 		retrying?: boolean;
 		onRetry?: (renditionID: string) => void | Promise<void>;
@@ -38,6 +40,14 @@
 	const externalURL = $derived(delivery?.external_url || rendition.external_url);
 	const presentedState = $derived(delivery?.state || rendition.status);
 	const recoveryAction = $derived(deliveryRecoveryAction(delivery, rendition.status));
+	// Prefer the canonical server-projected destination identity; the explicit
+	// avatar prop remains only as a fallback for callers whose rendition type
+	// carries no projection (action outcomes) or cached pages read before it.
+	const projectedPlatform = $derived(rendition.account?.platform || rendition.platform);
+	const projectedName = $derived(
+		rendition.account?.display_name || destinationLabel || getPlatformName(projectedPlatform)
+	);
+	const projectedAvatarUrl = $derived(rendition.account?.avatar_url ?? accountAvatarUrl ?? '');
 
 	function formatAttempt(value: string) {
 		return new Intl.DateTimeFormat(getLocaleTag(), {
@@ -53,11 +63,17 @@
 		variant === 'card' ? 'rounded-xl border bg-card p-4' : 'py-2.5'
 	]}
 >
-	<PlatformIcon platform={rendition.platform} class="mt-0.5 size-5 shrink-0" />
+	<SocialAccountAvatar
+		name={projectedName}
+		platform={projectedPlatform}
+		avatarUrl={projectedAvatarUrl}
+		size="sm"
+		class="mt-0.5 shrink-0"
+	/>
 	<div class="min-w-0 flex-1">
-		<p class="font-medium">{destinationLabel || getPlatformName(rendition.platform)}</p>
-		{#if destinationLabel}
-			<p class="mt-0.5 text-xs text-muted-foreground">{getPlatformName(rendition.platform)}</p>
+		<p class="font-medium">{projectedName}</p>
+		{#if destinationLabel || rendition.account?.display_name}
+			<p class="mt-0.5 text-xs text-muted-foreground">{getPlatformName(projectedPlatform)}</p>
 		{/if}
 		<p class={['mt-0.5 text-sm', deliveryStatusClass(presentedState)]}>
 			{deliveryStateLabel(presentedState)}

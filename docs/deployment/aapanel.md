@@ -1,12 +1,12 @@
-# Deploy Auno Studio on aaPanel
+# Deploy dopost on aaPanel
 
-Auno Studio Web 2.0 keeps the OpenPost single-binary self-host model and exposes the app only on loopback. aaPanel/Nginx owns the public domain and TLS certificate.
+dopost Web 2.0 keeps the single-binary self-host model and exposes the app only on loopback. aaPanel/Nginx owns the public domain and TLS certificate.
 
 ## Default deployment
 
 The default profile uses:
 
-- one `auno-studio` container;
+- one `dopost` container;
 - SQLite at `/data/db/auno-studio.db`;
 - local media at `/data/media`;
 - a named Docker volume for `/data`;
@@ -31,18 +31,18 @@ Start the app:
 docker compose -f deploy/aapanel/docker-compose.yml up -d
 ```
 
-The app binds to `127.0.0.1:8080` by default. Change `AUNO_HOST_PORT` if that port is already used.
+The app binds to `127.0.0.1:8080` by default. Change `DOPOST_HOST_PORT` if that port is already used.
 
 ## aaPanel reverse proxy
 
 1. Create the site/domain in aaPanel.
 2. Enable SSL/TLS for the domain.
-3. Add a reverse proxy to `http://127.0.0.1:8080` (or your `AUNO_HOST_PORT`).
+3. Add a reverse proxy to `http://127.0.0.1:8080` (or your `DOPOST_HOST_PORT`).
 4. Preserve the original `Host`, `X-Forwarded-Proto`, and client forwarding headers.
 5. Do not expose PostgreSQL, optional AI workers, or storage administration ports publicly.
 6. Set `OPENPOST_APP_URL` and `OPENPOST_PUBLIC_URL` to the exact HTTPS public origin before connecting OAuth providers or passkeys.
 
-The `OPENPOST_*` configuration prefix is intentionally retained for backend compatibility with the imported OpenPost foundation. Product-facing branding is Auno Studio.
+The `OPENPOST_*` configuration prefix is intentionally retained for backend compatibility with the upstream foundation. Product-facing branding is dopost.
 
 ## Optional PostgreSQL
 
@@ -76,10 +76,10 @@ For Cloudflare R2 or MinIO, use their S3-compatible endpoint. MinIO commonly nee
 
 ## Updates
 
-Use pinned Auno Studio image tags for production rather than relying permanently on `latest`:
+Use pinned dopost image tags for production rather than relying permanently on `latest`:
 
 ```dotenv
-AUNO_IMAGE_TAG=2.0.0-alpha.1
+DOPOST_IMAGE_TAG=2.0.0-alpha.1
 ```
 
 Before an update, back up `/data` and all encryption/signing secrets. Pull the new image, recreate the container, then keep the previous image tag available for rollback until the new release is accepted.

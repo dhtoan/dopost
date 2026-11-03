@@ -119,7 +119,7 @@ export function createSnapshotService(runtime: SnapshotServiceRuntime) {
 		const snapshot: ProjectSnapshot = {
 			version: PROJECT_SNAPSHOT_VERSION,
 			exportedAt: new Date().toISOString(),
-			editorVersion: options.editorVersion ?? 'OpenPost',
+			editorVersion: options.editorVersion ?? 'dopost',
 			project: serializeProject(project, options.stripViewState !== false),
 			mediaReferences
 		};
@@ -142,7 +142,7 @@ export function createSnapshotService(runtime: SnapshotServiceRuntime) {
 		const migrated = migrateProjectDocument(validated.project);
 		if (migrated.warnings.some((warning) => warning.code === 'FUTURE_SCHEMA')) {
 			throw new Error(
-				`This project uses schema ${migrated.fromVersion}. Update OpenPost before importing it.`
+				`This project uses schema ${migrated.fromVersion}. Update dopost before importing it.`
 			);
 		}
 		warnings.push(...migrated.warnings.map((warning) => warning.message));

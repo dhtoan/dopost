@@ -6,21 +6,64 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"strings"
 	"time"
+
+	"github.com/openpost/backend/internal/netguard"
 )
 
 var httpClient = newDefaultHTTPClient()
-var defaultPlatformHTTPClient = httpClient
+
+type TransportFailureKind string
+
+const (
+	TransportFailureConnection TransportFailureKind = "connection"
+	TransportFailureTimeout    TransportFailureKind = "timeout"
+	TransportFailureCanceled   TransportFailureKind = "canceled"
+)
+
+// TransportError classifies a failed provider request without retaining the
+// request URL, which may contain credentials in its query string.
+type TransportError struct {
+	Kind TransportFailureKind
+}
+
+func (e *TransportError) Error() string {
+	switch e.Kind {
+	case TransportFailureTimeout:
+		return "provider request timed out"
+	case TransportFailureCanceled:
+		return "provider request was canceled"
+	default:
+		return "provider request transport failed"
+	}
+}
+
+func sanitizeTransportError(err error) *TransportError {
+	if errors.Is(err, context.Canceled) {
+		return &TransportError{Kind: TransportFailureCanceled}
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return &TransportError{Kind: TransportFailureTimeout}
+	}
+	var networkErr net.Error
+	if errors.As(err, &networkErr) && networkErr.Timeout() {
+		return &TransportError{Kind: TransportFailureTimeout}
+	}
+	return &TransportError{Kind: TransportFailureConnection}
+}
 
 func newDefaultHTTPClient() *http.Client {
-	transport := http.DefaultTransport.(*http.Transport).Clone()
+	policy := netguard.URLPolicy{Label: "provider URL", AllowedSchemes: []string{"https", "http"}, AllowCustomPorts: true}
+	transport := netguard.NewTransport(policy)
 	if certFile := strings.TrimSpace(os.Getenv("SSL_CERT_FILE")); certFile != "" {
 		if certPEM, err := os.ReadFile(certFile); err == nil {
 			roots, poolErr := x509.SystemCertPool()
@@ -39,7 +82,23 @@ func newDefaultHTTPClient() *http.Client {
 			}
 		}
 	}
-	return &http.Client{Transport: transport, Timeout: 30 * time.Second}
+	return &http.Client{Transport: transport, Timeout: 30 * time.Second, CheckRedirect: providerRedirectPolicy(policy)}
+}
+
+func providerRedirectPolicy(policy netguard.URLPolicy) func(*http.Request, []*http.Request) error {
+	return func(req *http.Request, via []*http.Request) error {
+		if len(via) >= 10 {
+			return fmt.Errorf("provider redirect limit exceeded")
+		}
+		if len(via) > 0 {
+			original := via[0]
+			credentialed := len(original.Header) > 0 || original.URL.Query().Get("access_token") != "" || original.URL.User != nil || original.Body != nil
+			if credentialed && (req.URL.Scheme != original.URL.Scheme || req.URL.Host != original.URL.Host) {
+				return fmt.Errorf("credential-bearing provider redirect changed origin")
+			}
+		}
+		return netguard.ValidateURL(req.Context(), req.URL, policy)
+	}
 }
 
 // DoRequest executes an HTTP request and returns the response body.
@@ -70,12 +129,15 @@ func doRequestWithClient(ctx context.Context, client *http.Client, method, url s
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("request failed: %w", err)
+		return nil, sanitizeTransportError(err)
 	}
 	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(resp.Body)
+	respBody, err := readProviderBody(resp)
 	if err != nil {
+		if isResponseTooLarge(err) {
+			return nil, err
+		}
 		return nil, fmt.Errorf("reading response: %w", err)
 	}
 
@@ -84,6 +146,44 @@ func doRequestWithClient(ctx context.Context, client *http.Client, method, url s
 	}
 
 	return respBody, nil
+}
+
+// maxProviderResponseBytes is the default bound for provider response bodies.
+// Provider API responses are small JSON or metadata payloads; anything larger
+// indicates a misbehaving or compromised endpoint, so it is rejected before
+// it can exhaust memory.
+const maxProviderResponseBytes = 16 * 1024 * 1024
+
+// responseTooLargeError reports a provider body over the bound. Its message
+// keeps the historical "provider response exceeds N bytes" shape so every
+// provider surfaces the same failure.
+type responseTooLargeError struct {
+	limit int
+}
+
+func (e *responseTooLargeError) Error() string {
+	return fmt.Sprintf("provider response exceeds %d bytes", e.limit)
+}
+
+func isResponseTooLarge(err error) bool {
+	var tooLarge *responseTooLargeError
+	return errors.As(err, &tooLarge)
+}
+
+// readProviderBody reads a provider response body bounded by
+// maxProviderResponseBytes. I/O failures are returned unwrapped so callers
+// keep their existing error prefixes; oversized bodies return a
+// *responseTooLargeError that callers must pass through unchanged to preserve
+// the shared error shape.
+func readProviderBody(resp *http.Response) ([]byte, error) {
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxProviderResponseBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(body) > maxProviderResponseBytes {
+		return nil, &responseTooLargeError{limit: maxProviderResponseBytes}
+	}
+	return body, nil
 }
 
 // DoJSON marshals payload to JSON, sets Content-Type, and calls DoRequest.

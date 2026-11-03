@@ -1,6 +1,7 @@
 <!-- One frame-synced visual layer in the composited editor preview. -->
 <script lang="ts">
 	import { onDestroy, untrack } from 'svelte';
+	import { createLogger } from '$lib/video-editor/workspace-fs/logger';
 	import type { CropSettings, ItemTransform, TimelineItem } from '$lib/video-editor/project/types';
 	import { editorSession } from '$lib/video-editor/editor.svelte';
 	import { timelineStore } from '$lib/video-editor/timeline/stores/timeline-store.svelte';
@@ -49,7 +50,9 @@
 		scopeCaptureDue,
 		scopeSamples
 	} from '$lib/video-editor/effects/scope-samples.svelte';
+	import { colorPreviewStore } from '$lib/video-editor/effects/color-preview-store.svelte';
 	import { selectCuesAtFrame } from '$lib/video-editor/media/render-plan';
+	import { captionTimelineOffset } from '$lib/video-editor/transcript/caption-source-mapping';
 	import { previewPlaybackSettings } from '$lib/video-editor/preview/playback-settings.svelte';
 	import {
 		previewItemVolume,
@@ -101,12 +104,16 @@
 		decodedPreviewAudio,
 		previewAudioContext
 	} from '$lib/video-editor/audio/reverse-preview-audio';
+	import { timelineOffsetToSourceFrame } from '$lib/video-editor/timeline/source-time-map';
 	import { createReverseShuttleScheduler } from '$lib/video-editor/audio/reverse-shuttle-scheduler';
 	import { attachAudioSourceToMixer, setMixerMaster } from '$lib/video-editor/audio/audio-mixer';
 	import { mixerDbToGain } from '$lib/video-editor/audio/mixer-utils';
 
+	const logger = createLogger('PreviewLayer');
+
 	let {
 		item,
+		active = true,
 		displayFrame,
 		url,
 		audioUrl,
@@ -127,6 +134,7 @@
 		onselect
 	}: {
 		item: TimelineItem;
+		active?: boolean;
 		displayFrame?: number;
 		url?: string | null;
 		audioUrl?: string | null;
@@ -174,6 +182,10 @@
 	let rasterCanvas = $state<HTMLCanvasElement | null>(null);
 	let gpuCanvas = $state<HTMLCanvasElement | null>(null);
 	let compositionCanvas = $state<HTMLCanvasElement | null>(null);
+	const nestedCompositionId = $derived(
+		item.type === 'composition' ? item.compositionId : undefined
+	);
+	const nestedControlOverrides = $derived(item.compositionControlOverrides);
 	let lottieCanvas = $state<HTMLCanvasElement | null>(null);
 	let lottieRenderer = $state<LottieRenderer | null>(null);
 	let lottieBytes = $state<Uint8Array | null>(null);
@@ -183,16 +195,45 @@
 	let compositor = $state<GpuCompositor | null>(null);
 	let rasterRevision = $state(0);
 	let compositionRevision = $state(0);
-	let renderCompositionFrame = $state<(() => void) | null>(null);
+	let renderCompositionFrame = $state<((frame: number) => void) | null>(null);
 	let lastRasterCanvas: HTMLCanvasElement | null = null;
 	let lastRasterKey = '';
-	let lastScopeAt = 0;
-	const visualFrame = $derived(displayFrame ?? timelineStore.currentFrame);
+	let lastScopeAt = Number.NEGATIVE_INFINITY;
+	const scopeSampleRequested = $derived(colorPreviewStore.scopeSampleItemId === item.id);
+	$effect(() => {
+		if (!scopeSampleRequested) lastScopeAt = Number.NEGATIVE_INFINITY;
+	});
+	const visualFrame = $derived(
+		active
+			? (displayFrame ?? timelineStore.currentFrame)
+			: Math.max(
+					item.from,
+					Math.min(
+						item.from + item.durationInFrames - 1,
+						displayFrame ?? timelineStore.currentFrame
+					)
+				)
+	);
+	const nestedSourceFrame = $derived.by(() => {
+		const composition = nestedCompositionId
+			? sequenceStore.compositionById.get(nestedCompositionId)
+			: undefined;
+		if (!composition) return null;
+		return Math.max(
+			0,
+			Math.floor(
+				frameToSourceSeconds(item, visualFrame, editorSession.fps) *
+					(item.sourceFps ?? composition.fps)
+			)
+		);
+	});
+
 	const baseResolved = $derived(
 		resolveAnimatedItemAt(item, visualFrame, {
 			fps: timelineStore.fps,
 			frameWidth: canvasWidth,
 			frameHeight: canvasHeight,
+			itemById: timelineStore.itemById,
 			items: timelineStore.items
 		})
 	);
@@ -239,6 +280,7 @@
 			`width:${(width / canvasWidth) * 100}%`,
 			`height:${(height / canvasHeight) * 100}%`,
 			`transform:translate(${(-anchorX / width) * 100}%,${(-anchorY / height) * 100}%) rotate(${transform.rotation ?? 0}deg) scaleX(${(transform.flipHorizontal ? -1 : 1) * (transform.scaleX ?? 1)}) scaleY(${(transform.flipVertical ? -1 : 1) * (transform.scaleY ?? 1)})`,
+			`transform-origin:${(anchorX / width) * 100}% ${(anchorY / height) * 100}%`,
 			`opacity:${
 				deferEffects
 					? 0
@@ -260,7 +302,7 @@
 	const mediaCropStyle = 'left:0;top:0;width:100%;height:100%';
 	const activeSubtitle = $derived(
 		resolved.type === 'subtitle'
-			? selectCuesAtFrame(resolved.cues ?? [], visualFrame)[0]
+			? selectCuesAtFrame(resolved.cues ?? [], visualFrame - captionTimelineOffset(resolved))[0]
 			: undefined
 	);
 	const basePreviewVolume = $derived(
@@ -283,7 +325,7 @@
 		audioClipFadeGainAtFrame(resolved, timelineStore.currentFrame, timelineStore.fps)
 	);
 	const previewVolume = $derived(
-		previewItemVolumeWithFade(basePreviewVolume, crossfadeGain, clipFadeGain)
+		active ? previewItemVolumeWithFade(basePreviewVolume, crossfadeGain, clipFadeGain) : 0
 	);
 	const fallbackMasterGain = $derived(
 		timelineStore.masterMuted ? 0 : mixerDbToGain(timelineStore.masterVolumeDb)
@@ -320,7 +362,13 @@
 			audioOwner === 'separateProxy'
 				? audioUrl
 				: resolveReverseShuttleAudioUrl(item, url, audioUrl);
-		if (!isPlaying || !isReverseShuttleRate(transportRate) || !ownsShuttleAudio || !sourceUrl) {
+		if (
+			!active ||
+			!isPlaying ||
+			!isReverseShuttleRate(transportRate) ||
+			!ownsShuttleAudio ||
+			!sourceUrl
+		) {
 			shuttleScheduler?.dispose();
 			shuttleScheduler = null;
 			if (shuttleGainNode) {
@@ -345,10 +393,14 @@
 					context,
 					buffer,
 					bufferStartSeconds: 0,
-					getSourceCursorSeconds: () =>
-						frameToSourceSeconds(item, timelineStore.currentFrame, editorSession.fps),
-					authoredPlaybackRate: item.speed ?? 1,
-					authoredReversed: !!item.isReversed,
+					getSourceTimeAtOffset: (offset) =>
+						timelineOffsetToSourceFrame(
+							item,
+							timelineStore.currentFrame -
+								item.from +
+								offset * editorSession.playbackRate * editorSession.fps,
+							editorSession.fps
+						) / (item.sourceFps && item.sourceFps > 0 ? item.sourceFps : editorSession.fps),
 					getTransportRate: () => editorSession.playbackRate,
 					getGain: () => 1,
 					destination: gain
@@ -589,16 +641,32 @@
 		onsourcechange?.();
 	}
 
-	onDestroy(clearProxySeekFallback);
+	onDestroy(() => {
+		clearProxySeekFallback();
+		for (const media of [mediaElement, proxyAudioElement]) {
+			if (!media) continue;
+			media.pause();
+			media.removeAttribute('src');
+			media.load();
+		}
+	});
 
 	function paintRaster(canvas: HTMLCanvasElement): void {
 		if (!['text', 'subtitle', 'shape'].includes(resolved.type)) return;
-		const width = Math.max(1, Math.round(transform.width ?? canvasWidth));
-		const height = Math.max(1, Math.round(transform.height ?? canvasHeight));
+		const width = Math.max(
+			1,
+			Math.round(resolved.textLayoutSize?.width ?? transform.width ?? canvasWidth)
+		);
+		const height = Math.max(
+			1,
+			Math.round(resolved.textLayoutSize?.height ?? transform.height ?? canvasHeight)
+		);
 		const rasterKey = JSON.stringify([
 			resolved.type,
 			resolved.text,
 			resolved.textSpans,
+			resolved.textLayoutSize,
+			resolved.timer,
 			resolved.spanLayout,
 			resolved.label,
 			activeSubtitle?.text,
@@ -671,13 +739,21 @@
 			renderShapeItemRaster(context, resolved, width, height);
 		} else if (resolved.type === 'text') {
 			renderTextItemRaster(context, resolved, width, height, {
-				absoluteFrame: visualFrame
+				absoluteFrame: visualFrame,
+				fps: timelineStore.fps
 			});
 		} else if (activeSubtitle) {
 			// Karaoke highlight requires the exact cue words and the absolute frame; the shared
 			// helper falls back to normal rendering when karaoke is disabled or timings are unusable.
 			if (resolved.captionHighlightMode === 'karaoke' && activeSubtitle.words?.length) {
-				renderSubtitleCueRaster(context, activeSubtitle, resolved, width, height, visualFrame);
+				renderSubtitleCueRaster(
+					context,
+					activeSubtitle,
+					resolved,
+					width,
+					height,
+					visualFrame - captionTimelineOffset(resolved)
+				);
 			} else {
 				renderSubtitleRaster(context, activeSubtitle.text, resolved, width, height);
 			}
@@ -788,6 +864,7 @@
 				audio.playbackRate = combinedRate;
 			}
 			if (
+				active &&
 				editorSession.isPlaying &&
 				!shuttleReverse &&
 				video.paused &&
@@ -795,14 +872,15 @@
 			)
 				void video.play().catch(() => undefined);
 			if (shuttleReverse && !video.paused) video.pause();
-			if (editorSession.isPlaying && !shuttleReverse) clearProxySeekFallback();
-			if (editorSession.isPlaying && !shuttleReverse && audio?.paused)
+			if (active && editorSession.isPlaying && !shuttleReverse && proxyFallbackKind === 'seek')
+				clearProxySeekFallback();
+			if (active && editorSession.isPlaying && !shuttleReverse && audio?.paused)
 				void audio.play().catch(() => undefined);
 			if (shuttleReverse && audio && !audio.paused) audio.pause();
 			if (item.isReversed && !conform && !video.paused) video.pause();
-			if (!editorSession.isPlaying && !video.paused) video.pause();
-			if (!editorSession.isPlaying && audio && !audio.paused) audio.pause();
-			if (selected && !needsGpu && !deferEffects)
+			if ((!active || !editorSession.isPlaying) && !video.paused) video.pause();
+			if ((!active || !editorSession.isPlaying) && audio && !audio.paused) audio.pause();
+			if (scopeSampleRequested && selected && !needsGpu && !deferEffects)
 				requestAnimationFrame(() => publishScopeSample(video));
 		};
 		syncVideoFrame = sync;
@@ -822,19 +900,20 @@
 
 	$effect(() => {
 		void visualFrame;
+		void active;
 		syncVideoFrame?.();
 	});
 
 	$effect(() => {
 		const canvas = compositionCanvas;
-		const compositionId = item.compositionId;
-		if (item.type !== 'composition' || !compositionId || !canvas || !editorSession.project) return;
+		const compositionId = nestedCompositionId;
+		if (!compositionId || !canvas || !editorSession.project) return;
 		const composition = sequenceStore.compositionById.get(compositionId);
 		if (!composition) return;
 		const compositionItems = applyCompositionControlOverrides(
 			composition.items,
 			composition.compositionControls,
-			item.compositionControlOverrides
+			nestedControlOverrides
 		);
 		const renderer = new TimelineFrameRenderer(
 			{
@@ -858,26 +937,41 @@
 		canvas.height = composition.height;
 		let disposed = false;
 		let request = 0;
-		const draw = async () => {
-			const revision = ++request;
-			const frame = untrack(() => visualFrame);
-			const nestedFrame = Math.max(
-				0,
-				Math.floor(
-					frameToSourceSeconds(item, frame, editorSession.fps) * (item.sourceFps ?? composition.fps)
-				)
-			);
-			const source = await renderer.render(nestedFrame);
-			if (disposed || revision !== request) return;
-			const context = canvas.getContext('2d');
-			if (!context) return;
-			context.clearRect(0, 0, canvas.width, canvas.height);
-			context.drawImage(source, 0, 0, canvas.width, canvas.height);
-			compositionRevision += 1;
-			onsourcechange?.();
+		let rendering = false;
+		let requestedFrame = 0;
+		const draw = async (frame: number) => {
+			requestedFrame = frame;
+			request++;
+			if (rendering || disposed) return;
+			rendering = true;
+			try {
+				while (!disposed) {
+					const revision = request;
+					let source: OffscreenCanvas;
+					try {
+						source = await renderer.render(requestedFrame);
+					} catch (error) {
+						if (disposed) return;
+						if (revision !== request) continue;
+						logger.warn('Could not render nested composition', error);
+						return;
+					}
+					if (disposed) return;
+					// Seek and playback updates replace the pending frame while decode is busy.
+					if (revision !== request) continue;
+					const context = canvas.getContext('2d');
+					if (!context) return;
+					context.clearRect(0, 0, canvas.width, canvas.height);
+					context.drawImage(source, 0, 0, canvas.width, canvas.height);
+					compositionRevision += 1;
+					onsourcechange?.();
+					return;
+				}
+			} finally {
+				rendering = false;
+			}
 		};
-		renderCompositionFrame = () => void draw();
-		void draw();
+		renderCompositionFrame = (frame) => void draw(frame);
 		return () => {
 			disposed = true;
 			if (renderCompositionFrame) renderCompositionFrame = null;
@@ -886,9 +980,9 @@
 	});
 
 	$effect(() => {
-		const frame = visualFrame;
+		const frame = nestedSourceFrame;
 		const render = renderCompositionFrame;
-		if (frame >= 0) render?.();
+		if (frame !== null) render?.(frame);
 	});
 
 	$effect(() => {
@@ -984,7 +1078,7 @@
 		);
 		lottieRevision = untrack(() => lottieRevision) + 1;
 		onsourcechange?.();
-		if (selected && !needsGpu && !deferEffects) publishScopeSample(canvas);
+		if (scopeSampleRequested && selected && !needsGpu && !deferEffects) publishScopeSample(canvas);
 	});
 
 	$effect(() => {
@@ -1045,34 +1139,44 @@
 		const frames = animatedFrames;
 		const revision = animatedRevision;
 		const frame = visualFrame;
+		const shouldPublishScopeSample = scopeSampleRequested && selected && !needsGpu && !deferEffects;
 		if (!canvas || !frames || revision === 0) return;
 		if (canvas.width !== frames.width) canvas.width = frames.width;
 		if (canvas.height !== frames.height) canvas.height = frames.height;
 		const context = canvas.getContext('2d');
 		if (!context) return;
+		const index = animatedFrameIndexForItem({
+			frame,
+			fromFrame: item.from,
+			sourceStart: item.sourceStart,
+			sourceFps: item.sourceFps,
+			fps: editorSession.fps,
+			speed: item.speed ?? 1,
+			reversed: item.isReversed === true,
+			totalDurationMs: frames.totalDurationMs,
+			cumulativeDelaysMs: frames.cumulativeDelaysMs
+		});
 		const pendingRaf = requestAnimationFrame(() => {
-			const bitmap =
-				frames.frames[
-					animatedFrameIndexForItem({
-						frame,
-						fromFrame: item.from,
-						fps: editorSession.fps,
-						speed: item.speed ?? 1,
-						reversed: item.isReversed === true,
-						totalDurationMs: frames.totalDurationMs,
-						cumulativeDelaysMs: frames.cumulativeDelaysMs
-					})
-				];
+			const bitmap = frames.frames[index];
 			if (!bitmap) return;
 			context.clearRect(0, 0, canvas.width, canvas.height);
 			context.drawImage(bitmap, 0, 0);
 			onsourcechange?.();
-			if (selected && !needsGpu && !deferEffects) publishScopeSample(canvas);
+			if (shouldPublishScopeSample) publishScopeSample(canvas);
 		});
 		return () => {
 			cancelAnimationFrame(pendingRaf);
 		};
 	});
+
+	function sourceReferenceSize(width: number, height: number) {
+		if (item.type !== 'video') return { width, height };
+		const media = item.mediaId ? mediaPool.get(item.mediaId) : undefined;
+		return {
+			width: media?.width ?? item.sourceWidth ?? width,
+			height: media?.height ?? item.sourceHeight ?? height
+		};
+	}
 
 	function rawSource() {
 		if (resolved.type === 'image' && animatedCanvas && animatedFrames && animatedRevision > 0) {
@@ -1091,14 +1195,16 @@
 			return {
 				source: proxyFallbackCanvas,
 				width: proxyFallbackCanvas.width,
-				height: proxyFallbackCanvas.height
+				height: proxyFallbackCanvas.height,
+				referenceSize: sourceReferenceSize(proxyFallbackCanvas.width, proxyFallbackCanvas.height)
 			};
 		}
 		if (resolved.type === 'video' && mediaElement?.videoWidth && mediaElement.videoHeight) {
 			return {
 				source: mediaElement,
 				width: mediaElement.videoWidth,
-				height: mediaElement.videoHeight
+				height: mediaElement.videoHeight,
+				referenceSize: sourceReferenceSize(mediaElement.videoWidth, mediaElement.videoHeight)
 			};
 		}
 		if (resolved.type === 'image' && decodedImageElement) {
@@ -1208,13 +1314,14 @@
 			const renderHeight = Math.max(1, Math.round(height * previewScale));
 			const rendered = instance.render(source, renderWidth, renderHeight, effects, {
 				time: untrack(() => visualFrame) / editorSession.fps,
-				blendMode
+				blendMode,
+				referenceSize: sourceReferenceSize(width, height)
 			});
 			canvas.hidden = !rendered;
 			if (itemType === 'image' && image) image.style.visibility = rendered ? 'hidden' : '';
 			else if (source instanceof HTMLVideoElement || source instanceof HTMLCanvasElement)
 				source.style.visibility = rendered ? 'hidden' : '';
-			if (selected) publishScopeSample(rendered ? canvas : source);
+			if (scopeSampleRequested && selected) publishScopeSample(rendered ? canvas : source);
 		};
 		draw();
 		const offFrame = editorSession.clock.on('framechange', () => requestAnimationFrame(draw));
@@ -1235,7 +1342,14 @@
 		const image = decodedImageElement;
 		const raster = rasterCanvas;
 		const revision = rasterRevision;
-		if (!selected || needsGpu || deferEffects || item.type === 'video' || item.type === 'lottie')
+		if (
+			!scopeSampleRequested ||
+			!selected ||
+			needsGpu ||
+			deferEffects ||
+			item.type === 'video' ||
+			item.type === 'lottie'
+		)
 			return;
 		const source =
 			item.type === 'image'
@@ -1251,6 +1365,7 @@
 	});
 
 	function publishScopeSample(source: CanvasImageSource): void {
+		if (colorPreviewStore.scopeSampleItemId !== item.id) return;
 		const now = performance.now();
 		const playing = editorSession.isPlaying;
 		if (!scopeCaptureDue(lastScopeAt, now, playing)) return;
@@ -1272,9 +1387,9 @@
 	class="absolute overflow-hidden"
 	data-preview-item={item.id}
 	style={layerStyle}
-	style:visibility={hideContent || resolved.isMask ? 'hidden' : undefined}
+	style:visibility={!active || hideContent || resolved.isMask ? 'hidden' : undefined}
 	role="presentation"
-	aria-hidden={deferEffects ? 'true' : undefined}
+	aria-hidden={!active || deferEffects ? 'true' : undefined}
 	onpointerdown={onselect}
 >
 	{#if resolved.type === 'video' && previewMediaUrl}

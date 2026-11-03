@@ -2,7 +2,9 @@ package account_saver
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -104,7 +106,7 @@ func TestDiscordBotAccountStoresGuildReferenceWithoutGlobalBotToken(t *testing.T
 		PlatformName:    "discord",
 		WorkspaceID:     "workspace-discord",
 		AccountID:       "guild-100",
-		AccountUsername: "OpenPost Guild",
+		AccountUsername: "dopost Guild",
 		Token:           &platform.TokenResult{AccessToken: "discord-guild:guild-100", TokenType: "Installation", Extra: map[string]string{"scope": "bot"}},
 		CapabilityState: map[string]string{"connection_type": "bot", "discord_guild_id": "guild-100"},
 		Grant:           AuthorizationGrantInput{ProviderProjectID: "discord-app", ProviderSubject: "user-1", ExecutionMode: "bot_oauth2"},
@@ -188,43 +190,71 @@ func TestSaveAccount_X(t *testing.T) {
 	require.Len(t, jobs, 1)
 }
 
-func TestSaveAccountsFromInputsConnectsLinkedInIdentitiesAtomically(t *testing.T) {
-	db := createTestDB(t)
-	encryptor := crypto.NewTokenEncryptor("test-secret-key-for-testing-only")
-	saver := NewAccountSaver(db, encryptor)
-	ctx := context.Background()
-	seedWorkspaceMember(t, db, "workspace-1", "user-1")
-	token := &platform.TokenResult{
-		AccessToken: "member-token",
-		Extra:       map[string]string{"user_id": "member-1", "scope": "w_member_social w_organization_social"},
+func TestSaveAccountsFromInputsKeepsDestinationsDistinctFromGrantSubject(t *testing.T) {
+	for _, tc := range []struct {
+		provider, firstID, secondID, scope    string
+		firstCapabilities, secondCapabilities map[string]string
+	}{
+		{"linkedin", "urn:li:person:member-1", "urn:li:organization:42", "w_member_social w_organization_social", map[string]string{"linkedin_account_type": "person"}, map[string]string{"linkedin_account_type": "organization"}},
+		{"facebook", "page-1", "page-2", "pages_show_list pages_manage_posts", nil, nil},
+		{"youtube", "channel-1", "channel-2", "https://www.googleapis.com/auth/youtube.upload", nil, nil},
+	} {
+		t.Run(tc.provider, func(t *testing.T) {
+			db := createTestDB(t)
+			encryptor := crypto.NewTokenEncryptor("test-secret-key-for-testing-only")
+			saver := NewAccountSaver(db, encryptor)
+			ctx := context.Background()
+			seedWorkspaceMember(t, db, "workspace-1", "user-1")
+			token := &platform.TokenResult{
+				AccessToken: "member-token",
+				Extra:       map[string]string{"user_id": "member-1", "scope": tc.scope},
+			}
+
+			accounts, err := saver.SaveAccountsFromInputs(ctx, []SaveAccountInput{
+				{
+					Actor: accountSaverActor("user-1"), UserID: "user-1", WorkspaceID: "workspace-1", PlatformName: tc.provider,
+					AccountID: tc.firstID, AccountUsername: "Ada", Token: token,
+					CapabilityState: tc.firstCapabilities,
+				},
+				{
+					Actor: accountSaverActor("user-1"), UserID: "user-1", WorkspaceID: "workspace-1", PlatformName: tc.provider,
+					AccountID: tc.secondID, AccountUsername: "dopost", Token: token,
+					CapabilityState: tc.secondCapabilities,
+				},
+			})
+			require.NoError(t, err)
+			require.Len(t, accounts, 2)
+			require.Equal(t, tc.firstID, accounts[0].AccountID)
+			require.Equal(t, tc.secondID, accounts[1].AccountID)
+			require.NotEqual(t, accounts[0].Slug, accounts[1].Slug)
+
+			var stored []models.SocialAccount
+			require.NoError(t, db.NewSelect().Model(&stored).Order("created_at ASC").Scan(ctx))
+			require.Len(t, stored, 2)
+			require.Equal(t, stored[0].OAuthGrantID, stored[1].OAuthGrantID)
+			grant := loadAccountGrant(t, db, &stored[0])
+			require.Equal(t, "member-1", grant.ProviderSubject)
+			decrypted, decryptErr := encryptor.Decrypt(grant.AccessTokenEnc)
+			require.NoError(t, decryptErr)
+			require.Equal(t, "member-token", decrypted)
+		})
 	}
+}
 
-	accounts, err := saver.SaveAccountsFromInputs(ctx, []SaveAccountInput{
-		{
-			Actor: accountSaverActor("user-1"), UserID: "user-1", WorkspaceID: "workspace-1", PlatformName: "linkedin",
-			AccountID: "urn:li:person:member-1", AccountUsername: "Ada", Token: token,
-			CapabilityState: map[string]string{"linkedin_account_type": "person"},
-		},
-		{
-			Actor: accountSaverActor("user-1"), UserID: "user-1", WorkspaceID: "workspace-1", PlatformName: "linkedin",
-			AccountID: "urn:li:organization:42", AccountUsername: "OpenPost", Token: token,
-			CapabilityState: map[string]string{"linkedin_account_type": "organization"},
-		},
-	})
+func TestClientConnectionPersistsGrantAndRejectsRevokedMembership(t *testing.T) {
+	db := createTestDB(t)
+	saver := NewAccountSaver(db, crypto.NewTokenEncryptor("test-secret-key-for-testing-only"))
+	seedWorkspaceMember(t, db, "workspace-client", "client")
+	_, err := db.NewUpdate().Model((*models.WorkspaceMember)(nil)).Set("role = ?", models.WorkspaceRoleClient).Where("workspace_id = ? AND user_id = ?", "workspace-client", "client").Exec(t.Context())
 	require.NoError(t, err)
-	require.Len(t, accounts, 2)
-	require.Equal(t, "urn:li:person:member-1", accounts[0].AccountID)
-	require.Equal(t, "urn:li:organization:42", accounts[1].AccountID)
-	require.NotEqual(t, accounts[0].Slug, accounts[1].Slug)
-
-	var stored []models.SocialAccount
-	require.NoError(t, db.NewSelect().Model(&stored).Order("created_at ASC").Scan(ctx))
-	require.Len(t, stored, 2)
-	require.Equal(t, stored[0].OAuthGrantID, stored[1].OAuthGrantID)
-	grant := loadAccountGrant(t, db, &stored[0])
-	decrypted, decryptErr := encryptor.Decrypt(grant.AccessTokenEnc)
-	require.NoError(t, decryptErr)
-	require.Equal(t, "member-token", decrypted)
+	input := SaveAccountInput{Actor: accountSaverActor("client"), UserID: "client", WorkspaceID: "workspace-client", PlatformName: "linkedin", AccountID: "urn:li:person:client", AccountUsername: "Client", Token: &platform.TokenResult{AccessToken: "client-token", Extra: map[string]string{"user_id": "client", "scope": "w_member_social"}}}
+	account, err := saver.SaveAccountFromInput(t.Context(), input)
+	require.NoError(t, err)
+	require.NotEmpty(t, loadAccountGrant(t, db, account).ID)
+	_, err = db.NewUpdate().Model((*models.WorkspaceMember)(nil)).Set("role = ?", models.WorkspaceRoleViewer).Where("workspace_id = ? AND user_id = ?", "workspace-client", "client").Exec(t.Context())
+	require.NoError(t, err)
+	_, err = saver.SaveAccountFromInput(t.Context(), input)
+	require.Error(t, err)
 }
 
 func TestSaveAccountsFromInputsRollsBackEveryIdentity(t *testing.T) {
@@ -380,4 +410,147 @@ func TestSaveAccountBackfillsLegacyBlueskyInstanceWithoutChangingIdentity(t *tes
 
 	require.NoError(t, db.NewSelect().Model(grant).Where("id = ?", grant.ID).Scan(t.Context()))
 	require.Equal(t, platform.BlueskyDefaultPDSURL, grant.InstanceURL)
+}
+
+type interleavedEntitlement struct {
+	entitlements.Service
+	beforeCheck func()
+}
+
+func (s *interleavedEntitlement) Check(ctx context.Context, req entitlements.Request) (entitlements.Decision, error) {
+	if s.beforeCheck != nil {
+		fn := s.beforeCheck
+		s.beforeCheck = nil
+		fn()
+	}
+	return s.Service.Check(ctx, req)
+}
+func TestSaveAccountRechecksQuotaAfterCompetingConnection(t *testing.T) {
+	db := createTestDB(t)
+	seedWorkspaceMember(t, db, "ws", "user")
+	encryptor := crypto.NewTokenEncryptor("test")
+	policy := &interleavedEntitlement{Service: entitlements.NewStaticService(entitlements.PlanSnapshot{PlanID: "limited", Limits: map[entitlements.LimitKey]int64{entitlements.LimitSocialAccounts: 1}})}
+	saver := NewAccountSaver(db, encryptor, policy)
+	policy.beforeCheck = func() {
+		_, err := NewAccountSaver(db, encryptor).SaveAccount(t.Context(), accountSaverActor("user"), "x", "ws", "competitor", "competitor", "", &platform.TokenResult{AccessToken: "token"})
+		require.NoError(t, err)
+	}
+	_, err := saver.SaveAccount(t.Context(), accountSaverActor("user"), "x", "ws", "late", "late", "", &platform.TokenResult{AccessToken: "token"})
+	require.ErrorContains(t, err, "limit")
+	count, err := db.NewSelect().Model((*models.SocialAccount)(nil)).Where("workspace_id = ? AND is_active = ?", "ws", true).Count(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, 1, count)
+}
+
+// The account-save boundary covers single connections and multi-destination OAuth.
+func TestAccountPhotosSurviveReconnectAndFailedDownloads(t *testing.T) {
+	db := createTestDB(t)
+	seedWorkspaceMember(t, db, "ws", "user")
+	saver := NewAccountSaver(db, crypto.NewTokenEncryptor("test-secret-key-for-testing-only"))
+	cache := &avatarCacheStub{url: "/avatars/avatar_account_first.jpg"}
+	saver.SetAvatarCache(cache)
+	input := SaveAccountInput{Actor: accountSaverActor("user"), UserID: "user", WorkspaceID: "ws", PlatformName: "facebook", AccountID: "page", AccountUsername: "Page", AccountAvatarURL: "https://cdn.example/photo?signature=temporary", Token: &platform.TokenResult{AccessToken: "token"}}
+	account, err := saver.SaveAccountFromInput(t.Context(), input)
+	require.NoError(t, err)
+	require.Equal(t, cache.url, account.AccountAvatarURL)
+	var stored models.SocialAccount
+	require.NoError(t, db.NewSelect().Model(&stored).Where("id = ?", account.ID).Scan(t.Context()))
+	require.Equal(t, cache.url, stored.AccountAvatarURL)
+	require.Empty(t, cache.deleted)
+
+	// Download failures do not break connection or overwrite an existing photo.
+	cache.err = errors.New("provider unavailable")
+	reconnected, err := saver.SaveAccountFromInput(t.Context(), input)
+	require.NoError(t, err)
+	require.Equal(t, account.ID, reconnected.ID)
+	require.Equal(t, account.AccountAvatarURL, reconnected.AccountAvatarURL)
+	require.Empty(t, cache.deleted)
+	input.AccountID = "new-page"
+	withoutPhoto, err := saver.SaveAccountFromInput(t.Context(), input)
+	require.NoError(t, err)
+	require.Empty(t, withoutPhoto.AccountAvatarURL, "never persist a temporary URL when caching fails")
+
+	// A successful replacement retires the previous stored object after commit.
+	cache.err = nil
+	cache.url = "/avatars/avatar_account_replaced.jpg"
+	input.AccountID = "page"
+	replacement, err := saver.SaveAccountFromInput(t.Context(), input)
+	require.NoError(t, err)
+	require.Equal(t, cache.url, replacement.AccountAvatarURL)
+	require.Equal(t, []string{account.AccountAvatarURL}, cache.deleted)
+
+	// Providers that omit a picture preserve the last saved version.
+	input.AccountAvatarURL = ""
+	unchanged, err := saver.SaveAccountFromInput(t.Context(), input)
+	require.NoError(t, err)
+	require.Equal(t, replacement.AccountAvatarURL, unchanged.AccountAvatarURL)
+}
+
+func TestAccountPhotoObjectsAreRemovedWhenBatchSaveRollsBack(t *testing.T) {
+	db := createTestDB(t)
+	seedWorkspaceMember(t, db, "ws", "user")
+	saver := NewAccountSaver(db, crypto.NewTokenEncryptor("test-secret-key-for-testing-only"))
+	cache := &avatarCacheStub{url: "/avatars/avatar_account_uncommitted.jpg"}
+	saver.SetAvatarCache(cache)
+	// Fail the real database transaction after downloading, not a mocked write.
+	_, err := db.ExecContext(t.Context(), `CREATE TRIGGER reject_account BEFORE INSERT ON social_accounts BEGIN SELECT RAISE(ABORT, 'write failed'); END`)
+	require.NoError(t, err)
+	_, err = saver.SaveAccountFromInput(t.Context(), SaveAccountInput{Actor: accountSaverActor("user"), UserID: "user", WorkspaceID: "ws", PlatformName: "threads", AccountID: "profile", AccountUsername: "Profile", AccountAvatarURL: "https://cdn.example/photo", Token: &platform.TokenResult{AccessToken: "token"}})
+	require.ErrorContains(t, err, "write failed")
+	require.Equal(t, []string{cache.url}, cache.deleted)
+	count, err := db.NewSelect().Model((*models.SocialAccount)(nil)).Count(t.Context())
+	require.NoError(t, err)
+	require.Zero(t, count)
+}
+
+type avatarCacheStub struct {
+	url     string
+	err     error
+	deleted []string
+}
+
+func (c *avatarCacheStub) CacheAvatar(context.Context, string, string) (string, error) {
+	return c.url, c.err
+}
+func (c *avatarCacheStub) Delete(_ context.Context, url string) error {
+	c.deleted = append(c.deleted, url)
+	return nil
+}
+
+func TestYouTubeConnectionPersistsActualProfileFetchTime(t *testing.T) {
+	db := createTestDB(t)
+	saver := NewAccountSaver(db, crypto.NewTokenEncryptor("test-secret-key-for-testing-only"))
+	seedWorkspaceMember(t, db, "youtube-workspace", "youtube-user")
+	fetched := time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC)
+	input := SaveAccountInput{Actor: accountSaverActor("youtube-user"), UserID: "youtube-user", WorkspaceID: "youtube-workspace", PlatformName: "youtube", AccountID: "channel", AccountUsername: "Channel", AccountAvatarURL: "/avatars/avatar_account_old.png", ProfileFetchedAt: fetched, Token: &platform.TokenResult{AccessToken: "token"}}
+	account, err := saver.SaveAccountFromInput(t.Context(), input)
+	require.NoError(t, err)
+	var stored models.SocialAccount
+	require.NoError(t, db.NewSelect().Model(&stored).Where("id = ?", account.ID).Scan(t.Context()))
+	require.Equal(t, fetched, stored.ProfileFetchedAt.UTC())
+	input.ProfileFetchedAt = fetched.Add(time.Hour)
+	input.AccountAvatarURL = ""
+	_, err = saver.SaveAccountFromInput(t.Context(), input)
+	require.NoError(t, err)
+	require.NoError(t, db.NewSelect().Model(&stored).Where("id = ?", account.ID).Scan(t.Context()))
+	require.Equal(t, input.ProfileFetchedAt, stored.ProfileFetchedAt.UTC())
+	require.Empty(t, stored.AccountAvatarURL, "a fresh profile must not renew an unfetched old photo")
+	deletionCount, err := db.NewSelect().Model((*models.Job)(nil)).Where("type = ?", "storage_delete").Count(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, 1, deletionCount)
+}
+
+func TestYouTubeReconnectRestoresRetiredDestinationIdentity(t *testing.T) {
+	db := createTestDB(t)
+	seedWorkspaceMember(t, db, "youtube-reconnect", "youtube-user")
+	digest := sha256.Sum256([]byte("youtube-reconnect" + "\x00" + "channel"))
+	retired := &models.SocialAccount{ID: "original-destination", WorkspaceID: "youtube-reconnect", Slug: "retired", Platform: "youtube", AccountID: fmt.Sprintf("retired-youtube:%x", digest), AccessTokenEnc: []byte{}, IsActive: false}
+	_, err := db.NewInsert().Model(retired).Exec(t.Context())
+	require.NoError(t, err)
+	saver := NewAccountSaver(db, crypto.NewTokenEncryptor("test-secret-key-for-testing-only"))
+	restored, err := saver.SaveAccountFromInput(t.Context(), SaveAccountInput{Actor: accountSaverActor("youtube-user"), UserID: "youtube-user", WorkspaceID: "youtube-reconnect", PlatformName: "youtube", AccountID: "channel", AccountUsername: "Channel", ProfileFetchedAt: time.Now().UTC(), Token: &platform.TokenResult{AccessToken: "new-consent"}})
+	require.NoError(t, err)
+	require.Equal(t, retired.ID, restored.ID, "reconsent must restore the destination referenced by existing drafts")
+	require.Equal(t, "channel", restored.AccountID)
+	require.True(t, restored.IsActive)
 }

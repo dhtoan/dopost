@@ -17,17 +17,20 @@ import (
 	"time"
 
 	"github.com/dghubble/oauth1"
+	"github.com/openpost/backend/internal/providerlimits"
 )
 
 type XAdapter struct {
-	consumerKey    string
-	consumerSecret string
-	redirectURI    string
-	apiBaseURL     string
-	uploadBaseURL  string
-	requestStore   XRequestStore
-	requestMeta    sync.Map
-	cleanupDone    chan struct{}
+	consumerKey           string
+	consumerSecret        string
+	redirectURI           string
+	apiBaseURL            string
+	uploadBaseURL         string
+	requestStore          XRequestStore
+	messagingQuota        XMessagingQuotaGate
+	messagingQuotaPending sync.Map
+	requestMeta           sync.Map
+	cleanupDone           chan struct{}
 }
 
 const (
@@ -39,16 +42,24 @@ const (
 	XSubscriptionTypeBasic           = "Basic"
 	XSubscriptionTypePremium         = "Premium"
 	XSubscriptionTypePremiumPlus     = "PremiumPlus"
-	XStandardTextLimit               = 280
-	XPremiumTextLimit                = 25_000
-	XStandardVideoDurationSeconds    = 140
-	XPremiumVideoDurationSeconds     = 4 * 60 * 60
-	XStandardVideoSizeBytes          = 512 * 1024 * 1024
+	XStandardTextLimit               = providerlimits.XStandardTextLimit
+	XPremiumTextLimit                = providerlimits.XPremiumTextLimit
+	XStandardVideoDurationSeconds    = providerlimits.XPostVideoMaxDurationSeconds
+	XPremiumVideoDurationSeconds     = providerlimits.XPremiumPostVideoMaxDurationSeconds
+	XStandardVideoSizeBytes          = providerlimits.XPostVideoMaxBytes
 	XOAuthRequestLifetime            = 10 * time.Minute
-	XPremiumVideoSizeBytes           = 16 * 1024 * 1024 * 1024
+	XPremiumVideoSizeBytes           = providerlimits.XPremiumPostVideoMaxBytes
 	XCapabilityStateFreshness        = 24 * time.Hour
 	xAccountCapabilityRevision       = "x-subscription-type.2026-07-26"
 	xMediaUploadChunkSize            = 5 * 1024 * 1024
+	// X omits check_after_secs or sends 0 while a video or GIF is still
+	// processing. Wait at least this long before each STATUS poll.
+	xMediaProcessingMinDelay = time.Second
+	xMediaProcessingMaxPolls = 3
+	xMediaProcessingWindow   = time.Minute
+	// X's create_tweet contract accepts at most 10 tagged_user_ids per post.
+	xMaxTaggedUsers         = providerlimits.XPostMaxTaggedUsers
+	xUserLookupMaxUsernames = 100
 )
 
 type XRequestStore interface {
@@ -329,6 +340,8 @@ func (x *XAdapter) getAuthenticatedUser(ctx context.Context, accessToken string,
 	return userResp.Data, nil
 }
 
+func (x *XAdapter) AccountCapabilityKeyInput(AccountCapabilityInput) string { return "" }
+
 func (x *XAdapter) ResolveAccountPublishingCapabilities(ctx context.Context, accessToken string, _ AccountCapabilityInput) (AccountCapabilityResult, error) {
 	user, err := x.getAuthenticatedUser(ctx, accessToken, true)
 	if err != nil {
@@ -471,112 +484,84 @@ func (x *XAdapter) UploadMediaWithMetadata(ctx context.Context, accessToken, _ s
 	return x.uploadMediaChunked(ctx, accessToken, mimeType, mediaCategory, req.Reader, req.Size)
 }
 
-func (x *XAdapter) uploadMediaSimple(ctx context.Context, accessToken string, data []byte, mediaCategory string) (string, error) {
+func (x *XAdapter) uploadMediaSimple(ctx context.Context, token string, data []byte, category string) (string, error) {
+	state, err := x.uploadMediaSimpleResult(ctx, token, data, category)
+	return state.ProviderMediaID, err
+}
+
+func (x *XAdapter) uploadMediaSimpleResult(ctx context.Context, accessToken string, data []byte, mediaCategory string) (ResumableMediaUploadState, error) {
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
 	if err := writer.WriteField("media_category", mediaCategory); err != nil {
-		return "", fmt.Errorf("writing media_category: %w", err)
+		return ResumableMediaUploadState{}, fmt.Errorf("writing media_category: %w", err)
 	}
 	part, err := writer.CreateFormFile("media", "upload.bin")
 	if err != nil {
-		return "", fmt.Errorf("creating media form file: %w", err)
+		return ResumableMediaUploadState{}, fmt.Errorf("creating media form file: %w", err)
 	}
 	if _, writeErr := part.Write(data); writeErr != nil {
-		return "", fmt.Errorf("writing media content: %w", writeErr)
+		return ResumableMediaUploadState{}, fmt.Errorf("writing media content: %w", writeErr)
 	}
 	if closeErr := writer.Close(); closeErr != nil {
-		return "", fmt.Errorf("closing multipart writer: %w", closeErr)
+		return ResumableMediaUploadState{}, fmt.Errorf("closing multipart writer: %w", closeErr)
 	}
 
 	respBody, err := x.doSignedRequest(ctx, accessToken, "POST", x.uploadURL("/1.1/media/upload.json"), &body, map[string]string{
 		headerContentType: writer.FormDataContentType(),
 	})
 	if err != nil {
-		return "", err
+		return ResumableMediaUploadState{}, err
 	}
 
 	var result struct {
-		MediaIDString string `json:"media_id_string"`
+		MediaIDString    string `json:"media_id_string"`
+		ExpiresAfterSecs int64  `json:"expires_after_secs"`
 	}
 	if err := json.Unmarshal(respBody, &result); err != nil {
-		return "", fmt.Errorf("decoding X media response: %w", err)
+		return ResumableMediaUploadState{}, fmt.Errorf("decoding X media response: %w", err)
 	}
 	if result.MediaIDString == "" {
-		return "", fmt.Errorf("missing media_id_string in X response")
+		return ResumableMediaUploadState{}, fmt.Errorf("missing media_id_string in X response")
 	}
-	return result.MediaIDString, nil
+	state := ResumableMediaUploadState{ProviderMediaID: result.MediaIDString, TotalBytes: int64(len(data)), UploadedBytes: int64(len(data)), Status: MediaUploadReady, RetryClassification: MediaRetryNone}
+	if result.ExpiresAfterSecs > 0 {
+		state.SessionExpiresAt = time.Now().UTC().Add(time.Duration(result.ExpiresAfterSecs) * time.Second)
+	}
+	return state, nil
 }
 
 func (x *XAdapter) uploadMediaChunked(ctx context.Context, accessToken, mimeType, mediaCategory string, reader io.Reader, totalBytes int64) (string, error) {
-	initValues := url.Values{}
-	initValues.Set("command", "INIT")
-	initValues.Set("total_bytes", strconv.FormatInt(totalBytes, 10))
-	initValues.Set("media_type", mimeType)
-	initValues.Set("media_category", mediaCategory)
+	return x.uploadMediaChunkedResumable(ctx, accessToken, mimeType, mediaCategory, reader, totalBytes, ResumableMediaUploadState{}, func(ResumableMediaUploadState) error { return nil })
+}
 
-	respBody, err := x.doSignedRequest(ctx, accessToken, "POST", x.uploadURL("/1.1/media/upload.json"), strings.NewReader(initValues.Encode()), map[string]string{
-		headerContentType: contentTypeForm,
-	})
-	if err != nil {
-		return "", fmt.Errorf("x INIT failed: %w", err)
+func (x *XAdapter) uploadMediaChunkedResumable(ctx context.Context, accessToken, mimeType, mediaCategory string, reader io.Reader, totalBytes int64, state ResumableMediaUploadState, checkpoint MediaUploadCheckpoint) (string, error) {
+	switch state.OpaqueState {
+	case "finalizing", "processing", "append_started":
+		return x.resumeMediaProcessing(ctx, accessToken, state)
 	}
-
-	var initResp struct {
-		MediaIDString  string                `json:"media_id_string"`
-		ProcessingInfo *xMediaProcessingInfo `json:"processing_info"`
-	}
-	if unmarshalErr := json.Unmarshal(respBody, &initResp); unmarshalErr != nil {
-		return "", fmt.Errorf("decoding X INIT: %w", unmarshalErr)
-	}
-	if initResp.MediaIDString == "" {
-		return "", fmt.Errorf("missing media_id_string in X INIT")
-	}
-	mediaID := initResp.MediaIDString
-
-	segmentIndex := 0
-	remaining := totalBytes
-	chunk := make([]byte, xMediaUploadChunkSize)
-	for remaining > 0 {
-		chunkBytes := int64(len(chunk))
-		if remaining < chunkBytes {
-			chunkBytes = remaining
-		}
-		n, readErr := io.ReadFull(reader, chunk[:chunkBytes])
-		if readErr != nil {
-			return "", fmt.Errorf("reading X media segment %d: %w", segmentIndex, readErr)
-		}
-
-		var body bytes.Buffer
-		writer := multipart.NewWriter(&body)
-		_ = writer.WriteField("command", "APPEND")
-		_ = writer.WriteField("media_id", mediaID)
-		_ = writer.WriteField("segment_index", strconv.Itoa(segmentIndex))
-		part, createErr := writer.CreateFormFile("media", "chunk.bin")
-		if createErr != nil {
-			return "", fmt.Errorf("x APPEND create form file: %w", createErr)
-		}
-		if _, writeErr := part.Write(chunk[:n]); writeErr != nil {
-			return "", fmt.Errorf("x APPEND write segment %d: %w", segmentIndex, writeErr)
-		}
-		if closeErr := writer.Close(); closeErr != nil {
-			return "", fmt.Errorf("x APPEND close writer: %w", closeErr)
-		}
-
-		_, err = x.doSignedRequest(ctx, accessToken, "POST", x.uploadURL("/1.1/media/upload.json"), &body, map[string]string{
-			headerContentType: writer.FormDataContentType(),
-		})
+	var err error
+	if state.ProviderMediaID == "" {
+		state, err = x.initChunkedMedia(ctx, accessToken, mimeType, mediaCategory, totalBytes, checkpoint)
 		if err != nil {
-			return "", fmt.Errorf("x APPEND segment %d: %w", segmentIndex, err)
+			return "", err
 		}
-		segmentIndex++
-		remaining -= int64(n)
 	}
-
+	state, err = x.appendMediaChunks(ctx, accessToken, reader, state, checkpoint)
+	if err != nil {
+		return "", err
+	}
+	mediaID := state.ProviderMediaID
 	finalizeValues := url.Values{}
 	finalizeValues.Set("command", "FINALIZE")
 	finalizeValues.Set("media_id", mediaID)
 
-	respBody, err = x.doSignedRequest(ctx, accessToken, "POST", x.uploadURL("/1.1/media/upload.json"), strings.NewReader(finalizeValues.Encode()), map[string]string{
+	state.OpaqueState = "finalizing"
+	state.Status = MediaUploadUploaded
+	state.RetryClassification = MediaRetryReconcile
+	if err := checkpoint(state); err != nil {
+		return "", err
+	}
+	respBody, err := x.doSignedRequest(ctx, accessToken, "POST", x.uploadURL("/1.1/media/upload.json"), strings.NewReader(finalizeValues.Encode()), map[string]string{
 		headerContentType: contentTypeForm,
 	})
 	if err != nil {
@@ -590,8 +575,12 @@ func (x *XAdapter) uploadMediaChunked(ctx context.Context, accessToken, mimeType
 		return "", fmt.Errorf("decoding X FINALIZE: %w", err)
 	}
 
+	state.OpaqueState = "processing"
+	if err := checkpoint(state); err != nil {
+		return "", err
+	}
 	if finalizeResp.ProcessingInfo != nil {
-		if err := x.waitForMediaProcessing(ctx, accessToken, mediaID, finalizeResp.ProcessingInfo); err != nil {
+		if err := x.waitForMediaProcessing(ctx, accessToken, mediaID, finalizeResp.ProcessingInfo, state.SessionExpiresAt); err != nil {
 			return "", err
 		}
 	}
@@ -610,46 +599,72 @@ type xMediaProcessingError struct {
 	Message string `json:"message"`
 }
 
-func (x *XAdapter) waitForMediaProcessing(ctx context.Context, accessToken, mediaID string, info *xMediaProcessingInfo) error {
-	if info.State == "failed" {
-		return xTerminalMediaProcessingError(info)
+func (x *XAdapter) waitForMediaProcessing(ctx context.Context, accessToken, mediaID string, info *xMediaProcessingInfo, expiresAt time.Time) error {
+	deadline := time.Now().Add(xMediaProcessingWindow)
+	if !expiresAt.IsZero() && expiresAt.Before(deadline) {
+		deadline = expiresAt
 	}
-	for info.State == "pending" || info.State == "in_progress" {
-		if info.CheckAfterSecs > 0 {
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case <-time.After(time.Duration(info.CheckAfterSecs) * time.Second):
-			}
+	parent := ctx
+	ctx, cancel := context.WithDeadline(ctx, deadline)
+	defer cancel()
+	for attempt := 0; attempt < xMediaProcessingMaxPolls && (info.State == "pending" || info.State == "in_progress"); attempt++ {
+		timer := time.NewTimer(xMediaProcessingDelay(info.CheckAfterSecs))
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return xMediaProcessingInterrupted(parent, expiresAt)
+		case <-timer.C:
 		}
 
-		statusURL := x.uploadURL("/1.1/media/upload.json") + "?command=STATUS&media_id=" + url.QueryEscape(mediaID)
-		respBody, err := x.doSignedRequest(ctx, accessToken, "GET", statusURL, nil, nil)
+		next, err := x.mediaProcessingStatus(ctx, accessToken, mediaID)
 		if err != nil {
-			return fmt.Errorf("x STATUS check: %w", err)
+			if ctx.Err() != nil {
+				return xMediaProcessingInterrupted(parent, expiresAt)
+			}
+			return err
 		}
 
-		var statusResp struct {
-			ProcessingInfo *xMediaProcessingInfo `json:"processing_info"`
+		if next == nil {
+			return &MediaUploadError{RetryClassification: MediaRetryReconcile, Err: fmt.Errorf("x media processing status is missing")}
 		}
-		if err := json.Unmarshal(respBody, &statusResp); err != nil {
-			return fmt.Errorf("decoding X STATUS: %w", err)
-		}
-
-		if statusResp.ProcessingInfo == nil {
-			return nil
-		}
-		*info = *statusResp.ProcessingInfo
-
-		if info.State == "failed" {
-			return xTerminalMediaProcessingError(info)
-		}
+		*info = *next
 	}
 
-	if info.State == "succeeded" {
+	return xMediaProcessingOutcome(parent, expiresAt, info)
+}
+
+func xMediaProcessingOutcome(ctx context.Context, expiresAt time.Time, info *xMediaProcessingInfo) error {
+	if !expiresAt.IsZero() && !time.Now().Before(expiresAt) {
+		return xMediaProcessingInterrupted(ctx, expiresAt)
+	}
+	switch info.State {
+	case "succeeded":
 		return nil
+	case "failed":
+		return xTerminalMediaProcessingError(info)
+	case "pending", "in_progress":
+		return xMediaProcessingInterrupted(ctx, expiresAt)
+	default:
+		return fmt.Errorf("x media processing unexpected state: %s", info.State)
 	}
-	return fmt.Errorf("x media processing unexpected state: %s", info.State)
+}
+
+func xMediaProcessingInterrupted(ctx context.Context, expiresAt time.Time) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if !expiresAt.IsZero() && !time.Now().Before(expiresAt) {
+		return &MediaUploadError{RetryClassification: MediaRetryTerminal, Err: fmt.Errorf("x media upload expired")}
+	}
+	return &MediaUploadError{RetryClassification: MediaRetryReconcile, Err: fmt.Errorf("x media processing is still pending")}
+}
+
+func xMediaProcessingDelay(checkAfterSecs int) time.Duration {
+	delay := time.Duration(checkAfterSecs) * time.Second
+	if delay < xMediaProcessingMinDelay {
+		return xMediaProcessingMinDelay
+	}
+	return delay
 }
 
 func xTerminalMediaProcessingError(info *xMediaProcessingInfo) error {
@@ -670,6 +685,9 @@ func (x *XAdapter) Publish(ctx context.Context, accessToken, _ string, req *Publ
 }
 
 func (x *XAdapter) publish(ctx context.Context, accessToken string, req *PublishRequest) (string, error) {
+	if err := validateXTweetText(ContentWithSettingURL(req.Content, req.Settings)); err != nil {
+		return "", err
+	}
 	// Set alt text for each media before posting
 	for i, mediaID := range req.PlatformMediaIDs {
 		altText := ""
@@ -763,9 +781,14 @@ func (x *XAdapter) Unrepost(ctx context.Context, accessToken, targetAccountID st
 	return fmt.Errorf("unreposting on X: %w", err)
 }
 
+//nolint:gocyclo // X payload fields have independent provider constraints that must fail closed here.
 func buildXTweetPayload(req *PublishRequest) (map[string]interface{}, error) {
+	text := ContentWithSettingURL(req.Content, req.Settings)
+	if err := validateXTweetText(text); err != nil {
+		return nil, err
+	}
 	payload := map[string]interface{}{
-		jsonFieldText: ContentWithSettingURL(req.Content, req.Settings),
+		jsonFieldText: text,
 	}
 
 	attachmentKinds := 0
@@ -808,10 +831,21 @@ func buildXTweetPayload(req *PublishRequest) (map[string]interface{}, error) {
 	if locationID := settingString(req.Settings, "location_id"); locationID != "" {
 		payload["geo"] = map[string]interface{}{"place_id": locationID}
 	}
-	if taggedUserIDs := xTaggedUserIDs(req.MediaSettings); len(taggedUserIDs) > 0 {
+	if taggedUserIDs := XTaggedUserEntries(req.MediaSettings); len(taggedUserIDs) > 0 {
+		if len(taggedUserIDs) > xMaxTaggedUsers {
+			return nil, fmt.Errorf("x posts tag at most %d users, got %d", xMaxTaggedUsers, len(taggedUserIDs))
+		}
+		for _, taggedUser := range taggedUserIDs {
+			if !IsXUserID(taggedUser) {
+				return nil, fmt.Errorf("x tagged user %q must be an X user ID or a handle dopost can resolve", taggedUser)
+			}
+		}
 		mediaPayload, ok := payload["media"].(map[string]interface{})
 		if !ok {
 			return nil, fmt.Errorf("x tagged users require media")
+		}
+		if !xHasPhotoAttachment(req) {
+			return nil, fmt.Errorf("x tagged users require a photo attachment")
 		}
 		mediaPayload["tagged_user_ids"] = taggedUserIDs
 	}
@@ -853,7 +887,11 @@ func xQuoteTweetID(settings map[string]interface{}) (string, error) {
 	return "", fmt.Errorf("x quote_url must contain a status id")
 }
 
-func xTaggedUserIDs(mediaSettings []map[string]interface{}) []string {
+// XTaggedUserEntries returns the authored tagged-user entries collected from
+// per-media settings, split on commas, spaces and newlines and deduplicated
+// in authored order. X accepts numeric user IDs only; handles must be
+// resolved to IDs before dispatch.
+func XTaggedUserEntries(mediaSettings []map[string]interface{}) []string {
 	seen := map[string]struct{}{}
 	result := []string{}
 	for _, settings := range mediaSettings {
@@ -873,6 +911,96 @@ func xTaggedUserIDs(mediaSettings []map[string]interface{}) []string {
 		}
 	}
 	return result
+}
+
+// IsXUserID reports whether value is a numeric X user ID, the only form X
+// accepts in media tagged_user_ids (pattern ^[0-9]{1,19}$).
+func IsXUserID(value string) bool {
+	if len(value) == 0 || len(value) > 19 {
+		return false
+	}
+	for _, r := range value {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+// xHasPhotoAttachment reports whether any dispatched media attachment is a
+// photo. X applies media tagging to photos only, not videos or GIFs, and
+// req.Media aligns with req.PlatformMediaIDs by index.
+func xHasPhotoAttachment(req *PublishRequest) bool {
+	for index := range req.PlatformMediaIDs {
+		if index >= len(req.Media) {
+			continue
+		}
+		mimeType := strings.ToLower(strings.TrimSpace(req.Media[index].MimeType))
+		if strings.HasPrefix(mimeType, "image/") && mimeType != "image/gif" {
+			return true
+		}
+	}
+	return false
+}
+
+// NormalizeXHandle trims an X handle, strips its leading @ and lowercases it
+// for matching. It does not change anything else.
+func NormalizeXHandle(value string) string {
+	return strings.ToLower(strings.TrimPrefix(strings.TrimSpace(value), "@"))
+}
+
+// ResolveTaggedUsernames resolves X handles to numeric user IDs through
+// GET /2/users/by, which X documents with OAuth 1.0a user context support.
+// Handles are normalized (trimmed, @-stripped, lowercased) and the returned
+// map is keyed by the normalized handle. A handle X does not return fails the
+// whole lookup with an error naming it.
+func (x *XAdapter) ResolveTaggedUsernames(ctx context.Context, accessToken string, handles []string) (map[string]string, error) {
+	normalized := make([]string, 0, len(handles))
+	seen := make(map[string]struct{}, len(handles))
+	for _, handle := range handles {
+		value := NormalizeXHandle(handle)
+		if value == "" {
+			continue
+		}
+		if _, exists := seen[value]; exists {
+			continue
+		}
+		seen[value] = struct{}{}
+		normalized = append(normalized, value)
+	}
+	resolved := make(map[string]string, len(normalized))
+	if len(normalized) == 0 {
+		return resolved, nil
+	}
+	if len(normalized) > xUserLookupMaxUsernames {
+		return nil, fmt.Errorf("x user lookup accepts at most %d usernames", xUserLookupMaxUsernames)
+	}
+	query := url.Values{"usernames": []string{strings.Join(normalized, ",")}}
+	respBody, err := x.doSignedRequest(ctx, accessToken, http.MethodGet, x.apiURL("/2/users/by?"+query.Encode()), nil, nil)
+	if err != nil {
+		return nil, fmt.Errorf("looking up X users: %w", err)
+	}
+	var result struct {
+		Data []struct {
+			ID       string `json:"id"`
+			Username string `json:"username"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return nil, fmt.Errorf("decoding X user lookup response: %w", err)
+	}
+	for _, user := range result.Data {
+		if user.ID == "" || user.Username == "" {
+			continue
+		}
+		resolved[NormalizeXHandle(user.Username)] = user.ID
+	}
+	for _, handle := range normalized {
+		if _, ok := resolved[handle]; !ok {
+			return nil, fmt.Errorf("x user @%s could not be found", handle)
+		}
+	}
+	return resolved, nil
 }
 
 func xPollPayload(settings map[string]interface{}) map[string]interface{} {
@@ -896,7 +1024,7 @@ func xPollOptions(settings map[string]interface{}) []string {
 		return nil
 	}
 	parts := strings.FieldsFunc(raw, func(r rune) bool {
-		return r == '\n' || r == ','
+		return r == '\n'
 	})
 	options := []string{}
 	for _, part := range parts {
@@ -905,6 +1033,21 @@ func xPollOptions(settings map[string]interface{}) []string {
 		}
 	}
 	return options
+}
+
+// validateXTweetText rejects characters X never accepts in post text:
+// U+FFFE, U+FEFF, U+FFFF, the U+FDD0-U+FDEF noncharacters, and every
+// supplementary-plane noncharacter (U+nFFFE/U+nFFFF). It fails here before
+// any upload or mutation is dispatched.
+func validateXTweetText(text string) error {
+	for _, codePoint := range text {
+		if codePoint == '\uFFFE' || codePoint == '\uFEFF' || codePoint == '\uFFFF' ||
+			(codePoint >= 0xFDD0 && codePoint <= 0xFDEF) ||
+			(codePoint >= 0x10000 && (codePoint&0xFFFF) >= 0xFFFE) {
+			return fmt.Errorf("x post text contains characters X does not accept")
+		}
+	}
+	return nil
 }
 
 func validXReplySettings(value string) bool {
@@ -917,6 +1060,10 @@ func validXReplySettings(value string) bool {
 }
 
 func (x *XAdapter) doSignedRequest(ctx context.Context, combinedAccessToken, method, requestURL string, body io.Reader, headers map[string]string) ([]byte, error) {
+	return x.doSignedRequestObserved(ctx, combinedAccessToken, method, requestURL, body, headers, nil)
+}
+
+func (x *XAdapter) doSignedRequestObserved(ctx context.Context, combinedAccessToken, method, requestURL string, body io.Reader, headers map[string]string, observe func(int, http.Header) error) ([]byte, error) {
 	accessToken, accessSecret, err := splitXCombinedToken(combinedAccessToken)
 	if err != nil {
 		return nil, err
@@ -925,6 +1072,10 @@ func (x *XAdapter) doSignedRequest(ctx context.Context, combinedAccessToken, met
 	config := oauth1.NewConfig(x.consumerKey, x.consumerSecret)
 	token := oauth1.NewToken(accessToken, accessSecret)
 	client := config.Client(ctx, token)
+	if observe != nil {
+		client.Timeout = 30 * time.Second
+		client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	}
 
 	req, err := http.NewRequestWithContext(ctx, method, requestURL, body)
 	if err != nil {
@@ -936,17 +1087,34 @@ func (x *XAdapter) doSignedRequest(ctx context.Context, combinedAccessToken, met
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("request failed: %w", err)
+		return nil, fmt.Errorf("request failed: %w", sanitizeTransportError(err))
 	}
 	defer resp.Body.Close()
+	if observe != nil {
+		if err := observe(resp.StatusCode, resp.Header); err != nil {
+			return nil, err
+		}
+	}
 
-	respBody, err := io.ReadAll(resp.Body)
+	// X API responses are small JSON payloads. Bound the read with the
+	// shared 16 MB cap.
+	respBody, err := readProviderBody(resp)
 	if err != nil {
+		if isResponseTooLarge(err) {
+			return nil, err
+		}
 		return nil, fmt.Errorf("reading response: %w", err)
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, NewHTTPError(resp.StatusCode, resp.Header, respBody)
+		providerErr := NewHTTPError(resp.StatusCode, resp.Header, respBody)
+		if resp.StatusCode == http.StatusPaymentRequired {
+			var typed *HTTPError
+			if errors.As(providerErr, &typed) {
+				typed.Code = "x:credits_depleted"
+			}
+		}
+		return nil, providerErr
 	}
 
 	return respBody, nil
