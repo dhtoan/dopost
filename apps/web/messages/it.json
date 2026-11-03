@@ -5345,6 +5345,8 @@
 	"video_editor_apply_fillers": "Rimuovi i riempitivi selezionati",
 	"video_editor_silence_suggestions": "{count} sezione/i silenziosa/e · {duration} rimovibile",
 	"video_editor_apply_silences": "Rimuovi il silenzio selezionato",
+	"video_editor_cleanup_snap_to_speech": "Allinea i tagli alla voce",
+	"video_editor_cleanup_snap_to_speech_hint": "Legge l'audio attorno a ogni taglio per non troncare parole e lasciare una pausa naturale.",
 	"video_editor_edit_caption": "Modifica il testo della didascalia",
 	"video_editor_replace_caption": "Sostituisci il testo della didascalia",
 	"video_editor_caption_search": "Trova",

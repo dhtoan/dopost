@@ -44,6 +44,12 @@
 		scoreFillerRangesWithAudioConfidence,
 		type FillerAudioConfidenceOptions
 	} from '$lib/video-editor/transcript/filler-audio-confidence';
+	import {
+		refineRemovalRange,
+		REACH,
+		scanSpeechInBuffer
+	} from '$lib/video-editor/transcript/speech-edges';
+	import { decodeAudioRangeForAnalysis } from '$lib/video-editor/media/silence';
 
 	type CleanupMode = 'recording' | 'fillers' | 'silence';
 	type SilenceMode = 'signal' | 'speech' | 'transcript';
@@ -79,6 +85,9 @@
 
 	let mode = $state<CleanupMode>('recording');
 	let cleanVoice = $state(false);
+	/** Move each cut edge onto the words the audio actually holds. */
+	let snapToSpeech = $state(true);
+	let applying = $state(false);
 	let reviewedFingerprint = $state('');
 	let stopPreview: (() => void) | null = null;
 	let silenceMode = $state<SilenceMode>(storedCleanupSettings.silenceMode);
@@ -598,9 +607,9 @@
 		});
 	}
 
-	function selectedSilenceRanges() {
+	function selectedSilenceRanges(ranges: ReviewRange[] = selectedRanges) {
 		const result: Record<string, SourceRange[]> = {};
-		for (const range of selectedRanges) {
+		for (const range of ranges) {
 			(result[range.mediaId] ??= []).push({
 				start: range.start,
 				end: range.end
@@ -609,8 +618,46 @@
 		return result;
 	}
 
-	function applyCleanup(): void {
+	/** Ranges with their edges placed against the speech the audio holds. A
+	 * source that cannot be decoded keeps its transcript-timed ranges. */
+	async function speechSnappedRanges(ranges: ReviewRange[]): Promise<ReviewRange[]> {
+		const byMedia = new Map<string, ReviewRange[]>();
+		for (const range of ranges)
+			(byMedia.get(range.mediaId) ?? byMedia.set(range.mediaId, []).get(range.mediaId)!).push(
+				range
+			);
+		const refined = new Map<string, ReviewRange>();
+		for (const [mediaId, group] of byMedia) {
+			const from = Math.max(0, Math.min(...group.map((range) => range.start)) - REACH);
+			const to = Math.max(...group.map((range) => range.end)) + REACH;
+			try {
+				const buffer = await decodeAudioRangeForAnalysis(mediaId, from, to);
+				const scan = await scanSpeechInBuffer(buffer, from);
+				for (const range of group) {
+					const words = range.filler?.words ?? [];
+					const mustRemove = words.length
+						? { start: words[0]!.start, end: words[words.length - 1]!.end }
+						: undefined;
+					const placed = refineRemovalRange(range, scan, 'natural', mustRemove);
+					refined.set(range.id, {
+						...range,
+						start: placed.start,
+						end: placed.end,
+						filler: range.filler
+							? { ...range.filler, start: placed.start, end: placed.end }
+							: undefined
+					});
+				}
+			} catch {
+				// Keep the transcript timing for a source the browser cannot decode.
+			}
+		}
+		return ranges.map((range) => refined.get(range.id) ?? range);
+	}
+
+	async function applyCleanup(): Promise<void> {
 		if (
+			applying ||
 			analyzing ||
 			(!selectedRanges.length && !(mode === 'recording' && cleanVoice)) ||
 			!reviewIsCurrent
@@ -639,13 +686,22 @@
 			open = false;
 			return;
 		}
+		let ranges = selectedRanges;
+		if (snapToSpeech) {
+			applying = true;
+			try {
+				ranges = await speechSnappedRanges(selectedRanges);
+			} finally {
+				applying = false;
+			}
+		}
 		const result =
 			mode === 'fillers'
 				? applyFillerRangeRemoval(
 						itemIds,
-						selectedRanges.flatMap((range) => (range.filler ? [range.filler] : []))
+						ranges.flatMap((range) => (range.filler ? [range.filler] : []))
 					)
-				: applySilenceRangeRemoval(itemIds, selectedSilenceRanges());
+				: applySilenceRangeRemoval(itemIds, selectedSilenceRanges(ranges));
 		if (result.removedItemCount === 0) return;
 		onapplied(result.removedRangeCount);
 		open = false;
@@ -1020,6 +1076,18 @@
 		</div>
 
 		<Dialog.Footer class="border-t border-border bg-card px-5 py-3">
+			{#if mode !== 'recording'}
+				<label class="mr-auto flex items-center gap-2 text-xs text-muted-foreground">
+					<Checkbox
+						bind:checked={snapToSpeech}
+						disabled={applying}
+						aria-label={m.video_editor_cleanup_snap_to_speech()}
+					/>
+					<span title={m.video_editor_cleanup_snap_to_speech_hint()}
+						>{m.video_editor_cleanup_snap_to_speech()}</span
+					>
+				</label>
+			{/if}
 			<Button type="button" variant="ghost" onclick={() => (open = false)}
 				>{m.common_cancel()}</Button
 			>
@@ -1027,8 +1095,9 @@
 				type="button"
 				disabled={(!selectedRanges.length && !(mode === 'recording' && cleanVoice)) ||
 					analyzing ||
+					applying ||
 					!reviewIsCurrent}
-				onclick={applyCleanup}
+				onclick={() => void applyCleanup()}
 			>
 				{mode === 'recording'
 					? m.recording_cleanup_apply()

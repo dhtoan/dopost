@@ -5306,6 +5306,8 @@
 	"video_editor_apply_fillers": "選択したつなぎ言葉を削除",
 	"video_editor_silence_suggestions": "無音区間 {count} 件 · 削除可能 {duration}",
 	"video_editor_apply_silences": "選択した無音区間を削除",
+	"video_editor_cleanup_snap_to_speech": "カットを発話に合わせる",
+	"video_editor_cleanup_snap_to_speech_hint": "各カットの前後の音声を読み取り、言葉を切らず自然な間を残します。",
 	"video_editor_edit_caption": "字幕テキストを編集",
 	"video_editor_replace_caption": "字幕テキストを置換",
 	"video_editor_caption_search": "検索",

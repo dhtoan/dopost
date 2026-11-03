@@ -5301,6 +5301,8 @@
 	"video_editor_apply_fillers": "Ausgewählte Füllwörter entfernen",
 	"video_editor_silence_suggestions": "{count} stille(r) Abschnitt(e) · {duration} entfernbar",
 	"video_editor_apply_silences": "Ausgewählte Stille entfernen",
+	"video_editor_cleanup_snap_to_speech": "Schnitte an Sprache ausrichten",
+	"video_editor_cleanup_snap_to_speech_hint": "Liest den Ton um jeden Schnitt, damit kein Wort abgeschnitten wird und eine natürliche Pause bleibt.",
 	"video_editor_edit_caption": "Untertiteltext bearbeiten",
 	"video_editor_replace_caption": "Untertiteltext ersetzen",
 	"video_editor_caption_search": "Suchen",
