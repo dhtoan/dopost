@@ -40,6 +40,8 @@
 		pasteColorGradeToItems
 	} from '$lib/video-editor/effects/color-grade-clipboard';
 	import ColorPrimaryControls from './color-primary-controls.svelte';
+	import { colorStatsFromPixels, matchColorWheels } from '$lib/video-editor/effects/color-match';
+	import { colorMatchReference } from '$lib/video-editor/effects/color-match-reference.svelte';
 	import {
 		EDITOR_COLOR_GRADE_PRESETS,
 		editorColorGradePresetLabel,
@@ -165,6 +167,71 @@
 			tint: readWheelParam('tint')
 		});
 		applyWheelParams({ ...updates }, m.video_editor_color_auto_applied(), targetItemIdsAtStart);
+	}
+
+	/** The frame on screen with this clip graded, or with its grade switched off. */
+	async function captureFrame(targetItemId: string, ungraded: boolean): Promise<ImageData | null> {
+		const previousMode = colorPreviewStore.comparisonMode;
+		const previousIds = [...colorPreviewStore.comparisonItemIds];
+		colorPreviewStore.setComparisonMode(
+			ungraded ? 'before' : 'after',
+			ungraded ? [targetItemId] : []
+		);
+		try {
+			return await colorPreviewStore.requestFrameCapture(targetItemId);
+		} finally {
+			colorPreviewStore.setComparisonMode(previousMode, previousIds);
+		}
+	}
+
+	async function setMatchReference(): Promise<void> {
+		if (!itemId || !item) return;
+		const targetItemId = itemId;
+		const label = item.label || item.id;
+		status = m.video_editor_color_analyzing();
+		const image = await captureFrame(targetItemId, false);
+		const stats = image ? colorStatsFromPixels(image.data) : undefined;
+		if (!stats || itemId !== targetItemId) {
+			status = m.video_editor_color_sample_unavailable();
+			return;
+		}
+		colorMatchReference.set({ itemId: targetItemId, label, stats });
+		status = m.video_editor_color_match_reference_set({ name: label });
+	}
+
+	async function matchToReference(): Promise<void> {
+		const reference = colorMatchReference.current;
+		if (!itemId || !reference) return;
+		const targetItemId = itemId;
+		const targetItemIdsAtStart = [...editableTargetItemIds];
+		if (targetItemIdsAtStart.length === 0) return;
+		status = m.video_editor_color_matching();
+		// The fit renders the wheels itself, so it starts from the clip's pixels
+		// before any grade and from the wheel settings the clip has now.
+		const image = await captureFrame(targetItemId, true);
+		if (!image || itemId !== targetItemId) {
+			status = m.video_editor_color_sample_unavailable();
+			return;
+		}
+		const defaults = getGpuEffectDefaultParams('gpu-color-wheels');
+		const current = Object.fromEntries(
+			Object.keys(defaults).map((name) => [name, readWheelParam(name)])
+		);
+		const updates = await matchColorWheels({
+			source: image.data,
+			reference: reference.stats,
+			current
+		});
+		if (itemId !== targetItemId) return;
+		if (Object.keys(updates).length === 0) {
+			status = m.video_editor_color_match_none({ name: reference.label });
+			return;
+		}
+		applyWheelParams(
+			updates,
+			m.video_editor_color_match_applied({ name: reference.label }),
+			targetItemIdsAtStart
+		);
 	}
 
 	async function pick(kind: ColorPickerKind): Promise<void> {
@@ -357,6 +424,27 @@
 						onclick={pasteGrade}
 					>
 						<ThemeIcon role="copy" class="size-3.5" />{m.video_editor_color_paste_grade()}
+					</button>
+					<button
+						type="button"
+						class="editor-tool min-w-28 flex-1"
+						aria-pressed={colorMatchReference.current?.itemId === itemId}
+						onclick={() => void setMatchReference()}
+					>
+						{m.video_editor_color_match_reference()}
+					</button>
+					<button
+						type="button"
+						class="editor-tool min-w-20 flex-1"
+						disabled={!colorMatchReference.current ||
+							colorMatchReference.current.itemId === itemId ||
+							editableTargetItemIds.length === 0}
+						title={colorMatchReference.current
+							? m.video_editor_color_match_apply_title({ name: colorMatchReference.current.label })
+							: undefined}
+						onclick={() => void matchToReference()}
+					>
+						{m.video_editor_color_match_apply()}
 					</button>
 					{#if oncreateadjustment}
 						<button
