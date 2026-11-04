@@ -1,5 +1,6 @@
 import { browser } from '$app/environment';
 import { clampMonitorVolume, normalizePreviewZoom } from './playback-settings';
+import { sanitizeGuides, type GuideId } from './guides';
 
 const STORAGE_KEY = 'openpost-video-editor-playback';
 
@@ -8,6 +9,7 @@ interface StoredPlaybackSettings {
 	muted?: boolean;
 	audioSkimmingEnabled?: boolean;
 	previewQuality?: 'auto' | 'full';
+	guides?: GuideId[];
 }
 
 function readStored(): StoredPlaybackSettings {
@@ -26,7 +28,8 @@ function readStored(): StoredPlaybackSettings {
 			audioSkimmingEnabled:
 				'audioSkimmingEnabled' in parsed && typeof parsed.audioSkimmingEnabled === 'boolean'
 					? parsed.audioSkimmingEnabled
-					: undefined
+					: undefined,
+			guides: 'guides' in parsed ? sanitizeGuides(parsed.guides) : undefined
 		};
 	} catch {
 		return {};
@@ -39,7 +42,8 @@ const state = $state({
 	volume: clampMonitorVolume(stored.volume ?? 1),
 	muted: stored.muted ?? false,
 	audioSkimmingEnabled: stored.audioSkimmingEnabled ?? true,
-	previewQuality: stored.previewQuality ?? 'auto'
+	previewQuality: stored.previewQuality ?? 'auto',
+	guides: stored.guides ?? ([] as GuideId[])
 });
 
 function persist(): void {
@@ -50,7 +54,8 @@ function persist(): void {
 			volume: state.volume,
 			muted: state.muted,
 			audioSkimmingEnabled: state.audioSkimmingEnabled,
-			previewQuality: state.previewQuality
+			previewQuality: state.previewQuality,
+			guides: state.guides
 		})
 	);
 }
@@ -70,6 +75,16 @@ export const previewPlaybackSettings = {
 	},
 	get previewQuality(): 'auto' | 'full' {
 		return state.previewQuality;
+	},
+	/** Editor-only overlay guides; never part of exports or captured frames. */
+	get guides(): readonly GuideId[] {
+		return state.guides;
+	},
+	setGuide(id: GuideId, on: boolean): void {
+		state.guides = sanitizeGuides(
+			on ? [...state.guides, id] : state.guides.filter((guide) => guide !== id)
+		);
+		persist();
 	},
 	setZoom(value: number): void {
 		state.zoom = normalizePreviewZoom(value);
