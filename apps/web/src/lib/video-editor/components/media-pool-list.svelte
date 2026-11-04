@@ -66,6 +66,7 @@
 	} from '$lib/video-editor/media/media-source-recovery';
 	import type { SubComposition } from '$lib/video-editor/project/types';
 	import { upscaleService } from '$lib/video-editor/media/processing/upscale/upscale-service.svelte';
+	import { backgroundRemovalService } from '$lib/video-editor/media/processing/background-removal/background-removal.svelte';
 	import type { UpscaleVariant } from '$lib/video-editor/media/processing/upscale/upscale-variant';
 	import { frameInterpolationService } from '$lib/video-editor/media/processing/interpolation/frame-interpolation-service.svelte';
 	import {
@@ -493,6 +494,7 @@
 			recoveryBusyIds.has(mediaId) ||
 			mediaTasks.get(mediaTaskId('upscale', mediaId)) ||
 			mediaTasks.get(mediaTaskId('frame-interpolation', mediaId)) ||
+			mediaTasks.get(mediaTaskId('background-removal', mediaId)) ||
 			mediaTasks.get(mediaTaskId('scene-analysis', mediaId)) ||
 			mediaTasks.get(mediaTaskId('proxy', mediaId)) ||
 			sourceTranscriptTask(mediaId)
@@ -570,6 +572,7 @@
 			recoveryBusyIds.has(mediaId) ||
 			mediaTasks.get(mediaTaskId('upscale', mediaId)) ||
 			mediaTasks.get(mediaTaskId('frame-interpolation', mediaId)) ||
+			mediaTasks.get(mediaTaskId('background-removal', mediaId)) ||
 			mediaTasks.get(mediaTaskId('scene-analysis', mediaId)) ||
 			mediaTasks.get(mediaTaskId('proxy', mediaId))
 		);
@@ -630,6 +633,7 @@
 			recoveryBusyIds.has(mediaId) ||
 			mediaTasks.get(mediaTaskId('upscale', mediaId)) ||
 			mediaTasks.get(mediaTaskId('frame-interpolation', mediaId)) ||
+			mediaTasks.get(mediaTaskId('background-removal', mediaId)) ||
 			mediaTasks.get(mediaTaskId('scene-analysis', mediaId)) ||
 			sourceTranscriptTask(mediaId)
 		);
@@ -678,6 +682,32 @@
 			return m.video_editor_media_upscale_too_large();
 		}
 		return m.video_editor_media_upscale();
+	}
+
+	function backgroundRemovalActionLabel(media: MediaMetadata): string {
+		if (mediaProcessing(media.id)) {
+			return m.video_editor_media_tool_busy({ tool: m.video_editor_media_remove_background() });
+		}
+		if (!backgroundRemovalService.canRemoveBackground(media)) {
+			return m.video_editor_media_remove_background_unavailable();
+		}
+		return m.video_editor_media_remove_background_hint();
+	}
+
+	async function removeBackground(media: MediaMetadata): Promise<void> {
+		try {
+			const generated = await backgroundRemovalService.generate(
+				media,
+				projectId,
+				importProjectAsset
+			);
+			showToast(
+				m.video_editor_media_remove_background_done({ name: generated.fileName }),
+				'success'
+			);
+		} catch (error) {
+			processFailure(media, error instanceof Error ? error : new Error(String(error)));
+		}
 	}
 
 	function interpolationActionLabel(media: MediaMetadata): string {
@@ -1814,6 +1844,16 @@
 														</DropdownMenu.Item>
 													</DropdownMenu.SubContent>
 												</DropdownMenu.Sub>
+												<DropdownMenu.Item
+													disabled={Boolean(issue) ||
+														!backgroundRemovalService.canRemoveBackground(entry.media) ||
+														mediaProcessing(id)}
+													title={backgroundRemovalActionLabel(entry.media)}
+													onclick={() => removeBackground(entry.media)}
+												>
+													<ThemeIcon role="sparkles" class="size-4" />
+													{m.video_editor_media_remove_background()}
+												</DropdownMenu.Item>
 												<DropdownMenu.Sub>
 													<DropdownMenu.SubTrigger
 														disabled={Boolean(issue) ||
@@ -2011,6 +2051,16 @@
 										</ContextMenu.Item>
 									</ContextMenu.SubContent>
 								</ContextMenu.Sub>
+								<ContextMenu.Item
+									disabled={Boolean(issue) ||
+										!backgroundRemovalService.canRemoveBackground(entry.media) ||
+										mediaProcessing(id)}
+									title={backgroundRemovalActionLabel(entry.media)}
+									onclick={() => removeBackground(entry.media)}
+								>
+									<ThemeIcon role="sparkles" class="size-4" />
+									{m.video_editor_media_remove_background()}
+								</ContextMenu.Item>
 								<ContextMenu.Sub>
 									<ContextMenu.SubTrigger
 										disabled={Boolean(issue) ||
