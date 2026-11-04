@@ -37,20 +37,23 @@ func CompileCompositionOverlays(graph SceneGraph, width, height int, fps float64
 			direction = -1
 		}
 		compositionIndex++
+		// Positions are offsets of each layer's centre from the stage centre.
+		ox := func(fraction float64) float64 { return float64(width) * (fraction - 0.5) }
+		oy := func(fraction float64) float64 { return float64(height) * (fraction - 0.5) }
 
 		primary := NativeItem{
 			ID: primaryID, TrackID: trackID, From: 0, DurationInFrames: durationFrames,
 			Label: "Motion field", Type: "shape", ShapeType: "circle",
 			FillEnabled: true, FillType: "solid", FillColor: accent,
 			Transform: NativeTransform{
-				X:     float64(width) * choose(direction > 0, 0.74, 0.26),
-				Y:     float64(height) * 0.48,
+				X:     ox(choose(direction > 0, 0.74, 0.26)),
+				Y:     oy(0.48),
 				Width: float64(width) * 0.54, Height: float64(width) * 0.54,
 				Opacity: 0.2, ScaleX: 1, ScaleY: 1,
 			},
 			Keyframes: map[string]NativeKeyframeTrack{
-				"x":       track(primaryID+":x", float64(width)*choose(direction > 0, 0.82, 0.18), float64(width)*choose(direction > 0, 0.60, 0.40), durationFrames),
-				"y":       track(primaryID+":y", float64(height)*0.42, float64(height)*0.56, durationFrames),
+				"x":       track(primaryID+":x", ox(choose(direction > 0, 0.82, 0.18)), ox(choose(direction > 0, 0.60, 0.40)), durationFrames),
+				"y":       track(primaryID+":y", oy(0.42), oy(0.56), durationFrames),
 				"scaleX":  track(primaryID+":scaleX", 0.82, 1.12, durationFrames),
 				"scaleY":  track(primaryID+":scaleY", 0.82, 1.12, durationFrames),
 				"opacity": track(primaryID+":opacity", 0.06, 0.22, durationFrames),
@@ -62,7 +65,7 @@ func CompileCompositionOverlays(graph SceneGraph, width, height int, fps float64
 			StrokeEnabled: true, StrokeColor: secondary,
 			StrokeWidth: math.Max(2, math.Round(float64(width)*0.004)),
 			Transform: NativeTransform{
-				X: float64(width) / 2, Y: float64(height) / 2,
+				X: 0, Y: 0,
 				Width: float64(width) * 0.72, Height: float64(height) * 0.46,
 				Opacity: 0.34,
 			},
@@ -103,7 +106,7 @@ func CompileCompositionOverlays(graph SceneGraph, width, height int, fps float64
 			Label: "Motion Composition · " + scene.SourceSceneID, Type: "composition",
 			CompositionID: compositionID, CompositionWidth: width, CompositionHeight: height,
 			CompositionControlOverrides: map[string]string{"primary-color": accent, "secondary-color": secondary},
-			Transform:                   NativeTransform{X: float64(width) / 2, Y: float64(height) / 2, Width: float64(width), Height: float64(height), Opacity: 1},
+			Transform:                   NativeTransform{X: 0, Y: 0, Width: float64(width), Height: float64(height), Opacity: 1},
 		}
 		overlays = append(overlays, NativeOverlay{Composition: composition, TimelineItem: item})
 	}
@@ -118,15 +121,17 @@ func compileDocumentaryPaperOverlay(scene Scene, accent, secondary string, width
 	heroID := compositionID + "-paper-hero"
 	baseWidth := float64(width) * 0.62
 	baseHeight := float64(height) * 0.58
+	ox := func(fraction float64) float64 { return float64(width) * (fraction - 0.5) }
+	oy := func(fraction float64) float64 { return float64(height) * (fraction - 0.5) }
 
 	back := NativeItem{
 		ID: backID, TrackID: trackID, From: 0, DurationInFrames: durationFrames,
 		Label: "dopost paper backing", Type: "shape", ShapeType: "rectangle",
 		FillEnabled: true, FillType: "solid", FillColor: "#D7C3A3",
-		Transform: NativeTransform{X: float64(width) * 0.5, Y: float64(height) * 0.5, Width: baseWidth, Height: baseHeight, Rotation: -1.2, Opacity: 0.96, ScaleX: 1, ScaleY: 1},
+		Transform: NativeTransform{X: ox(0.5), Y: oy(0.5), Width: baseWidth, Height: baseHeight, Rotation: -1.2, Opacity: 0.96, ScaleX: 1, ScaleY: 1},
 		Keyframes: map[string]NativeKeyframeTrack{
-			"x":        paperTrack(backID+":x", float64(width)*0.47, float64(width)*0.5, durationFrames),
-			"y":        paperTrack(backID+":y", float64(height)*0.53, float64(height)*0.5, durationFrames),
+			"x":        paperTrack(backID+":x", ox(0.47), ox(0.5), durationFrames),
+			"y":        paperTrack(backID+":y", oy(0.53), oy(0.5), durationFrames),
 			"rotation": paperTrack(backID+":rotation", -2.4, -1.2, durationFrames),
 			"opacity":  paperTrack(backID+":opacity", 0, 0.96, durationFrames),
 		},
@@ -135,10 +140,10 @@ func compileDocumentaryPaperOverlay(scene Scene, accent, secondary string, width
 		ID: shadowID, TrackID: trackID, From: 0, DurationInFrames: durationFrames,
 		Label: "dopost paper shadow", Type: "shape", ShapeType: "rectangle",
 		FillEnabled: true, FillType: "solid", FillColor: secondary,
-		Transform: NativeTransform{X: float64(width) * 0.518, Y: float64(height) * 0.525, Width: baseWidth, Height: baseHeight, Rotation: 0.7, Opacity: 0.22, ScaleX: 1, ScaleY: 1},
+		Transform: NativeTransform{X: ox(0.518), Y: oy(0.525), Width: baseWidth, Height: baseHeight, Rotation: 0.7, Opacity: 0.22, ScaleX: 1, ScaleY: 1},
 		Keyframes: map[string]NativeKeyframeTrack{
-			"x":        paperTrack(shadowID+":x", float64(width)*0.49, float64(width)*0.518, durationFrames),
-			"y":        paperTrack(shadowID+":y", float64(height)*0.55, float64(height)*0.525, durationFrames),
+			"x":        paperTrack(shadowID+":x", ox(0.49), ox(0.518), durationFrames),
+			"y":        paperTrack(shadowID+":y", oy(0.55), oy(0.525), durationFrames),
 			"rotation": paperTrack(shadowID+":rotation", 1.8, 0.7, durationFrames),
 			"opacity":  paperTrack(shadowID+":opacity", 0, 0.22, durationFrames),
 		},
@@ -148,10 +153,10 @@ func compileDocumentaryPaperOverlay(scene Scene, accent, secondary string, width
 		Label: "dopost paper hero", Type: "shape", ShapeType: "rectangle",
 		FillEnabled: true, FillType: "solid", FillColor: accent,
 		StrokeEnabled: true, StrokeColor: secondary, StrokeWidth: math.Max(2, math.Round(float64(width)*0.002)),
-		Transform: NativeTransform{X: float64(width) * 0.5, Y: float64(height) * 0.49, Width: baseWidth, Height: baseHeight, Rotation: 0, Opacity: 0.9, ScaleX: 1, ScaleY: 1},
+		Transform: NativeTransform{X: ox(0.5), Y: oy(0.49), Width: baseWidth, Height: baseHeight, Rotation: 0, Opacity: 0.9, ScaleX: 1, ScaleY: 1},
 		Keyframes: map[string]NativeKeyframeTrack{
-			"x":        paperTrack(heroID+":x", float64(width)*0.54, float64(width)*0.5, durationFrames),
-			"y":        paperTrack(heroID+":y", float64(height)*0.46, float64(height)*0.49, durationFrames),
+			"x":        paperTrack(heroID+":x", ox(0.54), ox(0.5), durationFrames),
+			"y":        paperTrack(heroID+":y", oy(0.46), oy(0.49), durationFrames),
 			"rotation": paperTrack(heroID+":rotation", 2.1, 0, durationFrames),
 			"opacity":  paperTrack(heroID+":opacity", 0, 0.9, durationFrames),
 		},
@@ -177,7 +182,7 @@ func compileDocumentaryPaperOverlay(scene Scene, accent, secondary string, width
 		Label: "Motion Composition · " + scene.SourceSceneID, Type: "composition",
 		CompositionID: compositionID, CompositionWidth: width, CompositionHeight: height,
 		CompositionControlOverrides: map[string]string{},
-		Transform:                   NativeTransform{X: float64(width) / 2, Y: float64(height) / 2, Width: float64(width), Height: float64(height), Opacity: 1},
+		Transform:                   NativeTransform{X: 0, Y: 0, Width: float64(width), Height: float64(height), Opacity: 1},
 	}
 	return NativeOverlay{Composition: composition, TimelineItem: item}
 }

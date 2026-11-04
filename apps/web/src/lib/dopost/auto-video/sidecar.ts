@@ -25,16 +25,22 @@ export function documentaryManifest(
 	return manifest;
 }
 
-export function saveAutoVideoSidecar(sidecar: AutoVideoSidecar): void {
-	if (typeof localStorage === 'undefined') return;
-	localStorage.setItem(key(sidecar.projectId), JSON.stringify(sidecar));
+/** Keep a local copy. Returns false when the browser refuses (private mode, full quota). */
+export function saveAutoVideoSidecar(sidecar: AutoVideoSidecar): boolean {
+	if (typeof localStorage === 'undefined') return false;
+	try {
+		localStorage.setItem(key(sidecar.projectId), JSON.stringify(sidecar));
+		return true;
+	} catch {
+		return false;
+	}
 }
 
 export function loadAutoVideoSidecar(projectId: string): AutoVideoSidecar | null {
 	if (typeof localStorage === 'undefined') return null;
-	const raw = localStorage.getItem(key(projectId));
-	if (!raw) return null;
 	try {
+		const raw = localStorage.getItem(key(projectId));
+		if (!raw) return null;
 		const parsed = JSON.parse(raw) as AutoVideoSidecar;
 		return parsed?.version === 1 && parsed.projectId === projectId ? parsed : null;
 	} catch {
@@ -44,10 +50,14 @@ export function loadAutoVideoSidecar(projectId: string): AutoVideoSidecar | null
 
 export function removeAutoVideoSidecar(projectId: string): void {
 	if (typeof localStorage === 'undefined') return;
-	localStorage.removeItem(key(projectId));
+	try {
+		localStorage.removeItem(key(projectId));
+	} catch {
+		// Nothing to clean up when storage is unavailable.
+	}
 }
 
-type RemoteSidecar = {
+export type RemoteSidecar = {
 	project_id: string;
 	workspace_id: string;
 	generation_version: number;
@@ -60,7 +70,7 @@ type RemoteSidecar = {
 	updated_at: string;
 };
 
-function fromRemote(value: RemoteSidecar): AutoVideoSidecar | null {
+export function fromRemote(value: RemoteSidecar): AutoVideoSidecar | null {
 	const source = value.source_manifest?.source;
 	if (!source || !value.storyboard || value.storyboard.version !== 1) return null;
 	const createdAt = Date.parse(value.created_at);
@@ -79,13 +89,20 @@ function fromRemote(value: RemoteSidecar): AutoVideoSidecar | null {
 	};
 }
 
+/**
+ * Where a save ended up: `saved` on the server, `local` only in this browser (no
+ * workspace, offline, or a server error), or `conflict` when another tab or device
+ * already saved a newer generation and this one was refused.
+ */
+export type AutoVideoSidecarSaveResult = 'saved' | 'local' | 'conflict';
+
 export async function saveAutoVideoSidecarRemote(
 	workspaceId: string,
 	sidecar: AutoVideoSidecar,
 	signal?: AbortSignal
-): Promise<boolean> {
+): Promise<AutoVideoSidecarSaveResult> {
 	saveAutoVideoSidecar(sidecar);
-	if (!workspaceId.trim()) return false;
+	if (!workspaceId.trim()) return 'local';
 	try {
 		const response = await fetch(
 			`/api/v1/dopost/auto-video/projects/${encodeURIComponent(sidecar.projectId)}`,
@@ -105,9 +122,10 @@ export async function saveAutoVideoSidecarRemote(
 				})
 			}
 		);
-		return response.ok;
+		if (response.ok) return 'saved';
+		return response.status === 409 ? 'conflict' : 'local';
 	} catch {
-		return false;
+		return 'local';
 	}
 }
 
@@ -123,6 +141,8 @@ export async function loadAutoVideoSidecarRemote(
 			`/api/v1/dopost/auto-video/projects/${encodeURIComponent(projectId)}?${query.toString()}`,
 			{ credentials: 'include', headers: requestHeaders(), signal }
 		);
+		// Another workspace's project: never fall back to a copy cached in this browser.
+		if (response.status === 403) return null;
 		if (!response.ok) return loadAutoVideoSidecar(projectId);
 		const remote = fromRemote((await response.json()) as RemoteSidecar);
 		if (remote) saveAutoVideoSidecar(remote);

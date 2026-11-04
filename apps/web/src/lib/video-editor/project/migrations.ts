@@ -1,6 +1,7 @@
+import { repairLegacyPlacement } from '$lib/dopost/legacy-placement';
 import type { Project, ProjectTimeline, TimelineItem, TimelineTrack } from './types';
 
-export const CURRENT_SCHEMA_VERSION = 11;
+export const CURRENT_SCHEMA_VERSION = 12;
 
 export interface ProjectMigration {
 	version: number;
@@ -286,6 +287,15 @@ const PROJECT_MIGRATIONS: ReadonlyMap<number, ProjectMigration> = new Map([
 					}
 				};
 			}
+		}
+	],
+	[
+		12,
+		{
+			version: 12,
+			description:
+				'Centre Auto Video and Documentary layers that were generated measured from the corner',
+			migrate: repairLegacyPlacement
 		}
 	]
 ]);

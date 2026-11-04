@@ -91,7 +91,7 @@ func (h *AutoVideoProjectHandler) RegisterRoutes(api huma.API) {
 		Description: "Stores AI provenance and regeneration state separately from the native video project document.",
 		Tags:        []string{"dopost Auto Video"},
 		Middlewares: auth,
-		Errors:      []int{400, 403, 404, 503},
+		Errors:      []int{400, 403, 404, 409, 503},
 	}, h.upsert)
 	huma.Register(api, huma.Operation{
 		OperationID: "delete-dopost-auto-video-project",
@@ -195,6 +195,9 @@ func autoVideoProjectError(err error) error {
 	}
 	if errors.Is(err, autovideoprojects.ErrNotFound) {
 		return huma.Error404NotFound("Auto Video metadata was not found")
+	}
+	if errors.Is(err, autovideoprojects.ErrConflict) {
+		return huma.Error409Conflict("Auto Video metadata was changed elsewhere; reload to continue")
 	}
 	return huma.Error503ServiceUnavailable("Auto Video metadata is unavailable")
 }
