@@ -5537,7 +5537,8 @@
 							"stock_import",
 							"meme_generator",
 							"screenshot_template",
-							"image_generation"
+							"image_generation",
+							"video_generation"
 						],
 						"type": "string"
 					},
@@ -13254,6 +13255,26 @@
 					}
 				},
 				"required": ["enabled", "providers"],
+				"type": "object"
+			},
+			"ListVideoGenerationsOutputBody": {
+				"additionalProperties": false,
+				"properties": {
+					"$schema": {
+						"description": "A URL to the JSON Schema for this object.",
+						"examples": ["https://example.com/api/v1/schemas/ListVideoGenerationsOutputBody.json"],
+						"format": "uri",
+						"readOnly": true,
+						"type": "string"
+					},
+					"runs": {
+						"items": {
+							"$ref": "#/components/schemas/VideoGenerationRun"
+						},
+						"type": ["array", "null"]
+					}
+				},
+				"required": ["runs"],
 				"type": "object"
 			},
 			"LoginInputBody": {
@@ -27069,6 +27090,222 @@
 					}
 				},
 				"required": ["mfa_token", "code"],
+				"type": "object"
+			},
+			"VideoGenerationConfigOutputBody": {
+				"additionalProperties": false,
+				"properties": {
+					"$schema": {
+						"description": "A URL to the JSON Schema for this object.",
+						"examples": ["https://example.com/api/v1/schemas/VideoGenerationConfigOutputBody.json"],
+						"format": "uri",
+						"readOnly": true,
+						"type": "string"
+					},
+					"available": {
+						"type": "boolean"
+					},
+					"default_model": {
+						"type": "string"
+					},
+					"models": {
+						"items": {
+							"$ref": "#/components/schemas/VideoModel"
+						},
+						"type": ["array", "null"]
+					}
+				},
+				"required": ["available", "default_model", "models"],
+				"type": "object"
+			},
+			"VideoGenerationRequest": {
+				"additionalProperties": false,
+				"properties": {
+					"$schema": {
+						"description": "A URL to the JSON Schema for this object.",
+						"examples": ["https://example.com/api/v1/schemas/VideoGenerationRequest.json"],
+						"format": "uri",
+						"readOnly": true,
+						"type": "string"
+					},
+					"aspect_ratio": {
+						"enum": ["16:9", "9:16", "1:1"],
+						"type": "string"
+					},
+					"duration_seconds": {
+						"format": "int64",
+						"maximum": 20,
+						"minimum": 3,
+						"type": "integer"
+					},
+					"generate_audio": {
+						"description": "Only models that can make a soundtrack use this",
+						"type": "boolean"
+					},
+					"model": {
+						"enum": ["kling-4-flash", "kling-3-pro"],
+						"type": "string"
+					},
+					"project_id": {
+						"maxLength": 200,
+						"minLength": 1,
+						"type": "string"
+					},
+					"prompt": {
+						"maxLength": 2500,
+						"minLength": 1,
+						"type": "string"
+					},
+					"source_media_id": {
+						"description": "Optional image used as the first frame; the frame shape then follows it",
+						"maxLength": 200,
+						"type": "string"
+					},
+					"workspace_id": {
+						"maxLength": 200,
+						"minLength": 1,
+						"type": "string"
+					}
+				},
+				"required": [
+					"workspace_id",
+					"project_id",
+					"prompt",
+					"model",
+					"duration_seconds",
+					"aspect_ratio"
+				],
+				"type": "object"
+			},
+			"VideoGenerationRun": {
+				"additionalProperties": false,
+				"properties": {
+					"$schema": {
+						"description": "A URL to the JSON Schema for this object.",
+						"examples": ["https://example.com/api/v1/schemas/VideoGenerationRun.json"],
+						"format": "uri",
+						"readOnly": true,
+						"type": "string"
+					},
+					"aspect_ratio": {
+						"type": "string"
+					},
+					"billing_state": {
+						"type": "string"
+					},
+					"cost_microusd": {
+						"format": "int64",
+						"type": ["integer", "null"]
+					},
+					"created_at": {
+						"format": "date-time",
+						"type": "string"
+					},
+					"duration_seconds": {
+						"format": "int64",
+						"type": "integer"
+					},
+					"error_message": {
+						"type": "string"
+					},
+					"generate_audio": {
+						"type": "boolean"
+					},
+					"id": {
+						"type": "string"
+					},
+					"model": {
+						"type": "string"
+					},
+					"project_id": {
+						"type": "string"
+					},
+					"prompt": {
+						"type": "string"
+					},
+					"result_media_id": {
+						"type": "string"
+					},
+					"source_media_id": {
+						"type": "string"
+					},
+					"state": {
+						"description": "queued, submitting, generating, saving, completed, failed or unknown",
+						"type": "string"
+					},
+					"workspace_id": {
+						"type": "string"
+					}
+				},
+				"required": [
+					"id",
+					"workspace_id",
+					"project_id",
+					"prompt",
+					"model",
+					"duration_seconds",
+					"aspect_ratio",
+					"generate_audio",
+					"source_media_id",
+					"state",
+					"error_message",
+					"result_media_id",
+					"cost_microusd",
+					"billing_state",
+					"created_at"
+				],
+				"type": "object"
+			},
+			"VideoModel": {
+				"additionalProperties": false,
+				"properties": {
+					"aspect_ratios": {
+						"items": {
+							"type": "string"
+						},
+						"type": ["array", "null"]
+					},
+					"audio": {
+						"description": "Whether the model can generate a soundtrack",
+						"type": "boolean"
+					},
+					"audio_microusd_per_second": {
+						"format": "int64",
+						"type": "integer"
+					},
+					"default_seconds": {
+						"format": "int64",
+						"type": "integer"
+					},
+					"id": {
+						"type": "string"
+					},
+					"max_seconds": {
+						"format": "int64",
+						"type": "integer"
+					},
+					"microusd_per_second": {
+						"format": "int64",
+						"type": "integer"
+					},
+					"min_seconds": {
+						"format": "int64",
+						"type": "integer"
+					},
+					"name": {
+						"type": "string"
+					}
+				},
+				"required": [
+					"id",
+					"name",
+					"min_seconds",
+					"max_seconds",
+					"default_seconds",
+					"aspect_ratios",
+					"audio",
+					"microusd_per_second"
+				],
 				"type": "object"
 			},
 			"VideoProjectCheckpointResponse": {
@@ -63154,6 +63391,405 @@
 				"security": [],
 				"summary": "Running version",
 				"tags": ["System"]
+			}
+		},
+		"/video-generations": {
+			"get": {
+				"operationId": "list-video-generations",
+				"parameters": [
+					{
+						"explode": false,
+						"in": "query",
+						"name": "workspace_id",
+						"required": true,
+						"schema": {
+							"maxLength": 200,
+							"type": "string"
+						}
+					},
+					{
+						"explode": false,
+						"in": "query",
+						"name": "project_id",
+						"required": true,
+						"schema": {
+							"maxLength": 200,
+							"type": "string"
+						}
+					}
+				],
+				"responses": {
+					"200": {
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/ListVideoGenerationsOutputBody"
+								}
+							}
+						},
+						"description": "OK"
+					},
+					"400": {
+						"content": {
+							"application/problem+json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorModel"
+								}
+							}
+						},
+						"description": "Bad Request"
+					},
+					"403": {
+						"content": {
+							"application/problem+json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorModel"
+								}
+							}
+						},
+						"description": "Forbidden"
+					},
+					"404": {
+						"content": {
+							"application/problem+json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorModel"
+								}
+							}
+						},
+						"description": "Not Found"
+					},
+					"409": {
+						"content": {
+							"application/problem+json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorModel"
+								}
+							}
+						},
+						"description": "Conflict"
+					},
+					"422": {
+						"content": {
+							"application/problem+json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorModel"
+								}
+							}
+						},
+						"description": "Unprocessable Entity"
+					},
+					"500": {
+						"content": {
+							"application/problem+json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorModel"
+								}
+							}
+						},
+						"description": "Internal Server Error"
+					},
+					"503": {
+						"content": {
+							"application/problem+json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorModel"
+								}
+							}
+						},
+						"description": "Service Unavailable"
+					}
+				},
+				"summary": "Read the current user's video generation history for a project",
+				"tags": ["Video generation"]
+			},
+			"post": {
+				"operationId": "create-video-generation",
+				"parameters": [
+					{
+						"in": "header",
+						"name": "Idempotency-Key",
+						"required": true,
+						"schema": {
+							"maxLength": 160,
+							"minLength": 8,
+							"type": "string"
+						}
+					}
+				],
+				"requestBody": {
+					"content": {
+						"application/json": {
+							"schema": {
+								"$ref": "#/components/schemas/VideoGenerationRequest"
+							}
+						}
+					},
+					"required": true
+				},
+				"responses": {
+					"200": {
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/VideoGenerationRun"
+								}
+							}
+						},
+						"description": "OK"
+					},
+					"400": {
+						"content": {
+							"application/problem+json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorModel"
+								}
+							}
+						},
+						"description": "Bad Request"
+					},
+					"403": {
+						"content": {
+							"application/problem+json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorModel"
+								}
+							}
+						},
+						"description": "Forbidden"
+					},
+					"404": {
+						"content": {
+							"application/problem+json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorModel"
+								}
+							}
+						},
+						"description": "Not Found"
+					},
+					"409": {
+						"content": {
+							"application/problem+json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorModel"
+								}
+							}
+						},
+						"description": "Conflict"
+					},
+					"422": {
+						"content": {
+							"application/problem+json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorModel"
+								}
+							}
+						},
+						"description": "Unprocessable Entity"
+					},
+					"500": {
+						"content": {
+							"application/problem+json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorModel"
+								}
+							}
+						},
+						"description": "Internal Server Error"
+					},
+					"503": {
+						"content": {
+							"application/problem+json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorModel"
+								}
+							}
+						},
+						"description": "Service Unavailable"
+					}
+				},
+				"summary": "Generate a video clip from a prompt and an optional start image",
+				"tags": ["Video generation"]
+			}
+		},
+		"/video-generations/config": {
+			"get": {
+				"operationId": "video-generation-config",
+				"responses": {
+					"200": {
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/VideoGenerationConfigOutputBody"
+								}
+							}
+						},
+						"description": "OK"
+					},
+					"400": {
+						"content": {
+							"application/problem+json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorModel"
+								}
+							}
+						},
+						"description": "Bad Request"
+					},
+					"403": {
+						"content": {
+							"application/problem+json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorModel"
+								}
+							}
+						},
+						"description": "Forbidden"
+					},
+					"404": {
+						"content": {
+							"application/problem+json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorModel"
+								}
+							}
+						},
+						"description": "Not Found"
+					},
+					"409": {
+						"content": {
+							"application/problem+json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorModel"
+								}
+							}
+						},
+						"description": "Conflict"
+					},
+					"500": {
+						"content": {
+							"application/problem+json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorModel"
+								}
+							}
+						},
+						"description": "Internal Server Error"
+					},
+					"503": {
+						"content": {
+							"application/problem+json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorModel"
+								}
+							}
+						},
+						"description": "Service Unavailable"
+					}
+				},
+				"summary": "Read signed-in video generation capabilities",
+				"tags": ["Video generation"]
+			}
+		},
+		"/video-generations/{id}": {
+			"get": {
+				"operationId": "get-video-generation",
+				"parameters": [
+					{
+						"in": "path",
+						"name": "id",
+						"required": true,
+						"schema": {
+							"maxLength": 200,
+							"type": "string"
+						}
+					}
+				],
+				"responses": {
+					"200": {
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/VideoGenerationRun"
+								}
+							}
+						},
+						"description": "OK"
+					},
+					"400": {
+						"content": {
+							"application/problem+json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorModel"
+								}
+							}
+						},
+						"description": "Bad Request"
+					},
+					"403": {
+						"content": {
+							"application/problem+json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorModel"
+								}
+							}
+						},
+						"description": "Forbidden"
+					},
+					"404": {
+						"content": {
+							"application/problem+json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorModel"
+								}
+							}
+						},
+						"description": "Not Found"
+					},
+					"409": {
+						"content": {
+							"application/problem+json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorModel"
+								}
+							}
+						},
+						"description": "Conflict"
+					},
+					"422": {
+						"content": {
+							"application/problem+json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorModel"
+								}
+							}
+						},
+						"description": "Unprocessable Entity"
+					},
+					"500": {
+						"content": {
+							"application/problem+json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorModel"
+								}
+							}
+						},
+						"description": "Internal Server Error"
+					},
+					"503": {
+						"content": {
+							"application/problem+json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorModel"
+								}
+							}
+						},
+						"description": "Service Unavailable"
+					}
+				},
+				"summary": "Read a saved video generation request",
+				"tags": ["Video generation"]
 			}
 		},
 		"/video-project-summaries": {

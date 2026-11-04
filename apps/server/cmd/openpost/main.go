@@ -96,6 +96,7 @@ import (
 	"github.com/openpost/backend/internal/services/tokenmanager"
 	"github.com/openpost/backend/internal/services/updatestatus"
 	"github.com/openpost/backend/internal/services/usage"
+	"github.com/openpost/backend/internal/services/videogeneration"
 	"github.com/openpost/backend/internal/services/videoprocessing"
 	"github.com/openpost/backend/internal/services/waitlist"
 	"github.com/openpost/backend/internal/services/workflows"
@@ -762,6 +763,14 @@ func main() {
 		imageProvider = ai.NewFalImages(cfg.FalAPIKey)
 	}
 	imageGeneration := imagegeneration.New(db, imageProvider, storage, mediaHandler)
+	videoProvider, err := dopostE2EVideoProvider(strings.TrimSpace(os.Getenv("OPENPOST_DOPOST_E2E_FIXTURES")) == "1")
+	if err != nil {
+		fatalfWithDiagnostics(diagnosticsReporter, "failed to initialize video generation fixtures: %v", err)
+	}
+	if videoProvider == nil && cfg.FalAPIKey != "" {
+		videoProvider = ai.NewFalVideos(cfg.FalAPIKey)
+	}
+	videoGeneration := videogeneration.New(db, videoProvider, storage, mediaHandler)
 	var publicSourceLoader sourcecontext.Loader
 	var publicationBuilderApplication *publicationbuilder.Application
 	var publicationBuilderService *publicationbuilder.Service
@@ -888,6 +897,7 @@ func main() {
 		worker.SetPublicationBuilderService(publicationBuilderApplication)
 		worker.SetRepurposeSuggestionsService(repurposeSuggestions)
 		worker.SetImageGenerationService(imageGeneration)
+		worker.SetVideoGenerationService(videoGeneration)
 		worker.SetAccountPreflightService(accountPreflightService)
 		worker.SetExternalWebhookService(externalWebhookService)
 		worker.SetTelemetry(telemetryRecorder)
@@ -1032,6 +1042,7 @@ func main() {
 		PublicationBuilder:        publicationBuilderApplication,
 		RepurposeSuggestions:      repurposeSuggestions,
 		ImageGeneration:           imageGeneration,
+		VideoGeneration:           videoGeneration,
 		PublicationPlanner:        publicationBuilderService,
 		PublicationDiscovery:      publicationDiscoveryService,
 		Entitlement:               entitlementService,

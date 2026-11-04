@@ -52,3 +52,14 @@ The Image Editor uses [GPT Image 2.5 Flare](https://fal.ai/models/openai/gpt-ima
 Sign in, open an editable project saved to dopost and choose **AI images**. Follow [Generate and edit images with AI](/image-editor/ai-images) to submit and review a result. This check makes a paid provider request.
 
 The web and worker roles need the same key. Requests and provider receipts are saved in the database, so restarting a worker does not regenerate an accepted image. dopost records the request's cost in the existing AI usage ledger using [fal billing events](https://fal.ai/docs/platform-apis/v1/models/billing-events). Missing billing access leaves costs pending and eventually unavailable; it never records a missing charge as zero. No image-specific spending limits are enforced by dopost.
+
+## Video generation with fal
+
+The same key turns on **Generate video** in the Video Editor's Media menu. It offers two models, each from a prompt or from a start image:
+
+| Model | Endpoints | Length | List price |
+| --- | --- | --- | --- |
+| Kling 4.0 Flash (default) | `kling/v4/flash/text-to-video`, `kling/v4/flash/image-to-video` | 3–20 s, 720p | $0.094 per second |
+| Kling 3.0 Pro | `fal-ai/kling-video/v3/pro/text-to-video`, `fal-ai/kling-video/v3/pro/image-to-video` | 3–15 s | $0.112 per second, $0.168 with sound |
+
+The dialog shows an estimate from these list prices; the recorded cost comes from fal billing events, as for images. A start image must be a still image of at least 300 px on each side in a project saved to dopost. Requests, receipts and results are saved like image runs, so a worker restart does not buy a video twice. The finished clip is saved to Media and added to the project it was made for. Starting a generation makes a paid provider request; dopost enforces no video spending limit.

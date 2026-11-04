@@ -37,6 +37,7 @@ import (
 	repostservice "github.com/openpost/backend/internal/services/reposts"
 	"github.com/openpost/backend/internal/services/repurpose"
 	"github.com/openpost/backend/internal/services/tokenmanager"
+	"github.com/openpost/backend/internal/services/videogeneration"
 	"github.com/openpost/backend/internal/services/videoprocessing"
 	"github.com/openpost/backend/internal/services/waitlist"
 	"github.com/openpost/backend/internal/services/workflows"
@@ -88,6 +89,7 @@ type BackgroundWorker struct {
 	publicationBuilder    *publicationbuilder.Application
 	repurposeSuggestions  *repurpose.Service
 	imageGeneration       *imagegeneration.Service
+	videoGeneration       *videogeneration.Service
 	postImports           *postimportservice.Service
 	accountPreflight      *accountpreflightservice.Service
 	externalWebhooks      *externalwebhooks.Service
@@ -234,6 +236,11 @@ func (w *BackgroundWorker) SetPublicationBuilderService(service *publicationbuil
 func (w *BackgroundWorker) SetImageGenerationService(service *imagegeneration.Service) {
 	w.imageGeneration = service
 	w.executors[jobregistry.ExecuteImageGeneration] = func(ctx context.Context, job *models.Job) error { return service.HandleJob(ctx, job.Payload) }
+}
+
+func (w *BackgroundWorker) SetVideoGenerationService(service *videogeneration.Service) {
+	w.videoGeneration = service
+	w.executors[jobregistry.ExecuteVideoGeneration] = func(ctx context.Context, job *models.Job) error { return service.HandleJob(ctx, job.Payload) }
 }
 
 func (w *BackgroundWorker) SetRepurposeSuggestionsService(service *repurpose.Service) {
@@ -817,6 +824,8 @@ func (w *BackgroundWorker) finishFailedJob(ctx context.Context, job *models.Job,
 		markTerminalFailure = w.repurposeSuggestions.MarkTerminalJobFailure
 	case job.Status == jobStatusFailed && job.Type == jobregistry.TypeImageGeneration && w.imageGeneration != nil:
 		markTerminalFailure = w.imageGeneration.MarkTerminalJobFailure
+	case job.Status == jobStatusFailed && job.Type == jobregistry.TypeVideoGeneration && w.videoGeneration != nil:
+		markTerminalFailure = w.videoGeneration.MarkTerminalJobFailure
 	}
 	if markTerminalFailure != nil {
 		dbErr = w.db.RunInTx(ctx, &sql.TxOptions{}, func(txCtx context.Context, tx bun.Tx) error {
@@ -1054,6 +1063,12 @@ func classifyJobContinuation(processErr error) (classifiedJobFailure, bool) {
 	}
 	if errors.Is(processErr, imagegeneration.ErrPending) {
 		return classifiedJobFailure{retryable: true, retryAfter: 15 * time.Second, message: "Image generation is waiting for the provider.", preserveAttempts: true}, true
+	}
+	if errors.Is(processErr, videogeneration.ErrBillingPending) || errors.Is(processErr, videogeneration.ErrUnavailable) {
+		return classifiedJobFailure{retryable: true, retryAfter: 5 * time.Minute, message: "Video generation is waiting for configuration or billing.", preserveAttempts: true}, true
+	}
+	if errors.Is(processErr, videogeneration.ErrPending) {
+		return classifiedJobFailure{retryable: true, retryAfter: 15 * time.Second, message: "Video generation is waiting for the provider.", preserveAttempts: true}, true
 	}
 	var directed *publisher.RetryableError
 	if errors.As(processErr, &directed) && (directed.Failure.Code == "provider_submission_pending" || directed.Failure.Code == "tiktok_inbox_delivered") {

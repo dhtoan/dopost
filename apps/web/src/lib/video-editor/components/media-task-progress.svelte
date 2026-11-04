@@ -49,6 +49,8 @@
 				return m.video_editor_task_upscale();
 			case 'frame-interpolation':
 				return m.video_editor_task_interpolation();
+			case 'video-generation':
+				return m.video_editor_task_video_generation();
 		}
 	}
 

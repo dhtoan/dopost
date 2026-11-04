@@ -6201,6 +6201,58 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/video-generations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read the current user's video generation history for a project */
+        get: operations["list-video-generations"];
+        put?: never;
+        /** Generate a video clip from a prompt and an optional start image */
+        post: operations["create-video-generation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/video-generations/config": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read signed-in video generation capabilities */
+        get: operations["video-generation-config"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/video-generations/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read a saved video generation request */
+        get: operations["get-video-generation"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/video-project-summaries": {
         parameters: {
             query?: never;
@@ -9394,7 +9446,7 @@ export interface components {
              * @description Media provenance
              * @enum {string}
              */
-            source?: "upload" | "media_copy" | "image_optimization" | "image_fit" | "camera" | "image_editor_export" | "image_editor_edit" | "background_removal" | "video_editor_source" | "video_editor_export" | "stock_import" | "meme_generator" | "screenshot_template" | "image_generation";
+            source?: "upload" | "media_copy" | "image_optimization" | "image_fit" | "camera" | "image_editor_export" | "image_editor_edit" | "background_removal" | "video_editor_source" | "video_editor_export" | "stock_import" | "meme_generator" | "screenshot_template" | "image_generation" | "video_generation";
             /** @description License and creator provenance for a selected stock asset */
             stock_provenance?: components["schemas"]["StockMediaProvenance"];
             /** @description Optional tag to assign to this upload */
@@ -12639,6 +12691,15 @@ export interface components {
             readonly $schema?: string;
             enabled: boolean;
             providers: components["schemas"]["StockProviderResponse"][] | null;
+        };
+        ListVideoGenerationsOutputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/ListVideoGenerationsOutputBody.json
+             */
+            readonly $schema?: string;
+            runs: components["schemas"]["VideoGenerationRun"][] | null;
         };
         LoginInputBody: {
             /**
@@ -18266,6 +18327,82 @@ export interface components {
             code: string;
             /** @description Pending MFA challenge token */
             mfa_token: string;
+        };
+        VideoGenerationConfigOutputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/VideoGenerationConfigOutputBody.json
+             */
+            readonly $schema?: string;
+            available: boolean;
+            default_model: string;
+            models: components["schemas"]["VideoModel"][] | null;
+        };
+        VideoGenerationRequest: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/VideoGenerationRequest.json
+             */
+            readonly $schema?: string;
+            /** @enum {string} */
+            aspect_ratio: "16:9" | "9:16" | "1:1";
+            /** Format: int64 */
+            duration_seconds: number;
+            /** @description Only models that can make a soundtrack use this */
+            generate_audio?: boolean;
+            /** @enum {string} */
+            model: "kling-4-flash" | "kling-3-pro";
+            project_id: string;
+            prompt: string;
+            /** @description Optional image used as the first frame; the frame shape then follows it */
+            source_media_id?: string;
+            workspace_id: string;
+        };
+        VideoGenerationRun: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/VideoGenerationRun.json
+             */
+            readonly $schema?: string;
+            aspect_ratio: string;
+            billing_state: string;
+            /** Format: int64 */
+            cost_microusd: number | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: int64 */
+            duration_seconds: number;
+            error_message: string;
+            generate_audio: boolean;
+            id: string;
+            model: string;
+            project_id: string;
+            prompt: string;
+            result_media_id: string;
+            source_media_id: string;
+            /** @description queued, submitting, generating, saving, completed, failed or unknown */
+            state: string;
+            workspace_id: string;
+        };
+        VideoModel: {
+            aspect_ratios: string[] | null;
+            /** @description Whether the model can generate a soundtrack */
+            audio: boolean;
+            /** Format: int64 */
+            audio_microusd_per_second?: number;
+            /** Format: int64 */
+            default_seconds: number;
+            id: string;
+            /** Format: int64 */
+            max_seconds: number;
+            /** Format: int64 */
+            microusd_per_second: number;
+            /** Format: int64 */
+            min_seconds: number;
+            name: string;
         };
         VideoProjectCheckpointResponse: {
             /**
@@ -44654,6 +44791,340 @@ export interface operations {
             };
             /** @description Error */
             default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "list-video-generations": {
+        parameters: {
+            query: {
+                workspace_id: string;
+                project_id: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListVideoGenerationsOutputBody"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "create-video-generation": {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VideoGenerationRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VideoGenerationRun"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "video-generation-config": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VideoGenerationConfigOutputBody"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "get-video-generation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VideoGenerationRun"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };
