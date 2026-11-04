@@ -78,6 +78,9 @@ function buildDocumentaryPaperOverlay(options: {
 	const backId = `${compositionId}-paper-back`;
 	const shadowId = `${compositionId}-paper-shadow`;
 	const heroId = `${compositionId}-paper-hero`;
+	// Positions are offsets of each layer's centre from the stage centre.
+	const ox = (fraction: number) => width * (fraction - 0.5);
+	const oy = (fraction: number) => height * (fraction - 0.5);
 	const base = { width: width * 0.62, height: height * 0.58, scaleX: 1, scaleY: 1 };
 	const back: TimelineItem = {
 		id: backId,
@@ -91,10 +94,10 @@ function buildDocumentaryPaperOverlay(options: {
 		fillType: 'solid',
 		fillColor: '#D7C3A3',
 		strokeEnabled: false,
-		transform: { ...base, x: width * 0.5, y: height * 0.5, rotation: -1.2, opacity: 0.96 },
+		transform: { ...base, x: ox(0.5), y: oy(0.5), rotation: -1.2, opacity: 0.96 },
 		keyframes: {
-			x: paperKeyframes(`${backId}:x`, width * 0.47, width * 0.5, durationInFrames),
-			y: paperKeyframes(`${backId}:y`, height * 0.53, height * 0.5, durationInFrames),
+			x: paperKeyframes(`${backId}:x`, ox(0.47), ox(0.5), durationInFrames),
+			y: paperKeyframes(`${backId}:y`, oy(0.53), oy(0.5), durationInFrames),
 			rotation: paperKeyframes(`${backId}:rotation`, -2.4, -1.2, durationInFrames),
 			opacity: paperKeyframes(`${backId}:opacity`, 0, 0.96, durationInFrames)
 		}
@@ -111,10 +114,10 @@ function buildDocumentaryPaperOverlay(options: {
 		fillType: 'solid',
 		fillColor: secondary,
 		strokeEnabled: false,
-		transform: { ...base, x: width * 0.518, y: height * 0.525, rotation: 0.7, opacity: 0.22 },
+		transform: { ...base, x: ox(0.518), y: oy(0.525), rotation: 0.7, opacity: 0.22 },
 		keyframes: {
-			x: paperKeyframes(`${shadowId}:x`, width * 0.49, width * 0.518, durationInFrames),
-			y: paperKeyframes(`${shadowId}:y`, height * 0.55, height * 0.525, durationInFrames),
+			x: paperKeyframes(`${shadowId}:x`, ox(0.49), ox(0.518), durationInFrames),
+			y: paperKeyframes(`${shadowId}:y`, oy(0.55), oy(0.525), durationInFrames),
 			rotation: paperKeyframes(`${shadowId}:rotation`, 1.8, 0.7, durationInFrames),
 			opacity: paperKeyframes(`${shadowId}:opacity`, 0, 0.22, durationInFrames)
 		}
@@ -133,10 +136,10 @@ function buildDocumentaryPaperOverlay(options: {
 		strokeEnabled: true,
 		strokeColor: secondary,
 		strokeWidth: Math.max(2, Math.round(width * 0.002)),
-		transform: { ...base, x: width * 0.5, y: height * 0.49, rotation: 0, opacity: 0.9 },
+		transform: { ...base, x: ox(0.5), y: oy(0.49), rotation: 0, opacity: 0.9 },
 		keyframes: {
-			x: paperKeyframes(`${heroId}:x`, width * 0.54, width * 0.5, durationInFrames),
-			y: paperKeyframes(`${heroId}:y`, height * 0.46, height * 0.49, durationInFrames),
+			x: paperKeyframes(`${heroId}:x`, ox(0.54), ox(0.5), durationInFrames),
+			y: paperKeyframes(`${heroId}:y`, oy(0.46), oy(0.49), durationInFrames),
 			rotation: paperKeyframes(`${heroId}:rotation`, 2.1, 0, durationInFrames),
 			opacity: paperKeyframes(`${heroId}:opacity`, 0, 0.9, durationInFrames)
 		}
@@ -256,6 +259,8 @@ export function buildMotionCompositionOverlays(options: {
 			const primaryShapeId = `${compositionId}-primary`;
 			const accentShapeId = `${compositionId}-accent`;
 			const direction = index % 2 === 0 ? 1 : -1;
+			const ox = (fraction: number) => options.width * (fraction - 0.5);
+			const oy = (fraction: number) => options.height * (fraction - 0.5);
 			const primary: TimelineItem = {
 				id: primaryShapeId,
 				trackId,
@@ -269,8 +274,8 @@ export function buildMotionCompositionOverlays(options: {
 				fillColor: accent,
 				strokeEnabled: false,
 				transform: {
-					x: options.width * (direction > 0 ? 0.74 : 0.26),
-					y: options.height * 0.48,
+					x: ox(direction > 0 ? 0.74 : 0.26),
+					y: oy(0.48),
 					width: options.width * 0.54,
 					height: options.width * 0.54,
 					opacity: 0.2,
@@ -280,16 +285,11 @@ export function buildMotionCompositionOverlays(options: {
 				keyframes: {
 					x: keyframes(
 						`${primaryShapeId}:x`,
-						options.width * (direction > 0 ? 0.82 : 0.18),
-						options.width * (direction > 0 ? 0.6 : 0.4),
+						ox(direction > 0 ? 0.82 : 0.18),
+						ox(direction > 0 ? 0.6 : 0.4),
 						durationInFrames
 					),
-					y: keyframes(
-						`${primaryShapeId}:y`,
-						options.height * 0.42,
-						options.height * 0.56,
-						durationInFrames
-					),
+					y: keyframes(`${primaryShapeId}:y`, oy(0.42), oy(0.56), durationInFrames),
 					scaleX: keyframes(`${primaryShapeId}:scaleX`, 0.82, 1.12, durationInFrames),
 					scaleY: keyframes(`${primaryShapeId}:scaleY`, 0.82, 1.12, durationInFrames),
 					opacity: keyframes(`${primaryShapeId}:opacity`, 0.06, 0.22, durationInFrames)
@@ -308,8 +308,8 @@ export function buildMotionCompositionOverlays(options: {
 				strokeColor: secondary,
 				strokeWidth: Math.max(2, Math.round(options.width * 0.004)),
 				transform: {
-					x: options.width / 2,
-					y: options.height / 2,
+					x: 0,
+					y: 0,
 					width: options.width * 0.72,
 					height: options.height * 0.46,
 					opacity: 0.34,
@@ -419,13 +419,7 @@ export function buildMotionCompositionOverlays(options: {
 					'primary-color': accent,
 					'secondary-color': secondary
 				},
-				transform: {
-					x: options.width / 2,
-					y: options.height / 2,
-					width: options.width,
-					height: options.height,
-					opacity: 1
-				}
+				transform: centredTransform(options, options)
 			};
 			return { composition, item };
 		});

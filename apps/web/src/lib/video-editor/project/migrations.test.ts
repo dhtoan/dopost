@@ -35,4 +35,33 @@ describe('project migration registry', () => {
 		expect(migrated.timeline!.items[0]?.keyframes?.cropLeft?.values).toEqual([0, 320, 160]);
 		expect(migrated.timeline!.items[0]?.keyframes?.cropSoftness?.values).toEqual([-360, 12]);
 	});
+
+	it('centres Auto Video scene text that was generated measured from the corner', () => {
+		const project = createBlankProject();
+		project.schemaVersion = 11;
+		const { width, height } = project.metadata;
+		const track = project.timeline!.tracks[0]!.id;
+		const scene = (id: string, x: number, y: number) => ({
+			id,
+			trackId: track,
+			from: 0,
+			durationInFrames: 30,
+			label: id,
+			type: 'text' as const,
+			text: 'Scene',
+			transform: { x, y, width: width * 0.82, height: height * 0.56, opacity: 1 }
+		});
+		project.timeline!.items = [
+			scene('scene-1-text', width / 2, height / 2),
+			// Moved by hand afterwards, so it keeps its place.
+			scene('scene-2-text', 40, -120)
+		];
+
+		const migrated = getMigrationsToApply(11, 12)[0]!.migrate(project);
+
+		expect(migrated.timeline!.items.map((item) => [item.transform?.x, item.transform?.y])).toEqual([
+			[0, 0],
+			[40, -120]
+		]);
+	});
 });
