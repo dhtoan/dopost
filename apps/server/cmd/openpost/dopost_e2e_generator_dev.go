@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/openpost/backend/internal/ai"
@@ -40,6 +41,8 @@ func (dopostE2EGenerator) Generate(_ context.Context, request ai.GenerateRequest
 		text, err = dopostE2EScript(request.UserPrompt)
 	case "documentary_visual_plans":
 		text, err = dopostE2EVisualPlans(request.UserPrompt)
+	case "dopost_auto_video_storyboard":
+		text, err = dopostE2EAutoVideoStoryboard(request.SystemPrompt, request.UserPrompt)
 	default:
 		err = fmt.Errorf("dopost E2E fixture does not support schema %q", request.ResponseSchema.Name)
 	}
@@ -165,4 +168,79 @@ func dopostE2EVisualPlans(userPrompt string) (string, error) {
 	}{Plans: plans}
 	encoded, err := json.Marshal(payload)
 	return string(encoded), err
+}
+
+var dopostE2ERoleOrder = regexp.MustCompile(`exact role order: (.+?)\. Choose`)
+var dopostE2ERoleEntry = regexp.MustCompile(`^(\S+) \((.+)\)$`)
+
+// dopostE2EAutoVideoStoryboard plans a short-form storyboard the way the real planner
+// must: the scene roles in the order the system prompt asks for, narration taken
+// from the source's own sentences, and durations that fill the target length.
+func dopostE2EAutoVideoStoryboard(systemPrompt, userPrompt string) (string, error) {
+	var input struct {
+		Title                 string `json:"title"`
+		TargetDurationSeconds int    `json:"target_duration_seconds"`
+		Source                struct {
+			Label string `json:"label"`
+			Value string `json:"value"`
+		} `json:"source"`
+	}
+	if err := json.Unmarshal([]byte(userPrompt), &input); err != nil {
+		return "", fmt.Errorf("decode auto video fixture input: %w", err)
+	}
+	match := dopostE2ERoleOrder.FindStringSubmatch(systemPrompt)
+	if match == nil {
+		return "", fmt.Errorf("auto video fixture could not read the scene order")
+	}
+	entries := strings.Split(match[1], ", ")
+	sentences := strings.FieldsFunc(input.Source.Value, func(r rune) bool { return r == '.' || r == '!' || r == '?' || r == '\n' })
+	for index := range sentences {
+		sentences[index] = strings.TrimSpace(sentences[index])
+	}
+	sentences = slicesCompact(sentences)
+	if len(sentences) == 0 {
+		sentences = []string{"The source has one key point"}
+	}
+	duration := float64(input.TargetDurationSeconds) / float64(len(entries))
+	duration = min(30, max(2, duration))
+	type scene struct {
+		Role            string  `json:"role"`
+		Title           string  `json:"title"`
+		Voice           string  `json:"voice"`
+		VisualIntent    string  `json:"visual_intent"`
+		DurationSeconds float64 `json:"duration_seconds"`
+	}
+	scenes := make([]scene, 0, len(entries))
+	for index, entry := range entries {
+		parts := dopostE2ERoleEntry.FindStringSubmatch(strings.TrimSpace(entry))
+		if parts == nil {
+			return "", fmt.Errorf("auto video fixture could not read scene %q", entry)
+		}
+		scenes = append(scenes, scene{
+			Role:            parts[1],
+			Title:           parts[2],
+			Voice:           sentences[index%len(sentences)] + ".",
+			VisualIntent:    "motion-composition",
+			DurationSeconds: duration,
+		})
+	}
+	title := strings.TrimSpace(input.Title)
+	if title == "" {
+		title = "Fixture Auto Video"
+	}
+	encoded, err := json.Marshal(struct {
+		Title  string  `json:"title"`
+		Scenes []scene `json:"scenes"`
+	}{Title: title, Scenes: scenes})
+	return string(encoded), err
+}
+
+func slicesCompact(values []string) []string {
+	kept := values[:0]
+	for _, value := range values {
+		if value != "" {
+			kept = append(kept, value)
+		}
+	}
+	return kept
 }

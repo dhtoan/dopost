@@ -6,6 +6,7 @@ import {
 	type TimelineItem,
 	type TimelineTrack
 } from '$lib/video-editor/project/types';
+import { centredTransform } from '../placement';
 
 const MOTION_TRACK_ID = 'track-auno-motion';
 
@@ -222,7 +223,7 @@ function buildDocumentaryPaperOverlay(options: {
 		compositionWidth: width,
 		compositionHeight: height,
 		compositionControlOverrides: {},
-		transform: { x: width / 2, y: height / 2, width, height, opacity: 1 }
+		transform: centredTransform({ width, height }, { width, height })
 	};
 	return { composition, item };
 }

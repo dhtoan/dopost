@@ -116,6 +116,8 @@ describe('compileStoryboardToProject', () => {
 			const text = timeline.items.find((item) => item.id === `${scene.id}-text`)!;
 			expect(background).toMatchObject({ from: cursor, durationInFrames: frames[index] });
 			expect(text).toMatchObject({ from: cursor, text: `${scene.title}\n${scene.voice}` });
+			// Centred in the frame: the editor measures x/y from the canvas centre.
+			expect(text.transform).toMatchObject({ x: 0, y: 0 });
 			cursor += frames[index]!;
 		});
 		expect(timeline.tracks.map((track) => track.id)).toContain('track-auno-music');

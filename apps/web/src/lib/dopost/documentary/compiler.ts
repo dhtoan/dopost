@@ -15,6 +15,7 @@ import type {
 	TimelineTrack
 } from '$lib/video-editor/project/types';
 import { DOCUMENTARY_STYLE, type DocumentaryRun, type DocumentaryVisualPlan } from './types';
+import { boxTransform } from '../placement';
 
 const WIDTH = 1920;
 const HEIGHT = 1080;
@@ -176,13 +177,11 @@ function labelItem(
 		lineHeight: 1.04,
 		paddingX: 28,
 		paddingY: 18,
-		transform: {
-			x: WIDTH * 0.08,
-			y: HEIGHT * 0.78,
-			width: WIDTH * 0.54,
-			height: HEIGHT * 0.16,
-			opacity: 1
-		}
+		// Lower third, left.
+		transform: boxTransform(
+			{ width: WIDTH, height: HEIGHT },
+			{ left: WIDTH * 0.06, top: HEIGHT * 0.76, width: WIDTH * 0.54, height: HEIGHT * 0.16 }
+		)
 	};
 }
 
@@ -211,13 +210,11 @@ function annotationItem(
 		lineHeight: 1.1,
 		paddingX: 18,
 		paddingY: 12,
-		transform: {
-			x: WIDTH * 0.72,
-			y: HEIGHT * 0.16,
-			width: WIDTH * 0.42,
-			height: HEIGHT * 0.12,
-			opacity: 1
-		}
+		// Top right.
+		transform: boxTransform(
+			{ width: WIDTH, height: HEIGHT },
+			{ left: WIDTH * 0.52, top: HEIGHT * 0.08, width: WIDTH * 0.42, height: HEIGHT * 0.12 }
+		)
 	};
 }
 

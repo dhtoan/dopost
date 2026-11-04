@@ -491,12 +491,18 @@
 		const url = new URL(page.url);
 		url.searchParams.delete('autogen');
 		replaceState(url, page.state);
+		// Each step starts by clearing the status, so keep every step's outcome and show
+		// them together: a failed voice run must still be visible after captions.
+		const outcomes: string[] = [];
 		if (requested.has('voice') && (sidecar.generationGraph?.media?.voices?.length ?? 0) === 0) {
 			await generateVoices();
+			if (status) outcomes.push(status);
 		}
 		if (requested.has('captions') && sidecar && !sidecar.generationGraph?.media?.captions) {
 			await generateCaptions();
+			if (status) outcomes.push(status);
 		}
+		if (outcomes.length > 0) status = outcomes.join(' ');
 		if (requested.has('music-if-ready') && sidecar && !sidecar.generationGraph?.media?.music) {
 			try {
 				const storage = await inspectMusicGenerationStorage('standard');

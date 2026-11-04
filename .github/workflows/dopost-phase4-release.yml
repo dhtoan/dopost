@@ -73,7 +73,7 @@ jobs:
       - name: Test deterministic dev planner fixture routing
         run: >-
           cd apps/server && go test -tags dev ./cmd/openpost
-          -run 'TestDopost(E2EPlannerGeneratorIsOptInAndStructured|PlannerGeneratorUsesE2EFixtureWhenExplicitlyEnabled)'
+          -run 'TestDopost(E2EPlannerGeneratorIsOptInAndStructured|PlannerGeneratorUsesE2EFixtureWhenExplicitlyEnabled|E2EFixturePlansEveryShortFormFormat)'
           -count=1 -v
 
   frontend-dopost:
