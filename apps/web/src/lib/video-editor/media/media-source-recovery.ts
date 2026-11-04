@@ -17,6 +17,8 @@ import { probeMediaFile } from './probe-client';
 import { clearProxyCache } from './proxy-client';
 import type { MediaMetadata, VideoFrameRateMetrics } from './types';
 import { clearWaveformCache } from './waveform-client';
+import { hdrMediaTags, isHdrMediaTag } from './hdr-tags';
+import type { HdrTransfer } from '../effects/tagged-hdr';
 
 interface ReplacementProbe {
 	kind: 'video' | 'audio' | 'image' | 'lottie';
@@ -33,6 +35,7 @@ interface ReplacementProbe {
 	lottieTotalFrames?: number;
 	lottieMarkers?: MediaMetadata['lottieMarkers'];
 	thumbnailBlob?: Blob;
+	hdrTransfer?: HdrTransfer;
 }
 
 export interface MediaSourceRecoveryRuntime {
@@ -91,12 +94,24 @@ async function probeReplacement(file: File): Promise<ReplacementProbe> {
 		audioCodecSupported: probe.audioCodecSupported,
 		keyframeTimestamps: probe.keyframeTimestamps,
 		gopInterval: probe.gopInterval,
-		thumbnailBlob: probe.thumbnailBlob
+		thumbnailBlob: probe.thumbnailBlob,
+		hdrTransfer: probe.hdrTransfer
 	};
 }
 
-function replacementTags(media: MediaMetadata, kind: ReplacementProbe['kind']): string[] {
-	return [...new Set([...media.tags.filter((tag) => !CORE_MEDIA_TAGS.has(tag)), kind])];
+function replacementTags(
+	media: MediaMetadata,
+	kind: ReplacementProbe['kind'],
+	hdrTransfer?: HdrTransfer
+): string[] {
+	// The replacement's own colour tags decide whether it is HDR, not the file it replaces.
+	return [
+		...new Set([
+			...media.tags.filter((tag) => !CORE_MEDIA_TAGS.has(tag) && !isHdrMediaTag(tag)),
+			kind,
+			...hdrMediaTags(hdrTransfer)
+		])
+	];
 }
 
 async function invalidateDerivedMedia(mediaId: string): Promise<void> {
@@ -187,7 +202,7 @@ export function createMediaSourceRecovery(runtime: MediaSourceRecoveryRuntime) {
 			lottieTotalFrames: probe.lottieTotalFrames,
 			lottieMarkers: probe.lottieMarkers,
 			bitrate: Math.round((prepared.size * 8) / Math.max(probe.duration, 1)),
-			tags: replacementTags(media, probe.kind)
+			tags: replacementTags(media, probe.kind, probe.hdrTransfer)
 		});
 
 		if (media.storageType === 'workspace' && media.fileName !== prepared.name) {

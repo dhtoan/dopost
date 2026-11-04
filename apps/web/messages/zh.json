@@ -6160,6 +6160,7 @@
 	"video_editor_color_source_profile": "源",
 	"video_editor_color_source_profile_hint": "素材的录制方式。iPhone 的 Log 视频选 Apple Log，看起来平淡发灰的 HDR 视频选 HLG 或 PQ。",
 	"video_editor_color_source_profile_applied": "源配置文件：{name}。调色现在作用于解码后的画面。",
+	"video_editor_color_source_profile_auto": "{transfer} HDR 文件：已自动转换为 SDR。选择其他来源可覆盖。",
 	"video_editor_color_analyzing": "正在分析当前预览帧…",
 	"video_editor_color_white_balance_short": "白平衡",
 	"video_editor_color_black_short": "黑场",

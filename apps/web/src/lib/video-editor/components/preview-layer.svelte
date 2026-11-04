@@ -43,7 +43,8 @@
 		type GpuCompositor,
 		type GpuRenderEffect
 	} from '$lib/video-editor/effects/gpu/compositor';
-	import { getGpuEffectDefaultParams } from '$lib/video-editor/effects/gpu/registry';
+	import { gpuRenderEffects } from '$lib/video-editor/effects/gpu/render-effects';
+	import { mediaHdrTransfer } from '$lib/video-editor/media/hdr-tags';
 	import { isNonNormalBlend } from '$lib/video-editor/effects/gpu/blend-modes';
 	import {
 		resolveScopeSampleSize,
@@ -249,18 +250,9 @@
 	const transform = $derived(overrideTransform ?? resolved.transform ?? {});
 	const renderEffects = $derived(effectiveEffects ?? resolved.effects ?? []);
 	const gpuEffects = $derived.by<GpuRenderEffect[]>(() =>
-		renderEffects.flatMap((effect) =>
-			effect.type === 'gpu' && effect.enabled
-				? [
-						{
-							effectId: effect.effectId,
-							params: {
-								...getGpuEffectDefaultParams(effect.effectId),
-								...effect.params
-							}
-						}
-					]
-				: []
+		gpuRenderEffects(
+			renderEffects,
+			item.type === 'video' && item.mediaId ? mediaHdrTransfer(mediaPool.get(item.mediaId)) : null
 		)
 	);
 	const needsGpu = $derived(

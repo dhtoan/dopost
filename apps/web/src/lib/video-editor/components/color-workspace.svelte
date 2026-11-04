@@ -39,6 +39,12 @@
 		isSourceProfile,
 		type SourceProfile
 	} from '$lib/video-editor/effects/source-profile';
+	import {
+		hasOwnSourceProfile,
+		taggedHdrProfile
+	} from '$lib/video-editor/effects/gpu/render-effects';
+	import { mediaHdrTransfer } from '$lib/video-editor/media/hdr-tags';
+	import { mediaPool } from '$lib/video-editor/media/pool.svelte';
 	import { setAnimatedGpuEffectParamsOnItems } from '$lib/video-editor/timeline/actions/keyframes';
 	import { autoKeyframeStore } from '$lib/video-editor/timeline/stores/auto-keyframe-store.svelte';
 	import { isColorGradeTargetEditable } from '$lib/video-editor/effects/color-targets';
@@ -91,7 +97,14 @@
 	const grade = $derived(snapshotColorGrade(item?.effects));
 	const hasGrade = $derived(hasEnabledColorGrade(item?.effects));
 	const isVisual = $derived(item?.type !== 'audio' && item !== undefined);
+	/** HLG or PQ when the clip comes from tagged HDR media and has no source profile of its own. */
+	const autoHdrTransfer = $derived(
+		item?.type === 'video' && item.mediaId && !hasOwnSourceProfile(item.effects)
+			? mediaHdrTransfer(mediaPool.get(item.mediaId))
+			: null
+	);
 	const sourceProfile = $derived.by((): SourceProfile => {
+		if (autoHdrTransfer) return taggedHdrProfile(autoHdrTransfer);
 		const effect = item?.effects?.find(
 			(entry) => entry.type === 'gpu' && entry.effectId === SOURCE_PROFILE_EFFECT_ID
 		);
@@ -434,6 +447,13 @@
 						{/each}
 					</select>
 				</label>
+				{#if autoHdrTransfer}
+					<p class="text-[10px] text-[var(--video-editor-muted)]">
+						{m.video_editor_color_source_profile_auto({
+							transfer: autoHdrTransfer === 'hlg' ? 'HLG' : 'PQ'
+						})}
+					</p>
+				{/if}
 			{/if}
 			{#if showPresetSave}
 				<div class="mt-1 grid grid-cols-[1fr_auto] gap-1">

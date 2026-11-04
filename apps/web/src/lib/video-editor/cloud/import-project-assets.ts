@@ -3,6 +3,7 @@ import type { CloudVideoProjectRepository } from './project-repository';
 import { hashBlob } from '../project-bundle/bundle-utils';
 import { fileWithInferredMediaType, prepareMediaImportFile } from '../media/media-file-types';
 import { probeMediaFile } from '../media/probe-client';
+import { hdrMediaTags } from '../media/hdr-tags';
 import { mediaPool } from '../media/pool.svelte';
 import type { MediaAttribution, MediaMetadata, RecordingCaptureMetadata } from '../media/types';
 import { isLottieFile, parseLottieFileBytes } from '../lottie/metadata';
@@ -154,7 +155,9 @@ export async function importCloudProjectAssetFile<TDocument extends object>(
 				gopInterval: probe!.gopInterval,
 				animationFrameCount: probe!.animationFrameCount,
 				attribution: options.attribution,
-				tags: [...new Set([probe!.kind, ...(options.tags ?? [])])],
+				tags: [
+					...new Set([probe!.kind, ...hdrMediaTags(probe!.hdrTransfer), ...(options.tags ?? [])])
+				],
 				capture: options.capture
 			};
 	if (!options.isCurrent || options.isCurrent()) mediaPool.upsert(media, 'ready');

@@ -13,11 +13,14 @@
  *   OOTF on a 100-nit display; PQ crosses into HLG at 1000 nits first.
  *
  * The browser draws a file through whatever its tags say. A tagged HLG or PQ
- * file is already mapped to SDR by the decoder, so these profiles are for
- * footage that arrives flat: log, or HDR whose tags were lost on the way.
+ * file is already mapped to SDR by the decoder, so HLG and PQ are for footage
+ * that arrives flat: log, or HDR whose tags were lost on the way. The
+ * "tagged file" profiles instead correct the browser's own mapping of a
+ * tagged file (see tagged-hdr.ts); HDR media gets them automatically.
  */
 
 import { acesOutputTransform } from './aces-output';
+import { applyCorrection, browserTaggedHdrCorrection } from './tagged-hdr';
 import {
 	AP0_PRIMARIES,
 	APPLE_WIDE_GAMUT_PRIMARIES,
@@ -38,7 +41,14 @@ import {
 
 export const SOURCE_PROFILE_EFFECT_ID = 'gpu-source-profile';
 
-export type SourceProfile = 'rec709' | 'apple-log' | 'apple-log-2' | 'hlg' | 'pq';
+export type SourceProfile =
+	| 'rec709'
+	| 'apple-log'
+	| 'apple-log-2'
+	| 'hlg'
+	| 'pq'
+	| 'hlg-tagged'
+	| 'pq-tagged';
 
 /** Labels are the standards' own names, so they stay the same in every locale. */
 export const SOURCE_PROFILES: readonly { value: SourceProfile; label: string }[] = [
@@ -46,7 +56,9 @@ export const SOURCE_PROFILES: readonly { value: SourceProfile; label: string }[]
 	{ value: 'apple-log', label: 'Apple Log' },
 	{ value: 'apple-log-2', label: 'Apple Log 2' },
 	{ value: 'hlg', label: 'HLG' },
-	{ value: 'pq', label: 'PQ' }
+	{ value: 'pq', label: 'PQ' },
+	{ value: 'hlg-tagged', label: 'HLG (tagged file)' },
+	{ value: 'pq-tagged', label: 'PQ (tagged file)' }
 ];
 
 export function isSourceProfile(value: unknown): value is SourceProfile {
@@ -109,6 +121,16 @@ export function sourceToSdr(profile: SourceProfile): Transform | null {
 			return (r, g, b) => hlgToSdr(clamp01(r), clamp01(g), clamp01(b));
 		case 'pq':
 			return (r, g, b) => hlgToSdr(...pqToHlg(clamp01(r), clamp01(g), clamp01(b)));
+		case 'hlg-tagged':
+		case 'pq-tagged': {
+			const table = browserTaggedHdrCorrection(profile === 'hlg-tagged' ? 'hlg' : 'pq');
+			if (!table) return null;
+			return (r, g, b) => [
+				applyCorrection(table, r),
+				applyCorrection(table, g),
+				applyCorrection(table, b)
+			];
+		}
 		default:
 			return null;
 	}

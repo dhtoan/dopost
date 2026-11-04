@@ -6199,6 +6199,7 @@
 	"video_editor_color_source_profile": "Sorgente",
 	"video_editor_color_source_profile_hint": "Il formato in cui è stato registrato il filmato. Scegli Apple Log per i video log di iPhone, oppure HLG o PQ per i video HDR che appaiono piatti e grigi.",
 	"video_editor_color_source_profile_applied": "Profilo sorgente: {name}. La correzione colore ora lavora sull'immagine decodificata.",
+	"video_editor_color_source_profile_auto": "File HDR {transfer}: convertito automaticamente in SDR. Scegli un'altra sorgente per cambiarlo.",
 	"video_editor_color_analyzing": "Analizzando il fotogramma di anteprima corrente…",
 	"video_editor_color_white_balance_short": "WB",
 	"video_editor_color_black_short": "Nero",

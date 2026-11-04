@@ -13,6 +13,8 @@ import { ensureProResDecoderForCodec, isProResCodec } from './prores-decoder';
 import { isAudioCodecSupported } from './audio-codec-support';
 import type { VideoFrameRateMetrics } from './types';
 import { probeVideoFrameRate } from './video-frame-rate';
+import { hdrTransferOf } from './hdr-tags';
+import type { HdrTransfer } from '../effects/tagged-hdr';
 
 export interface MediaProbeResult {
 	mimeType?: string;
@@ -32,6 +34,8 @@ export interface MediaProbeResult {
 	hasAudio: boolean;
 	/** Composited frame count for animated GIF/WebP images; absent when static. */
 	animationFrameCount?: number;
+	/** HLG or PQ, when the video's colour tags declare an HDR transfer. */
+	hdrTransfer?: HdrTransfer;
 	kind: 'video' | 'audio' | 'image';
 }
 
@@ -229,7 +233,9 @@ self.onmessage = async (event: MessageEvent<{ id: number; file: File }>) => {
 		let height = 0;
 		let videoCodec: string | undefined;
 		let keyframeTimestamps: number[] | undefined;
+		let hdrTransfer: HdrTransfer | undefined;
 		if (videoTrack) {
+			hdrTransfer = hdrTransferOf((await videoTrack.getColorSpace().catch(() => null))?.transfer);
 			({ fps, metrics: frameRateMetrics } = await probeVideoFrameRate(videoTrack));
 			width = videoTrack.displayWidth;
 			height = videoTrack.displayHeight;
@@ -270,7 +276,8 @@ self.onmessage = async (event: MessageEvent<{ id: number; file: File }>) => {
 			keyframeTimestamps,
 			gopInterval,
 			thumbnailBlob,
-			hasAudio: Boolean(audioTrack)
+			hasAudio: Boolean(audioTrack),
+			hdrTransfer
 		};
 		self.postMessage({ id, ok: true, result });
 	} catch (error) {
