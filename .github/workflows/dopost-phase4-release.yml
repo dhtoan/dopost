@@ -129,7 +129,18 @@ jobs:
           cache-dependency-path: apps/server/go.sum
       - run: bun install --frozen-lockfile
       - run: bunx playwright install --with-deps chromium
+      # Build the E2E web embed and the dev server here, outside Playwright's
+      # five-minute webServer window. That window is for starting the server;
+      # a cold Go module download plus a full frontend build can outlast it.
+      - name: Build E2E web embed
+        timeout-minutes: 15
+        run: VITE_DOPOST_E2E=1 bun run build -- frontend
+      - name: Prebuild dev server
+        timeout-minutes: 10
+        run: cd apps/server && go build -tags dev -o /dev/null ./cmd/openpost
       - name: Run deterministic Motion and Vox browser gates
+        env:
+          OPENPOST_E2E_PREBUILT: "1"
         run: >-
           bunx playwright test --config tests/app/playwright.config.ts
           tests/app/dopost/motion-determinism.spec.ts
