@@ -24,13 +24,14 @@ Private `_meta` values, including upload credentials, never enter that text.
 Notification POSTs such as `notifications/initialized` return
 HTTP `202 Accepted` with no response body.
 
-ChatGPT Apps-compatible clients can also discover and load the scheduler and
-local-upload widget resources:
+ChatGPT Apps-compatible clients can also discover and load the scheduler,
+local-upload and video-player widget resources:
 
 ```txt
 resources/list
 resources/read ui://widget/openpost-scheduler-v1.html
 resources/read ui://widget/openpost-local-upload-v1.html
+resources/read ui://widget/dopost-video-v1.html
 ```
 
 The widget is a self-contained `text/html;profile=mcp-app` resource. The
@@ -44,7 +45,11 @@ uses camelCase `connectDomains` and `resourceDomains` under `_meta.ui.csp`,
 while `_meta["openai/widgetCSP"]` keeps the snake_case alias expected by older
 ChatGPT clients. The scheduler render tool is model-visible. The local-upload
 widget calls an app-only ticket tool whose credential stays in result `_meta`
-and is never placed in model-visible structured content.
+and is never placed in model-visible structured content. The video player
+works the same way: signed playback links travel in result `_meta.playback`,
+its CSP allows the dopost origin as a resource domain, and the widget calls
+`render_video_player` again (under the host-reported tool name) to switch
+videos or renew an expired link.
 
 For ChatGPT Apps and other OAuth-aware MCP clients, dopost also publishes
 protected-resource and authorization-server metadata:
@@ -239,6 +244,10 @@ GET /api/v1/mcp/activity?workspace_id=<workspace-id>
   ChatGPT Apps widget and stays directly visible for UI resource discovery.
 - `render_local_media_upload`: opens a local file picker for a selected
   workspace. Its app-only ticket tool is hidden from the model.
+- `render_video_player`: read-only. Shows a workspace's recent ready library
+  videos (exports, AI generations, uploads) in an in-chat player and lists cloud
+  Video Editor projects with links to open them. `media_id` picks the video to
+  play; the model sees names, IDs and lengths but never the playback link.
 
 For `mcp:read`, `tools/list` omits `execute_operation`, `search_operations` omits mutation results, and direct or cached mutation calls are rejected before dispatch. Read-only connections receive only the `review_schedule` prompt; prompts that create or adapt work require `mcp:full`.
 
