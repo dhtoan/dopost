@@ -19,6 +19,11 @@ import type {
 } from './render-export-worker.types';
 import type { MediaMetadata } from './types';
 import type { ImageSequenceExportOptions, ImageSequenceResult } from './image-sequence-export';
+import {
+	FINISHING_INTERMEDIATE_BITRATE,
+	finishOnServer,
+	type ServerFinishing
+} from './server-finishing';
 
 export interface RenderExecutionOutcome {
 	artifact: RenderedExportArtifact;
@@ -259,9 +264,20 @@ export async function renderExportArtifact(
 
 export async function renderVideoExport(
 	project: Project,
-	options: RenderExportOptions = {}
+	options: RenderExportOptions & { finishing?: ServerFinishing } = {}
 ): Promise<RenderExportResult> {
-	const { signal, onProgress, ...videoOptions } = options;
+	const { signal, onProgress, finishing, ...requested } = options;
+	// Server finishing re-encodes the picture, so the browser renders a
+	// high-bitrate H.264 MP4 for it whatever the delivery format is.
+	const videoOptions: RenderExportOptions = finishing
+		? {
+				...requested,
+				format: 'mp4',
+				codec: 'avc',
+				quality: 'high',
+				videoBitrate: FINISHING_INTERMEDIATE_BITRATE
+			}
+		: requested;
 	const outcome = await renderExportArtifact({
 		mode: 'video',
 		project,
@@ -269,7 +285,9 @@ export async function renderVideoExport(
 		signal,
 		onProgress
 	});
-	return saveRenderedExportArtifact(project.id, outcome.artifact);
+	if (!finishing) return saveRenderedExportArtifact(project.id, outcome.artifact);
+	const finished = await finishOnServer(outcome.artifact, finishing, { signal, onProgress });
+	return saveRenderedExportArtifact(project.id, { ...outcome.artifact, ...finished });
 }
 
 export async function renderAudioExport(

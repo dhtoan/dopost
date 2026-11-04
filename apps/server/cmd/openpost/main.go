@@ -56,6 +56,7 @@ import (
 	"github.com/openpost/backend/internal/services/encryptionrotation"
 	engagementservice "github.com/openpost/backend/internal/services/engagement"
 	"github.com/openpost/backend/internal/services/entitlements"
+	"github.com/openpost/backend/internal/services/exportfinish"
 	"github.com/openpost/backend/internal/services/externalapps"
 	"github.com/openpost/backend/internal/services/externalwebhooks"
 	"github.com/openpost/backend/internal/services/feedback"
@@ -928,6 +929,9 @@ func main() {
 	}
 
 	mediaHandler.RegisterLegacyRoutes(e)
+	handlers.NewExportFinishingHandler(db, authenticator, exportfinish.New(exportfinish.Config{
+		Enabled: cfg.ExportFinishingEnabled, FFmpeg: cfg.FFmpegPath,
+	})).RegisterRoutes(e)
 	handlers.NewInstanceBackupHandler(db, authenticator, handlers.InstanceBackupConfig{
 		Paths:           instanceBackupPaths,
 		MediaSnapshotMu: mediaSnapshotMu,

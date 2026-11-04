@@ -93,7 +93,15 @@ import { RenderDisposalGate } from './render-disposal';
 import { ResilientVideoFrameDecoder } from './render-video-decoder';
 
 export interface RenderExportProgress {
-	phase: 'preparing' | 'mixing' | 'rendering' | 'encoding' | 'finalizing';
+	phase:
+		| 'preparing'
+		| 'mixing'
+		| 'rendering'
+		| 'encoding'
+		| 'finalizing'
+		| 'uploading'
+		| 'finishing'
+		| 'downloading';
 	framesDone: number;
 	totalFrames: number;
 	progress: number;
@@ -103,6 +111,8 @@ export interface RenderExportOptions {
 	format?: 'webm' | 'mp4' | 'mov' | 'mkv';
 	codec?: VideoCodec;
 	quality?: 'draft' | 'standard' | 'high';
+	/** Overrides the quality's bitrate: the high-bitrate intermediate for server finishing. */
+	videoBitrate?: number;
 	width?: number;
 	height?: number;
 	range?: { startFrame: number; endFrame: number };
@@ -913,7 +923,7 @@ export async function renderMultiTrackVideoArtifact(
 	if (!supportedCodecs.includes(requestedCodec)) {
 		throw new Error(`${requestedCodec} cannot be stored in ${format.toUpperCase()}.`);
 	}
-	const bitrate = VIDEO_BITRATES[options.quality ?? 'standard'];
+	const bitrate = options.videoBitrate ?? VIDEO_BITRATES[options.quality ?? 'standard'];
 	const codec = (await canEncodeVideo(requestedCodec, {
 		width,
 		height,

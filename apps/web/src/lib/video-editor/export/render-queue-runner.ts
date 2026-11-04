@@ -113,6 +113,7 @@ async function executeRenderJob(
 		height: job.settings.height,
 		subtitleMode: job.settings.subtitleMode,
 		range,
+		finishing: job.settings.finishing,
 		signal: options.signal,
 		onProgress: options.onProgress
 	});

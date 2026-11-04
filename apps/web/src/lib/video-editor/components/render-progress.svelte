@@ -30,6 +30,12 @@
 				return m.video_editor_export_phase_encoding();
 			case 'finalizing':
 				return m.video_editor_export_phase_finalizing();
+			case 'uploading':
+				return m.video_editor_export_phase_uploading();
+			case 'finishing':
+				return m.video_editor_export_phase_finishing();
+			case 'downloading':
+				return m.video_editor_export_phase_downloading();
 		}
 	}
 
