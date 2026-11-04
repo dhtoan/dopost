@@ -32,6 +32,10 @@ import {
 	type GradeEffectSnapshot
 } from '$lib/video-editor/effects/color-grade';
 import { removeEffectKeyframes } from '$lib/video-editor/effects/effect-keyframes';
+import {
+	SOURCE_PROFILE_EFFECT_ID,
+	type SourceProfile
+} from '$lib/video-editor/effects/source-profile';
 import { timelineStore } from '../stores/timeline-store.svelte';
 import { execute, executeAtomic } from '../commands/command-store.svelte';
 import { addAdjustmentLayer, type AddAdjustmentLayerOptions } from './items';
@@ -331,6 +335,48 @@ export function replaceColorGradeEffects(
 					patch: { effects: applyColorGradePresetToStack(item.effects, grade) }
 				}
 			];
+		});
+		if (updates.length === 0) return false;
+		timelineStore._updateItems(updates);
+		return true;
+	});
+}
+
+/**
+ * Say what the selected clips' footage is. The profile goes first in the stack
+ * so the grade works on the decoded picture; Rec.709 removes it. One undoable step.
+ */
+export function setSourceProfileOnItems(
+	itemIds: readonly string[],
+	profile: SourceProfile
+): boolean {
+	const uniqueItemIds = Array.from(new Set(itemIds));
+	return execute('SET_SOURCE_PROFILE', () => {
+		const updates = uniqueItemIds.flatMap((itemId) => {
+			const item = editableEffectItem(itemId);
+			if (!item || item.type === 'audio' || item.type === 'adjustment') return [];
+			const effects = item.effects ?? [];
+			const current = effects.find(
+				(effect) => effect.type === 'gpu' && effect.effectId === SOURCE_PROFILE_EFFECT_ID
+			);
+			if (current?.type === 'gpu' && current.enabled && current.params.profile === profile)
+				return [];
+			if (!current && profile === 'rec709') return [];
+			const rest = effects.filter((effect) => effect !== current);
+			const next: ItemEffect[] =
+				profile === 'rec709'
+					? rest
+					: [
+							{
+								id: current?.id ?? crypto.randomUUID(),
+								type: 'gpu',
+								effectId: SOURCE_PROFILE_EFFECT_ID,
+								params: { profile },
+								enabled: true
+							},
+							...rest
+						];
+			return [{ id: itemId, patch: { effects: next.length > 0 ? next : undefined } }];
 		});
 		if (updates.length === 0) return false;
 		timelineStore._updateItems(updates);

@@ -2,6 +2,7 @@
 
 import type { GpuEffect, ItemEffect } from './types';
 import { getGpuEffect } from './gpu/registry';
+import { SOURCE_PROFILE_EFFECT_ID } from './source-profile';
 
 export interface GradeEffectSnapshot {
 	effectId: string;
@@ -33,8 +34,16 @@ const GAIN_MIN = 0;
 const GAIN_MAX = 16;
 const WHITE_BALANCE_LIMIT = 100;
 
+/**
+ * The source profile is in the color category but says what the footage is,
+ * not how it is graded: presets, copy and paste, and the before view leave it.
+ */
 export function isColorGradeEffect(effect: ItemEffect): effect is GpuEffect {
-	return effect.type === 'gpu' && getGpuEffect(effect.effectId)?.category === 'color';
+	return (
+		effect.type === 'gpu' &&
+		effect.effectId !== SOURCE_PROFILE_EFFECT_ID &&
+		getGpuEffect(effect.effectId)?.category === 'color'
+	);
 }
 
 export function hasColorGrade(effects: readonly ItemEffect[] | undefined): boolean {
