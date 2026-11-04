@@ -259,6 +259,13 @@ func TestEditorAgentMCPValidatesSpecificActions(t *testing.T) {
 		{"video text", "video_edit", map[string]any{"kind": "text.add", "value": map[string]any{"text": "Hello", "frame": 30}}, true},
 		{"video missing target", "video_edit", map[string]any{"kind": "clip.remove", "value": map[string]any{"include_linked": false}}, false},
 		{"video wrong value", "video_edit", map[string]any{"kind": "audio.gain", "target_id": "clip", "value": map[string]any{"gain": 9}}, false},
+		{"video caption batch", "video_edit", map[string]any{"kind": "caption.set_many", "target_id": "captions", "value": map[string]any{"cues": []any{map[string]any{"cue_id": "a", "text": "Hola"}}}}, true},
+		{"video caption batch empty text", "video_edit", map[string]any{"kind": "caption.set_many", "target_id": "captions", "value": map[string]any{"cues": []any{map[string]any{"cue_id": "a", "text": ""}}}}, false},
+		{"video caption translate", "video_edit", map[string]any{"kind": "captions.translate", "target_id": "captions", "value": map[string]any{"language": "Spanish", "translations": []any{map[string]any{"cue_id": "a", "text": "Hola"}}}}, true},
+		{"video caption translate without language", "video_edit", map[string]any{"kind": "captions.translate", "target_id": "captions", "value": map[string]any{"translations": []any{map[string]any{"cue_id": "a", "text": "Hola"}}}}, false},
+		{"video caption timing", "video_edit", map[string]any{"kind": "caption.timing", "target_id": "captions", "value": map[string]any{"cue_id": "a", "start_frame": 0, "end_frame": 30}}, true},
+		{"video captions generate", "video_edit", map[string]any{"kind": "captions.generate", "target_id": "clip", "value": map[string]any{}}, true},
+		{"video captions generate extra value", "video_edit", map[string]any{"kind": "captions.generate", "target_id": "clip", "value": map[string]any{"model": "x"}}, false},
 		{"image text", "image_edit", map[string]any{"kind": "text.set", "target_id": "layer", "value": map[string]any{"page_id": "page", "text": "Hello"}}, true},
 		{"image unsupported", "image_edit", map[string]any{"kind": "arbitrary.patch", "target_id": "layer", "value": map[string]any{"page_id": "page"}}, false},
 	} {

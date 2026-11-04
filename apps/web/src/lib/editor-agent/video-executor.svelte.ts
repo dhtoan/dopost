@@ -7,6 +7,7 @@ import { transitionsStore } from '$lib/video-editor/timeline/actions/transitions
 import { sequenceStore } from '$lib/video-editor/sequences/sequence-store.svelte';
 import {
 	commandHistory,
+	execute,
 	executeAtomic
 } from '$lib/video-editor/timeline/commands/command-store.svelte';
 import {
@@ -22,7 +23,11 @@ import {
 	setItemsVolume
 } from '$lib/video-editor/timeline/actions/items';
 import { insertMediaAtFrame } from '$lib/video-editor/timeline/actions/insert-media';
-import { addTrack, renameTrack } from '$lib/video-editor/timeline/actions/tracks';
+import {
+	addTrack,
+	renameTrack,
+	toggleTrackVisibility
+} from '$lib/video-editor/timeline/actions/tracks';
 import { trimItemToFrame } from '$lib/video-editor/timeline/actions/trim-playhead';
 import { setCurrentFrame, setItemSpeed } from '$lib/video-editor/timeline/actions/items';
 import { addTransition } from '$lib/video-editor/timeline/actions/transitions.svelte';
@@ -35,6 +40,7 @@ import {
 } from './browser-relay';
 import { mediaPool } from '$lib/video-editor/media/pool.svelte';
 import {
+	captureSourceTranscriptStorage,
 	getSourceTranscript,
 	sourceTranscriptMatchesMedia
 } from '$lib/video-editor/workspace-fs/source-transcripts';
@@ -56,6 +62,26 @@ import { editorSettings } from '$lib/video-editor/settings/editor-settings.svelt
 import { addEffect, updateEffect, removeEffect } from '$lib/video-editor/timeline/actions/effects';
 import { EFFECT_DEFINITIONS, type CssFilterType } from '$lib/video-editor/effects/types';
 import { addSubtitleItemFromSrt } from '$lib/video-editor/transcript/captions';
+import {
+	addGeneratedSubtitleItem,
+	transcriptionSourceWindow
+} from '$lib/video-editor/transcript/transcribe-action';
+import { sourceWordsForWindow } from '$lib/video-editor/transcript/transcription-service.svelte';
+import { captionTimingBounds } from '$lib/video-editor/transcript/caption-correction';
+import { captionTimelineOffset } from '$lib/video-editor/transcript/caption-source-mapping';
+import { ensureOpenTrackForRange } from '$lib/video-editor/timeline/actions/track-placement';
+import type { SourceTranscript } from '$lib/video-editor/workspace-fs/source-transcripts';
+import {
+	CaptionEditError,
+	cueTextList,
+	deleteCue,
+	languageLabel,
+	mergeCueWithNext,
+	retimeCue,
+	setCueTexts,
+	translatedCues,
+	translatedLabel
+} from './caption-edits';
 import { renderVideoExport } from '$lib/video-editor/media/render-execution';
 import { cancelEditorExport, editorExportStatus, startEditorExport } from './export-jobs';
 import { sceneBrowser } from '$lib/video-editor/media/scene-search/scene-browser.svelte';
@@ -93,6 +119,11 @@ const analysisJobs = new Map<
 	{ projectID: string; status: 'running' | 'completed' | 'failed' | 'cancelled'; error?: string }
 >();
 const cancelledSceneJobs = new Set<string>();
+
+/** Where this project's source transcripts live: the workspace folder, or browser storage for cloud projects. */
+function transcriptStorage() {
+	return captureSourceTranscriptStorage(editorSession.storageWorkspaceId);
+}
 
 function sceneJobKey(mediaID: string): string {
 	return `${editorSession.project?.id ?? ''}:${mediaID}`;
@@ -224,7 +255,7 @@ async function searchSourceSpeech(
 			coverage.push({ media_id: mediaID, status: 'no_audio' });
 			continue;
 		}
-		const transcript = await getSourceTranscript(mediaID);
+		const transcript = await getSourceTranscript(mediaID, transcriptStorage());
 		if (!transcript || !sourceTranscriptMatchesMedia(transcript, media)) {
 			coverage.push({ media_id: mediaID, status: 'transcript_unavailable' });
 			continue;
@@ -301,7 +332,7 @@ async function inspectSource(
 	const media = mediaPool.get(mediaID);
 	if (!media)
 		throw new EditorAgentOperationError('missing_source', `Media ${mediaID} is unavailable`);
-	const transcript = await getSourceTranscript(mediaID);
+	const transcript = await getSourceTranscript(mediaID, transcriptStorage());
 	const validTranscript =
 		transcript && sourceTranscriptMatchesMedia(transcript, media) ? transcript : null;
 	return {
@@ -496,7 +527,7 @@ async function sourceAnalysisStatus(mediaID: string): Promise<Record<string, unk
 		throw new EditorAgentOperationError('missing_source', `Media ${mediaID} is unavailable`);
 	if (!media.mimeType.startsWith('audio/') && !media.mimeType.startsWith('video/'))
 		return { media_id: mediaID, status: 'unsupported', reason: 'Source has no audio stream' };
-	const transcript = await getSourceTranscript(mediaID);
+	const transcript = await getSourceTranscript(mediaID, transcriptStorage());
 	const current = analysisJobs.get(mediaID);
 	return {
 		media_id: mediaID,
@@ -526,6 +557,43 @@ function item(targetID: string) {
 	if (isTrackEffectivelyLocked(found.trackId, timelineStore.tracks))
 		throw new EditorAgentOperationError('locked', `Timeline item ${targetID} is locked`);
 	return found;
+}
+
+/** Source transcripts loaded for the current edit batch, by media ID. */
+let batchTranscripts = new Map<string, SourceTranscript>();
+
+/** Load what captions.generate actions in a batch read, since edits run synchronously. */
+async function loadBatchTranscripts(actions: readonly AgentAction[]): Promise<void> {
+	batchTranscripts = new Map();
+	for (const action of actions) {
+		if (action?.kind !== 'captions.generate' || typeof action.target_id !== 'string') continue;
+		const mediaID = timelineStore.itemById.get(action.target_id)?.mediaId;
+		const media = mediaID ? mediaPool.get(mediaID) : undefined;
+		if (!mediaID || !media || batchTranscripts.has(mediaID)) continue;
+		const transcript = await getSourceTranscript(mediaID, transcriptStorage());
+		if (transcript && sourceTranscriptMatchesMedia(transcript, media))
+			batchTranscripts.set(mediaID, transcript);
+	}
+}
+
+function subtitleItem(targetID: string) {
+	const found = item(targetID);
+	if (found.type !== 'subtitle' || !found.cues) invalid(`${targetID} is not a subtitle item`);
+	return { ...found, cues: found.cues };
+}
+
+function captionEdit<T>(edit: () => T): T {
+	try {
+		return edit();
+	} catch (error) {
+		if (error instanceof CaptionEditError) invalid(error.message);
+		throw error;
+	}
+}
+
+function writeCues(id: string, before: unknown, cues: TimelineItem['cues']): void {
+	if (JSON.stringify(before) === JSON.stringify(cues)) return;
+	if (!updateItemProperties(id, { cues })) invalid(`Could not update subtitle ${id}`);
 }
 
 function applyAction(action: AgentAction): string[] {
@@ -616,6 +684,134 @@ function applyAction(action: AgentAction): string[] {
 			)
 				invalid(`Could not update subtitle ${id}`);
 			return [id, cueID];
+		}
+		case 'caption.set_many': {
+			const id = exactString(targetID, 'target_id');
+			const current = subtitleItem(id);
+			const edits = captionEdit(() => cueTextList(valueObject(action).cues, current.cues, 'cues'));
+			writeCues(id, current.cues, setCueTexts(current.cues, edits));
+			return [id, ...edits.map((edit) => edit.cue_id)];
+		}
+		case 'caption.timing': {
+			const id = exactString(targetID, 'target_id');
+			const current = subtitleItem(id);
+			const value = valueObject(action);
+			const cueID = exactString(value.cue_id, 'cue_id');
+			const start = exactInteger(value.start_frame, 'start_frame');
+			const end = exactInteger(value.end_frame, 'end_frame');
+			writeCues(
+				id,
+				current.cues,
+				captionEdit(() => retimeCue(current.cues, cueID, start, end, captionTimingBounds(current)))
+			);
+			return [id, cueID];
+		}
+		case 'caption.delete': {
+			const id = exactString(targetID, 'target_id');
+			const current = subtitleItem(id);
+			const cueID = exactString(valueObject(action).cue_id, 'cue_id');
+			writeCues(
+				id,
+				current.cues,
+				captionEdit(() => deleteCue(current.cues, cueID))
+			);
+			return [id, cueID];
+		}
+		case 'caption.merge': {
+			const id = exactString(targetID, 'target_id');
+			const current = subtitleItem(id);
+			const cueID = exactString(valueObject(action).cue_id, 'cue_id');
+			writeCues(
+				id,
+				current.cues,
+				captionEdit(() => mergeCueWithNext(current.cues, cueID))
+			);
+			return [id, cueID];
+		}
+		case 'captions.translate': {
+			const id = exactString(targetID, 'target_id');
+			const current = subtitleItem(id);
+			const value = valueObject(action);
+			const language = captionEdit(() => languageLabel(value.language));
+			if (
+				value.keep_original_visible !== undefined &&
+				typeof value.keep_original_visible !== 'boolean'
+			)
+				invalid('keep_original_visible must be a boolean');
+			const cues = captionEdit(() =>
+				translatedCues(
+					current.cues,
+					cueTextList(value.translations, current.cues, 'translations'),
+					captionTimelineOffset(current)
+				)
+			);
+			const label = translatedLabel(current.label, language);
+			// SAFETY: execute returns the action's own string id unchanged.
+			const translatedID = execute('ADD_TRANSLATED_SUBTITLES', () => {
+				const track = ensureOpenTrackForRange({
+					kind: 'video',
+					itemType: 'subtitle',
+					from: current.from,
+					durationInFrames: current.durationInFrames,
+					label
+				});
+				const nextID = crypto.randomUUID();
+				const { linkedGroupId: _linked, ...copy } = $state.snapshot(current);
+				timelineStore._setItems([
+					...timelineStore.items,
+					{
+						...copy,
+						id: nextID,
+						trackId: track.id,
+						label,
+						cues,
+						captionSource: { type: 'subtitle-import', clipId: nextID, mediaId: 'captions' }
+					} satisfies TimelineItem
+				]);
+				return nextID;
+			}) as string;
+			// Both tracks would draw at the same spot; show the translation alone
+			// unless asked for both, and only hide a track that holds captions only.
+			const originalTrack = timelineStore.tracks.find((track) => track.id === current.trackId);
+			if (
+				value.keep_original_visible !== true &&
+				originalTrack?.visible &&
+				timelineStore.items.every(
+					(entry) => entry.trackId !== current.trackId || entry.type === 'subtitle'
+				)
+			)
+				toggleTrackVisibility(current.trackId);
+			return [id, translatedID];
+		}
+		case 'captions.generate': {
+			const id = exactString(targetID, 'target_id');
+			const current = item(id);
+			if ((current.type !== 'video' && current.type !== 'audio') || !current.mediaId)
+				invalid(`${id} is not an audio or video clip`);
+			const transcript = batchTranscripts.get(current.mediaId);
+			if (!transcript)
+				throw new EditorAgentOperationError(
+					'analysis_unavailable',
+					`Media ${current.mediaId} has no transcript yet. Call media_analyze, wait until media_analysis_status reports completed, then retry.`
+				);
+			const window = transcriptionSourceWindow(current);
+			const words = sourceWordsForWindow(
+				transcript.words,
+				window.sourceStartSeconds,
+				window.sourceEndSeconds
+			);
+			if (words.length === 0) invalid(`The transcript has no speech inside ${id}`);
+			try {
+				return [
+					id,
+					addGeneratedSubtitleItem(id, words, window, {
+						width: sequenceStore.activeWidth ?? editorSession.project?.metadata.width ?? 1920,
+						height: sequenceStore.activeHeight ?? editorSession.project?.metadata.height ?? 1080
+					})
+				];
+			} catch (error) {
+				return invalid(error instanceof Error ? error.message : 'Could not generate captions');
+			}
 		}
 		case 'effect.add': {
 			const id = exactString(targetID, 'target_id');
@@ -1522,6 +1718,8 @@ export async function handleVideoAgentRequest(
 		}
 		case 'video_edit': {
 			const args = request.arguments;
+			// Before the revision checks, so a change while transcripts load is still caught.
+			if (Array.isArray(args.actions)) await loadBatchTranscripts(args.actions as AgentAction[]);
 			if (args.project_id !== editorSession.project.id)
 				throw new EditorAgentOperationError(
 					'wrong_project',
