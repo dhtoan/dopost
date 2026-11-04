@@ -61,6 +61,7 @@ import (
 	"github.com/openpost/backend/internal/services/sessions"
 	telegramservice "github.com/openpost/backend/internal/services/telegram"
 	"github.com/openpost/backend/internal/services/updatestatus"
+	"github.com/openpost/backend/internal/services/urlimport"
 	"github.com/openpost/backend/internal/services/waitlist"
 	"github.com/openpost/backend/internal/services/workflows"
 	"github.com/openpost/backend/internal/telemetry"
@@ -124,6 +125,7 @@ type RouteDeps struct {
 	ImageEditorEnabled           bool
 	ImageEditorModelBaseURL      string
 	StockMediaEnabled            bool
+	URLImporter                  *urlimport.Importer
 	PexelsAPIKey                 string
 	UnsplashAccessKey            string
 	PixabayAPIKey                string
@@ -349,6 +351,7 @@ func RegisterHumaRoutes(api huma.API, deps RouteDeps) {
 	socialSetHandler.SetCapabilityResolver(capabilityResolverHandler)
 	socialSetHandler.RegisterRoutes(api)
 	handlers.NewVideoProjectHandler(deps.DB, deps.Authenticator, deps.MediaStorage).RegisterRoutes(api)
+	handlers.NewMediaURLImportHandler(deps.DB, deps.Authenticator, deps.URLImporter).RegisterRoutes(api)
 	handlers.NewEditorAgentHandler(deps.DB, deps.Authenticator).RegisterRoutes(api)
 	handlers.NewEditorPreferencesHandler(deps.DB, deps.Authenticator).RegisterRoutes(api)
 	handlers.NewEditorAgentAssistantHandler(deps.DB, deps.Authenticator, deps.Entitlement, deps.EditorAgentGenerator, deps.EditorAgentModel, deps.Edition).RegisterRoutes(api)

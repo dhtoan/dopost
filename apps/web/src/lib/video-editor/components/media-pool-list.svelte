@@ -56,6 +56,8 @@
 		type MediaLibrarySort
 	} from '$lib/video-editor/media/library-view';
 	import { importMediaFromUrl } from '$lib/video-editor/media/import-url';
+	import { linkImportAvailable } from '$lib/video-editor/media/link-import';
+	import { workspaceCtx } from '$lib/stores/workspace.svelte';
 	import MediaInfoPopover from './media-info-popover.svelte';
 	import MediaUrlImportDialog from './media-url-import-dialog.svelte';
 	import { mediaRecovery } from '$lib/video-editor/media/media-recovery.svelte';
@@ -146,6 +148,15 @@
 
 	let objectUrls = $state<Record<string, string>>({});
 	let urlImportOpen = $state(false);
+	/** The workspace whose server imports page links, or '' when only file links work. */
+	let linkImportWorkspaceId = $state('');
+	$effect(() => {
+		if (!urlImportOpen) return;
+		const workspaceId = workspaceCtx.currentWorkspace?.id?.trim() ?? '';
+		void linkImportAvailable(workspaceId).then((enabled) => {
+			linkImportWorkspaceId = enabled ? workspaceId : '';
+		});
+	});
 	let query = $state('');
 	let filter = $state<MediaLibraryFilter>('all');
 	let sort = $state<MediaLibrarySort>('added');
@@ -478,7 +489,8 @@
 				projectId,
 				storageMode: 'copy',
 				onUnsupportedAudio,
-				importAsset: importProjectAsset
+				importAsset: importProjectAsset,
+				linkImportWorkspaceId: linkImportWorkspaceId || undefined
 			});
 		} catch (error) {
 			if (error instanceof MediaImportCancelledError) return;
@@ -2061,7 +2073,11 @@
 	{/if}
 </div>
 
-<MediaUrlImportDialog bind:open={urlImportOpen} onimport={importUrl} />
+<MediaUrlImportDialog
+	bind:open={urlImportOpen}
+	pageLinks={Boolean(linkImportWorkspaceId)}
+	onimport={importUrl}
+/>
 
 <DestructiveConfirmDialog
 	bind:open={mediaDeleteDialogOpen}

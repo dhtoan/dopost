@@ -95,6 +95,7 @@ import (
 	telegramservice "github.com/openpost/backend/internal/services/telegram"
 	"github.com/openpost/backend/internal/services/tokenmanager"
 	"github.com/openpost/backend/internal/services/updatestatus"
+	"github.com/openpost/backend/internal/services/urlimport"
 	"github.com/openpost/backend/internal/services/usage"
 	"github.com/openpost/backend/internal/services/videoprocessing"
 	"github.com/openpost/backend/internal/services/waitlist"
@@ -1090,6 +1091,9 @@ func main() {
 		ImageEditorEnabled:           cfg.ImageEditorEnabled,
 		ImageEditorModelBaseURL:      cfg.ImageEditorModelBaseURL,
 		StockMediaEnabled:            cfg.StockMediaEnabled,
+		URLImporter: urlimport.New(urlimport.Config{
+			Enabled: cfg.URLImportEnabled, Binary: cfg.YtDlpPath, MaxBytes: cfg.URLImportMaxBytes, CookiesFile: cfg.YtDlpCookiesFile,
+		}),
 		PexelsAPIKey:                 cfg.PexelsAPIKey,
 		UnsplashAccessKey:            cfg.UnsplashAccessKey,
 		PixabayAPIKey:                cfg.PixabayAPIKey,
