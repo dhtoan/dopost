@@ -349,6 +349,7 @@ func RegisterHumaRoutes(api huma.API, deps RouteDeps) {
 	socialSetHandler.SetCapabilityResolver(capabilityResolverHandler)
 	socialSetHandler.RegisterRoutes(api)
 	handlers.NewVideoProjectHandler(deps.DB, deps.Authenticator, deps.MediaStorage).RegisterRoutes(api)
+	handlers.NewVideoProjectShareHandler(deps.DB, deps.Authenticator, deps.MediaSigner).RegisterRoutes(api)
 	handlers.NewEditorAgentHandler(deps.DB, deps.Authenticator).RegisterRoutes(api)
 	handlers.NewEditorPreferencesHandler(deps.DB, deps.Authenticator).RegisterRoutes(api)
 	handlers.NewEditorAgentAssistantHandler(deps.DB, deps.Authenticator, deps.Entitlement, deps.EditorAgentGenerator, deps.EditorAgentModel, deps.Edition).RegisterRoutes(api)

@@ -5022,6 +5022,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/public/video-shares/{token}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read a shared Cloud Video Project
+         * @description No session needed: the token is the access check. Media URLs are signed and expire.
+         */
+        get: operations["get-shared-video-project"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/publication-builds": {
         parameters: {
             query?: never;
@@ -6451,6 +6471,31 @@ export interface paths {
         put?: never;
         post?: never;
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/video-projects/{id}/share": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get a Cloud Video Project's share link */
+        get: operations["get-video-project-share"];
+        /**
+         * Turn on a read-only share link
+         * @description Anyone with the link can watch the project. Returns the existing link when there is one.
+         */
+        put: operations["enable-video-project-share"];
+        post?: never;
+        /**
+         * Turn off a share link
+         * @description The old link stops working. Turning sharing on again makes a new link.
+         */
+        delete: operations["disable-video-project-share"];
         options?: never;
         head?: never;
         patch?: never;
@@ -16700,6 +16745,46 @@ export interface components {
             otpauth_url: string;
             qr_code_data_url: string;
         };
+        SharedVideoProjectAsset: {
+            audio_codec?: string;
+            container_format?: string;
+            /** Format: int64 */
+            duration_ms: number;
+            /** Format: double */
+            frame_rate: number;
+            /** Format: int64 */
+            height: number;
+            mime_type: string;
+            original_filename: string;
+            preparation: {
+                [key: string]: unknown;
+            };
+            sha256?: string;
+            /** Format: int64 */
+            size: number;
+            stable_media_id: string;
+            /** @description Signed media URL; it expires with the view */
+            url: string;
+            video_codec?: string;
+            /** Format: int64 */
+            width: number;
+        };
+        SharedVideoProjectOutputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/SharedVideoProjectOutputBody.json
+             */
+            readonly $schema?: string;
+            assets: components["schemas"]["SharedVideoProjectAsset"][] | null;
+            document: {
+                [key: string]: unknown;
+            };
+            /** @description When the signed media URLs stop working */
+            expires_at: string;
+            name: string;
+            updated_at: string;
+        };
         SkippedDestination: {
             account_id: string;
             platform: string;
@@ -18371,6 +18456,20 @@ export interface components {
             /** Format: int64 */
             revision: number;
             touched_targets: string[] | null;
+        };
+        VideoProjectShareOutputBody: {
+            /**
+             * Format: uri
+             * @description A URL to the JSON Schema for this object.
+             * @example https://example.com/api/v1/schemas/VideoProjectShareOutputBody.json
+             */
+            readonly $schema?: string;
+            /** @description The project's share link; null when it has none */
+            share: components["schemas"]["VideoProjectShareResponse"];
+        };
+        VideoProjectShareResponse: {
+            created_at: string;
+            token: string;
         };
         VideoProjectSummaryResponse: {
             attention_reason?: string;
@@ -38942,6 +39041,65 @@ export interface operations {
             };
         };
     };
+    "get-shared-video-project": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Share link token */
+                token: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SharedVideoProjectOutputBody"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
     "create-publication-build": {
         parameters: {
             query?: never;
@@ -45734,6 +45892,192 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["VideoProjectRevisionResponse"][] | null;
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "get-video-project-share": {
+        parameters: {
+            query: {
+                /** @description Workspace ID */
+                workspace_id: string;
+            };
+            header?: never;
+            path: {
+                /** @description Video project ID */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VideoProjectShareOutputBody"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "enable-video-project-share": {
+        parameters: {
+            query: {
+                /** @description Workspace ID */
+                workspace_id: string;
+            };
+            header?: never;
+            path: {
+                /** @description Video project ID */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VideoProjectShareOutputBody"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ErrorModel"];
+                };
+            };
+        };
+    };
+    "disable-video-project-share": {
+        parameters: {
+            query: {
+                /** @description Workspace ID */
+                workspace_id: string;
+            };
+            header?: never;
+            path: {
+                /** @description Video project ID */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VideoProjectShareOutputBody"];
                 };
             };
             /** @description Forbidden */

@@ -23011,6 +23011,107 @@
 				"required": ["challenge_id", "manual_entry_key", "otpauth_url", "qr_code_data_url"],
 				"type": "object"
 			},
+			"SharedVideoProjectAsset": {
+				"additionalProperties": false,
+				"properties": {
+					"audio_codec": {
+						"type": "string"
+					},
+					"container_format": {
+						"type": "string"
+					},
+					"duration_ms": {
+						"format": "int64",
+						"type": "integer"
+					},
+					"frame_rate": {
+						"format": "double",
+						"type": "number"
+					},
+					"height": {
+						"format": "int64",
+						"type": "integer"
+					},
+					"mime_type": {
+						"type": "string"
+					},
+					"original_filename": {
+						"type": "string"
+					},
+					"preparation": {
+						"additionalProperties": {},
+						"type": "object"
+					},
+					"sha256": {
+						"type": "string"
+					},
+					"size": {
+						"format": "int64",
+						"type": "integer"
+					},
+					"stable_media_id": {
+						"type": "string"
+					},
+					"url": {
+						"description": "Signed media URL; it expires with the view",
+						"type": "string"
+					},
+					"video_codec": {
+						"type": "string"
+					},
+					"width": {
+						"format": "int64",
+						"type": "integer"
+					}
+				},
+				"required": [
+					"stable_media_id",
+					"original_filename",
+					"mime_type",
+					"size",
+					"preparation",
+					"url",
+					"width",
+					"height",
+					"duration_ms",
+					"frame_rate"
+				],
+				"type": "object"
+			},
+			"SharedVideoProjectOutputBody": {
+				"additionalProperties": false,
+				"properties": {
+					"$schema": {
+						"description": "A URL to the JSON Schema for this object.",
+						"examples": ["https://example.com/api/v1/schemas/SharedVideoProjectOutputBody.json"],
+						"format": "uri",
+						"readOnly": true,
+						"type": "string"
+					},
+					"assets": {
+						"items": {
+							"$ref": "#/components/schemas/SharedVideoProjectAsset"
+						},
+						"type": ["array", "null"]
+					},
+					"document": {
+						"additionalProperties": {},
+						"type": "object"
+					},
+					"expires_at": {
+						"description": "When the signed media URLs stop working",
+						"type": "string"
+					},
+					"name": {
+						"type": "string"
+					},
+					"updated_at": {
+						"type": "string"
+					}
+				},
+				"required": ["name", "updated_at", "expires_at", "document", "assets"],
+				"type": "object"
+			},
 			"SkippedDestination": {
 				"additionalProperties": false,
 				"properties": {
@@ -27353,6 +27454,37 @@
 					"checkpoint_names",
 					"checkpoints"
 				],
+				"type": "object"
+			},
+			"VideoProjectShareOutputBody": {
+				"additionalProperties": false,
+				"properties": {
+					"$schema": {
+						"description": "A URL to the JSON Schema for this object.",
+						"examples": ["https://example.com/api/v1/schemas/VideoProjectShareOutputBody.json"],
+						"format": "uri",
+						"readOnly": true,
+						"type": "string"
+					},
+					"share": {
+						"$ref": "#/components/schemas/VideoProjectShareResponse",
+						"description": "The project's share link; null when it has none"
+					}
+				},
+				"required": ["share"],
+				"type": "object"
+			},
+			"VideoProjectShareResponse": {
+				"additionalProperties": false,
+				"properties": {
+					"created_at": {
+						"type": "string"
+					},
+					"token": {
+						"type": "string"
+					}
+				},
+				"required": ["token", "created_at"],
 				"type": "object"
 			},
 			"VideoProjectSummaryResponse": {
@@ -55239,6 +55371,79 @@
 				"tags": ["Profiles"]
 			}
 		},
+		"/public/video-shares/{token}": {
+			"get": {
+				"description": "No session needed: the token is the access check. Media URLs are signed and expire.",
+				"operationId": "get-shared-video-project",
+				"parameters": [
+					{
+						"description": "Share link token",
+						"in": "path",
+						"name": "token",
+						"required": true,
+						"schema": {
+							"description": "Share link token",
+							"maxLength": 64,
+							"type": "string"
+						}
+					}
+				],
+				"responses": {
+					"200": {
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/SharedVideoProjectOutputBody"
+								}
+							}
+						},
+						"description": "OK"
+					},
+					"404": {
+						"content": {
+							"application/problem+json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorModel"
+								}
+							}
+						},
+						"description": "Not Found"
+					},
+					"422": {
+						"content": {
+							"application/problem+json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorModel"
+								}
+							}
+						},
+						"description": "Unprocessable Entity"
+					},
+					"500": {
+						"content": {
+							"application/problem+json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorModel"
+								}
+							}
+						},
+						"description": "Internal Server Error"
+					},
+					"503": {
+						"content": {
+							"application/problem+json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorModel"
+								}
+							}
+						},
+						"description": "Service Unavailable"
+					}
+				},
+				"summary": "Read a shared Cloud Video Project",
+				"tags": ["Video Projects"]
+			}
+		},
 		"/publication-builds": {
 			"post": {
 				"operationId": "create-publication-build",
@@ -64621,6 +64826,250 @@
 					}
 				},
 				"summary": "List Video Project revision history",
+				"tags": ["Video Projects"]
+			}
+		},
+		"/video-projects/{id}/share": {
+			"delete": {
+				"description": "The old link stops working. Turning sharing on again makes a new link.",
+				"operationId": "disable-video-project-share",
+				"parameters": [
+					{
+						"description": "Video project ID",
+						"in": "path",
+						"name": "id",
+						"required": true,
+						"schema": {
+							"description": "Video project ID",
+							"type": "string"
+						}
+					},
+					{
+						"description": "Workspace ID",
+						"explode": false,
+						"in": "query",
+						"name": "workspace_id",
+						"required": true,
+						"schema": {
+							"description": "Workspace ID",
+							"type": "string"
+						}
+					}
+				],
+				"responses": {
+					"200": {
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/VideoProjectShareOutputBody"
+								}
+							}
+						},
+						"description": "OK"
+					},
+					"403": {
+						"content": {
+							"application/problem+json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorModel"
+								}
+							}
+						},
+						"description": "Forbidden"
+					},
+					"404": {
+						"content": {
+							"application/problem+json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorModel"
+								}
+							}
+						},
+						"description": "Not Found"
+					},
+					"422": {
+						"content": {
+							"application/problem+json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorModel"
+								}
+							}
+						},
+						"description": "Unprocessable Entity"
+					},
+					"500": {
+						"content": {
+							"application/problem+json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorModel"
+								}
+							}
+						},
+						"description": "Internal Server Error"
+					}
+				},
+				"summary": "Turn off a share link",
+				"tags": ["Video Projects"]
+			},
+			"get": {
+				"operationId": "get-video-project-share",
+				"parameters": [
+					{
+						"description": "Video project ID",
+						"in": "path",
+						"name": "id",
+						"required": true,
+						"schema": {
+							"description": "Video project ID",
+							"type": "string"
+						}
+					},
+					{
+						"description": "Workspace ID",
+						"explode": false,
+						"in": "query",
+						"name": "workspace_id",
+						"required": true,
+						"schema": {
+							"description": "Workspace ID",
+							"type": "string"
+						}
+					}
+				],
+				"responses": {
+					"200": {
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/VideoProjectShareOutputBody"
+								}
+							}
+						},
+						"description": "OK"
+					},
+					"403": {
+						"content": {
+							"application/problem+json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorModel"
+								}
+							}
+						},
+						"description": "Forbidden"
+					},
+					"404": {
+						"content": {
+							"application/problem+json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorModel"
+								}
+							}
+						},
+						"description": "Not Found"
+					},
+					"422": {
+						"content": {
+							"application/problem+json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorModel"
+								}
+							}
+						},
+						"description": "Unprocessable Entity"
+					},
+					"500": {
+						"content": {
+							"application/problem+json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorModel"
+								}
+							}
+						},
+						"description": "Internal Server Error"
+					}
+				},
+				"summary": "Get a Cloud Video Project's share link",
+				"tags": ["Video Projects"]
+			},
+			"put": {
+				"description": "Anyone with the link can watch the project. Returns the existing link when there is one.",
+				"operationId": "enable-video-project-share",
+				"parameters": [
+					{
+						"description": "Video project ID",
+						"in": "path",
+						"name": "id",
+						"required": true,
+						"schema": {
+							"description": "Video project ID",
+							"type": "string"
+						}
+					},
+					{
+						"description": "Workspace ID",
+						"explode": false,
+						"in": "query",
+						"name": "workspace_id",
+						"required": true,
+						"schema": {
+							"description": "Workspace ID",
+							"type": "string"
+						}
+					}
+				],
+				"responses": {
+					"200": {
+						"content": {
+							"application/json": {
+								"schema": {
+									"$ref": "#/components/schemas/VideoProjectShareOutputBody"
+								}
+							}
+						},
+						"description": "OK"
+					},
+					"403": {
+						"content": {
+							"application/problem+json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorModel"
+								}
+							}
+						},
+						"description": "Forbidden"
+					},
+					"404": {
+						"content": {
+							"application/problem+json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorModel"
+								}
+							}
+						},
+						"description": "Not Found"
+					},
+					"422": {
+						"content": {
+							"application/problem+json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorModel"
+								}
+							}
+						},
+						"description": "Unprocessable Entity"
+					},
+					"500": {
+						"content": {
+							"application/problem+json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorModel"
+								}
+							}
+						},
+						"description": "Internal Server Error"
+					}
+				},
+				"summary": "Turn on a read-only share link",
 				"tags": ["Video Projects"]
 			}
 		},
