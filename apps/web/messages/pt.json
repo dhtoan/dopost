@@ -5310,6 +5310,8 @@
 	"video_editor_apply_fillers": "Remover preenchimentos selecionados",
 	"video_editor_silence_suggestions": "{count} secção(ões) silenciosa(s) · {duration} removível",
 	"video_editor_apply_silences": "Remover silêncio selecionado",
+	"video_editor_cleanup_snap_to_speech": "Ajustar cortes à voz",
+	"video_editor_cleanup_snap_to_speech_hint": "Lê o áudio à volta de cada corte para não cortar palavras e manter uma pausa natural.",
 	"video_editor_edit_caption": "Editar texto da legenda",
 	"video_editor_replace_caption": "Substituir texto da legenda",
 	"video_editor_caption_search": "Procurar",

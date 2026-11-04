@@ -5358,6 +5358,8 @@
 	"video_editor_apply_fillers": "Remove selected fillers",
 	"video_editor_silence_suggestions": "{count} silent section(s) · {duration} removable",
 	"video_editor_apply_silences": "Remove selected silence",
+	"video_editor_cleanup_snap_to_speech": "Snap cuts to speech",
+	"video_editor_cleanup_snap_to_speech_hint": "Reads the audio around each cut so it never clips a word and keeps a natural beat of air.",
 	"video_editor_edit_caption": "Edit caption text",
 	"video_editor_replace_caption": "Replace caption text",
 	"video_editor_caption_search": "Find",

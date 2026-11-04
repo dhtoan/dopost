@@ -5310,6 +5310,8 @@
 	"video_editor_apply_fillers": "Retirer les remplissages sélectionnés",
 	"video_editor_silence_suggestions": "{count} section(s) silencieuse(s) · {duration} amovibles",
 	"video_editor_apply_silences": "Supprimer les silences sélectionnés",
+	"video_editor_cleanup_snap_to_speech": "Caler les coupes sur la voix",
+	"video_editor_cleanup_snap_to_speech_hint": "Analyse le son autour de chaque coupe pour ne jamais couper un mot et garder un souffle naturel.",
 	"video_editor_edit_caption": "Modifier le texte du sous-titre",
 	"video_editor_replace_caption": "Remplacer le texte du sous-titre",
 	"video_editor_caption_search": "Rechercher",

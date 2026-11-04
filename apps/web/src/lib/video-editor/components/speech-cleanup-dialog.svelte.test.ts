@@ -200,6 +200,8 @@ it('reports reviewed source sections once when cleanup cuts linked tracks', asyn
 		});
 		await expect.element(include.first()).toBeVisible();
 		expect(include.all()).toHaveLength(4);
+		// Exact frame counts below assume the transcript-timed ranges.
+		await screen.getByRole('checkbox', { name: m.video_editor_cleanup_snap_to_speech() }).click();
 		await screen.getByRole('button', { name: m.video_editor_apply_silences() }).click();
 		expect(onapplied).toHaveBeenCalledExactlyOnceWith(4);
 		expect(timelineStore.maxItemEndFrame).toBe(120);

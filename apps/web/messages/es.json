@@ -5310,6 +5310,8 @@
 	"video_editor_apply_fillers": "Eliminar los rellenos seleccionados",
 	"video_editor_silence_suggestions": "{count} sección(s) silenciosa(s) · {duration} extraíble(s)",
 	"video_editor_apply_silences": "Eliminar el silencio seleccionado",
+	"video_editor_cleanup_snap_to_speech": "Ajustar cortes a la voz",
+	"video_editor_cleanup_snap_to_speech_hint": "Analiza el audio de cada corte para no recortar palabras y dejar una pausa natural.",
 	"video_editor_edit_caption": "Editar el texto del título",
 	"video_editor_replace_caption": "Reemplazar el texto del título",
 	"video_editor_caption_search": "Buscar",

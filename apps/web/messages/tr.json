@@ -5310,6 +5310,8 @@
 	"video_editor_apply_fillers": "Seçili dolgu sözcüklerini kaldır",
 	"video_editor_silence_suggestions": "{count} sessiz bölüm · {duration} kaldırılabilir",
 	"video_editor_apply_silences": "Seçili sessizliği kaldır",
+	"video_editor_cleanup_snap_to_speech": "Kesimleri konuşmaya hizala",
+	"video_editor_cleanup_snap_to_speech_hint": "Her kesimin çevresindeki sesi okuyarak kelime kesmeden doğal bir boşluk bırakır.",
 	"video_editor_edit_caption": "Altyazı metnini düzenle",
 	"video_editor_replace_caption": "Altyazı metnini değiştir",
 	"video_editor_caption_search": "Bul",

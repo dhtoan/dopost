@@ -5328,6 +5328,8 @@
 	"video_editor_apply_fillers": "Удалить выбранные слова-паразиты",
 	"video_editor_silence_suggestions": "Тихих участков: {count} · можно удалить {duration}",
 	"video_editor_apply_silences": "Удалить выбранную тишину",
+	"video_editor_cleanup_snap_to_speech": "Привязать склейки к речи",
+	"video_editor_cleanup_snap_to_speech_hint": "Анализирует звук вокруг склейки, чтобы не обрезать слова и оставить естественную паузу.",
 	"video_editor_edit_caption": "Править текст субтитров",
 	"video_editor_replace_caption": "Заменить текст субтитров",
 	"video_editor_caption_search": "Найти",

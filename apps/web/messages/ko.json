@@ -5310,6 +5310,8 @@
 	"video_editor_apply_fillers": "선택한 필러 워드 제거",
 	"video_editor_silence_suggestions": "무음 구간 {count}개 · 제거 가능 {duration}",
 	"video_editor_apply_silences": "선택한 무음 구간 제거",
+	"video_editor_cleanup_snap_to_speech": "컷을 음성에 맞추기",
+	"video_editor_cleanup_snap_to_speech_hint": "각 컷 주변 오디오를 읽어 단어가 잘리지 않고 자연스러운 여백을 남깁니다.",
 	"video_editor_edit_caption": "자막 텍스트 편집",
 	"video_editor_replace_caption": "자막 텍스트 교체",
 	"video_editor_caption_search": "찾기",

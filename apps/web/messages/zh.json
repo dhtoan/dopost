@@ -5310,6 +5310,8 @@
 	"video_editor_apply_fillers": "移除所选填充词",
 	"video_editor_silence_suggestions": "{count} 处静音 · 可移除 {duration}",
 	"video_editor_apply_silences": "移除所选静音",
+	"video_editor_cleanup_snap_to_speech": "剪辑点对齐语音",
+	"video_editor_cleanup_snap_to_speech_hint": "读取每个剪辑点附近的音频，不切断字词并保留自然停顿。",
 	"video_editor_edit_caption": "编辑字幕文本",
 	"video_editor_replace_caption": "替换字幕文本",
 	"video_editor_caption_search": "查找",
