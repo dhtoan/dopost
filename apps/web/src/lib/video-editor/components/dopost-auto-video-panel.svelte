@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { page } from '$app/state';
-	import { onMount } from 'svelte';
+	import { replaceState } from '$app/navigation';
+	import { untrack } from 'svelte';
+	import { m } from '$lib/paraglide/messages';
 	import {
 		MOTION_STYLES,
 		createMotionProbePlan,
@@ -60,6 +62,10 @@
 	let motionBusy = $state(false);
 	let autoEnrichmentStarted = false;
 	let status = $state('');
+	/** Why the last save stayed in this browser, if it did. */
+	let syncWarning = $state('');
+	let loadRequest = 0;
+	let loadedForWorkspace: string | null = null;
 
 	const workspaceId = $derived(workspaceCtx.currentWorkspace?.id?.trim() ?? '');
 	const documentary = $derived(documentaryManifest(sidecar));
@@ -94,14 +100,23 @@
 
 	async function persistSidecar(next: AutoVideoSidecar): Promise<void> {
 		sidecar = next;
-		await saveAutoVideoSidecarRemote(workspaceId, next);
+		const saved = await saveAutoVideoSidecarRemote(workspaceId, next);
+		syncWarning =
+			saved === 'conflict'
+				? m.dopost_auto_video_sync_conflict()
+				: saved === 'local' && workspaceId
+					? m.dopost_auto_video_sync_local()
+					: '';
 	}
 
 	async function refreshSidecar(): Promise<void> {
+		const request = ++loadRequest;
 		loading = true;
 		status = '';
 		try {
 			const loaded = await loadAutoVideoSidecarRemote(workspaceId, projectId);
+			// A newer load (the workspace arrived meanwhile) owns the panel now.
+			if (request !== loadRequest) return;
 			sidecar = loaded;
 			documentaryRun = null;
 			const manifest = documentaryManifest(loaded);
@@ -117,7 +132,7 @@
 			if (savedStyle && savedStyle in MOTION_STYLES) motionStyle = savedStyle as MotionStyleId;
 			motionCustomization = savedMotion?.customization ? { ...savedMotion.customization } : {};
 		} finally {
-			loading = false;
+			if (request === loadRequest) loading = false;
 		}
 	}
 
@@ -158,10 +173,13 @@
 					protectedCount += 1;
 					return oldScene;
 				}
+				// Only the words change on the timeline, so the scene keeps the length it
+				// plays at (which voice generation may have measured from real speech).
 				const nextScene: AutoVideoScene = {
 					...nextGenerated,
 					id: oldScene.id,
-					sourceIds: oldScene.sourceIds
+					sourceIds: oldScene.sourceIds,
+					durationSeconds: oldScene.durationSeconds
 				};
 				updateItemProperties(
 					itemId,
@@ -309,7 +327,12 @@
 	}
 
 	async function generateDocumentaryNarration(): Promise<boolean> {
-		if (!sidecar || !documentary || !documentaryRun) return false;
+		if (!sidecar || !documentary) return false;
+		if (!documentaryRun) {
+			// Never fall through to short-form scene voices on a documentary project.
+			status = m.dopost_auto_video_documentary_unavailable();
+			return true;
+		}
 		if (!workspaceId) {
 			status = 'Select the workspace that owns this documentary run.';
 			return true;
@@ -463,12 +486,23 @@
 		);
 		if (requested.size === 0) return;
 		autoEnrichmentStarted = true;
+		// Run once per created project: drop the request from the address so a
+		// reload or a panel switch never re-runs it (or restores deleted captions).
+		const url = new URL(page.url);
+		url.searchParams.delete('autogen');
+		replaceState(url, page.state);
+		// Each step starts by clearing the status, so keep every step's outcome and show
+		// them together: a failed voice run must still be visible after captions.
+		const outcomes: string[] = [];
 		if (requested.has('voice') && (sidecar.generationGraph?.media?.voices?.length ?? 0) === 0) {
 			await generateVoices();
+			if (status) outcomes.push(status);
 		}
 		if (requested.has('captions') && sidecar && !sidecar.generationGraph?.media?.captions) {
 			await generateCaptions();
+			if (status) outcomes.push(status);
 		}
+		if (outcomes.length > 0) status = outcomes.join(' ');
 		if (requested.has('music-if-ready') && sidecar && !sidecar.generationGraph?.media?.music) {
 			try {
 				const storage = await inspectMusicGenerationStorage('standard');
@@ -479,11 +513,19 @@
 		}
 	}
 
-	onMount(() => {
-		void (async () => {
-			await refreshSidecar();
-			await runRequestedAutoEnrichment();
-		})();
+	$effect(() => {
+		const current = workspaceId;
+		// A cloud project's metadata and generated media live in its workspace, so
+		// wait for the workspace instead of reading only this browser's copy.
+		if (!current && page.url.searchParams.get('storage') === 'cloud') return;
+		if (loadedForWorkspace === current) return;
+		loadedForWorkspace = current;
+		untrack(() => {
+			void (async () => {
+				await refreshSidecar();
+				await runRequestedAutoEnrichment();
+			})();
+		});
 	});
 </script>
 
@@ -707,13 +749,22 @@
 					</div>
 				{/if}
 
-				{#if status}
-					<p
-						class="rounded-md bg-[var(--video-editor-control)] p-2 text-[11px] leading-relaxed text-[var(--video-editor-muted)]"
-					>
-						{status}
-					</p>
-				{/if}
+				<div aria-live="polite" class="space-y-2">
+					{#if syncWarning}
+						<p
+							class="rounded-md border border-[var(--video-editor-border)] p-2 text-[11px] leading-relaxed text-[var(--video-editor-text)]"
+						>
+							{syncWarning}
+						</p>
+					{/if}
+					{#if status}
+						<p
+							class="rounded-md bg-[var(--video-editor-control)] p-2 text-[11px] leading-relaxed text-[var(--video-editor-muted)]"
+						>
+							{status}
+						</p>
+					{/if}
+				</div>
 			</div>
 		{/if}
 	</div>

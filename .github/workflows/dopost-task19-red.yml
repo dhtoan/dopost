@@ -52,7 +52,18 @@ jobs:
         run: cd apps/server && go test ./cmd/openpost -run TestDopostE2EPlannerGeneratorIsUnavailableInProduction -count=1 -v
       - name: Install Chromium
         run: bunx playwright install --with-deps chromium
+      # The browser gates need the E2E embed, not the production one above.
+      # Build it and the dev server here, outside Playwright's five-minute
+      # webServer window.
+      - name: Build E2E web embed
+        timeout-minutes: 15
+        run: VITE_DOPOST_E2E=1 bun run build -- frontend
+      - name: Prebuild dev server
+        timeout-minutes: 10
+        run: cd apps/server && go build -tags dev -o /dev/null ./cmd/openpost
       - name: Run Task 19 browser gates
+        env:
+          OPENPOST_E2E_PREBUILT: "1"
         run: >-
           bunx playwright test --config tests/app/playwright.config.ts
           tests/app/dopost/motion-determinism.spec.ts

@@ -508,7 +508,9 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
 				if (restoredGroup !== 'ai')
 					leftGroupPanel = { ...leftGroupPanel, [restoredGroup]: restored };
 			} else {
-				leftPanel = 'media';
+				// A project just made by Auto Video opens on the dopost AI panel, which is
+				// what runs the voice and captions it asked for.
+				leftPanel = page.url.searchParams.get('dopost') === 'auto-video' ? 'ai' : 'media';
 			}
 			restoredPanelProject = displayedProject.id;
 		}
