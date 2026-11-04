@@ -421,7 +421,7 @@ type CreateMediaUploadSessionInput struct {
 		MimeType         string                `json:"mime_type,omitempty" doc:"Declared MIME type"`
 		Size             int64                 `json:"size" doc:"Expected upload size in bytes"`
 		AltText          string                `json:"alt_text,omitempty" doc:"Alt text for accessibility"`
-		Source           string                `json:"source,omitempty" enum:"upload,media_copy,image_optimization,image_fit,camera,image_editor_export,image_editor_edit,background_removal,video_editor_source,video_editor_export,stock_import,meme_generator,screenshot_template,image_generation" doc:"Media provenance"`
+		Source           string                `json:"source,omitempty" enum:"upload,media_copy,image_optimization,image_fit,camera,image_editor_export,image_editor_edit,background_removal,video_editor_source,video_editor_export,stock_import,meme_generator,screenshot_template,image_generation,video_generation" doc:"Media provenance"`
 		AssetKind        string                `json:"asset_kind,omitempty" enum:"library,brand_asset,brand_font,design_preview,template_preview,project_asset" doc:"Media library role"`
 		RetentionClass   string                `json:"retention_class,omitempty" enum:"library,temporary" doc:"Keep in the library or manage as temporary post media"`
 		TagID            string                `json:"tag_id,omitempty" doc:"Optional tag to assign to this upload"`
@@ -2468,7 +2468,7 @@ func mediaSourceSupportsDeduplication(source string) bool {
 func normalizeMediaProvenance(source, assetKind string) (string, string, error) {
 	source = defaultMediaSource(source)
 	switch source {
-	case "upload", "media_copy", "image_optimization", "image_fit", "camera", "image_editor_export", "image_editor_edit", "background_removal", "image_generation",
+	case "upload", "media_copy", "image_optimization", "image_fit", "camera", "image_editor_export", "image_editor_edit", "background_removal", "image_generation", "video_generation",
 		"video_editor_source", "video_editor_export", "stock_import", "meme_generator", "screenshot_template":
 	default:
 		return "", "", errors.New("invalid media source")
@@ -3811,7 +3811,7 @@ func (h *MediaHandler) processUploadBytes(ctx context.Context, input mediaUpload
 
 	var existing models.MediaAttachment
 	if input.StableID != "" {
-		if _, err := uuid.Parse(input.StableID); err != nil || source != "image_generation" || input.TagID != "" || input.StockProvenance != nil {
+		if _, err := uuid.Parse(input.StableID); err != nil || (source != "image_generation" && source != "video_generation") || input.TagID != "" || input.StockProvenance != nil {
 			return nil, errors.New("invalid durable image import")
 		}
 		err := h.db.NewSelect().Model(&existing).Where("id = ?", input.StableID).Scan(ctx)

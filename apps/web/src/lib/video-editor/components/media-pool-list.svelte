@@ -58,6 +58,9 @@
 	import { importMediaFromUrl } from '$lib/video-editor/media/import-url';
 	import MediaInfoPopover from './media-info-popover.svelte';
 	import MediaUrlImportDialog from './media-url-import-dialog.svelte';
+	import VideoGenerationDialog from './video-generation-dialog.svelte';
+	import { videoGenerationService } from '$lib/video-editor/media/processing/video-generation/video-generation-service.svelte';
+	import { workspaceCtx } from '$lib/stores/workspace.svelte';
 	import { mediaRecovery } from '$lib/video-editor/media/media-recovery.svelte';
 	import type { MediaSourceIssue } from '$lib/video-editor/media/media-recovery';
 	import {
@@ -146,6 +149,19 @@
 
 	let objectUrls = $state<Record<string, string>>({});
 	let urlImportOpen = $state(false);
+	let videoGenerationOpen = $state(false);
+	const generationWorkspaceId = $derived(workspaceCtx.currentWorkspace?.id ?? '');
+
+	// Follow this project's video generations so a clip that finished while the
+	// editor was closed still lands in Media.
+	$effect(() => {
+		const workspaceId = generationWorkspaceId;
+		if (!workspaceId || !projectId) return;
+		void videoGenerationService
+			.open(workspaceId, { projectId, importAsset: importProjectAsset })
+			.catch(() => undefined);
+		return () => videoGenerationService.close();
+	});
 	let query = $state('');
 	let filter = $state<MediaLibraryFilter>('all');
 	let sort = $state<MediaLibrarySort>('added');
@@ -266,7 +282,13 @@
 		clearSelection: clearAssetSelection,
 		requestDelete: confirmSelectedAssetDelete,
 		interactionBlocked: () =>
-			Boolean(urlImportOpen || mediaDeleteDialogOpen || deleteDialogOpen || editingSequenceId),
+			Boolean(
+				urlImportOpen ||
+				videoGenerationOpen ||
+				mediaDeleteDialogOpen ||
+				deleteDialogOpen ||
+				editingSequenceId
+			),
 		onMarqueeSelectionChange: (selection) => {
 			assetMarqueeSelection = selection;
 		}
@@ -1123,6 +1145,12 @@
 								<ThemeIcon role="link" class="size-4" />
 								{m.video_editor_media_import_url()}
 							</DropdownMenu.Item>
+							{#if generationWorkspaceId}
+								<DropdownMenu.Item onclick={() => (videoGenerationOpen = true)}>
+									<ThemeIcon role="sparkles" class="size-4" />
+									{m.video_editor_generate_video()}
+								</DropdownMenu.Item>
+							{/if}
 							{#if onrecord}
 								<DropdownMenu.Item onclick={onrecord}>
 									<ProtectedIcon icon="editor-record" class="size-4" />
@@ -2062,6 +2090,14 @@
 </div>
 
 <MediaUrlImportDialog bind:open={urlImportOpen} onimport={importUrl} />
+{#if generationWorkspaceId}
+	<VideoGenerationDialog
+		bind:open={videoGenerationOpen}
+		workspaceId={generationWorkspaceId}
+		{projectId}
+		onstarted={() => showToast(m.video_editor_generate_video_started(), 'success')}
+	/>
+{/if}
 
 <DestructiveConfirmDialog
 	bind:open={mediaDeleteDialogOpen}

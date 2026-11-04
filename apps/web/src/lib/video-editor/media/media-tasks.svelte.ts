@@ -11,7 +11,8 @@ export type MediaTaskKind =
 	| 'music-generation'
 	| 'reverse-conform'
 	| 'upscale'
-	| 'frame-interpolation';
+	| 'frame-interpolation'
+	| 'video-generation';
 
 export type MediaTaskStatus = 'queued' | 'running' | 'cancelling';
 

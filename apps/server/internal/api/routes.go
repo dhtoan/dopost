@@ -61,6 +61,7 @@ import (
 	"github.com/openpost/backend/internal/services/sessions"
 	telegramservice "github.com/openpost/backend/internal/services/telegram"
 	"github.com/openpost/backend/internal/services/updatestatus"
+	"github.com/openpost/backend/internal/services/videogeneration"
 	"github.com/openpost/backend/internal/services/waitlist"
 	"github.com/openpost/backend/internal/services/workflows"
 	"github.com/openpost/backend/internal/telemetry"
@@ -69,6 +70,7 @@ import (
 
 type RouteDeps struct {
 	ImageGeneration              *imagegeneration.Service
+	VideoGeneration              *videogeneration.Service
 	WorkflowService              *workflows.Service
 	DB                           *bun.DB
 	Readiness                    *Readiness
@@ -336,6 +338,7 @@ func RegisterHumaRoutes(api huma.API, deps RouteDeps) {
 	publicationBuildHandler.RegisterRoutes(api)
 	handlers.NewRepurposeHandler(deps.RepurposeSuggestions, deps.Authenticator).RegisterRoutes(api)
 	handlers.NewImageGenerationHandler(deps.ImageGeneration, deps.Authenticator).RegisterRoutes(api)
+	handlers.NewVideoGenerationHandler(deps.VideoGeneration, deps.Authenticator).RegisterRoutes(api)
 	registerWorkflowRoutes(api, deps, publicationHandler, publicationBuildHandler)
 	handlers.NewPublicationDiscoveryHandler(deps.DB, deps.Authenticator, deps.PublicationDiscovery).RegisterRoutes(api)
 	handlers.NewVoiceProfileHandler(deps.DB, deps.Authenticator).RegisterRoutes(api)
