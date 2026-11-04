@@ -57,7 +57,10 @@ const pendingVideoProjectMutationSchema = z.object({
 		)
 	}),
 	queuedAt: z.number(),
-	attempts: z.number()
+	attempts: z.number(),
+	rejection: z
+		.object({ status: z.number(), message: z.string(), rejectedAt: z.number() })
+		.optional()
 });
 const cloudDocumentSchema = z.looseObject({});
 type CloudVideoProjectDocument = components['schemas']['VideoProjectResponse']['document'];
@@ -117,6 +120,25 @@ export class CloudVideoProjectConflictError<TDocument extends object> extends Er
 		this.name = 'CloudVideoProjectConflictError';
 	}
 }
+
+export class CloudVideoProjectSaveRejectedError<TDocument extends object> extends Error {
+	constructor(
+		readonly mutationId: string,
+		readonly status: number,
+		readonly localDocument: TDocument
+	) {
+		super(
+			'The server could not apply this change to the Cloud Video Project. Your edit is kept in this browser; reload the project before editing again.'
+		);
+		this.name = 'CloudVideoProjectSaveRejectedError';
+	}
+}
+
+/**
+ * HTTP statuses that mean the server will never accept this exact mutation. Anything
+ * else (offline, 5xx, auth, 408/409/429) is retried on the next flush.
+ */
+const PERMANENT_MUTATION_REJECTIONS = new Set([400, 404, 410, 413, 422]);
 
 class BrowserMutationStorage implements MutationOutboxStorage {
 	async load(): Promise<PendingVideoProjectMutation[]> {
@@ -314,6 +336,9 @@ export class CloudVideoProjectRepository<TDocument extends object> {
 		});
 		const results = await this.flush();
 		const latest = results.at(-1);
+		if (latest?.outcome === 'rejected') {
+			throw new CloudVideoProjectSaveRejectedError(latest.mutationId, latest.status, portable);
+		}
 		if (latest?.outcome === 'conflict') {
 			throw new CloudVideoProjectConflictError(latest.conflictId, portable);
 		}
@@ -623,10 +648,18 @@ export class CloudVideoProjectRepository<TDocument extends object> {
 
 	async flush() {
 		return this.outbox.drain(async (entry) => {
-			const { data, error } = await client.POST('/video-projects/{id}/mutations', {
+			const { data, error, response } = await client.POST('/video-projects/{id}/mutations', {
 				params: { path: { id: entry.projectId } },
 				body: entry.batch
 			});
+			if (error && response && PERMANENT_MUTATION_REJECTIONS.has(response.status)) {
+				return {
+					outcome: 'rejected' as const,
+					mutationId: entry.batch.mutation_id,
+					status: response.status,
+					message: error.detail ?? response.statusText
+				};
+			}
 			if (error || !data) throw new Error('Cloud Video Project save is waiting for a connection');
 			await this.invalidateProjectState(entry.projectId);
 			return data.outcome === 'conflict'
@@ -657,3 +690,4 @@ export class CloudVideoProjectRepository<TDocument extends object> {
 		await this.invalidateProjectState(id);
 	}
 }
+

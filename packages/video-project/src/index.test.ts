@@ -283,4 +283,69 @@ describe("portable Video Project contract", () => {
     expect(online).toHaveBeenCalledTimes(2);
     expect(online.mock.calls[1]?.[0].batch.base_revision).toBe(2);
   });
+
+  it("parks a permanently rejected mutation so later saves still reach the server", async () => {
+    let entries: PendingVideoProjectMutation[] = [];
+    const storage = {
+      load: async () => structuredClone(entries),
+      save: async (next: PendingVideoProjectMutation[]) => {
+        entries = structuredClone(next);
+      },
+    };
+    const outbox = new VideoProjectMutationOutbox(storage);
+    await outbox.enqueue(mutation("stale-delete"));
+    await outbox.enqueue(mutation("next-edit"));
+
+    const deliver = vi.fn(async (entry: PendingVideoProjectMutation) =>
+      entry.batch.mutation_id === "stale-delete"
+        ? {
+            outcome: "rejected" as const,
+            mutationId: entry.batch.mutation_id,
+            status: 400,
+            message: "Invalid Video Project request",
+          }
+        : { outcome: "applied" as const, revision: entry.batch.base_revision + 1 },
+    );
+    await expect(outbox.drain(deliver)).resolves.toEqual([
+      {
+        outcome: "rejected",
+        mutationId: "stale-delete",
+        status: 400,
+        message: "Invalid Video Project request",
+      },
+      { outcome: "applied", revision: 2 },
+    ]);
+
+    const parked = await outbox.rejected("project-1");
+    expect(parked.map((entry) => entry.batch.mutation_id)).toEqual(["stale-delete"]);
+    expect(parked[0]?.rejection).toMatchObject({ status: 400 });
+    expect(parked[0]?.batch.operations).toEqual(mutation("stale-delete").batch.operations);
+
+    await outbox.enqueue(mutation("later-edit"));
+    await expect(outbox.drain(deliver)).resolves.toEqual([{ outcome: "applied", revision: 2 }]);
+    expect(deliver).toHaveBeenCalledTimes(3);
+    expect(entries.map((entry) => entry.batch.mutation_id)).toEqual(["stale-delete"]);
+  });
+
+  it("keeps a parked mutation in place while a later entry waits for a connection", async () => {
+    let entries: PendingVideoProjectMutation[] = [
+      { ...mutation("refused"), rejection: { status: 400, message: "bad", rejectedAt: 1 } },
+    ];
+    const storage = {
+      load: async () => structuredClone(entries),
+      save: async (next: PendingVideoProjectMutation[]) => {
+        entries = structuredClone(next);
+      },
+    };
+    const outbox = new VideoProjectMutationOutbox(storage);
+    await outbox.enqueue(mutation("offline-edit"));
+
+    await expect(outbox.drain(vi.fn().mockRejectedValue(new TypeError("offline")))).rejects.toThrow(
+      "offline",
+    );
+    expect(entries.map((entry) => [entry.batch.mutation_id, entry.attempts])).toEqual([
+      ["refused", 0],
+      ["offline-edit", 1],
+    ]);
+  });
 });
