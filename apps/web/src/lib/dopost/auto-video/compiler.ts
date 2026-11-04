@@ -8,6 +8,7 @@ import type {
 	TimelineTransition
 } from '$lib/video-editor/project/types';
 import type { AutoVideoFormat, AutoVideoStoryboard } from './types';
+import { centredTransform } from '../placement';
 
 export type AutoVideoCanvasPreset = 'vertical' | 'landscape' | 'square';
 
@@ -108,13 +109,10 @@ export function compileStoryboardToProject(
 			lineHeight: 1.08,
 			paddingX: 32,
 			paddingY: 24,
-			transform: {
-				x: settings.width / 2,
-				y: settings.height / 2,
+			transform: centredTransform(settings, {
 				width: settings.width * 0.82,
-				height: settings.height * 0.56,
-				opacity: 1
-			}
+				height: settings.height * 0.56
+			})
 		});
 
 		markers.push({

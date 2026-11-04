@@ -10,6 +10,7 @@ import (
 
 	"github.com/openpost/backend/internal/ai"
 	"github.com/openpost/backend/internal/config"
+	"github.com/openpost/backend/internal/services/autovideo"
 	"github.com/stretchr/testify/require"
 )
 
@@ -77,4 +78,26 @@ func TestDopostPlannerGeneratorUsesE2EFixtureWhenExplicitlyEnabled(t *testing.T)
 	require.NotNil(t, generator)
 	require.Equal(t, "dopost-e2e-fixture", model)
 	require.Equal(t, "fixture", provider)
+}
+
+func TestDopostE2EFixturePlansEveryShortFormFormat(t *testing.T) {
+	service, err := autovideo.New(dopostE2EGenerator{}, "dopost-e2e-fixture")
+	require.NoError(t, err)
+	for _, format := range []string{"review", "news", "guide", "compare", "top-n"} {
+		result, err := service.Plan(t.Context(), autovideo.Input{
+			Format:                format,
+			Language:              "en-US",
+			TargetDurationSeconds: 45,
+			Source: autovideo.Source{
+				ID:    "source-1",
+				Kind:  "text",
+				Label: "Notes",
+				Value: "The lamp sets up in two minutes. Its battery lasts two days.\nIt costs less than rivals.",
+			},
+		})
+		require.NoError(t, err, format)
+		require.Equal(t, "dopost-e2e-fixture", result.Model)
+		require.NotEmpty(t, result.Storyboard.Scenes, format)
+		require.Equal(t, "The lamp sets up in two minutes.", result.Storyboard.Scenes[0].Voice)
+	}
 }

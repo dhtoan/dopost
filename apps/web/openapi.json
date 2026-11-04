@@ -41663,6 +41663,16 @@
 						},
 						"description": "Not Found"
 					},
+					"409": {
+						"content": {
+							"application/problem+json": {
+								"schema": {
+									"$ref": "#/components/schemas/ErrorModel"
+								}
+							}
+						},
+						"description": "Conflict"
+					},
 					"422": {
 						"content": {
 							"application/problem+json": {

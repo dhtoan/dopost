@@ -23,6 +23,9 @@ const (
 var (
 	ErrInvalid  = errors.New("invalid auto video project sidecar")
 	ErrNotFound = errors.New("auto video project sidecar not found")
+	// ErrConflict means a newer or equal generation is already stored, so this
+	// save would silently overwrite another tab's or device's work.
+	ErrConflict = errors.New("auto video project sidecar has a newer generation")
 )
 
 type Service struct {
@@ -122,7 +125,7 @@ func (s *Service) Upsert(ctx context.Context, input UpsertInput) (*Record, error
 		CreatedAt:            now,
 		UpdatedAt:            now,
 	}
-	_, err = s.db.NewInsert().Model(model).
+	result, err := s.db.NewInsert().Model(model).
 		On("CONFLICT (project_id) DO UPDATE").
 		Set("workspace_id = EXCLUDED.workspace_id").
 		Set("generation_version = EXCLUDED.generation_version").
@@ -132,9 +135,13 @@ func (s *Service) Upsert(ctx context.Context, input UpsertInput) (*Record, error
 		Set("provider_manifest_json = EXCLUDED.provider_manifest_json").
 		Set("generation_graph_json = EXCLUDED.generation_graph_json").
 		Set("updated_at = EXCLUDED.updated_at").
+		Where("?TableAlias.generation_version < EXCLUDED.generation_version").
 		Exec(ctx)
 	if err != nil {
 		return nil, err
+	}
+	if written, err := result.RowsAffected(); err == nil && written == 0 {
+		return nil, ErrConflict
 	}
 	return s.Get(ctx, workspaceID, projectID)
 }

@@ -6,6 +6,7 @@ on:
       - "packages/dopost-motion/**"
       - "apps/server/internal/dopostmotion/**"
       - "apps/server/internal/services/autovideo/**"
+      - "apps/server/internal/services/autovideoprojects/**"
       - "apps/server/internal/services/documentary/**"
       - "apps/server/internal/api/handlers/auto_video*.go"
       - "apps/server/internal/models/dopost_*.go"
@@ -67,11 +68,12 @@ jobs:
           ./internal/services/documentary
           ./internal/dopostmotion
           ./internal/services/autovideo
+          ./internal/services/autovideoprojects
           -v
       - name: Test deterministic dev planner fixture routing
         run: >-
           cd apps/server && go test -tags dev ./cmd/openpost
-          -run 'TestDopost(E2EPlannerGeneratorIsOptInAndStructured|PlannerGeneratorUsesE2EFixtureWhenExplicitlyEnabled)'
+          -run 'TestDopost(E2EPlannerGeneratorIsOptInAndStructured|PlannerGeneratorUsesE2EFixtureWhenExplicitlyEnabled|E2EFixturePlansEveryShortFormFormat)'
           -count=1 -v
 
   frontend-dopost:

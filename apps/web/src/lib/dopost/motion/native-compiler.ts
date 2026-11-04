@@ -161,8 +161,9 @@ export function compileMotionGraphToNativeTimeline(
 		}
 
 		if (item.type === 'text') {
-			const baseX = item.transform?.x ?? width / 2;
-			const baseY = item.transform?.y ?? height / 2;
+			// Transforms offset an item's centre from the stage centre, so 0 is centred.
+			const baseX = item.transform?.x ?? 0;
+			const baseY = item.transform?.y ?? 0;
 			return {
 				...item,
 				animationVersion: 2,

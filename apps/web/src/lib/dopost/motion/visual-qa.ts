@@ -85,14 +85,14 @@ function textOutsideSafeBounds(item: TimelineItem, width: number, height: number
 	if (item.type !== 'text') return false;
 	const bounds = itemBounds(item);
 	if (!bounds) return false;
+	// Transforms place an item's centre as an offset from the stage centre.
+	const left = width / 2 + bounds.left;
+	const right = width / 2 + bounds.right;
+	const top = height / 2 + bounds.top;
+	const bottom = height / 2 + bounds.bottom;
 	const safeX = width * 0.05;
 	const safeY = height * 0.05;
-	return (
-		bounds.left < safeX ||
-		bounds.right > width - safeX ||
-		bounds.top < safeY ||
-		bounds.bottom > height - safeY
-	);
+	return left < safeX || right > width - safeX || top < safeY || bottom > height - safeY;
 }
 
 function overlapRatio(left: Bounds, right: Bounds): number {

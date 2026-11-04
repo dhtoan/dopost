@@ -1,5 +1,9 @@
 {
 	"analytics_export_youtube_retention": "Les données téléchargées de l’API YouTube doivent être actualisées ou supprimées dans les 30 jours suivant leur dernière récupération auprès de YouTube, même si elles sont copiées ou partagées.",
+	"dopost_auto_video_sync_conflict": "Ce projet a été modifié dans un autre onglet ou appareil ; ce changement n'est gardé que dans ce navigateur. Rechargez pour repartir de la version la plus récente.",
+	"dopost_auto_video_sync_local": "Enregistré dans ce navigateur uniquement. L'espace de travail est injoignable ; la prochaine modification réessaiera.",
+	"dopost_auto_video_documentary_unavailable": "Impossible de charger l'exécution de ce documentaire : aucune narration n'a été générée et le projet est inchangé. Rechargez l'éditeur et réessayez.",
+	"dopost_auto_video_source_uploaded": "Fichier importé",
 	"analytics_export_youtube_terms": "Conditions d’exportation YouTube",
 	"publishing_setting_publish_at": "Date de publication sur YouTube",
 	"compose_setting_unset": "Non renseigné",
