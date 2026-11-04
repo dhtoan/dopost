@@ -27,9 +27,11 @@ import {
 	captureTranscriptionSource,
 	transcribeSource,
 	type GeneratedCaptionCanvas,
-	type TranscriptionSourceSnapshot
+	type TranscriptionSourceSnapshot,
+	type TranscriptionSourceWindow
 } from './transcribe-action';
 import { isTranscriptionOutOfMemoryError } from './transcription-errors';
+import { decodeAlignAudio, type AlignAudio } from './cue-align-audio';
 import { editorSession } from '../editor.svelte';
 import { sequenceStore } from '../sequences/sequence-store.svelte';
 
@@ -59,6 +61,13 @@ export interface TranscriptionServiceDependencies {
 	deleteSourceTranscript: typeof deleteSourceTranscript;
 	getCanvas?: () => GeneratedCaptionCanvas;
 	getStorage?: () => SourceTranscriptStorage;
+	/** Audio of a clip's source window, for snapping cue edges to the speech.
+	 * Without it, or when it fails, captions keep the transcript timing. */
+	getAlignAudio?: (
+		media: MediaMetadata,
+		window: TranscriptionSourceWindow,
+		signal?: AbortSignal
+	) => Promise<AlignAudio | null>;
 }
 
 interface TranscriptionTarget {
@@ -109,7 +118,9 @@ const DEFAULT_DEPENDENCIES: TranscriptionServiceDependencies = {
 	getCanvas: () => ({
 		width: sequenceStore.activeWidth ?? editorSession.project?.metadata.width ?? 1920,
 		height: sequenceStore.activeHeight ?? editorSession.project?.metadata.height ?? 1080
-	})
+	}),
+	getAlignAudio: (media, window, signal) =>
+		decodeAlignAudio(media.id, window.sourceStartSeconds, window.sourceEndSeconds, { signal })
 };
 
 function abortError(): DOMException {
@@ -388,15 +399,31 @@ export class TranscriptionService {
 				source.sourceStartSeconds,
 				source.sourceEndSeconds
 			);
+			const speech = await this.alignAudio(media, source);
+			if (generation !== this.resetGeneration) throw abortError();
 			const subtitleItemId = addGeneratedSubtitleItem(
 				item.id,
 				words,
 				source,
-				this.dependencies.getCanvas?.()
+				this.dependencies.getCanvas?.(),
+				speech
 			);
 			return { sourceItemId: item.id, subtitleItemId };
 		}
 		return this.enqueueUncached(item, media, source, selection, key);
+	}
+
+	/** The clip's audio for snapping caption edges, or null to keep transcript timing. */
+	private async alignAudio(
+		media: MediaMetadata,
+		window: TranscriptionSourceWindow,
+		signal?: AbortSignal
+	): Promise<AlignAudio | null> {
+		try {
+			return (await this.dependencies.getAlignAudio?.(media, window, signal)) ?? null;
+		} catch {
+			return null;
+		}
 	}
 
 	private clearPendingClipEnqueue(itemId: string, promise: Promise<TranscriptionResult>): void {
@@ -771,11 +798,13 @@ export class TranscriptionService {
 				continue;
 			}
 			try {
+				const speech = await this.alignAudio(job.media, target.source, job.controller.signal);
 				const subtitleItemId = addGeneratedSubtitleItem(
 					target.item.id,
 					words,
 					target.source,
-					this.dependencies.getCanvas?.()
+					this.dependencies.getCanvas?.(),
+					speech
 				);
 				this.settleTarget(job, target, undefined, {
 					sourceItemId: target.item.id,

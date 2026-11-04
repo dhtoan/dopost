@@ -16,6 +16,8 @@ import {
 	captionStylePresetById,
 	resolveCaptionStylePatch
 } from '../typography/caption-style-presets';
+import { alignSubtitleCues } from './cue-align';
+import type { AlignAudio } from './cue-align-audio';
 import { buildCuesFromWords, type TranscriptWord } from './cues';
 import { BrowserTranscriber } from './engine/transcriber';
 import type { TranscribeOptions } from './engine/types';
@@ -136,7 +138,10 @@ export function addGeneratedSubtitleItem(
 	sourceItemId: string,
 	words: TranscriptWord[],
 	expectedSource?: TranscriptionSourceWindow | TranscriptionSourceSnapshot,
-	canvas: GeneratedCaptionCanvas = { width: 1920, height: 1080 }
+	canvas: GeneratedCaptionCanvas = { width: 1920, height: 1080 },
+	/** The clip's source window as audio, from its start. Cue edges snap to the
+	 * speech it holds; without it the transcript timing stands. */
+	speech?: AlignAudio | null
 ): string {
 	// SAFETY: execute returns the action's own string id unchanged.
 	return execute('ADD_GENERATED_SUBTITLES', () => {
@@ -157,8 +162,18 @@ export function addGeneratedSubtitleItem(
 					}))
 					.toSorted((left, right) => left.startSeconds - right.startSeconds)
 			: words;
-		const cues = buildCuesFromWords(cueWords, { fps: fps / speed });
-		if (cues.length === 0) throw new Error('Transcription produced no words');
+		const built = buildCuesFromWords(cueWords, { fps: fps / speed });
+		if (built.length === 0) throw new Error('Transcription produced no words');
+		// Reversed clips play their audio backwards, so their cue frames no longer
+		// run with the decoded window; they keep the transcript timing.
+		const cues =
+			speech && !source.isReversed
+				? alignSubtitleCues(
+						built,
+						{ samples: speech.samples, sampleRate: speech.sampleRate },
+						fps / speed
+					)
+				: built;
 		const matches = timelineStore.items.filter(
 			(item) => item.captionSource?.type === 'transcript' && item.captionSource.clipId === source.id
 		);
