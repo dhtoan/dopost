@@ -962,6 +962,13 @@ func (h *MCPHandler) listMCPResources() any {
 			"description": "Lets a person choose a local image or video and add it to a dopost workspace without exposing the upload credential to the model.",
 			"mimeType":    mcpAppWidgetMimeType,
 			"_meta":       h.mcpUploadWidgetResourceMeta(),
+		}, {
+			"uri":         mcpVideoWidgetURI,
+			"name":        "dopost_video_player",
+			"title":       "dopost videos",
+			"description": "Plays finished dopost videos and lists cloud Video Editor projects without exposing playback links to the model.",
+			"mimeType":    mcpAppWidgetMimeType,
+			"_meta":       h.mcpVideoWidgetResourceMeta(),
 		}},
 	}
 }
@@ -990,6 +997,15 @@ func (h *MCPHandler) readMCPResource(raw json.RawMessage) (any, *mcpError) {
 				"mimeType": mcpAppWidgetMimeType,
 				"text":     mcpUploadWidgetHTML(),
 				"_meta":    h.mcpUploadWidgetResourceMeta(),
+			}},
+		}, nil
+	case mcpVideoWidgetURI:
+		return map[string]any{
+			"contents": []map[string]any{{
+				"uri":      mcpVideoWidgetURI,
+				"mimeType": mcpAppWidgetMimeType,
+				"text":     mcpVideoWidgetHTML(),
+				"_meta":    h.mcpVideoWidgetResourceMeta(),
 			}},
 		}, nil
 	default:
@@ -1319,6 +1335,7 @@ func mcpAdvertisedTools() []map[string]any {
 		mcpRenderSchedulerWidgetTool(),
 		mcpRenderLocalUploadTool(),
 		mcpCreateLocalUploadTicketTool(),
+		mcpRenderVideoPlayerTool(),
 	}
 }
 
@@ -1357,6 +1374,7 @@ func mcpDirectToolsForScope(scope string) []map[string]any {
 	// render_local_media_upload changes no state and stays visible to
 	// read-only connections; the ticket tool mints the upload credential.
 	tools = append(tools, mcpRenderLocalUploadTool())
+	tools = append(tools, mcpRenderVideoPlayerTool())
 	if !readOnly {
 		tools = append(tools, mcpCreateLocalUploadTicketTool())
 	}
@@ -1370,7 +1388,7 @@ func (h *MCPHandler) mcpAdvertisedToolsForScope(scope string, mode mcpToolMode) 
 	case mcpToolModeBoth:
 		tools := mcpDirectToolsForScope(scope)
 		for _, tool := range mcpSearchToolsForScope(scope) {
-			if tool["name"] == mcpToolRenderWidget || tool["name"] == mcpToolRenderUpload || tool["name"] == mcpToolCreateTicket {
+			if tool["name"] == mcpToolRenderWidget || tool["name"] == mcpToolRenderUpload || tool["name"] == mcpToolCreateTicket || tool["name"] == mcpToolRenderVideo {
 				continue
 			}
 			tools = append(tools, tool)
@@ -2576,15 +2594,18 @@ func mcpToolDescriptor(tool map[string]any, safety mcpToolSafety) map[string]any
 	}
 	if mcpToolUsesAppWidget(toolName) {
 		resourceURI := mcpAppWidgetURI
-		if toolName == mcpToolRenderUpload {
+		switch toolName {
+		case mcpToolRenderUpload:
 			resourceURI = mcpUploadWidgetURI
+		case mcpToolRenderVideo:
+			resourceURI = mcpVideoWidgetURI
 		}
 		meta["ui"] = map[string]any{
 			"resourceUri": resourceURI,
 			"visibility":  []string{"model"},
 		}
 		meta["openai/outputTemplate"] = resourceURI
-		meta["openai/widgetAccessible"] = toolName == mcpToolRenderUpload
+		meta["openai/widgetAccessible"] = toolName == mcpToolRenderUpload || toolName == mcpToolRenderVideo
 	}
 	tool["_meta"] = meta
 	return tool
@@ -2604,7 +2625,7 @@ func ensureMCPDescriptionStatesOutput(tool, outputSchema map[string]any) {
 }
 
 func mcpToolUsesAppWidget(toolName string) bool {
-	return toolName == mcpToolRenderWidget || toolName == mcpToolRenderUpload
+	return toolName == mcpToolRenderWidget || toolName == mcpToolRenderUpload || toolName == mcpToolRenderVideo
 }
 
 type mcpToolStatus struct {
@@ -2650,6 +2671,7 @@ var mcpToolStatuses = map[string]mcpToolStatus{
 	mcpToolSearchDocs:     {Invoking: "Searching docs", Invoked: "Docs found"},
 	mcpToolRenderWidget:   {Invoking: "Rendering view", Invoked: "View rendered"},
 	mcpToolRenderUpload:   {Invoking: "Opening local upload", Invoked: "Local upload ready"},
+	mcpToolRenderVideo:    {Invoking: "Opening videos", Invoked: "Videos ready"},
 	mcpToolCreateTicket:   {Invoking: "Preparing upload", Invoked: "Upload ready"},
 }
 
@@ -2778,6 +2800,13 @@ func mcpToolOutputSchema(toolName string) map[string]any {
 		return mcpStructuredOutputSchema(map[string]any{
 			"workspace_id": map[string]any{"type": "string"},
 		}, "workspace_id")
+	case mcpToolRenderVideo:
+		return mcpStructuredOutputSchema(map[string]any{
+			"workspace_id": map[string]any{"type": "string"},
+			"videos":       mcpArraySchema(mcpOpenObjectSchema()),
+			"projects":     mcpArraySchema(mcpOpenObjectSchema()),
+			"selected":     mcpOpenObjectSchema(),
+		}, "workspace_id", "videos", "projects")
 	case mcpToolCreateTicket:
 		return mcpStructuredOutputSchema(map[string]any{
 			"ready":      map[string]any{"type": "boolean"},
@@ -3355,6 +3384,8 @@ func (h *MCPHandler) callMCPOperation(ctx context.Context, userID, operation str
 		return h.renderLocalMediaUpload(ctx, userID, args)
 	case mcpToolCreateTicket:
 		return h.createLocalMediaUploadTicket(ctx, userID, args)
+	case mcpToolRenderVideo:
+		return h.renderVideoPlayer(ctx, userID, args)
 	case "editor_sessions", "editor_reference", "editor_context", "editor_reveal", "timeline_inspect", "image_inspect", "media_library", "media_analyze", "media_analysis_status", "media_analysis_cancel", "media_search", "media_inspect", "media_frame", "media_storyboard", "scene_analyze", "scene_analysis_status", "scene_analysis_cancel", "scene_search", "scene_inspect", "preview_render", "preview_audio", "video_edit", "image_edit", "export_start", "export_status", "export_cancel", "editor_work_status", "editor_work_cancel", "editor_history_inspect", "editor_history_undo", "editor_history_redo", "library_search", "library_inspect", "library_apply", "library_save", "style_capture", "style_preview", "style_list", "style_inspect", "style_save", "preferences_get", "preferences_set", "preferences_remove", "style_archive":
 		return h.callEditorAgentTool(ctx, userID, operation, args)
 	case mcpToolPreviewTextCard, mcpToolCreatePub, mcpToolListPubs, mcpToolGetPub, mcpToolUpdatePub, mcpToolPubRenditions, mcpToolReplyRendition,
