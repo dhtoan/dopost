@@ -6,6 +6,7 @@ on:
   push:
     branches:
       - release/1.2-integration
+      - ci/baseline-main
   workflow_dispatch:
 
 permissions:
@@ -84,7 +85,8 @@ jobs:
           cache-dependency-path: apps/server/go.sum
       - run: bun install --frozen-lockfile
       - run: bun run lint -- frontend
-      - run: bun run check -- frontend
+      - if: always()
+        run: bun run check -- frontend
 
   frontend-tests:
     name: Frontend tests
