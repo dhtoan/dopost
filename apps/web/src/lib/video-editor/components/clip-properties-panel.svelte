@@ -36,6 +36,7 @@
 	import ClipCropSection from './clip-crop-section.svelte';
 	import ClipPlaybackSection from './clip-playback-section.svelte';
 	import ClipAudioCoreSection from './clip-audio-core-section.svelte';
+	import SplitEditSection from './split-edit-section.svelte';
 	import AnimatedImagePlaybackSection from './animated-image-playback-section.svelte';
 
 	let nrDraftAmount = $state<number | null>(null);
@@ -396,6 +397,9 @@
 
 		{#if item.type === 'video' || item.type === 'audio'}
 			<ClipAudioCoreSection {audioItems} {onedit} />
+			{#if item.type === 'video'}
+				<SplitEditSection itemId={item.id} {onedit} />
+			{/if}
 
 			{#if audioItem}
 				{@const noise = resolveNoiseReductionSettings(audioItem)}
