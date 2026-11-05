@@ -160,6 +160,19 @@ export default defineConfig(({ isSsrBuild }) => ({
 							},
 							cacheableResponse: { statuses: [200] }
 						}
+					},
+					{
+						urlPattern: ({ url, sameOrigin }) =>
+							sameOrigin && url.pathname.startsWith('/video-editor-models/mediapipe/'),
+						handler: 'CacheFirst',
+						options: {
+							cacheName: 'openpost-video-editor-models-mediapipe-0.10.21',
+							expiration: {
+								maxEntries: 8,
+								maxAgeSeconds: 365 * 24 * 60 * 60
+							},
+							cacheableResponse: { statuses: [200] }
+						}
 					}
 				]
 			},

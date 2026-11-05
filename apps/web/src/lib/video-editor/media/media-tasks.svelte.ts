@@ -12,7 +12,8 @@ export type MediaTaskKind =
 	| 'reverse-conform'
 	| 'upscale'
 	| 'frame-interpolation'
-	| 'video-generation';
+	| 'video-generation'
+	| 'background-removal';
 
 export type MediaTaskStatus = 'queued' | 'running' | 'cancelling';
 
