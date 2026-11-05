@@ -29,7 +29,16 @@
 		saveColorGradePreset,
 		type ColorGradePreset
 	} from '$lib/video-editor/effects/color-grade-presets';
-	import { replaceColorGradeEffects } from '$lib/video-editor/timeline/actions/effects';
+	import {
+		replaceColorGradeEffects,
+		setSourceProfileOnItems
+	} from '$lib/video-editor/timeline/actions/effects';
+	import {
+		SOURCE_PROFILES,
+		SOURCE_PROFILE_EFFECT_ID,
+		isSourceProfile,
+		type SourceProfile
+	} from '$lib/video-editor/effects/source-profile';
 	import { setAnimatedGpuEffectParamsOnItems } from '$lib/video-editor/timeline/actions/keyframes';
 	import { autoKeyframeStore } from '$lib/video-editor/timeline/stores/auto-keyframe-store.svelte';
 	import { isColorGradeTargetEditable } from '$lib/video-editor/effects/color-targets';
@@ -84,6 +93,14 @@
 	const grade = $derived(snapshotColorGrade(item?.effects));
 	const hasGrade = $derived(hasEnabledColorGrade(item?.effects));
 	const isVisual = $derived(item?.type !== 'audio' && item !== undefined);
+	const sourceProfile = $derived.by((): SourceProfile => {
+		const effect = item?.effects?.find(
+			(entry) => entry.type === 'gpu' && entry.effectId === SOURCE_PROFILE_EFFECT_ID
+		);
+		return effect?.type === 'gpu' && effect.enabled && isSourceProfile(effect.params.profile)
+			? effect.params.profile
+			: 'rec709';
+	});
 	const selectedVisualItemIds = $derived.by(() => {
 		const requested = itemId && itemIds.includes(itemId) ? itemIds : itemId ? [itemId] : [];
 		return Array.from(new Set(requested)).filter(
@@ -340,6 +357,14 @@
 		status = m.video_editor_color_preset_deleted({ name: preset.name });
 	}
 
+	function setSourceProfile(value: string): void {
+		if (!isSourceProfile(value)) return;
+		const name = SOURCE_PROFILES.find((profile) => profile.value === value)?.label ?? value;
+		if (!setSourceProfileOnItems(editableTargetItemIds, value)) return;
+		status = m.video_editor_color_source_profile_applied({ name });
+		onedit();
+	}
+
 	function toggleGradeTools(): void {
 		showGradeTools = !showGradeTools;
 		if (showGradeTools) return;
@@ -479,6 +504,24 @@
 						<ThemeIcon role="save" class="size-3.5" />
 					</button>
 				</div>
+			{/if}
+			{#if item?.type !== 'adjustment' && (!compact || showGradeTools)}
+				<label
+					class="mt-1 flex items-center gap-2 text-[10px] text-[var(--video-editor-muted)]"
+					title={m.video_editor_color_source_profile_hint()}
+				>
+					<span class="shrink-0">{m.video_editor_color_source_profile()}</span>
+					<select
+						class="h-[var(--editor-22,22px)] min-w-0 flex-1 rounded border border-[var(--video-editor-border)] bg-[var(--video-editor-panel)] px-1.5 text-xs text-[var(--video-editor-text)] [@media(pointer:coarse)]:h-11"
+						value={sourceProfile}
+						disabled={editableTargetItemIds.length === 0}
+						onchange={(event) => setSourceProfile(event.currentTarget.value)}
+					>
+						{#each SOURCE_PROFILES as profile (profile.value)}
+							<option value={profile.value}>{profile.label}</option>
+						{/each}
+					</select>
+				</label>
 			{/if}
 			{#if showPresetSave}
 				<div class="mt-1 grid grid-cols-[1fr_auto] gap-1">
