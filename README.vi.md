@@ -68,19 +68,35 @@ Mỗi ảnh dưới đây là ảnh chụp thật của dopost. Các số trên 
 
 ![Trình sửa ảnh: menu, công cụ, media, canvas, lớp, sửa ảnh bằng AI, bộ màu nhanh và tinh chỉnh](assets/readme/vi/08-image-editor.webp)
 
-## Có gì mới trong bản này
+## Có gì mới trong 1.2
 
-- **Hộp thư chung**: nhận lượt nhắc tên từ Bluesky, Mastodon và Threads; đánh giá Google Business và phản hồi của chủ doanh nghiệp; câu trả lời AI soạn từ thông tin sản phẩm đã duyệt; trả lời riêng trên Instagram; đánh dấu đã đọc tất cả trên nhiều trang.
-- **Phân tích**: chỉ số Lượt hiển thị gộp impression và lượt xem video; khoảng năm trước, toàn bộ thời gian và khoảng tuỳ chọn; xuất CSV, Excel (kèm biểu đồ) hoặc JSON theo bài, ngày, tuần, tháng, nền tảng hoặc tài khoản.
-- **Sao lưu và khôi phục instance** cho bản tự host, tại **Settings → Instance → Backup and restore**.
-- **Instagram không cần Trang Facebook**: kết nối trực tiếp tài khoản Business và Creator, hoặc tiếp tục dùng Facebook Login.
-- **LinkedIn Community Management** cho Trang và số liệu phân tích.
-- **Trình sửa ảnh**: lớp GIF động có chỉnh từng khung hình, hiệu ứng ánh sáng (flare, starburst, sương mù, lăng kính, bokeh), kích thước canvas riêng cho từng trang, preset hiệu ứng lớp, tạo và sửa ảnh bằng AI.
-- **Khách hàng và duyệt bài**: vai trò khách hàng có thể kết nối tài khoản và duyệt các bài được giao, kèm nhắc duyệt và thông báo hết hạn.
-- **Quy trình và Ideate**: trình soạn quy trình trực quan, chuỗi bài có nguồn dẫn, và bốn phương án bài đăng hoàn chỉnh từ một ý tưởng.
-- **Trình dựng video**: trợ lý dựng chạy trên server, làm sạch bản ghi âm, gợi ý clip, đồng hồ đếm, khối dùng lại, sắp xếp lại track và tách âm thanh.
-- **Sẵn sàng cho di động**: Hộp thư trên điện thoại với trò chuyện và bình luận, kiểm tra từng nơi đăng ngay trong trình soạn, và giới hạn tải lên do server công bố.
-- **Ngôn ngữ**: giao diện tiếng Nga và tiếng Ý.
+**Màu sắc**
+
+- **Source profile** cho cảnh quay Apple Log, Apple Log 2, HLG và PQ, giải mã qua output transform ACES 2.0.
+- **Chuyển HDR sang SDR** cho clip HLG và PQ, tự nhận diện khi nhập.
+- **Khớp màu theo cảnh mẫu**: chỉnh một clip cho giống clip tham chiếu.
+
+**Dựng**
+
+- **Phác thảo cảnh** từ danh sách cảnh gõ tay, rồi thay bằng cảnh quay sau.
+- **Cắt J/L**: cho tiếng của clip vào sớm hoặc kéo dài sang cảnh sau.
+- **Đồng bộ bản ghi âm theo âm thanh** với clip máy quay.
+- **Xoá phông video** ngay trên máy bằng MediaPipe.
+
+**Phụ đề**
+
+- **Đồng bộ lời bài hát hoặc kịch bản của bạn** theo âm thanh.
+- **Bám phụ đề theo lời nói**, kiểm tra theo âm thanh của clip.
+- **Trợ lý dựng** có thể tạo, làm sạch và dịch phụ đề.
+
+**Xuất và chia sẻ**
+
+- **Mức âm lượng chuẩn** (LUFS) trong hộp thoại xuất.
+- **Hoàn thiện trên server** bằng ffmpeg sang ProRes 422 HQ, H.265 hoặc H.264 dung lượng nhỏ (mặc định tắt).
+- **Link chia sẻ chỉ xem** cho dự án video.
+- **Nhập link trang video** qua yt-dlp (mặc định tắt).
+
+Bản 1.1 đã thêm tạo video bằng AI, trình phát video trong ChatGPT, lưới căn khung xem trước và làm sạch lời nói chính xác tới từng từ. Xem [mọi bản phát hành](https://github.com/dhtoan/dopost/releases) để đọc ghi chú đầy đủ.
 
 ## Kết quả luôn chỉnh sửa được
 
@@ -93,9 +109,20 @@ Kết quả từ AI nên là điểm bắt đầu, không phải một bản ren
 
 ## Bắt đầu
 
-### Dùng bản phát hành
+### Chạy bằng Docker
 
-Tải gói mã nguồn mới nhất từ [GitHub Releases](https://github.com/dhtoan/dopost/releases). Các bản phát hành là bản thử nghiệm alpha; hãy đọc [tài liệu tự host](apps/docs/content/docs/self-hosting/index.mdx) và thử trong môi trường của bạn trước khi dùng thật.
+Mỗi bản phát hành đều có image container `ghcr.io/dhtoan/dopost`, gắn tag theo phiên bản (ví dụ `1.2.0`) và `latest`. Để chạy từ bản clone của repo này:
+
+```bash
+cp deploy/aapanel/.env.example deploy/aapanel/.env
+# Điền địa chỉ công khai và các khoá bí mật trong deploy/aapanel/.env.
+# Ghim phiên bản bằng DOPOST_IMAGE_TAG=1.2.0.
+docker compose -f deploy/aapanel/docker-compose.yml up -d
+```
+
+Ứng dụng chạy ở `127.0.0.1:8080`; đặt một reverse proxy có TLS phía trước. [Hướng dẫn triển khai trên aaPanel](docs/deployment/aapanel.md) có phần proxy, PostgreSQL và bộ lưu trữ tương thích S3. File compose cho CasaOS, Coolify, Dockge, Dokploy, Portainer và ZimaOS nằm trong [`deploy/`](deploy).
+
+Để nâng cấp, sao lưu trước (**Settings → Instance → Backup and restore**), đổi `DOPOST_IMAGE_TAG`, rồi chạy `docker compose -f deploy/aapanel/docker-compose.yml pull` và `up -d` lại. Ghi chú của mỗi bản phát hành liệt kê migration và thiết lập mới.
 
 ### Chạy môi trường phát triển
 
@@ -123,7 +150,7 @@ dopost dùng Go cho backend và các dịch vụ media, SvelteKit và TypeScript
 
 ## Trạng thái phát hành
 
-dopost đang ở giai đoạn alpha. Các bản alpha có thể thay đổi API, cấu hình hoặc migration theo cách không tương thích ngược. Hãy ghim đúng phiên bản phát hành, giữ bản sao lưu và thử nâng cấp trước khi dùng cho dự án quan trọng.
+dopost đánh số phiên bản theo semantic versioning. Các bản phát hành vẫn có thể thay đổi API, cấu hình hoặc migration, và ghi chú phát hành sẽ nói rõ khi có thay đổi đó. Hãy ghim đúng phiên bản, giữ bản sao lưu và thử nâng cấp trước khi dùng cho dự án quan trọng.
 
 ## Đóng góp
 
@@ -132,3 +159,5 @@ Báo lỗi và đề xuất cụ thể xin gửi qua [GitHub Issues](https://git
 ## Giấy phép
 
 dopost được phát hành theo [GNU Affero General Public License v3.0 only](LICENSE). Các thành phần bên thứ ba giữ giấy phép và thông báo riêng của chúng; xem [NOTICE.md](NOTICE.md) và [thư mục licenses](licenses/README.md). Bản tiếng Việt này chỉ để tham khảo; nếu có khác biệt, bản tiếng Anh và văn bản giấy phép gốc được ưu tiên.
+
+Giấy phép áp dụng cho mã nguồn, không áp dụng cho tên và logo dopost. Bản fork và dịch vụ hosting cần dùng tên riêng; xem [chính sách thương hiệu](TRADEMARKS.md).
