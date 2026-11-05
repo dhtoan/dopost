@@ -87,6 +87,61 @@ function targetTrack(
 	return open ?? newTrack(kind, kind === 'video' ? 'Overlay' : 'Audio');
 }
 
+/** The timeline item that plays `media` at a placement, fitted to the canvas. */
+export function mediaTimelineItem(
+	media: MediaMetadata,
+	placement: { id: string; trackId: string; from: number; durationInFrames: number; label: string }
+): TimelineItem {
+	const fps = timelineStore.fps;
+	const type = itemKind(media);
+	const durationInFrames = placement.durationInFrames;
+	const canvasWidth =
+		sequenceStore.activeSequence?.width ?? editorSession.project?.metadata.width ?? 1920;
+	const canvasHeight =
+		sequenceStore.activeSequence?.height ?? editorSession.project?.metadata.height ?? 1080;
+	const sourceWidth = media.width || canvasWidth;
+	const sourceHeight = media.height || canvasHeight;
+	const canvasShare = media.tags.includes('sticker') ? 0.32 : 1;
+	const fitScale = Math.min(
+		(canvasWidth * canvasShare) / sourceWidth,
+		(canvasHeight * canvasShare) / sourceHeight
+	);
+	const sourceFps = media.fps > 0 ? media.fps : fps;
+	const sourceDuration = Math.max(
+		1,
+		Math.round(Math.max(media.duration, 1 / sourceFps) * sourceFps)
+	);
+	return {
+		id: placement.id,
+		trackId: placement.trackId,
+		from: placement.from,
+		durationInFrames,
+		label: placement.label,
+		type,
+		mediaId: media.id,
+		sourceStart: 0,
+		sourceEnd: type === 'image' ? undefined : sourceDuration,
+		sourceDuration: type === 'image' ? durationInFrames : sourceDuration,
+		sourceFps: type === 'image' ? undefined : sourceFps,
+		sourceWidth: type === 'audio' ? undefined : sourceWidth,
+		sourceHeight: type === 'audio' ? undefined : sourceHeight,
+		transform:
+			type === 'audio'
+				? undefined
+				: {
+						x: 0,
+						y: 0,
+						width: Math.round(sourceWidth * fitScale),
+						height: Math.round(sourceHeight * fitScale),
+						rotation: 0
+					},
+		lottieTotalFrames: type === 'lottie' ? (media.lottieTotalFrames ?? 1) : undefined,
+		lottieFrameRate: type === 'lottie' ? media.fps || 30 : undefined,
+		lottieLoop: type === 'lottie' ? true : undefined,
+		lottieMarkers: type === 'lottie' ? media.lottieMarkers : undefined
+	};
+}
+
 /** Insert media at an exact timeline frame as one undoable item and optional track creation. */
 export function insertMediaAtFrame(
 	media: MediaMetadata,
@@ -121,52 +176,16 @@ export function insertMediaAtFrame(
 		if (!timelineStore.tracks.some((candidate) => candidate.id === track.id)) {
 			timelineStore._setTracks([...timelineStore.tracks, track]);
 		}
-		const canvasWidth =
-			sequenceStore.activeSequence?.width ?? editorSession.project?.metadata.width ?? 1920;
-		const canvasHeight =
-			sequenceStore.activeSequence?.height ?? editorSession.project?.metadata.height ?? 1080;
-		const sourceWidth = media.width || canvasWidth;
-		const sourceHeight = media.height || canvasHeight;
-		const canvasShare = media.tags.includes('sticker') ? 0.32 : 1;
-		const fitScale = Math.min(
-			(canvasWidth * canvasShare) / sourceWidth,
-			(canvasHeight * canvasShare) / sourceHeight
-		);
-		const sourceFps = media.fps > 0 ? media.fps : fps;
-		const sourceDuration = Math.max(
-			1,
-			Math.round(Math.max(media.duration, 1 / sourceFps) * sourceFps)
-		);
 		const id = crypto.randomUUID();
-		timelineStore._addItem({
-			id,
-			trackId: track.id,
-			from,
-			durationInFrames,
-			label: options.label ?? media.fileName,
-			type,
-			mediaId: media.id,
-			sourceStart: 0,
-			sourceEnd: type === 'image' ? undefined : sourceDuration,
-			sourceDuration: type === 'image' ? durationInFrames : sourceDuration,
-			sourceFps: type === 'image' ? undefined : sourceFps,
-			sourceWidth: type === 'audio' ? undefined : sourceWidth,
-			sourceHeight: type === 'audio' ? undefined : sourceHeight,
-			transform:
-				type === 'audio'
-					? undefined
-					: {
-							x: 0,
-							y: 0,
-							width: Math.round(sourceWidth * fitScale),
-							height: Math.round(sourceHeight * fitScale),
-							rotation: 0
-						},
-			lottieTotalFrames: type === 'lottie' ? (media.lottieTotalFrames ?? 1) : undefined,
-			lottieFrameRate: type === 'lottie' ? media.fps || 30 : undefined,
-			lottieLoop: type === 'lottie' ? true : undefined,
-			lottieMarkers: type === 'lottie' ? media.lottieMarkers : undefined
-		});
+		timelineStore._addItem(
+			mediaTimelineItem(media, {
+				id,
+				trackId: track.id,
+				from,
+				durationInFrames,
+				label: options.label ?? media.fileName
+			})
+		);
 		return id;
 	});
 }
