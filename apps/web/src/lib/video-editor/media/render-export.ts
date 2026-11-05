@@ -89,6 +89,8 @@ import { applyCompositionControlOverrides } from '../sequences/composition-contr
 import { ensureProResDecoderForCodec } from './prores-decoder';
 import { ensureAc3DecoderForCodec } from './ac3-decoder';
 import { mixAudioWindows } from '../audio/bounded-audio-mixer';
+import { masteredMixWindows } from '../audio/mastered-mix';
+import type { ExportLoudness } from '../audio/loudness-settings';
 import { RenderDisposalGate } from './render-disposal';
 import { ResilientVideoFrameDecoder } from './render-video-decoder';
 
@@ -108,6 +110,8 @@ export interface RenderExportOptions {
 	range?: { startFrame: number; endFrame: number };
 	burnSubtitles?: boolean;
 	subtitleMode?: 'none' | 'burn' | 'sidecar' | 'embedded';
+	/** Master the mix to a loudness target; off or unset leaves it as mixed. */
+	loudness?: ExportLoudness;
 	signal?: AbortSignal;
 	onProgress?: (progress: RenderExportProgress) => void;
 }
@@ -128,6 +132,8 @@ export interface RenderedExportArtifact {
 export interface AudioExportOptions {
 	format: 'mp3' | 'aac' | 'wav';
 	range?: { startFrame: number; endFrame: number };
+	/** Master the mix to a loudness target; off or unset leaves it as mixed. */
+	loudness?: ExportLoudness;
 	signal?: AbortSignal;
 	onProgress?: (progress: RenderExportProgress) => void;
 }
@@ -978,7 +984,12 @@ export async function renderMultiTrackVideoArtifact(
 		let samplesFed = 0;
 		const totalSamples = Math.ceil(audioDurationSeconds * MIX_SAMPLE_RATE);
 		try {
-			for await (const win of mixAudioWindows(mixEntries, audioDurationSeconds, options.signal)) {
+			for await (const win of masteredMixWindows(
+				() => mixAudioWindows(mixEntries, audioDurationSeconds, options.signal),
+				options.loudness,
+				MIX_SAMPLE_RATE,
+				MIX_CHANNELS
+			)) {
 				throwIfAborted(options.signal);
 				const windowSamples = win.samples[0]!.length;
 				for (let off = 0; off < windowSamples; off += AUDIO_ENCODE_CHUNK_FRAMES) {
@@ -1144,7 +1155,12 @@ export async function renderTimelineAudioArtifact(
 		let samplesFed = 0;
 		const totalSamples = Math.ceil(durationSeconds * MIX_SAMPLE_RATE);
 		let producedWindows = 0;
-		for await (const win of mixAudioWindows(entries, durationSeconds, options.signal)) {
+		for await (const win of masteredMixWindows(
+			() => mixAudioWindows(entries, durationSeconds, options.signal),
+			options.loudness,
+			MIX_SAMPLE_RATE,
+			MIX_CHANNELS
+		)) {
 			throwIfAborted(options.signal);
 			producedWindows++;
 			const windowSamples = win.samples[0]!.length;
