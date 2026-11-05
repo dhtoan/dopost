@@ -286,6 +286,11 @@ func editorAgentEditFields(actions []any, maxActions int) map[string]any {
 
 func videoAgentActions() []any {
 	frame := map[string]any{"type": "integer", "minimum": 0}
+	cueID := map[string]any{"type": "string", "minLength": 1}
+	cueTexts := map[string]any{"type": "array", "minItems": 1, "maxItems": 400, "items": map[string]any{
+		"type": "object", "required": []string{"cue_id", "text"}, "additionalProperties": false,
+		"properties": map[string]any{"cue_id": cueID, "text": map[string]any{"type": "string", "minLength": 1, "maxLength": 500}},
+	}}
 	return []any{
 		editorAgentAction("media.insert", false, map[string]any{"media_id": map[string]any{"type": "string", "minLength": 1}, "frame": frame, "track_id": map[string]any{"type": "string", "minLength": 1}}, "media_id", "frame", "track_id"),
 		editorAgentAction("text.add", false, map[string]any{"text": map[string]any{"type": "string", "minLength": 1}, "frame": frame, "track_id": map[string]any{"type": "string"}}, "text", "frame"),
@@ -294,6 +299,12 @@ func videoAgentActions() []any {
 		editorAgentAction("marker.add", false, map[string]any{"frame": frame}, "frame"),
 		editorAgentAction("captions.import_srt", false, map[string]any{"srt": map[string]any{"type": "string", "minLength": 1, "maxLength": 16000}}, "srt"),
 		editorAgentAction("caption.set", true, map[string]any{"cue_id": map[string]any{"type": "string", "minLength": 1}, "text": map[string]any{"type": "string", "minLength": 1}}, "cue_id", "text"),
+		editorAgentAction("caption.set_many", true, map[string]any{"cues": cueTexts}, "cues"),
+		editorAgentAction("caption.timing", true, map[string]any{"cue_id": cueID, "start_frame": map[string]any{"type": "integer", "minimum": 0, "description": "In the same frames as the item's cues from timeline_inspect."}, "end_frame": map[string]any{"type": "integer", "minimum": 1}}, "cue_id", "start_frame", "end_frame"),
+		editorAgentAction("caption.delete", true, map[string]any{"cue_id": cueID}, "cue_id"),
+		editorAgentAction("caption.merge", true, map[string]any{"cue_id": map[string]any{"type": "string", "minLength": 1, "description": "Joined with the cue right after it."}}, "cue_id"),
+		editorAgentAction("captions.translate", true, map[string]any{"language": map[string]any{"type": "string", "minLength": 1, "maxLength": 40, "description": "Language name for the new track label, such as Spanish."}, "translations": cueTexts, "keep_original_visible": map[string]any{"type": "boolean", "description": "Default false hides the original caption track when it holds only captions, so the two do not overlap."}}, "language", "translations"),
+		editorAgentAction("captions.generate", true, map[string]any{}),
 		editorAgentAction("effect.add", true, map[string]any{"kind": map[string]any{"type": "string", "enum": []string{"brightness", "contrast", "saturation", "hue-rotate", "sepia", "grayscale", "invert", "blur"}}}, "kind"),
 		editorAgentAction("effect.set", true, map[string]any{"effect_id": map[string]any{"type": "string", "minLength": 1}, "amount": map[string]any{"type": "number"}, "enabled": map[string]any{"type": "boolean"}}, "effect_id"),
 		editorAgentAction("effect.remove", true, map[string]any{"effect_id": map[string]any{"type": "string", "minLength": 1}}, "effect_id"),
@@ -481,6 +492,7 @@ func editorAgentReference(kind string) (any, *mcpError) {
 		recipes = append(recipes,
 			map[string]any{"task": "Find and cut a spoken passage", "steps": []string{"List media_library, then use media_search for the exact phrase", "Check transcript coverage and distinguish repeated item IDs", "Inspect the chosen item and source words", "Use source and timeline frames from the same occurrence", "Edit and render frames around the cut"}},
 			map[string]any{"task": "Find a visual shot", "steps": []string{"List media_library and inspect scene_analysis_status for each likely source", "Start scene_analyze where needed, then wait for caption coverage", "Use scene_search for candidates and scene_inspect for exact source ranges", "Sample within long scenes with media_storyboard or media_frame", "Find the desired occurrence with timeline_inspect, edit by stable item ID, then verify preview_render"}},
+			map[string]any{"task": "Caption and translate a clip", "steps": []string{"Run media_analyze on the clip's media and wait for media_analysis_status to report completed", "Apply captions.generate with the clip's item ID", "Read the new subtitle item with timeline_inspect item_id for its cue IDs and text", "Fix copy with caption.set_many, timing with caption.timing, and split thoughts with caption.merge or caption.delete", "Translate every cue yourself and apply captions.translate on the subtitle item; it adds a copy on its own track and hides the original's caption-only track unless keep_original_visible is true", "Render frames with preview_render"}},
 			map[string]any{"task": "Assemble imported media", "steps": []string{"List media_library for stable media IDs and preparation status", "Inspect tracks with timeline_inspect", "Decode representative media_frame samples", "Insert on a compatible unlocked track with media.insert", "Check the resulting sequence with preview_render"}})
 	} else {
 		recipes = append(recipes, map[string]any{"task": "Build a layered design", "steps": []string{"Read image_inspect for page IDs and dimensions", "Add text or shapes in a short image_edit batch", "Inspect layer IDs and apply styles, transform, and order", "Render the page with preview_render", "Undo the head batch if the result is wrong"}})

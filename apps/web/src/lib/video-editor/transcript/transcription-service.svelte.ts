@@ -132,7 +132,7 @@ function requestKey(
 	]);
 }
 
-function sourceWordsForWindow(
+export function sourceWordsForWindow(
 	words: readonly TranscriptWord[],
 	sourceStartSeconds: number,
 	sourceEndSeconds: number
