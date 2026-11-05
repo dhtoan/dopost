@@ -1,3 +1,4 @@
+import type { ExportLoudness } from '../audio/loudness-settings';
 import { get, writable, type Writable } from 'svelte/store';
 import type { VideoCodec } from 'mediabunny';
 import type {
@@ -8,6 +9,7 @@ import type {
 } from '../project/types';
 import type { AudioEqSettings } from '../audio/types';
 import type { RenderExportProgress } from '../media/render-export';
+import type { ServerFinishing } from '../media/server-finishing';
 
 export type RenderQueueJobStatus = 'queued' | 'rendering' | 'completed' | 'failed' | 'cancelled';
 
@@ -36,8 +38,12 @@ export interface RenderQueueSettings {
 	width: number;
 	height: number;
 	subtitleMode: 'none' | 'burn' | 'sidecar' | 'embedded';
+	/** Loudness target for the mix; absent on jobs queued before it existed. */
+	loudness?: ExportLoudness;
 	range: { startFrame: number; endFrame: number };
 	jpegQuality?: number;
+	/** Re-encode on the server after the browser render. */
+	finishing?: ServerFinishing;
 }
 
 export interface RenderQueueJob {

@@ -287,6 +287,11 @@
 	} from '$lib/video-editor/timeline/utils/linked-items';
 	import TimelineLinkedSyncBadge from './timeline-linked-sync-badge.svelte';
 	import { canDetachAudio, detachAudio } from '../timeline/actions/detach-audio';
+	import {
+		isSoundSyncPair,
+		syncRecordingToCamera,
+		type SoundSyncResult
+	} from '../timeline/actions/sound-sync';
 	import { formatLinkedSyncOffset } from '$lib/video-editor/timeline/linked-sync-display';
 	import { updateTimelineItemSelection } from '$lib/video-editor/timeline/selection';
 	import {
@@ -2963,6 +2968,37 @@
 		if (!unlinkItems(selectedItemIds)) return;
 		onedit();
 	}
+	let soundSyncRunning = $state(false);
+	function soundSyncFailure(reason: Exclude<SoundSyncResult, { ok: true }>['reason']): string {
+		if (reason === 'no-match') return m.video_editor_sound_sync_no_match();
+		if (reason === 'locked') return m.video_editor_sound_sync_locked();
+		if (reason === 'retimed') return m.video_editor_sound_sync_retimed();
+		if (reason === 'no-overlap') return m.video_editor_sound_sync_no_overlap();
+		return m.video_editor_sound_sync_failed();
+	}
+	async function syncContextSound(muteCamera: boolean): Promise<void> {
+		const pair = contextSoundSyncPair;
+		if (!pair || soundSyncRunning) return;
+		soundSyncRunning = true;
+		showToast(m.video_editor_sound_sync_running(), 'info', { id: 'sound-sync' });
+		try {
+			const result = await syncRecordingToCamera(pair.videoId, pair.audioId, { muteCamera });
+			if (result.ok) {
+				showToast(
+					m.video_editor_sound_sync_done({ offset: result.offsetSeconds.toFixed(3) }),
+					'success',
+					{ id: 'sound-sync' }
+				);
+				onedit();
+			} else {
+				showToast(soundSyncFailure(result.reason), 'error', { id: 'sound-sync' });
+			}
+		} catch {
+			showToast(m.video_editor_sound_sync_failed(), 'error', { id: 'sound-sync' });
+		} finally {
+			soundSyncRunning = false;
+		}
+	}
 	function detachContextAudio(): void {
 		if (!contextPrimaryItem) return;
 		const audioId = detachAudio(contextPrimaryItem.id);
@@ -4397,6 +4433,17 @@
 			? timelineStore.itemById.get(timelineContextTarget.primaryId)
 			: undefined
 	);
+	const contextSoundSyncPair = $derived.by(() => {
+		if (timelineContextTarget?.kind !== 'items') return undefined;
+		const items = timelineContextTarget.itemIds
+			.map((id) => timelineStore.itemById.get(id))
+			.filter((item): item is TimelineItem => item !== undefined);
+		if (!isSoundSyncPair(items)) return undefined;
+		const video = items.find((item) => item.type === 'video')!;
+		const media = video.mediaId ? mediaPool.get(video.mediaId) : undefined;
+		if (!media?.hasAudio && !media?.audioCodec) return undefined;
+		return { videoId: video.id, audioId: items.find((item) => item.type === 'audio')!.id };
+	});
 	const contextPrimaryMedia = $derived(
 		contextPrimaryItem?.mediaId ? mediaPool.get(contextPrimaryItem.mediaId) : undefined
 	);
@@ -6305,6 +6352,18 @@
 								.join(' / ')}</ContextMenu.Shortcut
 						>
 					</ContextMenu.Item>
+					{#if contextSoundSyncPair}
+						<ContextMenu.Item
+							disabled={soundSyncRunning}
+							onclick={() => void syncContextSound(true)}
+							>{m.video_editor_sound_sync()}</ContextMenu.Item
+						>
+						<ContextMenu.Item
+							disabled={soundSyncRunning}
+							onclick={() => void syncContextSound(false)}
+							>{m.video_editor_sound_sync_keep_camera()}</ContextMenu.Item
+						>
+					{/if}
 					{#if contextPrimaryItem && canDetachAudio(contextPrimaryItem)}
 						<ContextMenu.Item onclick={detachContextAudio}
 							>{m.video_editor_detach_audio()}</ContextMenu.Item

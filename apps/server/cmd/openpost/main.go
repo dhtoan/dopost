@@ -56,6 +56,7 @@ import (
 	"github.com/openpost/backend/internal/services/encryptionrotation"
 	engagementservice "github.com/openpost/backend/internal/services/engagement"
 	"github.com/openpost/backend/internal/services/entitlements"
+	"github.com/openpost/backend/internal/services/exportfinish"
 	"github.com/openpost/backend/internal/services/externalapps"
 	"github.com/openpost/backend/internal/services/externalwebhooks"
 	"github.com/openpost/backend/internal/services/feedback"
@@ -95,6 +96,7 @@ import (
 	telegramservice "github.com/openpost/backend/internal/services/telegram"
 	"github.com/openpost/backend/internal/services/tokenmanager"
 	"github.com/openpost/backend/internal/services/updatestatus"
+	"github.com/openpost/backend/internal/services/urlimport"
 	"github.com/openpost/backend/internal/services/usage"
 	"github.com/openpost/backend/internal/services/videogeneration"
 	"github.com/openpost/backend/internal/services/videoprocessing"
@@ -938,6 +940,9 @@ func main() {
 	}
 
 	mediaHandler.RegisterLegacyRoutes(e)
+	handlers.NewExportFinishingHandler(db, authenticator, exportfinish.New(exportfinish.Config{
+		Enabled: cfg.ExportFinishingEnabled, FFmpeg: cfg.FFmpegPath,
+	})).RegisterRoutes(e)
 	handlers.NewInstanceBackupHandler(db, authenticator, handlers.InstanceBackupConfig{
 		Paths:           instanceBackupPaths,
 		MediaSnapshotMu: mediaSnapshotMu,
@@ -1101,6 +1106,9 @@ func main() {
 		ImageEditorEnabled:           cfg.ImageEditorEnabled,
 		ImageEditorModelBaseURL:      cfg.ImageEditorModelBaseURL,
 		StockMediaEnabled:            cfg.StockMediaEnabled,
+		URLImporter: urlimport.New(urlimport.Config{
+			Enabled: cfg.URLImportEnabled, Binary: cfg.YtDlpPath, MaxBytes: cfg.URLImportMaxBytes, CookiesFile: cfg.YtDlpCookiesFile,
+		}),
 		PexelsAPIKey:                 cfg.PexelsAPIKey,
 		UnsplashAccessKey:            cfg.UnsplashAccessKey,
 		PixabayAPIKey:                cfg.PixabayAPIKey,

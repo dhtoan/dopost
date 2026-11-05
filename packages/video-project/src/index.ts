@@ -321,6 +321,14 @@ export interface PendingVideoProjectMutation {
   batch: VideoProjectMutationBatch;
   queuedAt: number;
   attempts: number;
+  /** Set when the server permanently refused this entry; it stays stored but is not replayed. */
+  rejection?: MutationRejection;
+}
+
+export interface MutationRejection {
+  status: number;
+  message: string;
+  rejectedAt: number;
 }
 
 export interface MutationOutboxStorage {
@@ -330,7 +338,11 @@ export interface MutationOutboxStorage {
 
 export type MutationDeliveryResult =
   | { outcome: "applied"; revision: number }
-  | { outcome: "conflict"; revision: number; conflictId: string };
+  | { outcome: "conflict"; revision: number; conflictId: string }
+  | { outcome: "rejected"; mutationId: string; status: number; message: string };
+
+/** Rejected entries kept for inspection; the oldest are dropped past this many. */
+const MAX_REJECTED_MUTATIONS = 20;
 
 const DEVICE_ONLY_KEYS = new Set([
   "rootFolderHandle",
@@ -533,11 +545,27 @@ export class VideoProjectMutationOutbox {
   ): Promise<MutationDeliveryResult[]> {
     const results: MutationDeliveryResult[] = [];
     while (true) {
-      const [next, ...rest] = await this.storage.load();
+      const stored = await this.storage.load();
+      const rejected = stored.filter((entry) => entry.rejection);
+      const [next, ...rest] = stored.filter((entry) => !entry.rejection);
       if (!next) return results;
       try {
         const result = await deliver(next);
         results.push(result);
+        if (result.outcome === "rejected") {
+          // A permanent refusal must not block later saves, and the edit must not
+          // vanish either: park the entry so it can be surfaced and inspected.
+          const parked = {
+            ...next,
+            attempts: next.attempts + 1,
+            rejection: { status: result.status, message: result.message, rejectedAt: Date.now() },
+          };
+          await this.storage.save([
+            ...[...rejected, parked].slice(-MAX_REJECTED_MUTATIONS),
+            ...rest,
+          ]);
+          continue;
+        }
         const rebased =
           result.outcome === "applied"
             ? rest.map((entry) =>
@@ -549,11 +577,19 @@ export class VideoProjectMutationOutbox {
                   : entry,
               )
             : rest;
-        await this.storage.save(rebased);
+        await this.storage.save([...rejected, ...rebased]);
       } catch (error) {
-        await this.storage.save([{ ...next, attempts: next.attempts + 1 }, ...rest]);
+        await this.storage.save([...rejected, { ...next, attempts: next.attempts + 1 }, ...rest]);
         throw error;
       }
     }
+  }
+
+  /** Entries the server permanently refused, oldest first. */
+  async rejected(projectId?: string): Promise<PendingVideoProjectMutation[]> {
+    const stored = await this.storage.load();
+    return stored.filter(
+      (entry) => entry.rejection && (projectId === undefined || entry.projectId === projectId),
+    );
   }
 }

@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import type { TimelineItem, TimelineTrack } from '$lib/video-editor/project/types';
 import { timelineStore } from '../stores/timeline-store.svelte';
 import { commandHistory } from '../commands/command-store.svelte';
-import { setGpuEffectDataOnItems, setGpuEffectParam } from './effects';
+import { setGpuEffectDataOnItems, setGpuEffectParam, setSourceProfileOnItems } from './effects';
 
 function track(id: string, order: number, locked: boolean, parentTrackId?: string): TimelineTrack {
 	return {
@@ -95,5 +95,32 @@ describe('effect actions on locked Color targets', () => {
 		expect(setGpuEffectParam('locked', 'locked-effect', 'contrast', 1.4)).toBe(false);
 		expect(contrast('locked')).toBe(1);
 		expect(commandHistory.undoStack).toHaveLength(0);
+	});
+});
+
+describe('source profile', () => {
+	beforeEach(() => {
+		timelineStore.__resetForTesting();
+		commandHistory.clearHistory();
+		timelineStore._setTracks([track('unlocked', 0, false)]);
+		timelineStore._setItems([item('clip', 'unlocked', { type: 'video' })]);
+	});
+
+	const stack = () =>
+		timelineStore.itemById
+			.get('clip')
+			?.effects?.map((effect) =>
+				effect.type === 'gpu' ? `${effect.effectId}:${effect.params.profile ?? ''}` : effect.type
+			);
+
+	it('goes before the grade, changes in place, and Rec.709 removes it', () => {
+		expect(setSourceProfileOnItems(['clip'], 'apple-log')).toBe(true);
+		expect(stack()).toEqual(['gpu-source-profile:apple-log', 'gpu-color-wheels:']);
+		expect(setSourceProfileOnItems(['clip'], 'apple-log')).toBe(false);
+		expect(setSourceProfileOnItems(['clip'], 'hlg')).toBe(true);
+		expect(stack()).toEqual(['gpu-source-profile:hlg', 'gpu-color-wheels:']);
+		expect(setSourceProfileOnItems(['clip'], 'rec709')).toBe(true);
+		expect(stack()).toEqual(['gpu-color-wheels:']);
+		expect(commandHistory.undoStack).toHaveLength(3);
 	});
 });

@@ -126,6 +126,7 @@
         "@lottiefiles/dotlottie-web": "0.76.0",
         "@mediabunny/ac3": "1.54.0",
         "@mediabunny/prores": "1.54.0",
+        "@mediapipe/tasks-vision": "0.10.21",
         "@noble/hashes": "1.8.0",
         "@number-flow/svelte": "^0.4.2",
         "@openpost/api-contract": "workspace:*",
@@ -1025,6 +1026,8 @@
     "@mediabunny/mp3-encoder": ["@mediabunny/mp3-encoder@1.54.0", "", { "peerDependencies": { "mediabunny": "^1.0.0" } }, "sha512-x8dBt05UV/FB+Z9abvpcK5hEI9g4cdzWWyZFzXxcAkQdDUQzk7Y7xaJsY8FVUT2iooFWVdtlSw/i/jCmGnNmrQ=="],
 
     "@mediabunny/prores": ["@mediabunny/prores@1.54.0", "", { "dependencies": { "turbores": "^1.2.2" }, "peerDependencies": { "mediabunny": "^1.49.0" } }, "sha512-XhxdPiHriMJVqDRwcZF2geGoHKyQtMd7SIrpB0PNtFw+UQR1yNQYqlRu+kQu72PdlEoAWus0/HOaQBD9TZctmw=="],
+
+    "@mediapipe/tasks-vision": ["@mediapipe/tasks-vision@0.10.21", "", {}, "sha512-TuhKH+credq4zLksGbYrnvJ1aLIWMc5r0UHwzxzql4BHECJwIAoBR61ZrqwGOW6ZmSBIzU1t4VtKj8hbxFaKeA=="],
 
     "@n8n/ai-node-sdk": ["@n8n/ai-node-sdk@0.25.3", "", { "dependencies": { "@n8n/ai-utilities": "0.28.3" } }, "sha512-z7dHbkn3mMZSf7wZiNih8zfqZzizpHDPGCZqFwFTHoKt65xRVpqs8lstEWbB4m2dWYzZa2sXECxFnumQ49mQ+g=="],
 

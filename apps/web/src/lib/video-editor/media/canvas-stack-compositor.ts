@@ -6,7 +6,10 @@ import { shaderTime } from '../backgrounds/shaders';
 import type { TimelineItem, TimelineTransition } from '../project/types';
 import { effectsToCssFilter } from '../effects/filter';
 import type { GpuRenderEffect } from '../effects/gpu/compositor';
-import { getGpuEffectDefaultParams } from '../effects/gpu/registry';
+import { gpuRenderEffects } from '../effects/gpu/render-effects';
+import type { HdrTransfer } from '../effects/tagged-hdr';
+import { mediaHdrTransfer } from './hdr-tags';
+import { mediaPool } from './pool.svelte';
 import { isNonNormalBlend } from '../effects/gpu/blend-modes';
 import { blendImageData } from '../effects/gpu/cpu-blend';
 import { mediaDrawGeometry, type MediaDrawGeometry } from './render-geometry';
@@ -454,20 +457,11 @@ export class CanvasStackCompositor {
 		this.lastFailure ??= reason;
 	}
 
-	private gpuEffects(effects: TimelineItem['effects']): GpuRenderEffect[] {
-		return (effects ?? []).flatMap((effect) =>
-			effect.type === 'gpu' && effect.enabled
-				? [
-						{
-							effectId: effect.effectId,
-							params: {
-								...getGpuEffectDefaultParams(effect.effectId),
-								...effect.params
-							}
-						}
-					]
-				: []
-		);
+	private gpuEffects(
+		effects: TimelineItem['effects'],
+		hdrTransfer: HdrTransfer | null = null
+	): GpuRenderEffect[] {
+		return gpuRenderEffects(effects, hdrTransfer);
 	}
 
 	private backgroundStackSource(item: TimelineItem, time: number): StackLayerSource | null {
@@ -537,7 +531,10 @@ export class CanvasStackCompositor {
 		item: TimelineItem,
 		time: number
 	): CanvasImageSource {
-		const effects = this.gpuEffects(item.effects);
+		const effects = this.gpuEffects(
+			item.effects,
+			item.type === 'video' && item.mediaId ? mediaHdrTransfer(mediaPool.get(item.mediaId)) : null
+		);
 		if (effects.length === 0) return source.source;
 		if (!this.sharedGpu) {
 			this.recordExactRenderFailure('WebGL2 is unavailable for enabled GPU effects');

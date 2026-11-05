@@ -79,6 +79,14 @@ type Config struct {
 	ImageEditorEnabled       bool
 	ImageEditorModelBaseURL  string
 	StockMediaEnabled        bool
+	// Server finishing re-encodes exports with ffmpeg; off unless the operator turns it on.
+	ExportFinishingEnabled bool
+	FFmpegPath             string
+	// URL import runs yt-dlp on this server; off unless the operator turns it on.
+	URLImportEnabled         bool
+	YtDlpPath                string
+	URLImportMaxBytes        int64
+	YtDlpCookiesFile         string
 	PexelsAPIKey             string
 	UnsplashAccessKey        string
 	PixabayAPIKey            string
@@ -292,6 +300,12 @@ func Load() *Config {
 			"/",
 		),
 		StockMediaEnabled:            getEnvBoolWithAliases(false, "OPENPOST_STOCK_MEDIA_ENABLED"),
+		ExportFinishingEnabled:       getEnvBoolWithAliases(false, "OPENPOST_EXPORT_FINISHING_ENABLED"),
+		FFmpegPath:                   strings.TrimSpace(getEnvDefault("OPENPOST_FFMPEG_PATH", "ffmpeg")),
+		URLImportEnabled:             getEnvBoolWithAliases(false, "OPENPOST_URL_IMPORT_ENABLED"),
+		YtDlpPath:                    strings.TrimSpace(getEnvDefault("OPENPOST_YTDLP_PATH", "yt-dlp")),
+		URLImportMaxBytes:            getEnvInt64("OPENPOST_URL_IMPORT_MAX_MB", 1024) * 1024 * 1024,
+		YtDlpCookiesFile:             strings.TrimSpace(getEnvDefault("OPENPOST_YTDLP_COOKIES_FILE", "")),
 		PexelsAPIKey:                 strings.TrimSpace(getEnvDefault("OPENPOST_PEXELS_API_KEY", "")),
 		UnsplashAccessKey:            strings.TrimSpace(getEnvDefault("OPENPOST_UNSPLASH_ACCESS_KEY", "")),
 		PixabayAPIKey:                strings.TrimSpace(getEnvDefault("OPENPOST_PIXABAY_API_KEY", "")),

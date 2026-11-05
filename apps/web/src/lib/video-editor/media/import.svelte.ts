@@ -22,6 +22,7 @@ import { associateMediaWithProject, removeMediaFromProject } from '../workspace-
 import { createMedia, deleteMedia } from '../workspace-fs/media';
 import type { MediaAttribution, MediaMetadata, ProjectAssetImporter } from './types';
 import { probeMediaFile } from './probe-client';
+import { hdrMediaTags } from './hdr-tags';
 import { mediaPool } from './pool.svelte';
 import { reconcileSystemAudioWithProbe } from './recording-capture-schema';
 import { isLottieFile, parseLottieFileBytes } from '../lottie/metadata';
@@ -215,7 +216,9 @@ export async function importFile(
 				gopInterval: probe.gopInterval,
 				animationFrameCount: probe.animationFrameCount,
 				attribution: options.attribution,
-				tags: [...new Set([probe.kind, ...(options.tags ?? [])])]
+				tags: [
+					...new Set([probe.kind, ...hdrMediaTags(probe.hdrTransfer), ...(options.tags ?? [])])
+				]
 			};
 			thumbnailBlob = probe.thumbnailBlob;
 		}

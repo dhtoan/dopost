@@ -18,6 +18,7 @@
 	import LottiePropertiesPanel from './lottie-properties-panel.svelte';
 	import TextPropertiesPanel from './text-properties-panel.svelte';
 	import SubtitlePropertiesPanel from './subtitle-properties-panel.svelte';
+	import CaptionTextSync from './caption-text-sync.svelte';
 	import CompositionControlOverrides from './composition-control-overrides.svelte';
 	import { resolveAnimatedItemLocalAt } from '$lib/video-editor/timeline/animated-properties';
 	import { findLinkedAudioCompanion } from '$lib/video-editor/audio/transition-crossfade';
@@ -35,6 +36,7 @@
 	import ClipCropSection from './clip-crop-section.svelte';
 	import ClipPlaybackSection from './clip-playback-section.svelte';
 	import ClipAudioCoreSection from './clip-audio-core-section.svelte';
+	import SplitEditSection from './split-edit-section.svelte';
 	import AnimatedImagePlaybackSection from './animated-image-playback-section.svelte';
 
 	let nrDraftAmount = $state<number | null>(null);
@@ -376,6 +378,7 @@
 				canvasHeight={sequenceStore.activeHeight}
 				{onedit}
 			/>
+			<CaptionTextSync {item} {onedit} />
 		{/if}
 
 		{#if item.type === 'composition'}
@@ -394,6 +397,9 @@
 
 		{#if item.type === 'video' || item.type === 'audio'}
 			<ClipAudioCoreSection {audioItems} {onedit} />
+			{#if item.type === 'video'}
+				<SplitEditSection itemId={item.id} {onedit} />
+			{/if}
 
 			{#if audioItem}
 				{@const noise = resolveNoiseReductionSettings(audioItem)}

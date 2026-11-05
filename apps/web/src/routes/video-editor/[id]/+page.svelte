@@ -156,6 +156,7 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
 	import PreviewPlayer from '$lib/video-editor/components/preview-player.svelte';
 	import SourceMonitor from '$lib/video-editor/components/source-monitor.svelte';
 	import TransportBar from '$lib/video-editor/components/transport-bar.svelte';
+	import ShareLinkButton from '$lib/video-editor/components/share-link-button.svelte';
 	import TimelinePanel from '$lib/video-editor/components/timeline-panel.svelte';
 	import CompositionTimeline from '$lib/video-editor/components/composition-timeline.svelte';
 	import { voiceoverRecorder } from '$lib/video-editor/recorder/voiceover-recorder.svelte';
@@ -2674,6 +2675,9 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
 						? m.editor_agent_status_working()
 						: m.editor_agent_status_connected()}</span
 				>
+			{/if}
+			{#if cloudStorage && workspaceCtx.currentWorkspace?.id && displayedProject}
+				<ShareLinkButton workspaceId={workspaceCtx.currentWorkspace.id} {projectId} />
 			{/if}
 			{#if editorSession.saveError}
 				<Button

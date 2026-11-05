@@ -30,6 +30,7 @@ async function executeRenderJob(
 		const artifact = await renderAudioExport(project, {
 			format: job.settings.format,
 			range,
+			loudness: job.settings.loudness,
 			signal: options.signal,
 			onProgress: options.onProgress
 		});
@@ -112,7 +113,9 @@ async function executeRenderJob(
 		width: job.settings.width,
 		height: job.settings.height,
 		subtitleMode: job.settings.subtitleMode,
+		loudness: job.settings.loudness,
 		range,
+		finishing: job.settings.finishing,
 		signal: options.signal,
 		onProgress: options.onProgress
 	});

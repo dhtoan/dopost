@@ -57,7 +57,10 @@ const pendingVideoProjectMutationSchema = z.object({
 		)
 	}),
 	queuedAt: z.number(),
-	attempts: z.number()
+	attempts: z.number(),
+	rejection: z
+		.object({ status: z.number(), message: z.string(), rejectedAt: z.number() })
+		.optional()
 });
 const cloudDocumentSchema = z.looseObject({});
 type CloudVideoProjectDocument = components['schemas']['VideoProjectResponse']['document'];
@@ -117,6 +120,25 @@ export class CloudVideoProjectConflictError<TDocument extends object> extends Er
 		this.name = 'CloudVideoProjectConflictError';
 	}
 }
+
+export class CloudVideoProjectSaveRejectedError<TDocument extends object> extends Error {
+	constructor(
+		readonly mutationId: string,
+		readonly status: number,
+		readonly localDocument: TDocument
+	) {
+		super(
+			'The server could not apply this change to the Cloud Video Project. Your edit is kept in this browser; reload the project before editing again.'
+		);
+		this.name = 'CloudVideoProjectSaveRejectedError';
+	}
+}
+
+/**
+ * HTTP statuses that mean the server will never accept this exact mutation. Anything
+ * else (offline, 5xx, auth, 408/409/429) is retried on the next flush.
+ */
+const PERMANENT_MUTATION_REJECTIONS = new Set([400, 404, 410, 413, 422]);
 
 class BrowserMutationStorage implements MutationOutboxStorage {
 	async load(): Promise<PendingVideoProjectMutation[]> {
@@ -190,7 +212,9 @@ function cloudProject<TDocument extends object>(
 	return { ...cloudProjectMetadata(raw), document: documentFromAPI<TDocument>(raw.document) };
 }
 
-function documentFromAPI<TDocument extends object>(value: CloudVideoProjectDocument): TDocument {
+export function documentFromAPI<TDocument extends object>(
+	value: CloudVideoProjectDocument
+): TDocument {
 	const result = cloudDocumentSchema.safeParse(value);
 	if (!result.success) throw new Error('Cloud Video Project document must be an object');
 	// SAFETY: Zod proved this is a JSON object. The editor validates its versioned document when loading it.
@@ -314,6 +338,9 @@ export class CloudVideoProjectRepository<TDocument extends object> {
 		});
 		const results = await this.flush();
 		const latest = results.at(-1);
+		if (latest?.outcome === 'rejected') {
+			throw new CloudVideoProjectSaveRejectedError(latest.mutationId, latest.status, portable);
+		}
 		if (latest?.outcome === 'conflict') {
 			throw new CloudVideoProjectConflictError(latest.conflictId, portable);
 		}
@@ -487,59 +514,13 @@ export class CloudVideoProjectRepository<TDocument extends object> {
 			for (const asset of readyAssets) {
 				const item = metadataById.get(asset.media_id);
 				if (!item) continue;
-				const prepared = editorAssetMetadataSchema.safeParse(asset.preparation.editorMedia);
-				const probe = prepared.success ? prepared.data : undefined;
-				const mimeType = item.mime_type || asset.mime_type;
-				const fileSize = item.size ?? asset.size;
-				const duration =
-					(item.duration_ms ?? 0) > 0 ? (item.duration_ms ?? 0) / 1000 : (probe?.duration ?? 0);
-				const mediaKind =
-					probe?.codec === 'lottie' &&
-					(mimeType === 'application/zip' || mimeType === 'application/json')
-						? 'lottie'
-						: mimeType.startsWith('font/')
-							? 'font'
-							: mimeType.startsWith('audio/')
-								? 'audio'
-								: mimeType.startsWith('image/')
-									? 'image'
-									: 'video';
-				media.push({
-					id: asset.stable_media_id,
-					storageType: 'cloud',
-					remoteUrl: item.url,
-					remoteThumbnailUrl: item.thumbnail_url || item.poster_thumbnail_url || undefined,
-					offlineUrl: offlineMediaURL(this.workspaceId, id, asset.stable_media_id),
-					contentHash: asset.sha256 || undefined,
-					fileName: asset.original_filename,
-					fileSize,
-					mimeType,
-					duration,
-					width: item.width || probe?.width || 0,
-					height: item.height || probe?.height || 0,
-					fps: item.frame_rate || probe?.fps || 0,
-					codec:
-						mediaKind === 'lottie'
-							? 'lottie'
-							: item.video_codec || probe?.codec || item.container_format || '',
-					bitrate: Math.round((fileSize * 8) / Math.max(1, duration)),
-					audioCodec: item.audio_codec || probe?.audioCodec,
-					hasAudio: probe?.hasAudio,
-					audioCodecSupported: isAudioCodecSupported(item.audio_codec || probe?.audioCodec),
-					videoCodecSupported: isProResCodec(item.video_codec || probe?.codec) ? false : undefined,
-					lottieTotalFrames: probe?.lottieTotalFrames,
-					lottieMarkers: probe?.lottieMarkers,
-					animationFrameCount: probe?.animationFrameCount,
-					attribution: probe?.attribution,
-					tags: [
-						...new Set([
-							mediaKind,
-							...(probe?.tags.filter(
-								(tag) => !['audio', 'video', 'image', 'font', 'lottie'].includes(tag)
-							) ?? [])
-						])
-					]
-				});
+				media.push(
+					cloudMediaMetadata(
+						asset,
+						item,
+						offlineMediaURL(this.workspaceId, id, asset.stable_media_id)
+					)
+				);
 			}
 		}
 		return media;
@@ -623,10 +604,18 @@ export class CloudVideoProjectRepository<TDocument extends object> {
 
 	async flush() {
 		return this.outbox.drain(async (entry) => {
-			const { data, error } = await client.POST('/video-projects/{id}/mutations', {
+			const { data, error, response } = await client.POST('/video-projects/{id}/mutations', {
 				params: { path: { id: entry.projectId } },
 				body: entry.batch
 			});
+			if (error && response && PERMANENT_MUTATION_REJECTIONS.has(response.status)) {
+				return {
+					outcome: 'rejected' as const,
+					mutationId: entry.batch.mutation_id,
+					status: response.status,
+					message: error.detail ?? response.statusText
+				};
+			}
 			if (error || !data) throw new Error('Cloud Video Project save is waiting for a connection');
 			await this.invalidateProjectState(entry.projectId);
 			return data.outcome === 'conflict'
@@ -656,4 +645,91 @@ export class CloudVideoProjectRepository<TDocument extends object> {
 		if (error) throw new Error('Could not restore Cloud Video Project');
 		await this.invalidateProjectState(id);
 	}
+}
+
+/** The asset and media fields a cloud media entry is built from. */
+export interface CloudAssetFields {
+	stable_media_id: string;
+	original_filename: string;
+	mime_type: string;
+	size: number;
+	sha256?: string;
+	/** Only the editor's probe is read; other preparation fields pass through untouched. */
+	preparation: { editorMedia?: unknown };
+}
+
+export interface CloudMediaFields {
+	url?: string;
+	thumbnail_url?: string;
+	poster_thumbnail_url?: string;
+	mime_type?: string;
+	size?: number;
+	duration_ms?: number;
+	width?: number;
+	height?: number;
+	frame_rate?: number;
+	video_codec?: string;
+	audio_codec?: string;
+	container_format?: string;
+}
+
+/** A project asset and its media file as the editor's media entry. Shared by
+ * workspace projects and read-only share links. */
+export function cloudMediaMetadata(
+	asset: CloudAssetFields,
+	item: CloudMediaFields,
+	offlineUrl?: string
+): MediaMetadata {
+	const prepared = editorAssetMetadataSchema.safeParse(asset.preparation.editorMedia);
+	const probe = prepared.success ? prepared.data : undefined;
+	const mimeType = item.mime_type || asset.mime_type;
+	const fileSize = item.size ?? asset.size;
+	const duration =
+		(item.duration_ms ?? 0) > 0 ? (item.duration_ms ?? 0) / 1000 : (probe?.duration ?? 0);
+	const mediaKind =
+		probe?.codec === 'lottie' && (mimeType === 'application/zip' || mimeType === 'application/json')
+			? 'lottie'
+			: mimeType.startsWith('font/')
+				? 'font'
+				: mimeType.startsWith('audio/')
+					? 'audio'
+					: mimeType.startsWith('image/')
+						? 'image'
+						: 'video';
+	return {
+		id: asset.stable_media_id,
+		storageType: 'cloud',
+		remoteUrl: item.url,
+		remoteThumbnailUrl: item.thumbnail_url || item.poster_thumbnail_url || undefined,
+		offlineUrl,
+		contentHash: asset.sha256 || undefined,
+		fileName: asset.original_filename,
+		fileSize,
+		mimeType,
+		duration,
+		width: item.width || probe?.width || 0,
+		height: item.height || probe?.height || 0,
+		fps: item.frame_rate || probe?.fps || 0,
+		codec:
+			mediaKind === 'lottie'
+				? 'lottie'
+				: item.video_codec || probe?.codec || item.container_format || '',
+		bitrate: Math.round((fileSize * 8) / Math.max(1, duration)),
+		audioCodec: item.audio_codec || probe?.audioCodec,
+		hasAudio: probe?.hasAudio,
+		audioCodecSupported: isAudioCodecSupported(item.audio_codec || probe?.audioCodec),
+		videoCodecSupported: isProResCodec(item.video_codec || probe?.codec) ? false : undefined,
+		lottieTotalFrames: probe?.lottieTotalFrames,
+		lottieMarkers: probe?.lottieMarkers,
+		animationFrameCount: probe?.animationFrameCount,
+		attribution: probe?.attribution,
+		tags: [
+			...new Set([
+				mediaKind,
+				...(probe?.tags.filter(
+					(tag) => !['audio', 'video', 'image', 'font', 'lottie'].includes(tag)
+				) ?? [])
+			])
+		]
+	};
 }

@@ -37,3 +37,11 @@ Parts of the dopost video editor are adapted from Donkey Cut.
 - Copyright: Copyright 2026 Donkey
 
 The licence text is kept at `licenses/donkey/LICENSE`. Each adapted file starts with a note naming the Donkey Cut source file and saying it was modified. The Donkey Cut name, logo and media are not used.
+
+### ACES 2.0 Output Transform
+
+`apps/web/src/lib/video-editor/effects/aces-output.ts` came through Donkey Cut and restates the Academy's reference CTL for the ACES 2.0 Output Transform (https://github.com/aces-aswf/aces-core and https://github.com/aces-aswf/aces-output). Copyright Contributors to the ACES Project, Apache License 2.0; the file keeps its SPDX header and the licence text is at `licenses/APACHE-2.0.txt`.
+
+### MediaPipe
+
+Video background removal uses `@mediapipe/tasks-vision` 0.10.21 (https://github.com/google-ai-edge/mediapipe) and Google's MediaPipe Selfie Segmentation model, both Apache License 2.0, Copyright Google LLC. The runtime and model are self-hosted under `apps/web/static/video-editor-models/mediapipe/` (see its README); the licence text is at `licenses/APACHE-2.0.txt`.

@@ -13,6 +13,7 @@
 	"ignorePatterns": [
 		"**/node_modules",
 		"static/moss-tts/**",
+		"static/video-editor-models/**",
 		"**/.output",
 		"**/.vercel",
 		"**/.netlify",

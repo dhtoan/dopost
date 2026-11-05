@@ -1,6 +1,8 @@
 import { sanitizeWorkspaceFileName } from '../workspace-fs/paths';
 import { importFile, MediaImportCancelledError, type ImportOptions } from './import.svelte';
-import type { ProjectAssetImporter } from './types';
+import { mediaPool } from './pool.svelte';
+import { downloadLinkMedia, looksLikeDirectMediaUrl } from './link-import';
+import type { MediaAttribution, ProjectAssetImporter } from './types';
 
 export const MAX_REMOTE_MEDIA_BYTES = 2 * 1024 * 1024 * 1024;
 
@@ -129,13 +131,42 @@ export async function fetchRemoteMediaFile(
 	);
 }
 
+/**
+ * Import a file link in the browser, or a page link (a video post) through the
+ * server's yt-dlp when `linkImportWorkspaceId` says the server can. A direct
+ * file that the browser cannot fetch also falls back to the server.
+ */
 export async function importMediaFromUrl(
 	value: string,
-	options: ImportOptions & { importAsset?: ProjectAssetImporter }
+	options: ImportOptions & {
+		importAsset?: ProjectAssetImporter;
+		linkImportWorkspaceId?: string;
+	}
 ): Promise<string> {
-	const file = await fetchRemoteMediaFile(value);
-	if (options.importAsset) {
-		const media = await options.importAsset(file, options);
+	const { linkImportWorkspaceId, ...importOptions } = options;
+	let file: File;
+	let attribution: MediaAttribution | undefined;
+	if (linkImportWorkspaceId && !looksLikeDirectMediaUrl(value)) {
+		({ file, attribution } = await downloadLinkMedia(linkImportWorkspaceId, value));
+	} else {
+		try {
+			file = await fetchRemoteMediaFile(value);
+		} catch (error) {
+			if (!linkImportWorkspaceId) throw error;
+			({ file, attribution } = await downloadLinkMedia(linkImportWorkspaceId, value));
+		}
+	}
+	if (attribution) {
+		const existing = mediaPool.mediaList.find(
+			(media) =>
+				media.attribution?.provider === attribution.provider &&
+				media.attribution.sourceId === attribution.sourceId
+		);
+		if (existing) return existing.id;
+	}
+	const withSource = attribution ? { ...importOptions, attribution } : importOptions;
+	if (withSource.importAsset) {
+		const media = await withSource.importAsset(file, withSource);
 		if (!media) throw new MediaImportCancelledError();
 		return media.id;
 	}
@@ -145,5 +176,5 @@ export async function importMediaFromUrl(
 		name: file.name,
 		getFile: async () => file
 	} as FileSystemFileHandle;
-	return importFile(handle, { ...options, storageMode: 'copy' });
+	return importFile(handle, { ...withSource, storageMode: 'copy' });
 }

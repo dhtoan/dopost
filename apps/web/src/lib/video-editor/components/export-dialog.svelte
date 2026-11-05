@@ -17,6 +17,7 @@
 		type RenderExportProgress,
 		type RenderExportResult
 	} from '$lib/video-editor/media/render-export';
+	import { isExportLoudness, type ExportLoudness } from '$lib/video-editor/audio/loudness-settings';
 	import {
 		renderAudioExport,
 		renderVideoExport,
@@ -53,6 +54,12 @@
 	} from '../export/exportable-sequences';
 	import { formatMediaDuration } from '../media/library-view';
 	import RenderProgress from './render-progress.svelte';
+	import {
+		serverFinishingCapabilities,
+		type FinishingTargetId,
+		type ServerFinishing
+	} from '../media/server-finishing';
+	import { workspaceCtx } from '$lib/stores/workspace.svelte';
 	import {
 		sanitizeSequenceBaseName,
 		getDirectoryPickerAvailable,
@@ -130,6 +137,7 @@
 	let resolutionProjectId: string | null = null;
 	let useRange = $state(false);
 	let subtitleMode = $state<NonNullable<RenderExportOptions['subtitleMode']>>('burn');
+	let loudness = $state<ExportLoudness>('off');
 	let sequenceDestination = $state<'directory' | 'zip'>(
 		getDirectoryPickerAvailable() ? 'directory' : 'zip'
 	);
@@ -140,9 +148,30 @@
 	let codecProbeVersion = 0;
 	let destroyed = false;
 	const isAudioFormat = $derived(isAudioExportFormat(format));
+	let finishingTargets = $state<FinishingTargetId[]>([]);
+	let finishingTarget = $state<FinishingTargetId | 'none'>('none');
+	let finishingLoudness = $state(false);
+	$effect(() => {
+		if (!open) return;
+		void serverFinishingCapabilities().then((capabilities) => {
+			if (!destroyed) finishingTargets = capabilities.enabled ? capabilities.targets : [];
+		});
+	});
+	const finishingLabels = {
+		'prores-hq': m.video_editor_export_finishing_prores,
+		hevc: m.video_editor_export_finishing_hevc,
+		'h264-small': m.video_editor_export_finishing_h264
+	} as const satisfies Record<FinishingTargetId, () => string>;
 	const isSequenceFormat = $derived(isSequenceExportFormat(format));
 	let webpSupported = $state<boolean | undefined>(undefined);
 	const videoFormat = $derived(isVideoExportFormat(format) ? format : null);
+	/** Server finishing for a video export, when the server offers it and one is picked. */
+	const serverFinishing = $derived.by((): ServerFinishing | undefined => {
+		const workspaceId = workspaceCtx.currentWorkspace?.id?.trim() ?? '';
+		if (!videoFormat || finishingTarget === 'none' || !workspaceId) return undefined;
+		if (!finishingTargets.includes(finishingTarget)) return undefined;
+		return { target: finishingTarget, loudness: finishingLoudness, workspaceId };
+	});
 	const activePreset = $derived(
 		videoFormat ? matchExportPreset({ format: videoFormat, codec, quality, resolution }) : null
 	);
@@ -196,6 +225,12 @@
 		{ value: 'burn', label: m.video_editor_export_subtitles_burn() },
 		{ value: 'sidecar', label: m.video_editor_export_subtitles_sidecar() },
 		{ value: 'embedded', label: m.video_editor_export_subtitles_embedded() }
+	]);
+	const loudnessOptions = $derived([
+		{ value: 'off', label: m.video_editor_export_loudness_off() },
+		{ value: 'social', label: m.video_editor_export_loudness_social() },
+		{ value: 'podcast', label: m.video_editor_export_loudness_podcast() },
+		{ value: 'broadcast', label: m.video_editor_export_loudness_broadcast() }
 	]);
 	const sequenceDestinationOptions = $derived([
 		{ value: 'directory', label: m.video_editor_export_sequence_destination_directory() },
@@ -464,10 +499,12 @@
 			width: outputDimensions.width,
 			height: outputDimensions.height,
 			subtitleMode,
+			loudness,
 			jpegQuality:
 				isSequenceFormat && (format === 'jpeg-sequence' || format === 'webp-sequence')
 					? jpegQualityFor(quality)
-					: undefined
+					: undefined,
+			finishing: serverFinishing
 		};
 	}
 
@@ -659,6 +696,7 @@
 				? await renderAudio(renderProject, {
 						format,
 						range,
+						loudness,
 						signal: abortController.signal,
 						onProgress: (value) => (progress = value)
 					})
@@ -669,7 +707,9 @@
 						width,
 						height,
 						subtitleMode,
+						loudness,
 						range,
+						finishing: serverFinishing,
 						signal: abortController.signal,
 						onProgress: (value) => (progress = value)
 					});
@@ -829,6 +869,23 @@
 							onValueChange={setCodec}
 						/>
 					</label>
+					{#if finishingTargets.length > 0}
+						<label class="text-xs text-muted-foreground"
+							>{m.video_editor_export_finishing()}<AppSelect
+								class="mt-1 h-8 w-full text-sm"
+								value={finishingTarget}
+								disabled={rendering}
+								options={[
+									{ value: 'none', label: m.video_editor_export_finishing_none() },
+									...finishingTargets.map((target) => ({
+										value: target,
+										label: finishingLabels[target]()
+									}))
+								]}
+								onValueChange={(value) => (finishingTarget = value as FinishingTargetId | 'none')}
+							/>
+						</label>
+					{/if}
 				{/if}
 				{#if !isAudioFormat}
 					<label class="text-xs text-muted-foreground">
@@ -862,6 +919,19 @@
 							options={subtitleOptions}
 							disabled={rendering}
 							onValueChange={setSubtitleMode}
+						/>
+					</label>
+				{/if}
+				{#if !isSequenceFormat}
+					<label class="text-xs text-muted-foreground">
+						{m.video_editor_export_loudness()}<AppSelect
+							class="mt-1 h-8 w-full text-sm"
+							value={loudness}
+							options={loudnessOptions}
+							disabled={rendering}
+							onValueChange={(value) => {
+								if (isExportLoudness(value)) loudness = value;
+							}}
 						/>
 					</label>
 				{/if}
@@ -900,6 +970,17 @@
 						{m.video_editor_export_sequence_directory_hint()}
 					</p>
 				{/if}
+			{/if}
+			{#if serverFinishing}
+				<p class="mt-3 text-xs text-muted-foreground">{m.video_editor_export_finishing_hint()}</p>
+				<label
+					class="mt-2 flex min-h-8 items-center gap-2 text-sm [@media(pointer:coarse)]:min-h-11"
+				>
+					<Checkbox
+						bind:checked={finishingLoudness}
+						disabled={rendering}
+					/>{m.video_editor_export_finishing_loudness()}
+				</label>
 			{/if}
 			<label class="mt-3 flex min-h-8 items-center gap-2 text-sm [@media(pointer:coarse)]:min-h-11">
 				<Checkbox

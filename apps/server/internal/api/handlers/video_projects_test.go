@@ -390,6 +390,52 @@ func TestCloudVideoProjectRebasesDisjointEditsAndPreservesOverlappingConflict(t 
 	require.Equal(t, []string{"user-editor", "user-editor", "user-editor", "user-editor"}, []string{history[0].AuthorUserID, history[1].AuthorUserID, history[2].AuthorUserID, history[3].AuthorUserID})
 }
 
+func TestCloudVideoProjectReplayedDeleteOfRemovedKeyStillSaves(t *testing.T) {
+	server := newVideoProjectTestServer(t)
+	created := server.request(t, "editor-token", http.MethodPost, "/api/v1/video-projects", map[string]any{
+		"workspace_id": "ws-1",
+		"name":         "Stale outbox",
+		"device_id":    "desktop-a",
+		"document": map[string]any{
+			"id": "document-1",
+			"timeline": map[string]any{
+				"tracks": []any{},
+				"items": []map[string]any{
+					{"id": "clip", "type": "video", "effects": []any{map[string]any{"type": "blur"}}},
+				},
+			},
+		},
+	})
+	require.Equal(t, http.StatusOK, created.Code, created.Body.String())
+	var project VideoProjectResponse
+	require.NoError(t, json.Unmarshal(created.Body.Bytes(), &project))
+
+	deleteEffects := func(mutationID string, baseRevision int64) *httptest.ResponseRecorder {
+		return server.request(t, "editor-token", http.MethodPost, "/api/v1/video-projects/"+project.ID+"/mutations", map[string]any{
+			"workspace_id":  "ws-1",
+			"mutation_id":   mutationID,
+			"base_revision": baseRevision,
+			"device_id":     "desktop-a",
+			"operations": []map[string]any{{
+				"kind": "delete", "target": "item:clip.effects", "path": "/timeline/items/0/effects",
+			}},
+		})
+	}
+	first := deleteEffects("delete-effects-1", 1)
+	require.Equal(t, http.StatusOK, first.Code, first.Body.String())
+
+	// A second outbox entry for the same removal, rebased onto the new head, used to
+	// return 400 and block every later save from this browser.
+	second := deleteEffects("delete-effects-2", 2)
+	require.Equal(t, http.StatusOK, second.Code, second.Body.String())
+	var result VideoProjectMutationResponse
+	require.NoError(t, json.Unmarshal(second.Body.Bytes(), &result))
+	require.Equal(t, "applied", result.Outcome)
+	require.Equal(t, int64(3), result.Revision)
+	require.NotContains(t, projectItem(t, result.Project.Document, 0), "effects")
+	require.Equal(t, "clip", projectItem(t, result.Project.Document, 0)["id"])
+}
+
 func TestCloudVideoProjectCanDismissConflictWithoutChangingHead(t *testing.T) {
 	server := newVideoProjectTestServer(t)
 	created := server.request(t, "editor-token", http.MethodPost, "/api/v1/video-projects", map[string]any{

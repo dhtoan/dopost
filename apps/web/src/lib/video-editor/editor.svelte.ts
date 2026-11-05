@@ -7,6 +7,7 @@
  */
 
 import { registerCloudExportProject } from './workspace-fs/export-storage';
+import { loadSharedVideoProject, SharedProjectNotFoundError } from './cloud/share-links';
 import { createLogger } from './workspace-fs/logger';
 import { getMediaForProject } from './workspace-fs/project-media';
 import { getProject, ProjectNotFoundError, updateProject } from './workspace-fs/projects';
@@ -138,7 +139,61 @@ class EditorSession {
 		return this.project ? timelineStore.fps : 30;
 	}
 
+	/** True while a share link is open: nothing is saved. */
+	readOnly = $state(false);
+
+	/**
+	 * Open a shared project to watch it. Like `load`, without a workspace: the
+	 * document and signed media come from the share link, and autosave stays
+	 * off so nothing a viewer touches is written anywhere.
+	 */
+	async loadShared(token: string): Promise<{ name: string; missing: boolean }> {
+		this.stopAutosaveTimers();
+		this.readOnly = true;
+		this.project = null;
+		this.projectId = null;
+		this.cloudWorkspaceId = '';
+		this.cloudRepository = null;
+		this.cloudProject = null;
+		this.loading = true;
+		this.loadError = '';
+		this.missingFontAssetIds = [];
+		try {
+			sceneBrowser.reset();
+			mediaPool.clear();
+			mediaRecovery.reset();
+			const shared = await loadSharedVideoProject(token);
+			let project = shared.document;
+			const unsupportedSchema = unsupportedProjectSchemaVersion(project);
+			if (unsupportedSchema !== null) {
+				this.loadError = m.video_editor_project_newer_schema({
+					version: String(unsupportedSchema)
+				});
+				return { name: shared.name, missing: false };
+			}
+			project = migrateProjectDocument(project).project;
+			this.project = {
+				...project,
+				animationPresets: normalizeAnimationPresets(project.animationPresets)
+			};
+			commandHistory.clearHistory();
+			sequenceStore.load(project.timeline ?? { tracks: [], items: [] }, project.metadata);
+			sequenceStore.switchTo(null);
+			timelineStore._setCurrentFrame(0);
+			this.syncTimelineClock();
+			mediaPool.loadAll(shared.media);
+			this.missingFontAssetIds = await loadProjectFontAssets(project, shared.media);
+			return { name: shared.name, missing: false };
+		} catch (error) {
+			this.loadError = error instanceof Error ? error.message : String(error);
+			return { name: '', missing: error instanceof SharedProjectNotFoundError };
+		} finally {
+			this.loading = false;
+		}
+	}
+
 	async load(projectId: string, cloudWorkspaceId = ''): Promise<void> {
+		this.readOnly = false;
 		if (cloudWorkspaceId) registerCloudExportProject(projectId, cloudWorkspaceId);
 		if (this.projectId && this.projectId !== projectId) {
 			this.loading = true;
@@ -297,7 +352,7 @@ class EditorSession {
 	}
 
 	scheduleAutosave(): void {
-		if (!this.projectId) return;
+		if (!this.projectId || this.readOnly) return;
 		this.saveRequested = true;
 		if (this.saveTimer) clearTimeout(this.saveTimer);
 		this.saveTimer = setTimeout(() => {
@@ -363,7 +418,7 @@ class EditorSession {
 	}
 
 	async saveNow(): Promise<void> {
-		if (!this.projectId || !this.project) return;
+		if (!this.projectId || !this.project || this.readOnly) return;
 		this.saveRequested = true;
 		if (this.saveTimer) clearTimeout(this.saveTimer);
 		this.saveTimer = null;

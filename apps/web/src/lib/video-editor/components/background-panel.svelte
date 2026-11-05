@@ -1,8 +1,12 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { Input } from '$lib/components/ui/input';
+	import { Textarea } from '$lib/components/ui/textarea';
+	import { Button } from '$lib/components/ui/button';
 	import { m } from '$lib/paraglide/messages';
 	import { addBackgroundItem } from '$lib/video-editor/timeline/actions/backgrounds';
+	import { addBlockout } from '$lib/video-editor/timeline/actions/blockout';
+	import { parseShotList } from '$lib/video-editor/timeline/blockout';
 	import { BACKGROUND_PRESETS } from '$lib/video-editor/backgrounds/presets';
 	import { backgroundPresetLabel } from '../backgrounds/labels';
 	import BackgroundThumbnail from './background-thumbnail.svelte';
@@ -14,6 +18,15 @@
 	} from '$lib/video-editor/timeline/generated-item-drag';
 
 	let search = $state('');
+	let shotList = $state('');
+	const shots = $derived(parseShotList(shotList));
+
+	function layOutShots(): void {
+		const ids = addBlockout(shots);
+		if (ids.length === 0) return;
+		shotList = '';
+		oninserted(ids[0]!);
+	}
 	let activeId = $state<string | null>(null);
 
 	function startDrag(event: DragEvent, presetId: string): void {
@@ -51,6 +64,32 @@
 	{#if matching.length === 0}<p class="text-xs text-muted-foreground" role="status">
 			{m.video_editor_paper_empty()}
 		</p>{/if}
+	<section class="space-y-2" aria-labelledby="video-editor-blockout-title">
+		<h3
+			id="video-editor-blockout-title"
+			class="text-[11px] font-medium"
+			title={m.video_editor_blockout_hint()}
+		>
+			{m.video_editor_blockout_title()}
+		</h3>
+		<p class="text-[11px] leading-4 text-muted-foreground">{m.video_editor_blockout_hint()}</p>
+		<Textarea
+			bind:value={shotList}
+			rows={4}
+			placeholder={m.video_editor_blockout_placeholder().split(' · ').join('\n')}
+			aria-label={m.video_editor_blockout_title()}
+			class="min-h-20 text-xs [@media(pointer:coarse)]:text-base"
+		/>
+		<Button
+			size="sm"
+			variant="secondary"
+			class="w-full [@media(pointer:coarse)]:h-11"
+			disabled={shots.length === 0}
+			onclick={layOutShots}
+		>
+			{m.video_editor_blockout_add({ count: shots.length })}
+		</Button>
+	</section>
 	{#each [true, false] as shaders (shaders)}
 		<section class="space-y-2">
 			<h3

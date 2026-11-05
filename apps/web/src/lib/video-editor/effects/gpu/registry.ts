@@ -23,6 +23,7 @@ import { halftone } from './shaders/halftone';
 import * as distortEffects from './shaders/distort';
 import { curves } from './curves';
 import { lut } from './lut';
+import { sourceProfile } from './source-profile';
 import { PAPER_GPU_EFFECTS } from '../paper/gpu-effects';
 
 /** Every definition, in stable category order (color, blur, keying, stylize, distort). */
@@ -44,6 +45,7 @@ export const GPU_EFFECT_CATALOG: readonly GpuShaderDefinition[] = [
 	colorEffects.gradientMap,
 	curves,
 	lut,
+	sourceProfile,
 	blurEffects.gaussianBlur,
 	blurEffects.boxBlur,
 	blurEffects.motionBlur,

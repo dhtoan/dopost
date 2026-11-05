@@ -7,8 +7,14 @@
 
 	let {
 		open = $bindable(false),
+		pageLinks = false,
 		onimport
-	}: { open?: boolean; onimport: (url: string) => Promise<void> } = $props();
+	}: {
+		open?: boolean;
+		/** The server imports video pages too, not only file links. */
+		pageLinks?: boolean;
+		onimport: (url: string) => Promise<void>;
+	} = $props();
 
 	let url = $state('');
 	let working = $state(false);
@@ -50,24 +56,35 @@
 					{m.video_editor_media_import_url()}
 				</Dialog.Title>
 				<Dialog.Description class="text-xs text-[var(--video-editor-muted)]">
-					{m.video_editor_media_import_url_description()}
+					{pageLinks
+						? m.video_editor_media_import_link_description()
+						: m.video_editor_media_import_url_description()}
 				</Dialog.Description>
 			</Dialog.Header>
 
 			<div class="mt-4 space-y-2">
 				<label for="remote-media-url" class="text-xs font-medium">
-					{m.video_editor_media_import_url_label()}
+					{pageLinks
+						? m.video_editor_media_import_link_label()
+						: m.video_editor_media_import_url_label()}
 				</label>
 				<Input
 					id="remote-media-url"
 					type="url"
 					bind:value={url}
-					placeholder={m.video_editor_media_import_url_placeholder()}
+					placeholder={pageLinks
+						? m.video_editor_media_import_link_placeholder()
+						: m.video_editor_media_import_url_placeholder()}
 					autocomplete="off"
 					spellcheck="false"
 					disabled={working}
 					aria-invalid={error ? 'true' : undefined}
 				/>
+				{#if pageLinks}
+					<p class="text-xs text-[var(--video-editor-muted)]">
+						{m.video_editor_media_import_link_rights()}
+					</p>
+				{/if}
 				{#if error}
 					<p
 						class="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive"

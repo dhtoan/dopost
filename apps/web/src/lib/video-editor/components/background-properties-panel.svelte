@@ -27,6 +27,9 @@
 	import { resolvePreExpressionItemAt } from '../timeline/animated-properties';
 	import { setAnimatedProperty } from '$lib/video-editor/timeline/actions/keyframes';
 	import { timelineStore } from '$lib/video-editor/timeline/stores/timeline-store.svelte';
+	import { mediaPool } from '$lib/video-editor/media/pool.svelte';
+	import { isBlockoutBackground } from '$lib/video-editor/timeline/blockout';
+	import { fillBlockoutShot } from '$lib/video-editor/timeline/actions/blockout';
 
 	let { item: sourceItem, onedit }: { item: TimelineItem; onedit: () => void } = $props();
 	const item = $derived(
@@ -51,6 +54,20 @@
 			)
 		)
 			onedit();
+	}
+
+	const isBlockout = $derived(isBlockoutBackground(bg));
+	const fillOptions = $derived(
+		isBlockout
+			? mediaPool.mediaList
+					.filter((media) => !media.tags.includes('audio'))
+					.map((media) => ({ value: media.id, label: media.fileName }))
+			: []
+	);
+
+	function fillWith(mediaId: string): void {
+		const media = mediaPool.get(mediaId);
+		if (media && fillBlockoutShot(item.id, media).ok) onedit();
 	}
 
 	function applyPreset(id: string): void {
@@ -81,6 +98,23 @@
 			class="text-[var(--video-editor-muted)] hover:text-[var(--video-editor-ink)]"
 		/>
 	</div>
+
+	{#if isBlockout}
+		<div class="flex flex-col gap-1 text-[10px] text-[var(--video-editor-muted)]">
+			<span>{m.video_editor_blockout_fill()}</span>
+			{#if fillOptions.length > 0}
+				<AppSelect
+					value=""
+					placeholder={m.video_editor_blockout_fill_placeholder()}
+					options={fillOptions}
+					ariaLabel={m.video_editor_blockout_fill()}
+					onValueChange={fillWith}
+				/>
+			{:else}
+				<p role="status">{m.video_editor_blockout_fill_empty()}</p>
+			{/if}
+		</div>
+	{/if}
 
 	<AppSelect
 		value={BACKGROUND_PRESETS.find(

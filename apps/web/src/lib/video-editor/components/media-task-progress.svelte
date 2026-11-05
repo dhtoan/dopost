@@ -51,6 +51,8 @@
 				return m.video_editor_task_interpolation();
 			case 'video-generation':
 				return m.video_editor_task_video_generation();
+			case 'background-removal':
+				return m.video_editor_task_background_removal();
 		}
 	}
 
@@ -118,7 +120,11 @@
 				? m.video_editor_task_rendering_reverse()
 				: m.video_editor_task_reverse_conform();
 		}
-		if (task.kind === 'upscale' || task.kind === 'frame-interpolation') {
+		if (
+			task.kind === 'upscale' ||
+			task.kind === 'frame-interpolation' ||
+			task.kind === 'background-removal'
+		) {
 			if (task.stage === 'downloading-model') {
 				return m.video_editor_task_downloading_motion_model();
 			}

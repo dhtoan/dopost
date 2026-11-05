@@ -1,7 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { client } from '$lib/api/client';
 import { queryClient } from '$lib/query/client';
-import { CloudVideoProjectRepository } from './project-repository';
+import type { PendingVideoProjectMutation } from '@openpost/video-project';
+import {
+	CloudVideoProjectRepository,
+	CloudVideoProjectSaveRejectedError
+} from './project-repository';
 
 describe('CloudVideoProjectRepository media reload', () => {
 	afterEach(() => {
@@ -234,4 +238,94 @@ it('restores each project asset even when its bytes are shared with another asse
 		vi.restoreAllMocks();
 		vi.unstubAllGlobals();
 	}
+});
+
+describe('CloudVideoProjectRepository mutation delivery', () => {
+	afterEach(() => {
+		vi.restoreAllMocks();
+	});
+
+	const entry: PendingVideoProjectMutation = {
+		projectId: 'project-1',
+		batch: {
+			workspace_id: 'workspace-1',
+			mutation_id: 'stale-delete',
+			base_revision: 4,
+			operations: [
+				{ kind: 'delete', target: 'item:clip.effects', path: '/timeline/items/0/effects' }
+			]
+		},
+		queuedAt: 1,
+		attempts: 0
+	};
+
+	function deliverQueued(repository: CloudVideoProjectRepository<object>) {
+		vi.spyOn(repository.outbox, 'enqueue').mockResolvedValue();
+		vi.spyOn(repository.outbox, 'drain').mockImplementation(async (deliver) => [
+			await deliver(entry)
+		]);
+	}
+
+	it('reports a 400 as a rejected mutation instead of waiting for a connection', async () => {
+		// SAFETY: The mocked response only needs the generated client's error shape.
+		vi.spyOn(client, 'POST').mockResolvedValue({
+			error: { detail: 'Invalid Video Project request' },
+			response: new Response(null, { status: 400 })
+		} as never);
+		const repository = new CloudVideoProjectRepository<object>('workspace-1');
+		deliverQueued(repository);
+
+		await expect(repository.flush()).resolves.toEqual([
+			{
+				outcome: 'rejected',
+				mutationId: 'stale-delete',
+				status: 400,
+				message: 'Invalid Video Project request'
+			}
+		]);
+	});
+
+	it('keeps retrying server errors and auth failures as connection problems', async () => {
+		const repository = new CloudVideoProjectRepository<object>('workspace-1');
+		deliverQueued(repository);
+		for (const status of [401, 409, 429, 500, 503]) {
+			// SAFETY: The mocked response only needs the generated client's error shape.
+			vi.spyOn(client, 'POST').mockResolvedValueOnce({
+				error: { detail: 'later' },
+				response: new Response(null, { status })
+			} as never);
+			await expect(repository.flush()).rejects.toThrow('waiting for a connection');
+		}
+	});
+
+	it('surfaces a rejected save and keeps the unsaved local document out of the synced state', async () => {
+		// SAFETY: The mocked response only needs the generated client's error shape.
+		vi.spyOn(client, 'POST').mockResolvedValue({
+			error: { detail: 'Invalid Video Project request' },
+			response: new Response(null, { status: 400 })
+		} as never);
+		const repository = new CloudVideoProjectRepository<{ name: string }>('workspace-1');
+		// SAFETY: deliverQueued only stubs the outbox, which does not depend on the document type.
+		deliverQueued(repository as CloudVideoProjectRepository<object>);
+		const project = {
+			id: 'project-1',
+			workspaceId: 'workspace-1',
+			name: 'Clip',
+			headRevision: 4,
+			document: { name: 'Clip' },
+			syncStatus: 'synced' as const,
+			attentionReason: '',
+			trashedAt: '',
+			updatedAt: ''
+		};
+
+		const saving = repository.save(project, { name: 'Renamed' });
+		await expect(saving).rejects.toBeInstanceOf(CloudVideoProjectSaveRejectedError);
+		await expect(saving).rejects.toMatchObject({
+			status: 400,
+			localDocument: { name: 'Renamed' }
+		});
+		expect(project.headRevision).toBe(4);
+		expect(project.document).toEqual({ name: 'Clip' });
+	});
 });

@@ -29,7 +29,22 @@
 		saveColorGradePreset,
 		type ColorGradePreset
 	} from '$lib/video-editor/effects/color-grade-presets';
-	import { replaceColorGradeEffects } from '$lib/video-editor/timeline/actions/effects';
+	import {
+		replaceColorGradeEffects,
+		setSourceProfileOnItems
+	} from '$lib/video-editor/timeline/actions/effects';
+	import {
+		SOURCE_PROFILES,
+		SOURCE_PROFILE_EFFECT_ID,
+		isSourceProfile,
+		type SourceProfile
+	} from '$lib/video-editor/effects/source-profile';
+	import {
+		hasOwnSourceProfile,
+		taggedHdrProfile
+	} from '$lib/video-editor/effects/gpu/render-effects';
+	import { mediaHdrTransfer } from '$lib/video-editor/media/hdr-tags';
+	import { mediaPool } from '$lib/video-editor/media/pool.svelte';
 	import { setAnimatedGpuEffectParamsOnItems } from '$lib/video-editor/timeline/actions/keyframes';
 	import { autoKeyframeStore } from '$lib/video-editor/timeline/stores/auto-keyframe-store.svelte';
 	import { isColorGradeTargetEditable } from '$lib/video-editor/effects/color-targets';
@@ -40,6 +55,8 @@
 		pasteColorGradeToItems
 	} from '$lib/video-editor/effects/color-grade-clipboard';
 	import ColorPrimaryControls from './color-primary-controls.svelte';
+	import { colorStatsFromPixels, matchColorWheels } from '$lib/video-editor/effects/color-match';
+	import { colorMatchReference } from '$lib/video-editor/effects/color-match-reference.svelte';
 	import {
 		EDITOR_COLOR_GRADE_PRESETS,
 		editorColorGradePresetLabel,
@@ -82,6 +99,21 @@
 	const grade = $derived(snapshotColorGrade(item?.effects));
 	const hasGrade = $derived(hasEnabledColorGrade(item?.effects));
 	const isVisual = $derived(item?.type !== 'audio' && item !== undefined);
+	/** HLG or PQ when the clip comes from tagged HDR media and has no source profile of its own. */
+	const autoHdrTransfer = $derived(
+		item?.type === 'video' && item.mediaId && !hasOwnSourceProfile(item.effects)
+			? mediaHdrTransfer(mediaPool.get(item.mediaId))
+			: null
+	);
+	const sourceProfile = $derived.by((): SourceProfile => {
+		if (autoHdrTransfer) return taggedHdrProfile(autoHdrTransfer);
+		const effect = item?.effects?.find(
+			(entry) => entry.type === 'gpu' && entry.effectId === SOURCE_PROFILE_EFFECT_ID
+		);
+		return effect?.type === 'gpu' && effect.enabled && isSourceProfile(effect.params.profile)
+			? effect.params.profile
+			: 'rec709';
+	});
 	const selectedVisualItemIds = $derived.by(() => {
 		const requested = itemId && itemIds.includes(itemId) ? itemIds : itemId ? [itemId] : [];
 		return Array.from(new Set(requested)).filter(
@@ -165,6 +197,71 @@
 			tint: readWheelParam('tint')
 		});
 		applyWheelParams({ ...updates }, m.video_editor_color_auto_applied(), targetItemIdsAtStart);
+	}
+
+	/** The frame on screen with this clip graded, or with its grade switched off. */
+	async function captureFrame(targetItemId: string, ungraded: boolean): Promise<ImageData | null> {
+		const previousMode = colorPreviewStore.comparisonMode;
+		const previousIds = [...colorPreviewStore.comparisonItemIds];
+		colorPreviewStore.setComparisonMode(
+			ungraded ? 'before' : 'after',
+			ungraded ? [targetItemId] : []
+		);
+		try {
+			return await colorPreviewStore.requestFrameCapture(targetItemId);
+		} finally {
+			colorPreviewStore.setComparisonMode(previousMode, previousIds);
+		}
+	}
+
+	async function setMatchReference(): Promise<void> {
+		if (!itemId || !item) return;
+		const targetItemId = itemId;
+		const label = item.label || item.id;
+		status = m.video_editor_color_analyzing();
+		const image = await captureFrame(targetItemId, false);
+		const stats = image ? colorStatsFromPixels(image.data) : undefined;
+		if (!stats || itemId !== targetItemId) {
+			status = m.video_editor_color_sample_unavailable();
+			return;
+		}
+		colorMatchReference.set({ itemId: targetItemId, label, stats });
+		status = m.video_editor_color_match_reference_set({ name: label });
+	}
+
+	async function matchToReference(): Promise<void> {
+		const reference = colorMatchReference.current;
+		if (!itemId || !reference) return;
+		const targetItemId = itemId;
+		const targetItemIdsAtStart = [...editableTargetItemIds];
+		if (targetItemIdsAtStart.length === 0) return;
+		status = m.video_editor_color_matching();
+		// The fit renders the wheels itself, so it starts from the clip's pixels
+		// before any grade and from the wheel settings the clip has now.
+		const image = await captureFrame(targetItemId, true);
+		if (!image || itemId !== targetItemId) {
+			status = m.video_editor_color_sample_unavailable();
+			return;
+		}
+		const defaults = getGpuEffectDefaultParams('gpu-color-wheels');
+		const current = Object.fromEntries(
+			Object.keys(defaults).map((name) => [name, readWheelParam(name)])
+		);
+		const updates = await matchColorWheels({
+			source: image.data,
+			reference: reference.stats,
+			current
+		});
+		if (itemId !== targetItemId) return;
+		if (Object.keys(updates).length === 0) {
+			status = m.video_editor_color_match_none({ name: reference.label });
+			return;
+		}
+		applyWheelParams(
+			updates,
+			m.video_editor_color_match_applied({ name: reference.label }),
+			targetItemIdsAtStart
+		);
 	}
 
 	async function pick(kind: ColorPickerKind): Promise<void> {
@@ -273,6 +370,14 @@
 		status = m.video_editor_color_preset_deleted({ name: preset.name });
 	}
 
+	function setSourceProfile(value: string): void {
+		if (!isSourceProfile(value)) return;
+		const name = SOURCE_PROFILES.find((profile) => profile.value === value)?.label ?? value;
+		if (!setSourceProfileOnItems(editableTargetItemIds, value)) return;
+		status = m.video_editor_color_source_profile_applied({ name });
+		onedit();
+	}
+
 	function toggleGradeTools(): void {
 		showGradeTools = !showGradeTools;
 		if (showGradeTools) return;
@@ -358,6 +463,27 @@
 					>
 						<ThemeIcon role="copy" class="size-3.5" />{m.video_editor_color_paste_grade()}
 					</button>
+					<button
+						type="button"
+						class="editor-tool min-w-28 flex-1"
+						aria-pressed={colorMatchReference.current?.itemId === itemId}
+						onclick={() => void setMatchReference()}
+					>
+						{m.video_editor_color_match_reference()}
+					</button>
+					<button
+						type="button"
+						class="editor-tool min-w-20 flex-1"
+						disabled={!colorMatchReference.current ||
+							colorMatchReference.current.itemId === itemId ||
+							editableTargetItemIds.length === 0}
+						title={colorMatchReference.current
+							? m.video_editor_color_match_apply_title({ name: colorMatchReference.current.label })
+							: undefined}
+						onclick={() => void matchToReference()}
+					>
+						{m.video_editor_color_match_apply()}
+					</button>
 					{#if oncreateadjustment}
 						<button
 							type="button"
@@ -391,6 +517,31 @@
 						<ThemeIcon role="save" class="size-3.5" />
 					</button>
 				</div>
+			{/if}
+			{#if item?.type !== 'adjustment' && (!compact || showGradeTools)}
+				<label
+					class="mt-1 flex items-center gap-2 text-[10px] text-[var(--video-editor-muted)]"
+					title={m.video_editor_color_source_profile_hint()}
+				>
+					<span class="shrink-0">{m.video_editor_color_source_profile()}</span>
+					<select
+						class="h-[var(--editor-22,22px)] min-w-0 flex-1 rounded border border-[var(--video-editor-border)] bg-[var(--video-editor-panel)] px-1.5 text-xs text-[var(--video-editor-text)] [@media(pointer:coarse)]:h-11"
+						value={sourceProfile}
+						disabled={editableTargetItemIds.length === 0}
+						onchange={(event) => setSourceProfile(event.currentTarget.value)}
+					>
+						{#each SOURCE_PROFILES as profile (profile.value)}
+							<option value={profile.value}>{profile.label}</option>
+						{/each}
+					</select>
+				</label>
+				{#if autoHdrTransfer}
+					<p class="text-[10px] text-[var(--video-editor-muted)]">
+						{m.video_editor_color_source_profile_auto({
+							transfer: autoHdrTransfer === 'hlg' ? 'HLG' : 'PQ'
+						})}
+					</p>
+				{/if}
 			{/if}
 			{#if showPresetSave}
 				<div class="mt-1 grid grid-cols-[1fr_auto] gap-1">

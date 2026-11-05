@@ -106,6 +106,12 @@ Bootstrap and data-plane settings stay deployment-only because dopost needs them
 | `OPENPOST_PEXELS_API_KEY` | No | empty | Server-only Pexels API key for photo and video search. |
 | `OPENPOST_UNSPLASH_ACCESS_KEY` | No | empty | Server-only Unsplash access key for photo search and required selection tracking. |
 | `OPENPOST_PIXABAY_API_KEY` | No | empty | Server-only Pixabay API key for image and video search. |
+| `OPENPOST_EXPORT_FINISHING_ENABLED` | No | `false` | Adds "Finish on server" to video export: the browser renders a 50 Mbps H.264 MP4, uploads it, and ffmpeg re-encodes it to ProRes 422 HQ (.mov), H.265 or constant-quality H.264, optionally normalizing loudness to -14 LUFS. One job runs at a time; files live in the server's temp folder until downloaded or for an hour. |
+| `OPENPOST_FFMPEG_PATH` | No | `ffmpeg` | ffmpeg executable for server finishing; ffprobe is taken from the same folder. Needs libx264, libx265 and prores_ks. |
+| `OPENPOST_URL_IMPORT_ENABLED` | No | `false` | Lets editors paste a video page link (YouTube, TikTok, Instagram, X and others) in Media → Import from URL; the server downloads it with yt-dlp. yt-dlp fetches the page itself, so the server only checks that the link's host is public; leave this off on servers where that is not acceptable. Users are reminded to import only media they have the rights to. |
+| `OPENPOST_YTDLP_PATH` | No | `yt-dlp` | yt-dlp executable name or full path. ffmpeg must be on `PATH` to merge separate video and audio. |
+| `OPENPOST_URL_IMPORT_MAX_MB` | No | `1024` | Largest file one link import may download, in MB. |
+| `OPENPOST_YTDLP_COOKIES_FILE` | No | empty | Optional Netscape cookie file passed to yt-dlp for sites that ask servers to sign in (YouTube often does). |
 | `OPENROUTER_API_KEY` | No | empty | Server-only OpenRouter key that enables AI post building, meme suggestions, and automatic image alt text. Supports `OPENROUTER_API_KEY_FILE`. |
 | `OPENPOST_CONTENT_AI_PROVIDER` | No | image-caption provider | Exact OpenRouter provider slug allowed for post building and AI meme suggestions. The Hosted service requires `azure/eu`. |
 | `OPENPOST_CONTENT_AI_REQUIRE_ZDR` | No | image-caption ZDR policy | Require OpenRouter to use zero-data-retention endpoints for post building and AI meme suggestions. The Hosted service requires `true`. |

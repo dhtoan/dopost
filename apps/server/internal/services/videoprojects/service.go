@@ -1293,9 +1293,9 @@ func updateJSONNode(node any, parts []string, kind string, value any) (any, erro
 	case map[string]any:
 		if last {
 			if kind == MutationDelete {
-				if _, exists := current[key]; !exists {
-					return nil, ErrInvalid
-				}
+				// Deleting an absent key is a no-op, so an outbox entry replayed after a
+				// later revision already removed the key still applies instead of
+				// wedging every later save behind a 400.
 				delete(current, key)
 			} else {
 				current[key] = value
