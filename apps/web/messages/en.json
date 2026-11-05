@@ -6245,6 +6245,7 @@
 	"video_editor_color_source_profile": "Source",
 	"video_editor_color_source_profile_hint": "What the footage was recorded in. Choose Apple Log for iPhone log video, or HLG or PQ for HDR video that looks flat and grey.",
 	"video_editor_color_source_profile_applied": "Source profile: {name}. The grade now works on the decoded picture.",
+	"video_editor_color_source_profile_auto": "{transfer} HDR file: converted to SDR automatically. Pick another source to override.",
 	"video_editor_color_match_reference": "Use as match reference",
 	"video_editor_color_match_reference_set": "Match reference: {name}. Select another clip and choose Match.",
 	"video_editor_color_match_apply": "Match",

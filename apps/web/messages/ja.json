@@ -6197,6 +6197,7 @@
 	"video_editor_color_source_profile": "ソース",
 	"video_editor_color_source_profile_hint": "素材の記録方式。iPhone のログ動画は Apple Log、平坦で灰色っぽく見える HDR 動画は HLG または PQ を選んでください。",
 	"video_editor_color_source_profile_applied": "ソースプロファイル: {name}。グレードはデコード後の映像にかかります。",
+	"video_editor_color_source_profile_auto": "{transfer} HDR ファイル: 自動で SDR に変換しています。変更するには別のソースを選んでください。",
 	"video_editor_color_match_reference": "マッチの基準にする",
 	"video_editor_color_match_reference_set": "マッチの基準: {name}。別のクリップを選んで「マッチ」を押してください。",
 	"video_editor_color_match_apply": "マッチ",

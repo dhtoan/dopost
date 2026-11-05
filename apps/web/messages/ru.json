@@ -6215,6 +6215,7 @@
 	"video_editor_color_source_profile": "Источник",
 	"video_editor_color_source_profile_hint": "В каком формате снят материал. Выберите Apple Log для лог-видео с iPhone или HLG либо PQ для HDR-видео, которое выглядит плоским и серым.",
 	"video_editor_color_source_profile_applied": "Профиль источника: {name}. Цветокоррекция теперь работает с декодированным изображением.",
+	"video_editor_color_source_profile_auto": "HDR-файл {transfer}: автоматически преобразуется в SDR. Выберите другой источник, чтобы изменить.",
 	"video_editor_color_match_reference": "Сделать эталоном для подбора",
 	"video_editor_color_match_reference_set": "Эталон: {name}. Выберите другой клип и нажмите «Подобрать».",
 	"video_editor_color_match_apply": "Подобрать",

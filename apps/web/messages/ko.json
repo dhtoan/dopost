@@ -6197,6 +6197,7 @@
 	"video_editor_color_source_profile": "소스",
 	"video_editor_color_source_profile_hint": "영상이 기록된 방식입니다. iPhone 로그 영상은 Apple Log, 밋밋하고 회색빛으로 보이는 HDR 영상은 HLG 또는 PQ를 선택하세요.",
 	"video_editor_color_source_profile_applied": "소스 프로필: {name}. 이제 색 보정이 디코딩된 화면에 적용됩니다.",
+	"video_editor_color_source_profile_auto": "{transfer} HDR 파일: 자동으로 SDR로 변환합니다. 바꾸려면 다른 소스를 선택하세요.",
 	"video_editor_color_match_reference": "매치 기준으로 사용",
 	"video_editor_color_match_reference_set": "매치 기준: {name}. 다른 클립을 선택하고 매치를 누르세요.",
 	"video_editor_color_match_apply": "매치",

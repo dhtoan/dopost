@@ -6197,6 +6197,7 @@
 	"video_editor_color_source_profile": "Origem",
 	"video_editor_color_source_profile_hint": "Em que formato o material foi gravado. Escolha Apple Log para vídeo log do iPhone, ou HLG ou PQ para vídeo HDR que parece baço e cinzento.",
 	"video_editor_color_source_profile_applied": "Perfil de origem: {name}. A correção de cor atua agora na imagem descodificada.",
+	"video_editor_color_source_profile_auto": "Ficheiro HDR {transfer}: convertido para SDR automaticamente. Escolha outra fonte para mudar.",
 	"video_editor_color_match_reference": "Usar como referência de correspondência",
 	"video_editor_color_match_reference_set": "Referência de correspondência: {name}. Seleccione outro clip e escolha Corresponder.",
 	"video_editor_color_match_apply": "Corresponder",

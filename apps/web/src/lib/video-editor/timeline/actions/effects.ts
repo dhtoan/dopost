@@ -37,6 +37,8 @@ import {
 	type SourceProfile
 } from '$lib/video-editor/effects/source-profile';
 import { timelineStore } from '../stores/timeline-store.svelte';
+import { mediaPool } from '$lib/video-editor/media/pool.svelte';
+import { mediaHdrTransfer } from '$lib/video-editor/media/hdr-tags';
 import { execute, executeAtomic } from '../commands/command-store.svelte';
 import { addAdjustmentLayer, type AddAdjustmentLayerOptions } from './items';
 import { isColorGradeTargetEditable } from '$lib/video-editor/effects/color-targets';
@@ -361,10 +363,16 @@ export function setSourceProfileOnItems(
 			);
 			if (current?.type === 'gpu' && current.enabled && current.params.profile === profile)
 				return [];
-			if (!current && profile === 'rec709') return [];
+			// HDR media convert on their own unless the clip says otherwise, so Rec.709 on
+			// such a clip is kept as an explicit choice instead of removed.
+			const keepRec709 =
+				item.type === 'video' && item.mediaId !== undefined
+					? mediaHdrTransfer(mediaPool.get(item.mediaId)) !== null
+					: false;
+			if (!current && profile === 'rec709' && !keepRec709) return [];
 			const rest = effects.filter((effect) => effect !== current);
 			const next: ItemEffect[] =
-				profile === 'rec709'
+				profile === 'rec709' && !keepRec709
 					? rest
 					: [
 							{

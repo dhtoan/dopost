@@ -6197,6 +6197,7 @@
 	"video_editor_color_source_profile": "Kaynak",
 	"video_editor_color_source_profile_hint": "Görüntünün kaydedildiği biçim. iPhone log videosu için Apple Log'u, düz ve gri görünen HDR videosu için HLG ya da PQ'yu seçin.",
 	"video_editor_color_source_profile_applied": "Kaynak profili: {name}. Renk düzenlemesi artık çözülmüş görüntü üzerinde çalışıyor.",
+	"video_editor_color_source_profile_auto": "{transfer} HDR dosyası: otomatik olarak SDR'ye dönüştürülüyor. Değiştirmek için başka bir kaynak seçin.",
 	"video_editor_color_match_reference": "Eşleştirme referansı olarak kullan",
 	"video_editor_color_match_reference_set": "Eşleştirme referansı: {name}. Başka bir klip seçip Eşleştir'e basın.",
 	"video_editor_color_match_apply": "Eşleştir",
