@@ -56,11 +56,12 @@
 		type MediaLibrarySort
 	} from '$lib/video-editor/media/library-view';
 	import { importMediaFromUrl } from '$lib/video-editor/media/import-url';
+	import { linkImportAvailable } from '$lib/video-editor/media/link-import';
+	import { workspaceCtx } from '$lib/stores/workspace.svelte';
 	import MediaInfoPopover from './media-info-popover.svelte';
 	import MediaUrlImportDialog from './media-url-import-dialog.svelte';
 	import VideoGenerationDialog from './video-generation-dialog.svelte';
 	import { videoGenerationService } from '$lib/video-editor/media/processing/video-generation/video-generation-service.svelte';
-	import { workspaceCtx } from '$lib/stores/workspace.svelte';
 	import { mediaRecovery } from '$lib/video-editor/media/media-recovery.svelte';
 	import type { MediaSourceIssue } from '$lib/video-editor/media/media-recovery';
 	import {
@@ -161,6 +162,15 @@
 			.open(workspaceId, { projectId, importAsset: importProjectAsset })
 			.catch(() => undefined);
 		return () => videoGenerationService.close();
+	});
+	/** The workspace whose server imports page links, or '' when only file links work. */
+	let linkImportWorkspaceId = $state('');
+	$effect(() => {
+		if (!urlImportOpen) return;
+		const workspaceId = workspaceCtx.currentWorkspace?.id?.trim() ?? '';
+		void linkImportAvailable(workspaceId).then((enabled) => {
+			linkImportWorkspaceId = enabled ? workspaceId : '';
+		});
 	});
 	let query = $state('');
 	let filter = $state<MediaLibraryFilter>('all');
@@ -500,7 +510,8 @@
 				projectId,
 				storageMode: 'copy',
 				onUnsupportedAudio,
-				importAsset: importProjectAsset
+				importAsset: importProjectAsset,
+				linkImportWorkspaceId: linkImportWorkspaceId || undefined
 			});
 		} catch (error) {
 			if (error instanceof MediaImportCancelledError) return;
@@ -2089,7 +2100,6 @@
 	{/if}
 </div>
 
-<MediaUrlImportDialog bind:open={urlImportOpen} onimport={importUrl} />
 {#if generationWorkspaceId}
 	<VideoGenerationDialog
 		bind:open={videoGenerationOpen}
@@ -2098,6 +2108,11 @@
 		onstarted={() => showToast(m.video_editor_generate_video_started(), 'success')}
 	/>
 {/if}
+<MediaUrlImportDialog
+	bind:open={urlImportOpen}
+	pageLinks={Boolean(linkImportWorkspaceId)}
+	onimport={importUrl}
+/>
 
 <DestructiveConfirmDialog
 	bind:open={mediaDeleteDialogOpen}
