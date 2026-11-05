@@ -12,6 +12,10 @@ dopost is based on OpenPost and includes modified OpenPost source code.
 
 The licence text is kept at the repository root as `LICENSE` and under `licenses/openpost/LICENSE`. Copyright headers in source files are kept as written. dopost is distributed under the same AGPL-3.0-only terms.
 
+## dopost name and logo
+
+The AGPL-3.0 licence does not grant rights to the dopost name or logo. Under section 7(e), dopost declines to grant trademark rights in them; see [TRADEMARKS.md](TRADEMARKS.md). This does not limit any right the licence gives.
+
 ## Bang Motion
 
 The dopost Motion Engine adapts motion-design ideas from Bang Motion.

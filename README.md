@@ -16,6 +16,8 @@
     · <a href="apps/docs/content/docs/self-hosting/index.mdx">Self-hosting</a>
     · <a href="https://github.com/dhtoan/dopost/issues">Issues</a>
   </p>
+
+  <p><strong>English</strong> · <a href="README.vi.md">Tiếng Việt</a></p>
 </div>
 
 ## Create without losing control
@@ -34,19 +36,67 @@ dopost brings AI-assisted creation into a native editing workflow. Generated con
 | <img src="assets/brand/features/workflows.svg" width="40" alt="">    | **Workflows**               | Visual automations from RSS, GitHub releases, and published posts, with AI writing, review, and comment campaigns.              |
 | <img src="assets/brand/features/workspaces.svg" width="40" alt="">   | **Connected Workspace**     | Media, accounts, calendars, inboxes, analytics, automations, clients, and collaborators together.                               |
 
-## What's new in this release
+## Product tour
 
-- **Unified Inbox**: incoming mentions from Bluesky, Mastodon, and Threads; Google Business reviews and owner replies; AI replies drafted from approved product information; Instagram private replies; mark-all-read across pages.
-- **Analytics**: a Visibility total that combines impressions and video views, last-year, all-time, and custom ranges, and CSV, Excel (with charts), or JSON export by post, day, week, month, platform, or account.
-- **Instance backup and restore** for self-hosted installs, from **Settings → Instance → Backup and restore**.
-- **Instagram without a Facebook Page**: connect Business and Creator accounts directly, or keep Facebook Login.
-- **LinkedIn Community Management** for Pages and analytics.
-- **Image Editor**: animated GIF layers with frame editing, light effects (flare, starburst, mist, prism, bokeh), per-page canvas sizes, layer-effect presets, and AI image generation and edits.
-- **Clients and approvals**: a client role that can connect accounts and approve assigned posts, with approval reminders and expiry notices.
-- **Workflows and Ideate**: a visual workflow editor, source-backed post series, and four complete post options from one idea.
-- **Video Editor**: hosted editing assistant, recording clean-up, clip suggestions, timers, reusable blocks, track reordering, and audio detach.
-- **Mobile readiness**: mobile Inbox with chats and comments, per-destination readiness in the composer, and server-published upload limits.
-- **Languages**: Russian and Italian interface translations.
+Each screen below is a real capture of dopost. The numbers match the notes under each picture.
+
+### Publishing
+
+![The composer: per-account versions, media, AI ideas, scheduling and a live preview](assets/readme/en/01-compose.webp)
+
+### Planning
+
+![The posts calendar with views, month navigation, filters and scheduled posts](assets/readme/en/02-calendar.webp)
+
+### Analytics
+
+![Analytics: account and date filters, export, headline metrics, daily trend and audience by account](assets/readme/en/03-analytics.webp)
+
+### Automations
+
+![The workflow editor: trigger, condition, AI steps, approval, publishing actions and test runs](assets/readme/en/04-workflows.webp)
+
+### Video Editor
+
+![The video editor: workspaces, media, preview, inspector, timeline and export](assets/readme/en/05-video-editor.webp)
+
+![The Color workspace: scopes, correction tools, compare modes, color wheels and primary sliders](assets/readme/en/06-color.webp)
+
+![The export dialog: sequence, presets, format and quality, subtitles and render queue](assets/readme/en/07-export.webp)
+
+### Image Editor
+
+![The image editor: menus, tools, media, canvas, layers, AI edits, quick looks and adjustments](assets/readme/en/08-image-editor.webp)
+
+## What's new in 1.2
+
+**Colour**
+
+- **Source profiles** for Apple Log, Apple Log 2, HLG and PQ footage, decoded through the ACES 2.0 output transform.
+- **HDR to SDR** conversion for HLG and PQ clips, detected on import.
+- **Match a shot**: grade one clip to look like a reference clip.
+
+**Editing**
+
+- **Block out shots** from a typed shot list, then fill them with footage later.
+- **J/L split edits**: start a clip's sound early or let it run over the next shot.
+- **Sync a recording by sound** to the camera clip.
+- **Remove background** from a video on the device with MediaPipe.
+
+**Captions**
+
+- **Sync your own lyrics or script** to the audio.
+- **Snap captions to speech**, checked against the clip's audio.
+- The **editor agent** can caption, clean up and translate captions.
+
+**Export and sharing**
+
+- **Loudness target** (LUFS) in the export dialog.
+- **Finish on server** with ffmpeg to ProRes 422 HQ, H.265 or a smaller H.264 (off by default).
+- **Read-only share links** for video projects.
+- **Import video page links** through yt-dlp (off by default).
+
+  1.1 added AI video generation, the ChatGPT video player, preview guides and word-accurate speech cleanup. See [all releases](https://github.com/dhtoan/dopost/releases) for the full notes.
 
 ## Built for editable output
 
@@ -59,9 +109,20 @@ AI output should be a starting point, not a locked render. dopost creates native
 
 ## Get started
 
-### Use a release
+### Run with Docker
 
-Download the latest source bundle from [GitHub Releases](https://github.com/dhtoan/dopost/releases). Releases are alpha prereleases; read the [self-hosting documentation](apps/docs/content/docs/self-hosting/index.mdx) and test in your environment before production use.
+Every release publishes a container image, `ghcr.io/dhtoan/dopost`, tagged with the version (for example `1.2.0`) and `latest`. To run it from a clone of this repository:
+
+```bash
+cp deploy/aapanel/.env.example deploy/aapanel/.env
+# Set the public URL and the secrets in deploy/aapanel/.env.
+# Pin the version with DOPOST_IMAGE_TAG=1.2.0.
+docker compose -f deploy/aapanel/docker-compose.yml up -d
+```
+
+The app listens on `127.0.0.1:8080`; put a reverse proxy with TLS in front of it. The [aaPanel deployment guide](docs/deployment/aapanel.md) covers the proxy, PostgreSQL and S3-compatible storage. Compose files for CasaOS, Coolify, Dockge, Dokploy, Portainer and ZimaOS are in [`deploy/`](deploy).
+
+To upgrade, take a backup (**Settings → Instance → Backup and restore**), change `DOPOST_IMAGE_TAG`, then run `docker compose -f deploy/aapanel/docker-compose.yml pull` and `up -d` again. Each release's notes list its migrations and new settings.
 
 ### Run the development workspace
 
@@ -89,7 +150,7 @@ dopost uses Go for the backend and media services, with SvelteKit and TypeScript
 
 ## Release status
 
-dopost is in alpha. Alpha releases may include breaking API, configuration, or migration changes. Pin the exact release version, keep backups, and test upgrades before using them with important projects.
+dopost uses semantic versioning. Releases can still change APIs, configuration or migrations, and the release notes say so when they do. Pin the exact version, keep backups, and test upgrades before using them with important projects.
 
 ## Contributing
 
@@ -98,3 +159,5 @@ Bug reports and focused proposals are welcome through [GitHub Issues](https://gi
 ## License
 
 dopost is distributed under the [GNU Affero General Public License v3.0 only](LICENSE). Third-party components keep their own licences and notices; see [NOTICE.md](NOTICE.md) and the [licenses directory](licenses/README.md).
+
+The licence covers the code, not the dopost name or logo. Forks and hosted services need their own name; see the [trademark policy](TRADEMARKS.md).
