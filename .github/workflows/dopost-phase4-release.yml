@@ -42,7 +42,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: package.json
@@ -57,10 +57,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
-          go-version: "1.26.6"
+          go-version-file: apps/server/go.mod
           cache-dependency-path: apps/server/go.sum
       - name: Test documentary, motion compiler, and Auto Video services
         run: >-
@@ -81,13 +81,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: package.json
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
-          go-version: "1.26.6"
+          go-version-file: apps/server/go.mod
           cache-dependency-path: apps/server/go.sum
       - run: bun install --frozen-lockfile
       - name: Check generated contracts
@@ -119,13 +119,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: package.json
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
-          go-version: "1.26.6"
+          go-version-file: apps/server/go.mod
           cache-dependency-path: apps/server/go.sum
       - run: bun install --frozen-lockfile
       - run: bunx playwright install --with-deps chromium
@@ -153,13 +153,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: package.json
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
-          go-version: "1.26.6"
+          go-version-file: apps/server/go.mod
           cache-dependency-path: apps/server/go.sum
       - run: bun install --frozen-lockfile
       - name: Verify Bang Motion provenance snapshot
