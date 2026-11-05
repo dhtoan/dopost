@@ -512,59 +512,13 @@ export class CloudVideoProjectRepository<TDocument extends object> {
 			for (const asset of readyAssets) {
 				const item = metadataById.get(asset.media_id);
 				if (!item) continue;
-				const prepared = editorAssetMetadataSchema.safeParse(asset.preparation.editorMedia);
-				const probe = prepared.success ? prepared.data : undefined;
-				const mimeType = item.mime_type || asset.mime_type;
-				const fileSize = item.size ?? asset.size;
-				const duration =
-					(item.duration_ms ?? 0) > 0 ? (item.duration_ms ?? 0) / 1000 : (probe?.duration ?? 0);
-				const mediaKind =
-					probe?.codec === 'lottie' &&
-					(mimeType === 'application/zip' || mimeType === 'application/json')
-						? 'lottie'
-						: mimeType.startsWith('font/')
-							? 'font'
-							: mimeType.startsWith('audio/')
-								? 'audio'
-								: mimeType.startsWith('image/')
-									? 'image'
-									: 'video';
-				media.push({
-					id: asset.stable_media_id,
-					storageType: 'cloud',
-					remoteUrl: item.url,
-					remoteThumbnailUrl: item.thumbnail_url || item.poster_thumbnail_url || undefined,
-					offlineUrl: offlineMediaURL(this.workspaceId, id, asset.stable_media_id),
-					contentHash: asset.sha256 || undefined,
-					fileName: asset.original_filename,
-					fileSize,
-					mimeType,
-					duration,
-					width: item.width || probe?.width || 0,
-					height: item.height || probe?.height || 0,
-					fps: item.frame_rate || probe?.fps || 0,
-					codec:
-						mediaKind === 'lottie'
-							? 'lottie'
-							: item.video_codec || probe?.codec || item.container_format || '',
-					bitrate: Math.round((fileSize * 8) / Math.max(1, duration)),
-					audioCodec: item.audio_codec || probe?.audioCodec,
-					hasAudio: probe?.hasAudio,
-					audioCodecSupported: isAudioCodecSupported(item.audio_codec || probe?.audioCodec),
-					videoCodecSupported: isProResCodec(item.video_codec || probe?.codec) ? false : undefined,
-					lottieTotalFrames: probe?.lottieTotalFrames,
-					lottieMarkers: probe?.lottieMarkers,
-					animationFrameCount: probe?.animationFrameCount,
-					attribution: probe?.attribution,
-					tags: [
-						...new Set([
-							mediaKind,
-							...(probe?.tags.filter(
-								(tag) => !['audio', 'video', 'image', 'font', 'lottie'].includes(tag)
-							) ?? [])
-						])
-					]
-				});
+				media.push(
+					cloudMediaMetadata(
+						asset,
+						item,
+						offlineMediaURL(this.workspaceId, id, asset.stable_media_id)
+					)
+				);
 			}
 		}
 		return media;
@@ -691,3 +645,88 @@ export class CloudVideoProjectRepository<TDocument extends object> {
 	}
 }
 
+/** The asset and media fields a cloud media entry is built from. */
+export interface CloudAssetFields {
+	stable_media_id: string;
+	original_filename: string;
+	mime_type: string;
+	size: number;
+	sha256?: string;
+	preparation: Record<string, unknown>;
+}
+
+export interface CloudMediaFields {
+	url?: string;
+	thumbnail_url?: string;
+	poster_thumbnail_url?: string;
+	mime_type?: string;
+	size?: number;
+	duration_ms?: number;
+	width?: number;
+	height?: number;
+	frame_rate?: number;
+	video_codec?: string;
+	audio_codec?: string;
+	container_format?: string;
+}
+
+/** A project asset and its media file as the editor's media entry. Shared by
+ * workspace projects and read-only share links. */
+export function cloudMediaMetadata(
+	asset: CloudAssetFields,
+	item: CloudMediaFields,
+	offlineUrl?: string
+): MediaMetadata {
+	const prepared = editorAssetMetadataSchema.safeParse(asset.preparation.editorMedia);
+	const probe = prepared.success ? prepared.data : undefined;
+	const mimeType = item.mime_type || asset.mime_type;
+	const fileSize = item.size ?? asset.size;
+	const duration =
+		(item.duration_ms ?? 0) > 0 ? (item.duration_ms ?? 0) / 1000 : (probe?.duration ?? 0);
+	const mediaKind =
+		probe?.codec === 'lottie' && (mimeType === 'application/zip' || mimeType === 'application/json')
+			? 'lottie'
+			: mimeType.startsWith('font/')
+				? 'font'
+				: mimeType.startsWith('audio/')
+					? 'audio'
+					: mimeType.startsWith('image/')
+						? 'image'
+						: 'video';
+	return {
+		id: asset.stable_media_id,
+		storageType: 'cloud',
+		remoteUrl: item.url,
+		remoteThumbnailUrl: item.thumbnail_url || item.poster_thumbnail_url || undefined,
+		offlineUrl,
+		contentHash: asset.sha256 || undefined,
+		fileName: asset.original_filename,
+		fileSize,
+		mimeType,
+		duration,
+		width: item.width || probe?.width || 0,
+		height: item.height || probe?.height || 0,
+		fps: item.frame_rate || probe?.fps || 0,
+		codec:
+			mediaKind === 'lottie'
+				? 'lottie'
+				: item.video_codec || probe?.codec || item.container_format || '',
+		bitrate: Math.round((fileSize * 8) / Math.max(1, duration)),
+		audioCodec: item.audio_codec || probe?.audioCodec,
+		hasAudio: probe?.hasAudio,
+		audioCodecSupported: isAudioCodecSupported(item.audio_codec || probe?.audioCodec),
+		videoCodecSupported: isProResCodec(item.video_codec || probe?.codec) ? false : undefined,
+		lottieTotalFrames: probe?.lottieTotalFrames,
+		lottieMarkers: probe?.lottieMarkers,
+		animationFrameCount: probe?.animationFrameCount,
+		attribution: probe?.attribution,
+		tags: [
+			...new Set([
+				mediaKind,
+				...(probe?.tags.filter(
+					(tag) => !['audio', 'video', 'image', 'font', 'lottie'].includes(tag)
+				) ?? [])
+			])
+		]
+	};
+}
