@@ -106,6 +106,8 @@ Bootstrap and data-plane settings stay deployment-only because dopost needs them
 | `OPENPOST_PEXELS_API_KEY` | No | empty | Server-only Pexels API key for photo and video search. |
 | `OPENPOST_UNSPLASH_ACCESS_KEY` | No | empty | Server-only Unsplash access key for photo search and required selection tracking. |
 | `OPENPOST_PIXABAY_API_KEY` | No | empty | Server-only Pixabay API key for image and video search. |
+| `OPENPOST_EXPORT_FINISHING_ENABLED` | No | `false` | Adds "Finish on server" to video export: the browser renders a 50 Mbps H.264 MP4, uploads it, and ffmpeg re-encodes it to ProRes 422 HQ (.mov), H.265 or constant-quality H.264, optionally normalizing loudness to -14 LUFS. One job runs at a time; files live in the server's temp folder until downloaded or for an hour. |
+| `OPENPOST_FFMPEG_PATH` | No | `ffmpeg` | ffmpeg executable for server finishing; ffprobe is taken from the same folder. Needs libx264, libx265 and prores_ks. |
 | `OPENROUTER_API_KEY` | No | empty | Server-only OpenRouter key that enables AI post building, meme suggestions, and automatic image alt text. Supports `OPENROUTER_API_KEY_FILE`. |
 | `OPENPOST_CONTENT_AI_PROVIDER` | No | image-caption provider | Exact OpenRouter provider slug allowed for post building and AI meme suggestions. The Hosted service requires `azure/eu`. |
 | `OPENPOST_CONTENT_AI_REQUIRE_ZDR` | No | image-caption ZDR policy | Require OpenRouter to use zero-data-retention endpoints for post building and AI meme suggestions. The Hosted service requires `true`. |

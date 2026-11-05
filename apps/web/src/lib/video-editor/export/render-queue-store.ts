@@ -9,6 +9,7 @@ import type {
 } from '../project/types';
 import type { AudioEqSettings } from '../audio/types';
 import type { RenderExportProgress } from '../media/render-export';
+import type { ServerFinishing } from '../media/server-finishing';
 
 export type RenderQueueJobStatus = 'queued' | 'rendering' | 'completed' | 'failed' | 'cancelled';
 
@@ -41,6 +42,8 @@ export interface RenderQueueSettings {
 	loudness?: ExportLoudness;
 	range: { startFrame: number; endFrame: number };
 	jpegQuality?: number;
+	/** Re-encode on the server after the browser render. */
+	finishing?: ServerFinishing;
 }
 
 export interface RenderQueueJob {

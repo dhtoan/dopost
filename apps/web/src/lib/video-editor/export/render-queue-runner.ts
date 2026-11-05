@@ -115,6 +115,7 @@ async function executeRenderJob(
 		subtitleMode: job.settings.subtitleMode,
 		loudness: job.settings.loudness,
 		range,
+		finishing: job.settings.finishing,
 		signal: options.signal,
 		onProgress: options.onProgress
 	});

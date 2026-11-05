@@ -79,6 +79,9 @@ type Config struct {
 	ImageEditorEnabled       bool
 	ImageEditorModelBaseURL  string
 	StockMediaEnabled        bool
+	// Server finishing re-encodes exports with ffmpeg; off unless the operator turns it on.
+	ExportFinishingEnabled   bool
+	FFmpegPath               string
 	PexelsAPIKey             string
 	UnsplashAccessKey        string
 	PixabayAPIKey            string
@@ -292,6 +295,8 @@ func Load() *Config {
 			"/",
 		),
 		StockMediaEnabled:            getEnvBoolWithAliases(false, "OPENPOST_STOCK_MEDIA_ENABLED"),
+		ExportFinishingEnabled:       getEnvBoolWithAliases(false, "OPENPOST_EXPORT_FINISHING_ENABLED"),
+		FFmpegPath:                   strings.TrimSpace(getEnvDefault("OPENPOST_FFMPEG_PATH", "ffmpeg")),
 		PexelsAPIKey:                 strings.TrimSpace(getEnvDefault("OPENPOST_PEXELS_API_KEY", "")),
 		UnsplashAccessKey:            strings.TrimSpace(getEnvDefault("OPENPOST_UNSPLASH_ACCESS_KEY", "")),
 		PixabayAPIKey:                strings.TrimSpace(getEnvDefault("OPENPOST_PIXABAY_API_KEY", "")),
