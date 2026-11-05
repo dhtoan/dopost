@@ -6,9 +6,11 @@
  * (site/src/cut/server/exportPipeline.ts, commit cddf34f, Apache-2.0); the
  * picture is rendered by the same compositor as the preview, so it matches.
  */
+import { z } from 'zod';
 import type { RenderExportProgress } from './render-export';
 
-export type FinishingTargetId = 'prores-hq' | 'hevc' | 'h264-small';
+const finishingTargetIdSchema = z.enum(['prores-hq', 'hevc', 'h264-small']);
+export type FinishingTargetId = z.infer<typeof finishingTargetIdSchema>;
 
 export interface ServerFinishing {
 	target: FinishingTargetId;
@@ -37,10 +39,15 @@ export function serverFinishingCapabilities(
 	capabilities ??= fetcher(BASE, { credentials: 'include' })
 		.then(async (response) => {
 			if (!response.ok) return { enabled: false, targets: [] };
-			const body = (await response.json()) as { enabled?: boolean; targets?: { id: string }[] };
+			const body = capabilitiesSchema.safeParse(await response.json());
+			if (!body.success) return { enabled: false, targets: [] };
 			return {
-				enabled: Boolean(body.enabled),
-				targets: (body.targets ?? []).map((target) => target.id as FinishingTargetId)
+				enabled: Boolean(body.data.enabled),
+				// Targets this client does not know are left out rather than offered.
+				targets: (body.data.targets ?? []).flatMap((target) => {
+					const id = finishingTargetIdSchema.safeParse(target.id);
+					return id.success ? [id.data] : [];
+				})
 			};
 		})
 		.catch(() => ({ enabled: false, targets: [] }));
@@ -51,13 +58,21 @@ export function resetServerFinishingCapabilities(): void {
 	capabilities = null;
 }
 
-interface FinishingJob {
-	id: string;
-	status: 'running' | 'done' | 'failed' | 'cancelled';
-	progress: number;
-	error?: string;
-	file_name: string;
-}
+const capabilitiesSchema = z.object({
+	enabled: z.boolean().optional(),
+	targets: z.array(z.object({ id: z.string() })).nullish()
+});
+
+const finishingJobSchema = z.object({
+	id: z.string().min(1),
+	status: z.enum(['running', 'done', 'failed', 'cancelled']),
+	progress: z.number(),
+	error: z.string().optional(),
+	file_name: z.string()
+});
+type FinishingJob = z.infer<typeof finishingJobSchema>;
+
+const errorBodySchema = z.object({ error: z.string().optional() });
 
 export interface FinishingDependencies {
 	fetch: typeof fetch;
@@ -76,10 +91,18 @@ function abortError(): DOMException {
 
 async function errorMessage(response: Response, fallback: string): Promise<string> {
 	try {
-		const body = (await response.json()) as { error?: string };
-		return body.error || fallback;
+		const body = errorBodySchema.safeParse(await response.json());
+		return (body.success && body.data.error) || fallback;
 	} catch {
 		return fallback;
+	}
+}
+
+function jsonOrNull(text: string) {
+	try {
+		return JSON.parse(text);
+	} catch {
+		return null;
 	}
 }
 
@@ -99,14 +122,19 @@ function xhrUpload(
 			if (event.lengthComputable && event.total > 0) onProgress(event.loaded / event.total);
 		};
 		request.onload = () => {
-			let body: { error?: string } & Partial<FinishingJob> = {};
-			try {
-				body = JSON.parse(request.responseText);
-			} catch {
-				/* not JSON */
+			const body = jsonOrNull(request.responseText);
+			const job = finishingJobSchema.safeParse(body);
+			if (request.status === 202 && job.success) {
+				resolve(job.data);
+				return;
 			}
-			if (request.status === 202 && body.id) resolve(body as FinishingJob);
-			else reject(new Error(body.error || `Server finishing failed with HTTP ${request.status}.`));
+			const failure = errorBodySchema.safeParse(body);
+			reject(
+				new Error(
+					(failure.success && failure.data.error) ||
+						`Server finishing failed with HTTP ${request.status}.`
+				)
+			);
 		};
 		request.onerror = () => reject(new Error('The export could not be uploaded for finishing.'));
 		request.onabort = () => reject(abortError());
@@ -163,7 +191,9 @@ export async function finishOnServer(
 			if (!response.ok) {
 				throw new Error(await errorMessage(response, 'The finishing job was lost.'));
 			}
-			current = (await response.json()) as FinishingJob;
+			const next = finishingJobSchema.safeParse(await response.json());
+			if (!next.success) throw new Error('The finishing job was lost.');
+			current = next.data;
 		}
 		if (current.status !== 'done') {
 			throw new Error(current.error || 'The server could not finish this export.');

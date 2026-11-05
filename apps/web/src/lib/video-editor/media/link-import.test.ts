@@ -6,7 +6,7 @@ import {
 	looksLikeDirectMediaUrl
 } from './link-import';
 import { importMediaFromUrl } from './import-url';
-import type { MediaMetadata } from './types';
+import type { MediaMetadata, ProjectAssetImporter } from './types';
 
 function serverFile(headers: Record<string, string> = {}): Response {
 	return new Response(new Blob(['video-bytes']), {
@@ -105,7 +105,7 @@ describe('link import', () => {
 				return String(input).startsWith('/api/') ? serverFile() : serverFile({});
 			})
 		);
-		const importAsset = vi.fn(async (file: File) => cloudMedia(file));
+		const importAsset = vi.fn<ProjectAssetImporter>(async (file) => cloudMedia(file));
 
 		await importMediaFromUrl('https://www.youtube.com/watch?v=abc', {
 			projectId: 'p1',

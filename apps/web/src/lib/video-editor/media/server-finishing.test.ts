@@ -33,7 +33,12 @@ function dependencies(
 	return {
 		calls,
 		upload,
-		deps: { fetch, upload, wait: async () => undefined, ...overrides } as FinishingDependencies
+		deps: {
+			fetch,
+			upload,
+			wait: async () => undefined,
+			...overrides
+		} satisfies FinishingDependencies
 	};
 }
 

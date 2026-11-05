@@ -40,29 +40,35 @@ type Segmenter = import('@mediapipe/tasks-vision').ImageSegmenter;
 
 let segmenterOnce: Promise<Segmenter> | null = null;
 
-/** The shared person segmenter, GPU first and CPU when WebGL is unavailable. */
-function personSegmenter(): Promise<Segmenter> {
-	segmenterOnce ??= (async () => {
-		const { ImageSegmenter } = await import('@mediapipe/tasks-vision');
-		const fileset = {
-			wasmLoaderPath: `${MODEL_BASE}vision_wasm_internal.js`,
-			wasmBinaryPath: `${MODEL_BASE}vision_wasm_internal.wasm`
-		};
-		const options = (delegate: 'GPU' | 'CPU') => ({
-			baseOptions: { modelAssetPath: `${MODEL_BASE}selfie_segmenter.tflite`, delegate },
-			runningMode: 'IMAGE' as const,
-			outputCategoryMask: false,
-			outputConfidenceMasks: true
-		});
-		try {
-			return await ImageSegmenter.createFromOptions(fileset, options('GPU'));
-		} catch {
-			return ImageSegmenter.createFromOptions(fileset, options('CPU'));
-		}
-	})().catch((error: unknown) => {
-		segmenterOnce = null;
-		throw error;
+/** Load the person segmenter, GPU first and CPU when WebGL is unavailable. */
+async function loadPersonSegmenter(): Promise<Segmenter> {
+	const { ImageSegmenter } = await import('@mediapipe/tasks-vision');
+	const fileset = {
+		wasmLoaderPath: `${MODEL_BASE}vision_wasm_internal.js`,
+		wasmBinaryPath: `${MODEL_BASE}vision_wasm_internal.wasm`
+	};
+	const options = (delegate: 'GPU' | 'CPU') => ({
+		baseOptions: { modelAssetPath: `${MODEL_BASE}selfie_segmenter.tflite`, delegate },
+		runningMode: 'IMAGE' as const,
+		outputCategoryMask: false,
+		outputConfidenceMasks: true
 	});
+	try {
+		return await ImageSegmenter.createFromOptions(fileset, options('GPU'));
+	} catch {
+		return ImageSegmenter.createFromOptions(fileset, options('CPU'));
+	}
+}
+
+/** The shared person segmenter. A failed load is not kept, so the next request tries again. */
+function personSegmenter(): Promise<Segmenter> {
+	if (!segmenterOnce) {
+		const loading = loadPersonSegmenter();
+		segmenterOnce = loading;
+		loading.catch(() => {
+			if (segmenterOnce === loading) segmenterOnce = null;
+		});
+	}
 	return segmenterOnce;
 }
 

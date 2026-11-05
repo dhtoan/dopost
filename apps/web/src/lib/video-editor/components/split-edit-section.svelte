@@ -20,7 +20,7 @@
 		tail = current.tailSeconds;
 	});
 
-	function seconds(value: unknown): number {
+	function seconds(value: number | null): number {
 		const parsed = Number(value);
 		return Number.isFinite(parsed) ? Math.min(10, Math.max(0, parsed)) : 0;
 	}

@@ -131,7 +131,7 @@ func (s *Service) ResolveShare(ctx context.Context, token string) (*SharedProjec
 	}
 	var media []models.MediaAttachment
 	if err := s.db.NewSelect().Model(&media).
-		Where("id IN (?) AND workspace_id = ? AND trashed_at IS NULL", bun.In(mediaIDs), project.WorkspaceID).
+		Where("id IN (?) AND workspace_id = ? AND trashed_at IS NULL", bun.List(mediaIDs), project.WorkspaceID).
 		Scan(ctx); err != nil {
 		return nil, err
 	}

@@ -34,7 +34,7 @@ export function writeMatte(confidence: Float32Array, rgba: Uint8ClampedArray): v
 }
 
 /** The segmenter copy's size: the short side at SEGMENT_SHORT_SIDE, aspect kept. */
-export function segmentSize(width: number, height: number): { width: number; height: number } {
+export function segmentSize(width: number, height: number) {
 	const scale = Math.min(1, SEGMENT_SHORT_SIDE / Math.max(1, Math.min(width, height)));
 	return {
 		width: Math.max(1, Math.round(width * scale)),

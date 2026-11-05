@@ -54,10 +54,9 @@ export function parseShotList(text: string): BlockoutShot[] {
 			const minutes = match[1] ? Number(match[1]) : 0;
 			const seconds = Number(match[2]!.replace(',', '.'));
 			const label = match[3]!.trim();
-			shots.push({
-				seconds: clampSeconds(minutes * 60 + seconds),
-				...(label ? { label } : {})
-			});
+			const shot: BlockoutShot = { seconds: clampSeconds(minutes * 60 + seconds) };
+			if (label) shot.label = label;
+			shots.push(shot);
 		} else {
 			shots.push({ seconds: BLOCKOUT_DEFAULT_SECONDS, label: line });
 		}

@@ -44,8 +44,8 @@
 
 	function onkeydown(event: KeyboardEvent): void {
 		if (event.key !== ' ' || !ready) return;
-		const target = event.target as HTMLElement | null;
-		if (target?.closest('input, button, select, textarea')) return;
+		const target = event.target;
+		if (target instanceof Element && target.closest('input, button, select, textarea')) return;
 		event.preventDefault();
 		togglePlayback();
 	}

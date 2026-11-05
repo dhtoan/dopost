@@ -5,11 +5,11 @@
 export type ExportLoudness = 'off' | 'social' | 'podcast' | 'broadcast';
 
 /** The LUFS each named target masters to. */
-export const EXPORT_LOUDNESS_TARGETS: Record<Exclude<ExportLoudness, 'off'>, number> = {
+export const EXPORT_LOUDNESS_TARGETS = {
 	social: -14,
 	podcast: -16,
 	broadcast: -23
-};
+} as const satisfies Record<Exclude<ExportLoudness, 'off'>, number>;
 
 /** The true-peak ceiling a mastered mix is held under, dBTP. */
 export const EXPORT_TRUE_PEAK_CEILING = -1;
@@ -22,7 +22,7 @@ export const EXPORT_LOUDNESS_IDS: readonly ExportLoudness[] = [
 ];
 
 export function isExportLoudness(value: unknown): value is ExportLoudness {
-	return typeof value === 'string' && (EXPORT_LOUDNESS_IDS as readonly string[]).includes(value);
+	return EXPORT_LOUDNESS_IDS.some((id) => id === value);
 }
 
 /** The mastering target for a choice, or null when the mix is left as mixed. */

@@ -119,16 +119,13 @@ export async function downloadLinkMedia(
 			provider = 'Link';
 		}
 	}
-	const uploader = header(response, 'x-source-uploader');
-	return {
-		file,
-		title: header(response, 'x-source-title'),
-		attribution: {
-			provider,
-			...(uploader ? { author: uploader } : {}),
-			// The page link names the source, and importing it again finds this media.
-			sourceId: pageUrl,
-			license: LINK_IMPORT_LICENSE
-		}
+	const attribution: MediaAttribution = {
+		provider,
+		// The page link names the source, and importing it again finds this media.
+		sourceId: pageUrl,
+		license: LINK_IMPORT_LICENSE
 	};
+	const uploader = header(response, 'x-source-uploader');
+	if (uploader) attribution.author = uploader;
+	return { file, title: header(response, 'x-source-title'), attribution };
 }

@@ -218,10 +218,7 @@ function fft(re: Float64Array, im: Float64Array, inverse: boolean): void {
  * Cross-correlation of `a` against `b` at every lag where they overlap:
  * `at(k)` is Σ a[i]·b[i + k], for k from −(a.length − 1) to b.length − 1.
  */
-function crossCorrelate(
-	a: ArrayLike<number>,
-	b: ArrayLike<number>
-): { at: (k: number) => number; min: number; max: number } {
+function crossCorrelate(a: ArrayLike<number>, b: ArrayLike<number>) {
 	const need = a.length + b.length - 1;
 	let n = 1;
 	while (n < need) n <<= 1;
@@ -243,7 +240,7 @@ function crossCorrelate(
 	fft(ar, ai, true);
 	const scale = 1 / n;
 	return {
-		at: (k) => ar[(k + n) % n] * scale,
+		at: (k: number) => ar[(k + n) % n] * scale,
 		min: -(a.length - 1),
 		max: b.length - 1
 	};

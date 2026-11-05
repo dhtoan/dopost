@@ -114,6 +114,7 @@ describe('blockout actions', () => {
 		timelineStore._updateItems([
 			{
 				id: shot!,
+				// SAFETY: the shot was just created as a background item, so it has a background to spread.
 				patch: {
 					background: { ...timelineStore.itemById.get(shot!)!.background!, foregroundOpacity: 1 }
 				} as never

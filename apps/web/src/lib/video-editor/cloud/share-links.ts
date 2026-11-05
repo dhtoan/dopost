@@ -8,7 +8,7 @@
 import { client } from '$lib/api/client';
 import type { MediaMetadata } from '$lib/video-editor/media/types';
 import type { Project } from '$lib/video-editor/project/types';
-import { cloudMediaMetadata } from './project-repository';
+import { cloudMediaMetadata, documentFromAPI } from './project-repository';
 
 export interface VideoProjectShare {
 	token: string;
@@ -83,7 +83,7 @@ export async function loadSharedVideoProject(token: string): Promise<SharedVideo
 	if (error || !data) throw new Error('Could not open the shared project');
 	return {
 		name: data.name,
-		document: data.document as unknown as Project,
+		document: documentFromAPI<Project>(data.document),
 		media: (data.assets ?? []).map((asset) =>
 			cloudMediaMetadata(
 				{ ...asset, preparation: asset.preparation ?? {} },

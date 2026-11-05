@@ -1,3 +1,4 @@
+/* oxlint-disable anti-slop/require-safety-comment-for-type-assertion, anti-slop/no-known-value-widening -- Kept line-for-line with the Academy reference CTL as ported by Donkey Cut, so it can be checked against the source. */
 // Adapted from Donkey Cut (site/packages/effects-kit/src/acesOutput.ts, commit cddf34f),
 // Copyright 2026 Donkey, Apache-2.0. Modified for dopost: import paths only. See NOTICE.md.
 

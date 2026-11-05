@@ -105,7 +105,7 @@ export function setSplitEdit(
 }
 
 /** The split edit a clip carries now, in seconds. */
-export function splitEditOf(pictureId: string): { leadSeconds: number; tailSeconds: number } {
+export function splitEditOf(pictureId: string) {
 	const picture = timelineStore.itemById.get(pictureId);
 	const audio = picture ? detachedAudioOf(picture) : undefined;
 	if (!picture || !audio) return { leadSeconds: 0, tailSeconds: 0 };

@@ -88,13 +88,13 @@ describe('syncRecordingToCamera', () => {
 	// The recorder rolled 6.4 s before the camera.
 	const room = speechLike(70, 3);
 	const lead = Math.round(6.4 * SYNC_RATE);
-	const files: Record<string, Float32Array> = {
-		cam: room.subarray(lead).map((v) => v * 0.3),
-		rec: room,
-		other: speechLike(70, 99)
-	};
+	const files = new Map([
+		['cam', room.subarray(lead).map((v) => v * 0.3)],
+		['rec', room],
+		['other', speechLike(70, 99)]
+	]);
 	const decode = async (mediaId: string, from: number, to: number) => {
-		const signal = files[mediaId]!;
+		const signal = files.get(mediaId)!;
 		const lo = Math.min(signal.length, Math.round(from * SYNC_RATE));
 		const hi = Math.min(signal.length, Math.round(to * SYNC_RATE));
 		const data = signal.slice(lo, hi);

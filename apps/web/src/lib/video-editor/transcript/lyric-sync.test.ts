@@ -135,15 +135,13 @@ const cue = (
 	end: number,
 	text: string,
 	words?: [string, number, number][]
-): SubtitleCue => ({
-	id: text,
-	startFrame: start,
-	endFrame: end,
-	text,
-	...(words
-		? { words: words.map(([w, s, e]) => ({ id: w, startFrame: s, endFrame: e, text: w })) }
-		: {})
-});
+): SubtitleCue => {
+	const built: SubtitleCue = { id: text, startFrame: start, endFrame: end, text };
+	if (words) {
+		built.words = words.map(([w, s, e]) => ({ id: w, startFrame: s, endFrame: e, text: w }));
+	}
+	return built;
+};
 
 describe('heardWordsFromCues', () => {
 	test("uses timed words, or spreads a cue's text across it", () => {

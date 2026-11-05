@@ -157,11 +157,11 @@
 			if (!destroyed) finishingTargets = capabilities.enabled ? capabilities.targets : [];
 		});
 	});
-	const finishingLabels: Record<FinishingTargetId, () => string> = {
+	const finishingLabels = {
 		'prores-hq': m.video_editor_export_finishing_prores,
 		hevc: m.video_editor_export_finishing_hevc,
 		'h264-small': m.video_editor_export_finishing_h264
-	};
+	} as const satisfies Record<FinishingTargetId, () => string>;
 	const isSequenceFormat = $derived(isSequenceExportFormat(format));
 	let webpSupported = $state<boolean | undefined>(undefined);
 	const videoFormat = $derived(isVideoExportFormat(format) ? format : null);

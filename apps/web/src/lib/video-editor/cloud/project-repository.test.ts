@@ -267,6 +267,7 @@ describe('CloudVideoProjectRepository mutation delivery', () => {
 	}
 
 	it('reports a 400 as a rejected mutation instead of waiting for a connection', async () => {
+		// SAFETY: The mocked response only needs the generated client's error shape.
 		vi.spyOn(client, 'POST').mockResolvedValue({
 			error: { detail: 'Invalid Video Project request' },
 			response: new Response(null, { status: 400 })
@@ -288,6 +289,7 @@ describe('CloudVideoProjectRepository mutation delivery', () => {
 		const repository = new CloudVideoProjectRepository<object>('workspace-1');
 		deliverQueued(repository);
 		for (const status of [401, 409, 429, 500, 503]) {
+			// SAFETY: The mocked response only needs the generated client's error shape.
 			vi.spyOn(client, 'POST').mockResolvedValueOnce({
 				error: { detail: 'later' },
 				response: new Response(null, { status })
@@ -297,11 +299,13 @@ describe('CloudVideoProjectRepository mutation delivery', () => {
 	});
 
 	it('surfaces a rejected save and keeps the unsaved local document out of the synced state', async () => {
+		// SAFETY: The mocked response only needs the generated client's error shape.
 		vi.spyOn(client, 'POST').mockResolvedValue({
 			error: { detail: 'Invalid Video Project request' },
 			response: new Response(null, { status: 400 })
 		} as never);
 		const repository = new CloudVideoProjectRepository<{ name: string }>('workspace-1');
+		// SAFETY: deliverQueued only stubs the outbox, which does not depend on the document type.
 		deliverQueued(repository as CloudVideoProjectRepository<object>);
 		const project = {
 			id: 'project-1',

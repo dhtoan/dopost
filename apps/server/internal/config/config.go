@@ -80,8 +80,8 @@ type Config struct {
 	ImageEditorModelBaseURL  string
 	StockMediaEnabled        bool
 	// Server finishing re-encodes exports with ffmpeg; off unless the operator turns it on.
-	ExportFinishingEnabled   bool
-	FFmpegPath               string
+	ExportFinishingEnabled bool
+	FFmpegPath             string
 	// URL import runs yt-dlp on this server; off unless the operator turns it on.
 	URLImportEnabled         bool
 	YtDlpPath                string

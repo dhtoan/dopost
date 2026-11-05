@@ -212,7 +212,9 @@ function cloudProject<TDocument extends object>(
 	return { ...cloudProjectMetadata(raw), document: documentFromAPI<TDocument>(raw.document) };
 }
 
-function documentFromAPI<TDocument extends object>(value: CloudVideoProjectDocument): TDocument {
+export function documentFromAPI<TDocument extends object>(
+	value: CloudVideoProjectDocument
+): TDocument {
 	const result = cloudDocumentSchema.safeParse(value);
 	if (!result.success) throw new Error('Cloud Video Project document must be an object');
 	// SAFETY: Zod proved this is a JSON object. The editor validates its versioned document when loading it.
@@ -652,7 +654,8 @@ export interface CloudAssetFields {
 	mime_type: string;
 	size: number;
 	sha256?: string;
-	preparation: Record<string, unknown>;
+	/** Only the editor's probe is read; other preparation fields pass through untouched. */
+	preparation: { editorMedia?: unknown };
 }
 
 export interface CloudMediaFields {

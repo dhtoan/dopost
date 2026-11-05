@@ -126,7 +126,7 @@ export function samplePixels(data: Uint8ClampedArray, limit = FIT_SAMPLE): Uint8
 
 export type WheelParams = Record<string, number>;
 
-const WHEEL_DEFAULTS: WheelParams = {
+const WHEEL_DEFAULTS = {
 	shadowsHue: 0,
 	shadowsAmount: 0,
 	midtonesHue: 0,
@@ -153,7 +153,7 @@ const WHEEL_DEFAULTS: WheelParams = {
 	highlights: 0,
 	hue: 50,
 	lumMix: 100
-};
+} satisfies WheelParams;
 
 const luma601 = (r: number, g: number, b: number) => 0.299 * r + 0.587 * g + 0.114 * b;
 const smoothstep = (e0: number, e1: number, x: number) => {
@@ -385,7 +385,7 @@ export async function matchColorWheels(options: {
 		low: Math.max(-STEP_MAX, (field.min - base[field.key]!) / field.perStep),
 		high: Math.min(STEP_MAX, (field.max - base[field.key]!) / field.perStep)
 	}));
-	const settingsOf = (steps: number[]): WheelParams => {
+	const settingsOf = (steps: number[]) => {
 		const next = { ...base };
 		MATCH_FIELDS.forEach((field, i) => {
 			next[field.key] = base[field.key]! + steps[i]! * field.perStep;

@@ -138,7 +138,7 @@ func TestFFmpegFinishesEveryTarget(t *testing.T) {
 		t.Skip("ffprobe is not installed")
 	}
 	source := filepath.Join(t.TempDir(), "source.mp4")
-	out, err := exec.Command(ffmpeg, "-hide_banner", "-y", "-f", "lavfi", "-i", "testsrc2=size=320x240:rate=30:duration=1",
+	out, err := exec.CommandContext(t.Context(), ffmpeg, "-hide_banner", "-y", "-f", "lavfi", "-i", "testsrc2=size=320x240:rate=30:duration=1",
 		"-f", "lavfi", "-i", "sine=frequency=440:duration=1", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest", source).CombinedOutput()
 	require.NoError(t, err, string(out))
 
@@ -158,7 +158,7 @@ func TestFFmpegFinishesEveryTarget(t *testing.T) {
 			_, file, err := service.Open("u", job.ID)
 			require.NoError(t, err)
 			path := file.(*removeOnClose).Name()
-			probe, err := exec.Command("ffprobe", "-v", "error", "-show_entries", "stream=codec_name", "-of", "csv=p=0", path).Output()
+			probe, err := exec.CommandContext(t.Context(), "ffprobe", "-v", "error", "-show_entries", "stream=codec_name", "-of", "csv=p=0", path).Output()
 			require.NoError(t, file.Close())
 			require.NoError(t, err)
 			codecs := strings.Fields(strings.ReplaceAll(string(probe), ",", " "))
