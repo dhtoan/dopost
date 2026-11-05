@@ -16,6 +16,8 @@
     · <a href="apps/docs/content/docs/self-hosting/index.mdx">Self-hosting</a>
     · <a href="https://github.com/dhtoan/dopost/issues">Issues</a>
   </p>
+
+  <p><strong>English</strong> · <a href="README.vi.md">Tiếng Việt</a></p>
 </div>
 
 ## Create without losing control
@@ -33,6 +35,38 @@ dopost brings AI-assisted creation into a native editing workflow. Generated con
 | <img src="assets/brand/features/analytics.svg" width="40" alt="">    | **Analytics**               | Visibility totals, follower and engagement trends, custom date ranges, and CSV, Excel, or JSON export.                          |
 | <img src="assets/brand/features/workflows.svg" width="40" alt="">    | **Workflows**               | Visual automations from RSS, GitHub releases, and published posts, with AI writing, review, and comment campaigns.              |
 | <img src="assets/brand/features/workspaces.svg" width="40" alt="">   | **Connected Workspace**     | Media, accounts, calendars, inboxes, analytics, automations, clients, and collaborators together.                               |
+
+## Product tour
+
+Each screen below is a real capture of dopost. The numbers match the notes under each picture.
+
+### Publishing
+
+![The composer: per-account versions, media, AI ideas, scheduling and a live preview](assets/readme/en/01-compose.webp)
+
+### Planning
+
+![The posts calendar with views, month navigation, filters and scheduled posts](assets/readme/en/02-calendar.webp)
+
+### Analytics
+
+![Analytics: account and date filters, export, headline metrics, daily trend and audience by account](assets/readme/en/03-analytics.webp)
+
+### Automations
+
+![The workflow editor: trigger, condition, AI steps, approval, publishing actions and test runs](assets/readme/en/04-workflows.webp)
+
+### Video Editor
+
+![The video editor: workspaces, media, preview, inspector, timeline and export](assets/readme/en/05-video-editor.webp)
+
+![The Color workspace: scopes, correction tools, compare modes, color wheels and primary sliders](assets/readme/en/06-color.webp)
+
+![The export dialog: sequence, presets, format and quality, subtitles and render queue](assets/readme/en/07-export.webp)
+
+### Image Editor
+
+![The image editor: menus, tools, media, canvas, layers, AI edits, quick looks and adjustments](assets/readme/en/08-image-editor.webp)
 
 ## What's new in this release
 
