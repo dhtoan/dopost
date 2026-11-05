@@ -18,6 +18,7 @@
 	import LottiePropertiesPanel from './lottie-properties-panel.svelte';
 	import TextPropertiesPanel from './text-properties-panel.svelte';
 	import SubtitlePropertiesPanel from './subtitle-properties-panel.svelte';
+	import CaptionTextSync from './caption-text-sync.svelte';
 	import CompositionControlOverrides from './composition-control-overrides.svelte';
 	import { resolveAnimatedItemLocalAt } from '$lib/video-editor/timeline/animated-properties';
 	import { findLinkedAudioCompanion } from '$lib/video-editor/audio/transition-crossfade';
@@ -376,6 +377,7 @@
 				canvasHeight={sequenceStore.activeHeight}
 				{onedit}
 			/>
+			<CaptionTextSync {item} {onedit} />
 		{/if}
 
 		{#if item.type === 'composition'}
